@@ -1,0 +1,23 @@
+{
+  "name": "pixel-social",
+  "version": "0.1.0",
+  "description": "A social Hub for PixelShare blockchain",
+  "main": "index.js",
+  "dependencies": {
+    "dotenv": "^6.2.0",
+    "fastify": "^1.14.1",
+    "fastify-jwt": "^0.9.1",
+    "fastify-mongodb": "^1.0.1",
+    "fastify-plugin": "^1.5.0",
+    "fastify-swagger": "^1.2.0",
+    "morgan": "^1.9.1"
+  },
+  "devDependencies": {
+    "nodemon": "^1.18.10"
+  },
+  "scripts": {
+    "test": "nodemon app.js"
+  },
+  "author": "fakeshadow",
+  "license": "MIT"
+}
