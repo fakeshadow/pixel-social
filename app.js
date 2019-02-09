@@ -9,6 +9,9 @@ require('dotenv').config();
 
 fastify.use(morgan('common'));
 
+function transformStringIntoObjectId(str) {
+    return new this.mongo.ObjectId(str)
+}
 
 const decorateFastifyInstance = async (fastify) => {
     const db = fastify.mongo.db
@@ -16,7 +19,16 @@ const decorateFastifyInstance = async (fastify) => {
     const userCollection = await db.createCollection('users')
     const userService = new UserService(userCollection)
     await userService.ensureIndexes(db)
-    fastify.decorate('userService', userService)
+    fastify
+        .decorate('userService', userService)
+        .decorate('authPreHandler', async (req, res) => {
+            try {
+                await req.jwtVerify()
+            } catch (err) {
+                res.send(err)
+            }
+        })
+        .decorate('transformStringIntoObjectId', transformStringIntoObjectId)
 }
 
 fastify
@@ -28,9 +40,9 @@ fastify
 const start = async () => {
     try {
         await fastify.listen(3100)
-        fastify.log.info(`server listening on ${fastify.server.address().port}`)
+        console.log(`server listening on ${fastify.server.address().port}`)
     } catch (err) {
-        fastify.log.error(err)
+        console.log(err)
         process.exit(1)
     }
 }

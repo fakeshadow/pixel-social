@@ -1,18 +1,16 @@
 'use strict'
 
-
-// need to add more porfile features
 const userProfileOutput = {
     type: 'object',
     require: ['_id', 'username'],
     properties: {
         _id: { type: 'string' },
         username: { type: 'string' }
-    }
+    },
+    additionalProperties: false
 }
 
 const registration = {
-    // This jsonschema will be used for data validation
     body: {
         type: 'object',
         required: ['username', 'email', 'password'],
@@ -30,8 +28,6 @@ const registration = {
         additionalProperties: false
     },
     response: {
-        // The 200 body response is described
-        // by the following schema
         200: {
             type: 'object',
             required: ['userId'],

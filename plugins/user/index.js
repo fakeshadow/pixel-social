@@ -1,14 +1,20 @@
 'use strict'
 
 const {
-    //login: loginSchema,
+    login: loginSchema,
     registration: registrationSchema,
-    // search: searchSchema,
-    //getProfile: getProfileSchema
+    getProfile: getProfileSchema
 } = require('./schemas')
 
 module.exports = async (fastify, opts) => {
+    fastify.post('/login', { schema: loginSchema }, loginHandler)
     fastify.post('/register', { schema: registrationSchema }, registerHandler)
+
+    fastify.register(async function (fastify) {
+        fastify.addHook('preHandler', fastify.authPreHandler)
+        fastify.get('/me', meHandler)
+        fastify.get('/:userId', { schema: getProfileSchema }, userHandler)
+    })
 
     fastify.setErrorHandler((error, req, res) => {
         res.send(error);
@@ -18,13 +24,31 @@ module.exports = async (fastify, opts) => {
 module.exports[Symbol.for('plugin-meta')] = {
     decorators: {
         fastify: [
-            'userService'
+            'authPreHandler',
+            'userService',
+            'jwt',
+            'transformStringIntoObjectId'
         ]
     }
+}
+
+async function loginHandler(req, reply) {
+    const { username, password } = req.body
+    const user = await this.userService.login(username, password)
+    return { jwt: this.jwt.sign(user) }
 }
 
 async function registerHandler(req, res) {
     const { username, email, password } = req.body
     const userId = await this.userService.register(username, email, password)
     return { userId: userId }
+}
+
+async function meHandler(req, reply) {
+    const userId = req.user._id
+    return this.userService.getProfile(this.transformStringIntoObjectId(userId))
+}
+
+async function userHandler(req, reply) {
+    return this.userService.getProfile(this.transformStringIntoObjectId(req.params.userId))
 }
