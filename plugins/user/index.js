@@ -38,7 +38,7 @@ async function loginHandler(req, reply) {
     return { jwt: this.jwt.sign(user) }
 }
 
-async function registerHandler(req, res) {
+async function registerHandler(req, reply) {
     const { username, email, password } = req.body
     const userId = await this.userService.register(username, email, password)
     return { userId: userId }

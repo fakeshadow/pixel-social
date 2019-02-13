@@ -15,6 +15,9 @@ const registration = {
         type: 'object',
         required: ['username', 'email', 'password'],
         properties: {
+            uid: {
+                type: 'number'
+            },
             username: {
                 type: 'string'
             },
