@@ -1,4 +1,5 @@
 'use strict'
+
 const fastify = require('fastify')();
 const fp = require('fastify-plugin');
 const morgan = require('morgan');
@@ -6,6 +7,7 @@ const morgan = require('morgan');
 const { authPreHook } = require('./hooks/authHooks');
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
+const TopicService = require('./plugins/topic/service');
 
 require('dotenv').config();
 
@@ -21,12 +23,17 @@ const decorateFastifyInstance = async (fastify) => {
     await userService.ensureIndexes(db)
 
     const postCollection = await db.createCollection('posts')
-    const postService = new PostService(postCollection)
+    const postService = new PostService(postCollection, globalCollection)
     await postService.ensureIndexes(db)
+
+    const topicCollection = await db.createCollection('topics')
+    const topicService = new TopicService(topicCollection, globalCollection)
+    await topicService.ensureIndexes(db)
 
     fastify
         .decorate('userService', userService)
         .decorate('postService', postService)
+        .decorate('topicService', topicService)
         .decorate('authPreHandler', authPreHook)
         .decorate('transformStringIntoObjectId', function (str) { return new this.mongo.ObjectId(str) })
 }
@@ -37,6 +44,7 @@ fastify
     .register(fp(decorateFastifyInstance))
     .register(require('./plugins/user'), { prefix: '/api/user' })
     .register(require('./plugins/post'), { prefix: '/api/post' })
+    .register(require('./plugins/topic'), { prefix: '/api/topic' })
 
 const start = async () => {
     try {

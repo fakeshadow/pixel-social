@@ -2,34 +2,33 @@
 
 const { saltHashPassword, checksaltHashPassword } = require('../../util/salthash');
 let registerIsRunning = false;
+
 class UserService {
     constructor(userCollection, globalCollection) {
         this.userCollection = userCollection
         this.globalCollection = globalCollection
     }
+
     async register(username, email, password) {
+        let dbResult;
         if (registerIsRunning === true) {
             throw new Error('Register is too busy please try again later');
         }
-        registerIsRunning = true;
         try {
-            const name = await this.globalCollection.find({ username: username }).toArray()
-            const mail = await this.globalCollection.find({ email: email }).toArray();
+            registerIsRunning = true;
+            const _username = username.replace(/ /g, '').trim();
+            const _email = email.replace(/ /g, '').trim();
+            const name = await this.globalCollection.find({ username: _username }).toArray()
+            const mail = await this.globalCollection.find({ email: _email }).toArray();
             if (name.length) throw new Error('username taken');
             if (mail.length) throw new Error('email taken');
-        } catch (e) {
-            registerIsRunning = false;
-            throw e
-        }
-        const saltedpassword = saltHashPassword(password);
-        let dbResult
-        try {
+            const saltedpassword = saltHashPassword(password);
             const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { '$exists': 1 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true })
             const uid = parseInt(value.nextUid, 10)
             if (!uid) throw new Error('Can not get uid from database');
-            await this.globalCollection.insertOne({ username: username });
-            await this.globalCollection.insertOne({ email: email });
-            dbResult = await this.userCollection.insertOne({ uid, username, email, saltedpassword })
+            await this.globalCollection.insertOne({ username: _username });
+            await this.globalCollection.insertOne({ email: _email });
+            dbResult = await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword })
         } catch (e) {
             registerIsRunning = false;
             throw e
@@ -39,15 +38,16 @@ class UserService {
     }
 
     async login(username, password) {
-        const users = await this.userCollection.find({ username }).toArray()
-        const { _id } = users[0]
+        const _username = username.replace(/ /g, '').trim();
+        const users = await this.userCollection.find({ username: _username }).toArray()
+        const { uid } = users[0]
         const checkSalt = checksaltHashPassword(users[0].saltedpassword, password);
-        if (!_id || !checkSalt) throw new Error('Failed to login')
-        return { _id }
+        if (!uid || !checkSalt) throw new Error('Failed to login')
+        return { uid }
     }
 
-    getProfile(_id) {
-        return this.userCollection.findOne({ _id }, { projection: { saltedpassword: 0 } })
+    getProfile(uid) {
+        return this.userCollection.findOne({ uid }, { projection: { _id: 0, saltedpassword: 0 } })
     }
 
     async ensureIndexes(db) {

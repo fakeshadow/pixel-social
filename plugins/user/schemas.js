@@ -2,10 +2,11 @@
 
 const userProfileOutput = {
     type: 'object',
-    require: ['_id', 'username'],
+    require: ['uid', 'username', 'email'],
     properties: {
-        _id: { type: 'string' },
-        username: { type: 'string' }
+        uid: { type: 'number' },
+        username: { type: 'string' },
+        email: { type: 'string' },
     },
     additionalProperties: false
 }
@@ -15,9 +16,6 @@ const registration = {
         type: 'object',
         required: ['username', 'email', 'password'],
         properties: {
-            uid: {
-                type: 'number'
-            },
             username: {
                 type: 'string'
             },
@@ -84,11 +82,10 @@ const login = {
 const getProfile = {
     params: {
         type: 'object',
-        required: ['userId'],
+        required: ['uid'],
         properties: {
-            userId: {
-                type: 'string',
-                pattern: '^[0-9a-fA-F]{24}'
+            uid: {
+                type: 'number'
             }
         }
     },

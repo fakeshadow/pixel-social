@@ -45,8 +45,8 @@ async function registerHandler(req, reply) {
 }
 
 async function meHandler(req, reply) {
-    const userId = req.user._id
-    return this.userService.getProfile(this.transformStringIntoObjectId(userId))
+    const uid = req.user.uid
+    return this.userService.getProfile(uid)
 }
 
 async function userHandler(req, reply) {

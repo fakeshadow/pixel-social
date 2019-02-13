@@ -1,7 +1,8 @@
 'use strict'
 
 const {
-    post: postSchema,
+    addPost: addPostSchema,
+    editPost: editPostSchema,
     getPosts: getPostsSchema,
     getUserPosts: getUserPostsSchema
 } = require('./schemas')
@@ -10,8 +11,9 @@ module.exports = async function (fastify, opts) {
     // All APIs are under authentication here!
     fastify.addHook('preHandler', fastify.authPreHandler)
 
-    fastify.post('/', { schema: postSchema }, addPostHandler)
     fastify.get('/', { schema: getPostsSchema }, getPostsHandler)
+    fastify.post('/', { schema: addPostSchema }, addPostHandler)
+    fastify.put('/', { schema: editPostSchema }, editPostHandler)
     fastify.get('/:userIds', { schema: getUserPostsSchema }, getUserPostsHandler)
 }
 
@@ -25,18 +27,27 @@ module.exports[Symbol.for('plugin-meta')] = {
 }
 
 async function addPostHandler(req, reply) {
-    console.log(req.user);
-    console.log(req.body);
-    const { text } = req.body
-    await this.postService.addPost(req.user, text)
+    const { uid } = req.user
+    const { toPid } = req.body
+    const { postData } = req.body
+    await this.postService.addPost(uid, toPid, postData)
+    reply.code(204)
+}
+
+async function editPostHandler(req, reply) {
+    const { uid } = req.user
+    const { pid } = req.body
+    const { postData } = req.body
+    await this.postService.editPost(uid, pid, postData)
     reply.code(204)
 }
 
 async function getPostsHandler(req, reply) {
-    return this.postService.fetchPosts([req.user._id])
+    const { uid } = req.user
+    return this.postService.getPosts(uid)
 }
 
 async function getUserPostsHandler(req, reply) {
     const userIds = req.params.userIds.split(',')
-    return this.postService.fetchPosts(userIds)
+    return this.postService.getPosts(userIds)
 }

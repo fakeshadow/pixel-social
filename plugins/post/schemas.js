@@ -4,23 +4,32 @@ const postObject = {
     type: 'object',
     properties: {
         _id: { type: 'string' },
-        user: {
-            type: 'object',
-            properties: {
-                _id: { type: 'string' },
-                //username: { type: 'string' }
-            }
-        },
-        text: { type: 'string' }
+        uid: { type: 'number' },
+        pid: { type: 'number' },
+        toPid: { type: 'number' },
+        postData: { type: 'string' },
     }
 }
 
-const post = {
+const addPost = {
     body: {
         type: 'object',
-        required: ['text'],
+        required: ['toPid', 'postData'],
         properties: {
-            text: { type: 'string', minLength: 8, maxLength: 144 }
+            toPid: { type: 'number' },
+            postData: { type: 'string', minLength: 8, maxLength: 255 }
+        },
+        additionalProperties: false
+    }
+}
+
+const editPost = {
+    body: {
+        type: 'object',
+        required: ['pid', 'postData'],
+        properties: {
+            pid: { type: 'number' },
+            postData: { type: 'string', minLength: 8, maxLength: 255 }
         },
         additionalProperties: false
     }
@@ -29,12 +38,9 @@ const post = {
 const getUserPosts = {
     params: {
         type: 'object',
-        required: ['userIds'],
+        required: ['uid'],
         properties: {
-            userIds: {
-                type: 'string',
-                pattern: '^[0-9a-fA-F]{24}(,[0-9a-fA-F]{24})?'
-            }
+            uid: { type: 'number' }
         },
         additionalProperties: false
     },
@@ -56,7 +62,8 @@ const getPosts = {
 }
 
 module.exports = {
-    post,
+    addPost,
+    editPost,
     getPosts,
     getUserPosts
 }
