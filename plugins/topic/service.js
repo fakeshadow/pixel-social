@@ -18,24 +18,31 @@ class TopicService {
     async getTopics(cid) {
         try {
             const _cid = parseInt(cid, 10)
-            return this.postCollection.find({ cid: _cid }).sort({ createdAt: -1 }).toArray()
+            const array = await this.globalCollection.find({ cid: _cid }).sort({ tid: -1 }).toArray();
+            const { tids } = array[0];
+            return tids;
         } catch (e) {
             throw e
         }
     }
 
-    async addTopic(uid, pid, titleData) {
+    async addTopic(uid, cid, pid, titleData) {
         if (topicIsRunning === true) {
             throw new Error('Topic is too busy please try again later');
         }
         topicIsRunning = true;
         try {
+            const _cid = parseInt(cid, 10);
             const _uid = parseInt(uid, 10);
             const { value } = await this.globalCollection.findOneAndUpdate({ nextTid: { '$exists': 1 } }, { $inc: { nextTid: 1 } }, { returnOriginal: true, upsert: true });
             const tid = parseInt(value.nextTid, 10);
             if (!tid) throw new Error('Can not get tid from database');
-            await this.topicCollection.insertOne({ uid: _uid, tid: tid, mainPid: pid, titleData: titleData, createdAt: new Date() })
+            await Promise.all([
+                this.topicCollection.insertOne({ uid: _uid, tid: tid, mainPid: pid, titleData: titleData, createdAt: new Date() }),
+                this.globalCollection.findOneAndUpdate({ cid: _cid }, { $push: { tids: tid } }, { upsert: true })
+            ])
             topicIsRunning = false;
+            return tid;
         } catch (e) {
             topicIsRunning = false;
             throw e
@@ -52,7 +59,7 @@ class TopicService {
                 titleData: { $type: 'string' },
             }
         })
-        await this.topicCollection.createIndex({ 'tid': 1 })
+        await this.topicCollection.createIndex({ 'tid': 1 }, { unique: true })
     }
 }
 

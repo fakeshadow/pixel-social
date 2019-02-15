@@ -17,6 +17,7 @@ const addTopic = {
         type: 'object',
         required: ['titleData', 'postData'],
         properties: {
+            cid: { type: 'number' },
             titleData: { type: 'string', minLength: 8, maxLength: 255 },
             postData: { type: 'string', minLength: 8, maxLength: 255 }
         },

@@ -8,6 +8,7 @@ module.exports = async function (fastify, opts) {
     // All APIs are under authentication here!
     fastify.addHook('preHandler', fastify.authPreHandler)
 
+    fastify.get('/:cid', getTopicsHandler)
     fastify.post('/', { schema: addTopicSchema }, addTopicHandler)
 }
 
@@ -22,11 +23,17 @@ module.exports[Symbol.for('plugin-meta')] = {
     }
 }
 
+async function getTopicsHandler(req, reply) {
+    const cid = req.params.cid;
+    return await this.topicService.getTopics(cid);
+}
+
 async function addTopicHandler(req, reply) {
     const { uid } = req.user;
     const { titleData } = req.body;
     const { postData } = req.body;
+    const { cid } = req.body;
     const pid = await this.postService.addPost(uid, 0, postData);
-    await this.topicService.addTopic(uid, pid, titleData);
+    await this.topicService.addTopic(uid, cid, pid, titleData);
     reply.code(204)
 }

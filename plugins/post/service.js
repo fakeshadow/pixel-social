@@ -28,7 +28,7 @@ class PostService {
             const { value } = await this.globalCollection.findOneAndUpdate({ nextPid: { '$exists': 1 } }, { $inc: { nextPid: 1 } }, { returnOriginal: true, upsert: true })
             const pid = parseInt(value.nextPid, 10)
             if (!pid) throw new Error('Can not get pid from database')
-            await this.postCollection.insertOne({ uid: _uid, pid: pid, toPid: _toPid, postData: postData, createdAt: new Date() }) 
+            await this.postCollection.insertOne({ uid: _uid, pid: pid, toPid: _toPid, postData: postData, createdAt: new Date() })
             postIsRunning = false;
             return pid;
         } catch (e) {
@@ -57,7 +57,7 @@ class PostService {
                 postData: { $type: 'string' },
             }
         })
-        await this.postCollection.createIndex({ 'pid': 1 })
+        await this.postCollection.createIndex({ 'pid': 1 }, { unique: true })
     }
 }
 

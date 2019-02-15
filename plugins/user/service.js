@@ -22,7 +22,7 @@ class UserService {
             const mail = await this.globalCollection.find({ email: _email }).toArray();
             if (name.length) throw new Error('username taken');
             if (mail.length) throw new Error('email taken');
-            const saltedpassword = saltHashPassword(password);
+            const saltedpassword = await saltHashPassword(password);
             const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { '$exists': 1 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true })
             const uid = parseInt(value.nextUid, 10)
             if (!uid) throw new Error('Can not get uid from database');
@@ -41,7 +41,7 @@ class UserService {
         const _username = username.replace(/ /g, '').trim();
         const users = await this.userCollection.find({ username: _username }).toArray()
         const { uid } = users[0]
-        const checkSalt = checksaltHashPassword(users[0].saltedpassword, password);
+        const checkSalt = await checksaltHashPassword(users[0].saltedpassword, password);
         if (!uid || !checkSalt) throw new Error('Failed to login')
         return { uid }
     }

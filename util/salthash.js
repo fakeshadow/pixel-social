@@ -1,4 +1,5 @@
 'use strict';
+
 const crypto = require('crypto');
 
 exports.saltHashPassword = password => {
@@ -6,22 +7,23 @@ exports.saltHashPassword = password => {
     return sha256(password, salt);
 }
 
-exports.checksaltHashPassword = (saltedpassword, password) => {
+exports.checksaltHashPassword = async (saltedpassword, password) => {
     const array = saltedpassword.split(':');
-    return saltedpassword === sha256(password, array[0]);
+    return saltedpassword === await sha256(password, array[0]);
 }
 
 const genRandomString = length => {
-    return crypto.randomBytes(Math.ceil(length / 2))
-        .toString('hex')
-        .slice(0, length);
+    return crypto.randomBytes(Math.ceil(length / 2)).toString('hex').slice(0, length);
 };
 
 const sha256 = (password, salt) => {
-    const hash = crypto.createHmac('sha256', salt);
-    hash.update(password);
-    const value = hash.digest('hex');
-    return salt + ':' + value;
+    return new Promise((resolve => {
+        crypto.pbkdf2(password, salt, 100, 64, 'sha256', (err, crypted) => {
+            if (err) throw err;
+            const salted = crypted.toString('hex')
+            resolve(salt + ':' + salted);
+        })
+    }))
 };
 
 
