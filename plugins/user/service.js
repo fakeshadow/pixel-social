@@ -1,40 +1,34 @@
 'use strict'
 
 const { saltHashPassword, checksaltHashPassword } = require('../../util/salthash');
-let registerIsRunning = false;
-
 class UserService {
     constructor(userCollection, globalCollection) {
-        this.userCollection = userCollection
-        this.globalCollection = globalCollection
+        this.userCollection = userCollection;
+        this.globalCollection = globalCollection;
     }
 
     async register(username, email, password) {
         let dbResult;
-        if (registerIsRunning === true) {
-            throw new Error('Register is too busy please try again later');
-        }
         try {
-            registerIsRunning = true;
             const _username = username.replace(/ /g, '').trim();
             const _email = email.replace(/ /g, '').trim();
-            const name = await this.globalCollection.find({ username: _username }).toArray()
-            const mail = await this.globalCollection.find({ email: _email }).toArray();
-            if (name.length) throw new Error('username taken');
-            if (mail.length) throw new Error('email taken');
+            // const name = await this.globalCollection.find({ username: _username }).toArray();
+            // const mail = await this.globalCollection.find({ email: _email }).toArray();
+            // if (name.length) throw new Error('username taken');
+            // if (mail.length) throw new Error('email taken');
             const saltedpassword = await saltHashPassword(password);
-            const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { '$exists': 1 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true })
-            const uid = parseInt(value.nextUid, 10)
+            const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { '$exists': 1 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true });
+            const uid = parseInt(value.nextUid, 10);
             if (!uid) throw new Error('Can not get uid from database');
-            await this.globalCollection.insertOne({ username: _username });
-            await this.globalCollection.insertOne({ email: _email });
-            dbResult = await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword })
+            await Promise.all([
+                await this.globalCollection.insertOne({ username: _username }),
+                await this.globalCollection.insertOne({ email: _email }),
+                dbResult = await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword }),
+            ]);
         } catch (e) {
-            registerIsRunning = false;
-            throw e
+            throw e;
         }
-        registerIsRunning = false;
-        return dbResult.insertedId
+        return dbResult.insertedId;
     }
 
     async login(username, password) {

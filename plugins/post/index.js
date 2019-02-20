@@ -4,17 +4,15 @@ const {
     addPost: addPostSchema,
     editPost: editPostSchema,
     getPosts: getPostsSchema,
-    getUserPosts: getUserPostsSchema
 } = require('./schemas')
 
 module.exports = async function (fastify, opts) {
     // All APIs are under authentication here!
-    fastify.addHook('preHandler', fastify.authPreHandler)
+    fastify.addHook('preHandler', fastify.authPreHandler);
 
-    fastify.get('/', { schema: getPostsSchema }, getPostsHandler)
-    fastify.post('/', { schema: addPostSchema }, addPostHandler)
-    fastify.put('/', { schema: editPostSchema }, editPostHandler)
-    fastify.get('/:userIds', { schema: getUserPostsSchema }, getUserPostsHandler)
+    fastify.post('/get', { schema: getPostsSchema }, getPostsHandler);
+    fastify.post('/add', { schema: addPostSchema }, addPostHandler);
+    fastify.post('/edit', { schema: editPostSchema }, editPostHandler);
 }
 
 module.exports[Symbol.for('plugin-meta')] = {
@@ -26,28 +24,29 @@ module.exports[Symbol.for('plugin-meta')] = {
     }
 }
 
+
 async function addPostHandler(req, reply) {
     const { uid } = req.user
-    const { toPid } = req.body
-    const { postData } = req.body
-    await this.postService.addPost(uid, toPid, postData)
+    const postData = {
+        'toTid': req.body.toTid,
+        'toPid': req.body.toPid,
+        'postContent': req.body.postContent
+    }
+    await this.postService.addPost(uid, postData)
     reply.code(204)
 }
 
 async function editPostHandler(req, reply) {
     const { uid } = req.user
-    const { pid } = req.body
-    const { postData } = req.body
-    await this.postService.editPost(uid, pid, postData)
+    const postData = {
+        "pid": req.body.pid,
+        "postContent": req.body.postContent
+    }
+    await this.postService.editPost(uid, postData)
     reply.code(204)
 }
 
 async function getPostsHandler(req, reply) {
-    const { uid } = req.user
-    return this.postService.getPosts(uid)
-}
-
-async function getUserPostsHandler(req, reply) {
-    const userIds = req.params.userIds.split(',')
-    return this.postService.getPosts(userIds)
+    const { uid } = req.user;
+    return this.postService.getPosts(uid, req.body);
 }

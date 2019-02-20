@@ -17,17 +17,16 @@ const decorateFastifyInstance = async (fastify) => {
     const db = fastify.mongo.db
 
     const globalCollection = await db.createCollection('global')
-
     const userCollection = await db.createCollection('users')
-    const userService = new UserService(userCollection, globalCollection)
-    await userService.ensureIndexes(db)
-
     const postCollection = await db.createCollection('posts')
-    const postService = new PostService(postCollection, globalCollection)
-    await postService.ensureIndexes(db)
-
     const topicCollection = await db.createCollection('topics')
-    const topicService = new TopicService(topicCollection, globalCollection)
+
+    const postService = new PostService(topicCollection, postCollection, userCollection, globalCollection);
+    const userService = new UserService(userCollection, globalCollection);
+    const topicService = new TopicService(topicCollection, userCollection, globalCollection);
+
+    await userService.ensureIndexes(db)
+    await postService.ensureIndexes(db)
     await topicService.ensureIndexes(db)
 
     fastify
