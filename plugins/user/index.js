@@ -26,8 +26,7 @@ module.exports[Symbol.for('plugin-meta')] = {
         fastify: [
             'authPreHandler',
             'userService',
-            'jwt',
-            'transformStringIntoObjectId'
+            'jwt'
         ]
     }
 }

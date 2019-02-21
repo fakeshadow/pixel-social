@@ -13,6 +13,17 @@ API endpoints
 
 }
 
+set uid and topid to 0 for getting posts for an topic;
+set uid and toTid to 0 for getting reply posts for an post;
+/api/post/get
+{
+    "uid":0,
+    "toPid": 0,
+	"toTid" : 8,
+	"page":1
+}
+
+
 
 /api/topic/add
 {
@@ -20,6 +31,7 @@ API endpoints
 	"topicContent": "abcdefghijklmn",
 	"postContent": "ttttttttttt"
 }
+
 
 /api/topic/get
 {

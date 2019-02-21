@@ -18,14 +18,25 @@ class PostService {
             const _toPid = parseInt(requestBody.toPid, 10);
 
             let array;
-            if (_toTid > 0 && _toPid == 0) {
-                array = await this.postCollection.find({ toTid: _toTid }).sort({ createdAt: 1 }).toArray();
-            } else if (_toTid == 0 && _toPid > 0) {
-                array = await this.postCollection.find({ toPid: _toPid }).sort({ createdAt: 1 }).toArray();
+
+            // get posts for an topic add topic's self post into array if the page is 1
+            if (_toTid > 0 && _toPid === 0 && _page === 1) {
+                let firstPost;
+                const { mainPid } = await this.topicCollection.findOne({ tid: _toTid }, { projection: { mainPid: 1 } });
+                await Promise.all([
+                    array = await this.postCollection.find({ toTid: _toTid }).sort({ pid: 1 }).toArray(),
+                    firstPost = await this.postCollection.findOne({ pid: mainPid })
+                ]);
+                array.splice(0, 0, firstPost);
+            } else if (_toTid > 0 && _toPid === 0 && _page > 1) {
+                array = await this.postCollection.find({ toTid: _toTid }).sort({ pid: 1 }).toArray();
+
+                // get reply posts for an post.  
+            } else if (_toTid === 0 && _toPid > 0) {
+                array = await this.postCollection.find({ toPid: _toPid }).sort({ pid: 1 }).toArray();
             } else {
-                throw new Error('Wrong tid or pid');
+                throw new Error('wrong tid, pid or page');
             }
-            if (_page <= 0 || !array.length) throw new Error('Wrong Page count');
 
             // each page have 50 posts
             const start = (_page - 1) * 50

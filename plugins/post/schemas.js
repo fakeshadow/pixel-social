@@ -12,13 +12,13 @@ const userObject = {
 const postObject = {
     type: 'object',
     properties: {
-        user: userObject,
         pid: { type: 'number' },
         toTid: { type: 'number' },
         toPid: { type: 'number' },
         postContent: { type: 'string' },
         postCount: { type: 'number' },
         createdAt: { type: 'string' },
+        user: userObject,
     }
 }
 

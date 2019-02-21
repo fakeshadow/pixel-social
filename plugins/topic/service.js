@@ -7,13 +7,6 @@ class TopicService {
         this.userCollection = userCollection;
         this.globalCollection = globalCollection;
     }
-    async getTopic(tid) {
-        try {
-
-        } catch (e) {
-            throw e;
-        }
-    }
 
     async getTopics(cids, page) {
         try {

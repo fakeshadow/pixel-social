@@ -8,6 +8,7 @@
     "fastify": "^1.14.1",
     "fastify-jwt": "^0.9.1",
     "fastify-mongodb": "^1.0.1",
+    "fastify-multipart": "^0.7.0",
     "fastify-plugin": "^1.5.0",
     "fastify-swagger": "^1.2.0",
     "morgan": "^1.9.1"

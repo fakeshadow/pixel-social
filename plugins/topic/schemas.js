@@ -23,6 +23,7 @@ const topicObject = {
     additionalProperties: false
 }
 
+
 const getTopics = {
     body: {
         type: 'object',

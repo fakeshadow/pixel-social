@@ -40,9 +40,20 @@ class UserService {
         return { uid }
     }
 
+    updateProfile(uid, updateType) {
+        const _uid = parseInt(uid, 10);
+        const { type, path } = updateType;
+        if (type === 'avatar') {
+            return this.userCollection.findOneAndUpdate({ uid: _uid }, { $set: { avatar: path } }, { upsert: true, projection: { uid: 1 } });
+        }
+    }
+
+
     getProfile(uid) {
         return this.userCollection.findOne({ uid }, { projection: { _id: 0, saltedpassword: 0 } })
     }
+
+
 
     async ensureIndexes(db) {
         await db.command({
