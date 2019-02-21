@@ -24,7 +24,6 @@ module.exports[Symbol.for('plugin-meta')] = {
     }
 }
 
-
 async function addPostHandler(req, reply) {
     const { uid } = req.user
     const postData = {

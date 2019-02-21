@@ -19,9 +19,9 @@ class PostService {
 
             let array;
             if (_toTid > 0 && _toPid == 0) {
-                array = await this.postCollection.find({ toTid: _toTid }).sort({ createdAt: -1 }).toArray();
+                array = await this.postCollection.find({ toTid: _toTid }).sort({ createdAt: 1 }).toArray();
             } else if (_toTid == 0 && _toPid > 0) {
-                array = await this.postCollection.find({ toPid: _toPid }).sort({ createdAt: -1 }).toArray();
+                array = await this.postCollection.find({ toPid: _toPid }).sort({ createdAt: 1 }).toArray();
             } else {
                 throw new Error('Wrong tid or pid');
             }
@@ -37,7 +37,6 @@ class PostService {
             // get uid details and map them to posts
             const uidsMap = await mapUid(arrayMap);
             const uidsDetails = await this.userCollection.find({ uid: { $in: uidsMap }, }, { projection: { _id: 0, saltedpassword: 0, email: 0 } }).toArray();
-            console.log(uidsDetails);
             return alterArray(arrayMap, uidsDetails);
         } catch (e) {
             throw (e)
@@ -56,11 +55,10 @@ class PostService {
             await Promise.all([
                 await this.postCollection.insertOne({ uid: _uid, pid: pid, toTid: _toTid, toPid: _toPid, postContent: postData.postContent, postCount: 0, createdAt: new Date() }),
                 _toPid > 0 ? await this.postCollection.findOneAndUpdate({ pid: _toPid }, { $inc: { postCount: 1 } }, { upsert: true }) : null,
-                await this.topicCollection.findOneAndUpdate({ tid: _toTid }, { $set: { lastPostTime: new Date() }, $inc: { postCount: 1 } }, { upsert: true }),
+                _toTid > 0 ? await this.topicCollection.findOneAndUpdate({ tid: _toTid }, { $set: { lastPostTime: new Date() }, $inc: { postCount: 1 } }, { upsert: true }) : null,
             ]);
             return pid;
         } catch (e) {
-            console.log(e);
             throw e
         }
     }
