@@ -11,6 +11,10 @@ module.exports = async function (fastify, opts) {
 
     fastify.post('/get', { schema: getTopicsSchema }, getTopicsHandler)
     fastify.post('/add', { schema: addTopicSchema }, addTopicHandler)
+
+    fastify.setErrorHandler((error, req, res) => {
+        res.send(error);
+    })
 }
 
 module.exports[Symbol.for('plugin-meta')] = {
@@ -19,7 +23,7 @@ module.exports[Symbol.for('plugin-meta')] = {
             'authPreHandler',
             'topicService',
             'postService',
-            'userService',
+            'userService'
         ]
     }
 }

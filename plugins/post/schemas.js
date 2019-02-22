@@ -3,8 +3,24 @@
 const userObject = {
     type: 'object',
     properties: {
-        uid: { type: 'number' },
+        uid: { type: 'integer' },
         username: { type: 'string' },
+        avatar: { type: 'string' },
+    },
+    additionalProperties: false
+}
+
+// raw posts for building cache
+const rawPost = {
+    type: 'object',
+    properties: {
+        uid: { type: 'integer' },
+        pid: { type: 'integer' },
+        toTid: { type: 'integer' },
+        toPid: { type: 'integer' },
+        postContent: { type: 'string' },
+        postCount: { type: 'integer' },
+        createdAt: { type: 'string' },
     },
     additionalProperties: false
 }
@@ -12,14 +28,15 @@ const userObject = {
 const postObject = {
     type: 'object',
     properties: {
-        pid: { type: 'number' },
-        toTid: { type: 'number' },
-        toPid: { type: 'number' },
+        pid: { type: 'integer' },
+        toTid: { type: 'integer' },
+        toPid: { type: 'integer' },
         postContent: { type: 'string' },
-        postCount: { type: 'number' },
+        postCount: { type: 'integer' },
         createdAt: { type: 'string' },
         user: userObject,
-    }
+    },
+    additionalProperties: false
 }
 
 const getPosts = {
@@ -27,17 +44,23 @@ const getPosts = {
         type: 'object',
         required: ['uid', 'toTid', 'toPid', 'page'],
         properties: {
-            uid: { type: 'number' },
-            toTid: { type: 'number' },
-            toPid: { type: 'number' },
-            page: { type: 'number' },
+            type: { type: 'string' },
+            uid: { type: 'integer' },
+            toTid: { type: 'integer' },
+            toPid: { type: 'integer' },
+            page: { type: 'integer' },
         },
         additionalProperties: false
     },
     response: {
         200: {
-            type: 'array',
-            items: postObject
+            type: 'object',
+            required: ['cache', 'database'],
+            properties: {
+                cache: { type: 'array', items: rawPost },
+                cache: { type: 'array', items: postObject },
+            },
+            additionalProperties: false
         }
     }
 }
@@ -47,8 +70,8 @@ const addPost = {
         type: 'object',
         required: ['toPid', 'toTid', 'postContent'],
         properties: {
-            toPid: { type: 'number' },
-            toTid: { type: 'number' },
+            toPid: { type: 'integer' },
+            toTid: { type: 'integer' },
             postContent: { type: 'string', minLength: 8, maxLength: 255 }
         },
         additionalProperties: false
@@ -60,7 +83,7 @@ const editPost = {
         type: 'object',
         required: ['pid', 'postContent'],
         properties: {
-            pid: { type: 'number' },
+            pid: { type: 'integer' },
             postContent: { type: 'string', minLength: 8, maxLength: 255 }
         },
         additionalProperties: false

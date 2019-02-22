@@ -2,16 +2,18 @@
   "name": "pixel-social",
   "version": "0.1.0",
   "description": "A social Hub for PixelShare blockchain",
-  "main": "index.js",
+  "main": "app.js",
   "dependencies": {
     "dotenv": "^6.2.0",
-    "fastify": "^1.14.1",
+    "fastify": "git+https://github.com/fastify/fastify.git",
     "fastify-jwt": "^0.9.1",
     "fastify-mongodb": "^1.0.1",
     "fastify-multipart": "^0.7.0",
     "fastify-plugin": "^1.5.0",
+    "fastify-redis": "^3.0.0",
     "fastify-swagger": "^1.2.0",
-    "morgan": "^1.9.1"
+    "morgan": "^1.9.1",
+    "pump": "^3.0.0"
   },
   "devDependencies": {
     "nodemon": "^1.18.10"

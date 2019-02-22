@@ -5,6 +5,7 @@ const fp = require('fastify-plugin');
 const morgan = require('morgan');
 
 const { authPreHook } = require('./hooks/authHooks');
+const { cachePreHook, cachePreSerialHook } = require('./hooks/cacheHooks');
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
 const TopicService = require('./plugins/topic/service');
@@ -12,7 +13,7 @@ const FileService = require('./plugins/file/service');
 
 require('dotenv').config();
 
-fastify.use(morgan('common'));
+fastify.use(morgan('tiny'));
 
 const decorateFastifyInstance = async (fastify) => {
     const db = fastify.mongo.db
@@ -37,17 +38,21 @@ const decorateFastifyInstance = async (fastify) => {
         .decorate('topicService', topicService)
         .decorate('fileService', fileService)
         .decorate('authPreHandler', authPreHook)
+        .decorate('cachePreHandler', cachePreHook)
+        .decorate('cachePreSerialHandler', cachePreSerialHook)
 }
 
 fastify
-    .register(require('fastify-mongodb'), { url: process.env.DATABASE, useNewUrlParser: true })
+    .register(require('fastify-mongodb'), { url: process.env.MONGO, useNewUrlParser: true })
     .register(require('fastify-jwt'), { secret: process.env.JWT, algorithms: ['RS256'] })
     .register(require('fastify-multipart'))
+    .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
     .register(fp(decorateFastifyInstance))
     .register(require('./plugins/user'), { prefix: '/api/user' })
     .register(require('./plugins/post'), { prefix: '/api/post' })
     .register(require('./plugins/topic'), { prefix: '/api/topic' })
     .register(require('./plugins/file'), { prefix: '/api/file' })
+    .register(require('./plugins/test'), { prefix: '/api/test' })
 
 const start = async () => {
     try {

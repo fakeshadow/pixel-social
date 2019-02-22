@@ -18,22 +18,21 @@ class PostService {
             const _toPid = parseInt(requestBody.toPid, 10);
 
             let array;
-
             // get posts for an topic add topic's self post into array if the page is 1
             if (_toTid > 0 && _toPid === 0 && _page === 1) {
                 let firstPost;
                 const { mainPid } = await this.topicCollection.findOne({ tid: _toTid }, { projection: { mainPid: 1 } });
                 await Promise.all([
-                    array = await this.postCollection.find({ toTid: _toTid }).sort({ pid: 1 }).toArray(),
+                    array = await this.postCollection.find({ toTid: _toTid }, { projection: { _id: 0 } }).sort({ pid: 1 }).toArray(),
                     firstPost = await this.postCollection.findOne({ pid: mainPid })
                 ]);
-                array.splice(0, 0, firstPost);
+                array.splice(0, 0, firstPost)
             } else if (_toTid > 0 && _toPid === 0 && _page > 1) {
-                array = await this.postCollection.find({ toTid: _toTid }).sort({ pid: 1 }).toArray();
+                array = await this.postCollection.find({ toTid: _toTid }, { projection: { _id: 0 } }).sort({ pid: 1 }).toArray();
 
                 // get reply posts for an post.  
             } else if (_toTid === 0 && _toPid > 0) {
-                array = await this.postCollection.find({ toPid: _toPid }).sort({ pid: 1 }).toArray();
+                array = await this.postCollection.find({ toPid: _toPid }, { projection: { _id: 0 } }).sort({ pid: 1 }).toArray();
             } else {
                 throw new Error('wrong tid, pid or page');
             }
@@ -43,12 +42,17 @@ class PostService {
             if (start < 0 || start >= array.length) {
                 return [];
             }
-            const arrayMap = array.slice(start, start + 50);
+
+            const cacheArray = [...array];
+            const mappedArray = array.slice(start, start + 50);
 
             // get uid details and map them to posts
-            const uidsMap = await mapUid(arrayMap);
+            const uidsMap = await mapUid(mappedArray);
             const uidsDetails = await this.userCollection.find({ uid: { $in: uidsMap }, }, { projection: { _id: 0, saltedpassword: 0, email: 0 } }).toArray();
-            return alterArray(arrayMap, uidsDetails);
+            const alteredArray = await alterArray(mappedArray, uidsDetails);
+
+            // return both origin and altered array and past the former one to redis hook for caching
+            return { 'cache': cacheArray, 'database': alteredArray }
         } catch (e) {
             throw (e)
         }
