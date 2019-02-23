@@ -11,7 +11,7 @@ module.exports = async function (fastify, opts) {
     fastify.addHook('preHandler', fastify.authPreHandler);
     fastify.addHook('preHandler', fastify.cachePreHandler);
     fastify.addHook('preSerialization', fastify.cachePreSerialHandler);
-    fastify.post('/get',  getPostsHandler);
+    fastify.post('/get', { schema: getPostsSchema }, getPostsHandler);
     fastify.post('/add', { schema: addPostSchema }, addPostHandler);
     fastify.post('/edit', { schema: editPostSchema }, editPostHandler);
 

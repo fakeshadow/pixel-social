@@ -1,5 +1,8 @@
 'use strict'
-const { mapUid, alterArray } = require('../../util/sortIds');
+const {
+    mapUid,
+    alterPosts
+} = require('../../util/sortIds');
 
 class PostService {
     constructor(topicCollection, postCollection, userCollection, globalCollection) {
@@ -24,7 +27,7 @@ class PostService {
                 const { mainPid } = await this.topicCollection.findOne({ tid: _toTid }, { projection: { mainPid: 1 } });
                 await Promise.all([
                     array = await this.postCollection.find({ toTid: _toTid }, { projection: { _id: 0 } }).sort({ pid: 1 }).toArray(),
-                    firstPost = await this.postCollection.findOne({ pid: mainPid })
+                    firstPost = await this.postCollection.findOne({ pid: mainPid }, { projection: { _id: 0 } })
                 ]);
                 array.splice(0, 0, firstPost)
             } else if (_toTid > 0 && _toPid === 0 && _page > 1) {
@@ -49,10 +52,10 @@ class PostService {
             // get uid details and map them to posts
             const uidsMap = await mapUid(mappedArray);
             const uidsDetails = await this.userCollection.find({ uid: { $in: uidsMap }, }, { projection: { _id: 0, saltedpassword: 0, email: 0 } }).toArray();
-            const alteredArray = await alterArray(mappedArray, uidsDetails);
+            const alteredPosts = await alterPosts(mappedArray, uidsDetails);
 
             // return both origin and altered array and past the former one to redis hook for caching
-            return { 'cache': cacheArray, 'database': alteredArray }
+            return { 'cache': cacheArray, 'database': alteredPosts }
         } catch (e) {
             throw (e)
         }
@@ -72,6 +75,7 @@ class PostService {
                 _toPid > 0 ? await this.postCollection.findOneAndUpdate({ pid: _toPid }, { $inc: { postCount: 1 } }, { upsert: true }) : null,
                 _toTid > 0 ? await this.topicCollection.findOneAndUpdate({ tid: _toTid }, { $set: { lastPostTime: new Date() }, $inc: { postCount: 1 } }, { upsert: true }) : null,
             ]);
+
             return pid;
         } catch (e) {
             throw e
@@ -92,13 +96,27 @@ class PostService {
         await db.command({
             'collMod': this.postCollection.collectionName,
             validator: {
-                uid: { $type: 'number' },
-                pid: { $type: 'number' },
-                toTid: { $type: 'number' },
-                toPid: { $type: 'number' },
-                postContent: { $type: 'string' },
-                postCount: { $type: 'number' },
-                createdAt: { $type: 'date' }
+                uid: {
+                    $type: 'number'
+                },
+                pid: {
+                    $type: 'number'
+                },
+                toTid: {
+                    $type: 'number'
+                },
+                toPid: {
+                    $type: 'number'
+                },
+                postContent: {
+                    $type: 'string'
+                },
+                postCount: {
+                    $type: 'number'
+                },
+                createdAt: {
+                    $type: 'date'
+                }
             }
         })
         await this.postCollection.createIndex({ 'pid': 1 }, { unique: true })

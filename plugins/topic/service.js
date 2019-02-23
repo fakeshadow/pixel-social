@@ -1,5 +1,5 @@
 'use strict'
-const { mapUid, alterArray } = require('../../util/sortIds');
+const { mapUid, alterTopics } = require('../../util/sortIds');
 
 class TopicService {
     constructor(topicCollection, userCollection, globalCollection) {
@@ -29,8 +29,11 @@ class TopicService {
             const uidsMap = await mapUid(topicsMap);
 
             // get all userId detail and map them to topics
-            const uidsDetails = await this.userCollection.find({ uid: { $in: uidsMap }, }, { projection: { _id: 0, saltedpassword: 0, email: 0 } }).toArray();
-            return alterArray(topicsMap, uidsDetails);
+            const uidsDetails = await this.userCollection.find({ uid: { $in: uidsMap }, }, { projection: { _id: 0, saltedpassword: 0 } }).toArray();
+            const alteredTopics = await alterTopics(topicsMap, uidsDetails);
+
+            // return raw result for building cache;
+            return { 'cache': array, 'database': alteredTopics };
         } catch (e) {
             throw e
         }
@@ -54,13 +57,27 @@ class TopicService {
         await db.command({
             'collMod': this.topicCollection.collectionName,
             validator: {
-                tid: { $type: 'number' },
-                cid: { $type: 'string' },
-                uid: { $type: 'number' },
-                mainPid: { $type: 'number' },
-                topicContent: { $type: 'string' },
-                lastPostTime: { $type: 'date' },
-                postCount: { $type: 'number' },
+                tid: {
+                    $type: 'number'
+                },
+                cid: {
+                    $type: 'string'
+                },
+                uid: {
+                    $type: 'number'
+                },
+                mainPid: {
+                    $type: 'number'
+                },
+                topicContent: {
+                    $type: 'string'
+                },
+                lastPostTime: {
+                    $type: 'date'
+                },
+                postCount: {
+                    $type: 'number'
+                },
             }
         })
         await this.topicCollection.createIndex({ 'tid': 1 }, { unique: true })

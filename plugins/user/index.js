@@ -11,9 +11,11 @@ module.exports = async (fastify, opts) => {
     fastify.post('/register', { schema: registrationSchema }, registerHandler)
 
     fastify.register(async function (fastify) {
-        fastify.addHook('preHandler', fastify.authPreHandler)
-        fastify.get('/me', meHandler)
-        fastify.get('/:userId', { schema: getProfileSchema }, userHandler)
+        fastify.addHook('preHandler', fastify.authPreHandler);
+        fastify.addHook('preHandler', fastify.cachePreHandler);
+        fastify.addHook('preSerialization', fastify.cachePreSerialHandler);
+
+        fastify.post('/', { schema: getProfileSchema }, userHandler)
     })
 
     fastify.setErrorHandler((error, req, res) => {
@@ -43,11 +45,7 @@ async function registerHandler(req, reply) {
     return { userId: userId }
 }
 
-async function meHandler(req, reply) {
-    const uid = req.user.uid
-    return this.userService.getProfile(uid)
-}
-
 async function userHandler(req, reply) {
-    return this.userService.getProfile(this.transformStringIntoObjectId(req.params.userId))
+    const { uid } = req.body
+    return this.userService.getProfile(uid);
 }

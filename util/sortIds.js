@@ -12,7 +12,7 @@ exports.mapUid = arrayMap => {
     })
 }
 
-exports.alterArray = (arrayMap, uidsDetails) => {
+exports.alterPosts = (arrayMap, uidsDetails) => {
     return new Promise(resolve => {
         const result = [];
         arrayMap.forEach(index => {
@@ -31,6 +31,37 @@ exports.alterArray = (arrayMap, uidsDetails) => {
             });
         })
         return resolve(result);
+    })
+}
+
+exports.alterTopics = (arrayMap, uidsDetails) => {
+    return new Promise(resolve => {
+        const result = [];
+        arrayMap.forEach(index => {
+            uidsDetails.forEach(detail => {
+                if (index.uid === detail.uid) {
+                    result.push({
+                        'tid': index.tid,
+                        'cid': index.cid,
+                        'mainPid': index.mainPid,
+                        'topicContent': index.topicContent,
+                        'lastPostTime': index.lastPostTime,
+                        'postCount': index.postCount,
+                        'user': detail
+                    });
+                }
+            });
+        })
+        return resolve(result);
+    })
+}
+
+
+exports.parseCache = cache => {
+    const array = [];
+    return new Promise(resolve => {
+        cache.forEach(cache => array.push(JSON.parse(cache)))
+        resolve(array);
     })
 }
 

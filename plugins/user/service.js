@@ -1,6 +1,10 @@
 'use strict'
 
-const { saltHashPassword, checksaltHashPassword } = require('../../util/salthash');
+const {
+    saltHashPassword,
+    checksaltHashPassword
+} = require('../../util/salthash');
+
 class UserService {
     constructor(userCollection, globalCollection) {
         this.userCollection = userCollection;
@@ -23,12 +27,12 @@ class UserService {
             await Promise.all([
                 await this.globalCollection.insertOne({ username: _username }),
                 await this.globalCollection.insertOne({ email: _email }),
-                dbResult = await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword }),
+                await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword, avatar: '' }),
             ]);
         } catch (e) {
             throw e;
         }
-        return dbResult.insertedId;
+        return { 'uid': uid, 'username': _username, 'email': _email, 'avatar': '' };
     }
 
     async login(username, password) {
@@ -48,21 +52,31 @@ class UserService {
         }
     }
 
-
     getProfile(uid) {
-        return this.userCollection.findOne({ uid }, { projection: { _id: 0, saltedpassword: 0 } })
+        const _uid = parseInt(uid, 10);
+        if (!_uid) throw new Error('Wrong uid');
+        return this.userCollection.findOne({ uid: _uid }, { projection: { _id: 0, saltedpassword: 0 } })
     }
-
-
 
     async ensureIndexes(db) {
         await db.command({
             'collMod': this.userCollection.collectionName,
             validator: {
-                uid: { $type: 'number' },
-                username: { $type: 'string' },
-                email: { $type: 'string' },
-                saltedpassword: { $type: 'string' },
+                uid: {
+                    $type: 'number'
+                },
+                username: {
+                    $type: 'string'
+                },
+                email: {
+                    $type: 'string'
+                },
+                saltedpassword: {
+                    $type: 'string'
+                },
+                avatar: {
+                    $type: 'string'
+                }
             }
         })
         await this.userCollection.createIndex({ uid: 1 }, { unique: true })

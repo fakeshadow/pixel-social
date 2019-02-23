@@ -24,7 +24,9 @@ module.exports[Symbol.for('plugin-meta')] = {
 }
 
 async function uploadHandler(req, reply) {
-    const { uid } = req.user;
+    const {
+        uid
+    } = req.user;
     const result = await this.fileService.uploadFile(uid, req);
     if (result[0].type === 'avatar') {
         return await this.userService.updateProfile(uid, result[0]);
@@ -33,4 +35,3 @@ async function uploadHandler(req, reply) {
         return result;
     }
 }
-

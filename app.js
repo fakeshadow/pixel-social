@@ -4,8 +4,13 @@ const fastify = require('fastify')();
 const fp = require('fastify-plugin');
 const morgan = require('morgan');
 
-const { authPreHook } = require('./hooks/authHooks');
-const { cachePreHook, cachePreSerialHook } = require('./hooks/cacheHooks');
+const {
+    authPreHook
+} = require('./hooks/authHooks');
+const {
+    cachePreHook,
+    cachePreSerialHook
+} = require('./hooks/cacheHooks');
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
 const TopicService = require('./plugins/topic/service');
@@ -44,9 +49,9 @@ const decorateFastifyInstance = async (fastify) => {
 
 fastify
     .register(require('fastify-mongodb'), { url: process.env.MONGO, useNewUrlParser: true })
+    .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
     .register(require('fastify-jwt'), { secret: process.env.JWT, algorithms: ['RS256'] })
     .register(require('fastify-multipart'))
-    .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
     .register(fp(decorateFastifyInstance))
     .register(require('./plugins/user'), { prefix: '/api/user' })
     .register(require('./plugins/post'), { prefix: '/api/post' })
@@ -64,4 +69,3 @@ const start = async () => {
     }
 }
 start()
-

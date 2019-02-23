@@ -2,25 +2,49 @@
 
 const userObject = {
     type: 'object',
+    require: ['uid', 'username', 'email', 'avatar'],
     properties: {
-        uid: { type: 'integer' },
-        username: { type: 'string' },
-        avatar: { type: 'string' },
+        uid: {
+            type: 'integer'
+        },
+        username: {
+            type: 'string'
+        },
+        email: {
+            type: 'string'
+        },
+        avatar: {
+            type: 'string'
+        }
     },
     additionalProperties: false
 }
 
 // raw posts for building cache
-const rawPost = {
+const rawPostObject = {
     type: 'object',
     properties: {
-        uid: { type: 'integer' },
-        pid: { type: 'integer' },
-        toTid: { type: 'integer' },
-        toPid: { type: 'integer' },
-        postContent: { type: 'string' },
-        postCount: { type: 'integer' },
-        createdAt: { type: 'string' },
+        uid: {
+            type: 'integer'
+        },
+        pid: {
+            type: 'integer'
+        },
+        toTid: {
+            type: 'integer'
+        },
+        toPid: {
+            type: 'integer'
+        },
+        postContent: {
+            type: 'string'
+        },
+        postCount: {
+            type: 'integer'
+        },
+        createdAt: {
+            type: 'string'
+        },
     },
     additionalProperties: false
 }
@@ -28,12 +52,24 @@ const rawPost = {
 const postObject = {
     type: 'object',
     properties: {
-        pid: { type: 'integer' },
-        toTid: { type: 'integer' },
-        toPid: { type: 'integer' },
-        postContent: { type: 'string' },
-        postCount: { type: 'integer' },
-        createdAt: { type: 'string' },
+        pid: {
+            type: 'integer'
+        },
+        toTid: {
+            type: 'integer'
+        },
+        toPid: {
+            type: 'integer'
+        },
+        postContent: {
+            type: 'string'
+        },
+        postCount: {
+            type: 'integer'
+        },
+        createdAt: {
+            type: 'string'
+        },
         user: userObject,
     },
     additionalProperties: false
@@ -44,11 +80,21 @@ const getPosts = {
         type: 'object',
         required: ['uid', 'toTid', 'toPid', 'page'],
         properties: {
-            type: { type: 'string' },
-            uid: { type: 'integer' },
-            toTid: { type: 'integer' },
-            toPid: { type: 'integer' },
-            page: { type: 'integer' },
+            type: {
+                type: 'string'
+            },
+            uid: {
+                type: 'integer'
+            },
+            toTid: {
+                type: 'integer'
+            },
+            toPid: {
+                type: 'integer'
+            },
+            page: {
+                type: 'integer'
+            },
         },
         additionalProperties: false
     },
@@ -57,8 +103,14 @@ const getPosts = {
             type: 'object',
             required: ['cache', 'database'],
             properties: {
-                cache: { type: 'array', items: rawPost },
-                cache: { type: 'array', items: postObject },
+                cache: {
+                    type: 'array',
+                    items: rawPostObject
+                },
+                database: {
+                    type: 'array',
+                    items: postObject
+                },
             },
             additionalProperties: false
         }
@@ -70,9 +122,17 @@ const addPost = {
         type: 'object',
         required: ['toPid', 'toTid', 'postContent'],
         properties: {
-            toPid: { type: 'integer' },
-            toTid: { type: 'integer' },
-            postContent: { type: 'string', minLength: 8, maxLength: 255 }
+            toPid: {
+                type: 'integer'
+            },
+            toTid: {
+                type: 'integer'
+            },
+            postContent: {
+                type: 'string',
+                minLength: 8,
+                maxLength: 255
+            }
         },
         additionalProperties: false
     }
@@ -83,8 +143,14 @@ const editPost = {
         type: 'object',
         required: ['pid', 'postContent'],
         properties: {
-            pid: { type: 'integer' },
-            postContent: { type: 'string', minLength: 8, maxLength: 255 }
+            pid: {
+                type: 'integer'
+            },
+            postContent: {
+                type: 'string',
+                minLength: 8,
+                maxLength: 255
+            }
         },
         additionalProperties: false
     }
@@ -114,4 +180,8 @@ module.exports = {
     addPost,
     editPost,
     getPosts,
+
+    // for cache hook
+    rawPostObject,
+    postObject   
 }

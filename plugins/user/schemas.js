@@ -1,12 +1,21 @@
 'use strict'
 
-const userProfileOutput = {
+const userObject = {
     type: 'object',
-    require: ['uid', 'username', 'email'],
+    require: ['uid', 'username', 'email', 'avatar'],
     properties: {
-        uid: { type: 'number' },
-        username: { type: 'string' },
-        email: { type: 'string' },
+        uid: {
+            type: 'integer'
+        },
+        username: {
+            type: 'string'
+        },
+        email: {
+            type: 'string'
+        },
+        avatar: {
+            type: 'string'
+        }
     },
     additionalProperties: false
 }
@@ -29,14 +38,7 @@ const registration = {
         additionalProperties: false
     },
     response: {
-        200: {
-            type: 'object',
-            required: ['userId'],
-            properties: {
-                userId: { type: 'string' }
-            },
-            additionalProperties: false
-        }
+        200: userObject
     }
 }
 
@@ -45,8 +47,12 @@ const login = {
         type: 'object',
         require: ['username', 'password'],
         properties: {
-            username: { type: 'string' },
-            password: { type: 'string' }
+            username: {
+                type: 'string'
+            },
+            password: {
+                type: 'string'
+            }
         },
         additionalProperties: false
     },
@@ -55,7 +61,9 @@ const login = {
             type: 'object',
             require: ['jwt'],
             properties: {
-                jwt: { type: 'string' }
+                jwt: {
+                    type: 'string'
+                }
             },
             additionalProperties: false
         }
@@ -80,17 +88,21 @@ const login = {
 // }
 
 const getProfile = {
-    params: {
+    body: {
         type: 'object',
-        required: ['uid'],
+        required: ['type', 'uid'],
         properties: {
+            type: {
+                type: 'string'
+            },
             uid: {
-                type: 'number'
+                type: 'integer'
             }
-        }
+        },
+        additionalProperties: false
     },
     response: {
-        200: userProfileOutput
+        200: userObject
     }
 }
 
@@ -98,5 +110,6 @@ module.exports = {
     registration,
     login,
     // search,
-    getProfile
+    getProfile,
+    userObject,
 }

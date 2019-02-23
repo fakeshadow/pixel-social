@@ -2,42 +2,79 @@
 
 const userObject = {
     type: 'object',
+    require: ['uid', 'username', 'email', 'avatar'],
     properties: {
-        uid: { type: 'number' },
-        username: { type: 'string' },
+        uid: {
+            type: 'integer'
+        },
+        username: {
+            type: 'string'
+        },
+        email: {
+            type: 'string'
+        },
+        avatar: {
+            type: 'string'
+        }
     },
     additionalProperties: false
 }
 
+const rawTopicObject = {
+    type: 'object',
+    properties: {
+        uid: { type: 'integer' },
+        tid: { type: 'integer' },
+        cid: { type: 'string' },
+        mainPid: { type: 'integer' },
+        topicContent: { type: 'string' },
+        postCount: { type: 'integer' },
+        lastPostTime: { type: 'string' },
+    },
+    additionalProperties: false
+}
+
+
 const topicObject = {
     type: 'object',
     properties: {
-        tid: { type: 'number' },
+        tid: { type: 'integer' },
         cid: { type: 'string' },
-        mainPid: { type: 'number' },
+        mainPid: { type: 'integer' },
         topicContent: { type: 'string' },
-        postCount: { type: 'number' },
+        postCount: { type: 'integer' },
         lastPostTime: { type: 'string' },
         user: userObject,
     },
     additionalProperties: false
 }
 
-
 const getTopics = {
     body: {
         type: 'object',
-        required: ['cids', 'page'],
+        required: ['type', 'cids', 'page'],
         properties: {
+            type: { type: 'string' },
             cids: { type: 'array', items: { type: 'string' } },
-            page: { type: 'number' },
+            page: { type: 'integer' },
         },
         additionalProperties: false
     },
     response: {
         200: {
-            type: 'array',
-            items: topicObject
+            type: 'object',
+            required: ['cache', 'database'],
+            properties: {
+                cache: {
+                    type: 'array',
+                    items: rawTopicObject
+                },
+                database: {
+                    type: 'array',
+                    items: topicObject
+                },
+            },
+            additionalProperties: false
         }
     }
 }
@@ -57,5 +94,7 @@ const addTopic = {
 
 module.exports = {
     addTopic,
-    getTopics
+    getTopics,
+    topicObject,
+    rawTopicObject
 }

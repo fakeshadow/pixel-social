@@ -25,5 +25,3 @@ const sha256 = (password, salt) => {
         })
     }))
 };
-
-

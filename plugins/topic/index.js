@@ -7,7 +7,10 @@ const {
 
 module.exports = async function (fastify, opts) {
     // All APIs are under authentication here!
-    fastify.addHook('preHandler', fastify.authPreHandler)
+    fastify
+        .addHook('preHandler', fastify.authPreHandler)
+        .addHook('preHandler', fastify.cachePreHandler)
+        .addHook('preSerialization', fastify.cachePreSerialHandler);
 
     fastify.post('/get', { schema: getTopicsSchema }, getTopicsHandler)
     fastify.post('/add', { schema: addTopicSchema }, addTopicHandler)
@@ -29,12 +32,17 @@ module.exports[Symbol.for('plugin-meta')] = {
 }
 
 async function getTopicsHandler(req, reply) {
-    const { cids, page } = req.body;
+    const {
+        cids,
+        page
+    } = req.body;
     return await this.topicService.getTopics(cids, page);
 }
 
 async function addTopicHandler(req, reply) {
-    const { uid } = req.user;
+    const {
+        uid
+    } = req.user;
     // topic is binding to a post which has 0 topid and totid. The pid of this post is write into topic's mainpid.
     const postData = {
         'toPid': 0,
