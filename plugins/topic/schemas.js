@@ -82,8 +82,9 @@ const getTopics = {
 const addTopic = {
     body: {
         type: 'object',
-        required: ['cid', 'topicContent', 'postContent'],
+        required: ['type', 'cid', 'topicContent', 'postContent'],
         properties: {
+            type: { type: 'string' },
             cid: { type: 'string' },
             topicContent: { type: 'string', minLength: 8, maxLength: 255 },
             postContent: { type: 'string', minLength: 8, maxLength: 255 }

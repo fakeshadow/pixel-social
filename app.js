@@ -4,13 +4,8 @@ const fastify = require('fastify')();
 const fp = require('fastify-plugin');
 const morgan = require('morgan');
 
-const {
-    authPreHook
-} = require('./hooks/authHooks');
-const {
-    cachePreHook,
-    cachePreSerialHook
-} = require('./hooks/cacheHooks');
+const { authPreHook } = require('./hooks/authHooks');
+const { cachePreHook, cachePreSerialHook } = require('./hooks/cacheHooks');
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
 const TopicService = require('./plugins/topic/service');

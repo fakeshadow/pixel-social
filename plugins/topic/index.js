@@ -6,7 +6,7 @@ const {
 } = require('./schemas')
 
 module.exports = async function (fastify, opts) {
-    // All APIs are under authentication here!
+    
     fastify
         .addHook('preHandler', fastify.authPreHandler)
         .addHook('preHandler', fastify.cachePreHandler)
@@ -32,29 +32,22 @@ module.exports[Symbol.for('plugin-meta')] = {
 }
 
 async function getTopicsHandler(req, reply) {
-    const {
-        cids,
-        page
-    } = req.body;
+    const { cids, page } = req.body;
     return await this.topicService.getTopics(cids, page);
 }
 
 async function addTopicHandler(req, reply) {
-    const {
-        uid
-    } = req.user;
+    const { uid } = req.user;
+    const { postContent, cid, topicContent } = req.body;
     // topic is binding to a post which has 0 topid and totid. The pid of this post is write into topic's mainpid.
     const postData = {
         'toPid': 0,
         'toTid': 0,
-        'postContent': req.body.postContent
+        'postContent': postContent
     }
-    const pid = await this.postService.addPost(uid, postData);
     const topicData = {
-        "mainPid": pid,
-        "cid": req.body.cid,
-        "topicContent": req.body.topicContent,
+        "cid": cid,
+        "topicContent": topicContent,
     }
-    await this.topicService.addTopic(uid, topicData);
-    reply.code(204)
+    return this.postService.addPost(uid, postData, topicData);
 }

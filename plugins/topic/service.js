@@ -21,7 +21,7 @@ class TopicService {
             // each page have 50 topics
             const start = (_page - 1) * 50
             if (start < 0 || start > array.length) {
-                return [];
+                return { 'cache': [], 'database': [] };
             }
 
             // map topics and get all the userId
@@ -34,20 +34,6 @@ class TopicService {
 
             // return raw result for building cache;
             return { 'cache': array, 'database': alteredTopics };
-        } catch (e) {
-            throw e
-        }
-    }
-
-    async addTopic(uid, topicData) {
-        try {
-            const { value } = await this.globalCollection.findOneAndUpdate({ nextTid: { '$exists': 1 } }, { $inc: { nextTid: 1 } }, { returnOriginal: true, upsert: true });
-            const _tid = parseInt(value.nextTid, 10);
-            if (!_tid) throw new Error('Can not get tid from database');
-            const _uid = parseInt(uid, 10);
-            const _cid = topicData.cid;
-            const _mainPid = parseInt(topicData.mainPid, 10);
-            return await this.topicCollection.insertOne({ tid: _tid, cid: _cid, uid: _uid, mainPid: _mainPid, topicContent: topicData.topicContent, lastPostTime: new Date(), postCount: 0 });
         } catch (e) {
             throw e
         }

@@ -1,16 +1,14 @@
 'use strict'
 
-const {
-    addPost: addPostSchema,
-    editPost: editPostSchema,
-    getPosts: getPostsSchema,
-} = require('./schemas')
+const { addPost: addPostSchema, editPost: editPostSchema, getPosts: getPostsSchema, } = require('./schemas')
 
 module.exports = async function (fastify, opts) {
 
-    fastify.addHook('preHandler', fastify.authPreHandler);
-    fastify.addHook('preHandler', fastify.cachePreHandler);
-    fastify.addHook('preSerialization', fastify.cachePreSerialHandler);
+    fastify
+        .addHook('preHandler', fastify.authPreHandler)
+        .addHook('preHandler', fastify.cachePreHandler)
+        .addHook('preSerialization', fastify.cachePreSerialHandler);
+        
     fastify.post('/get', { schema: getPostsSchema }, getPostsHandler);
     fastify.post('/add', { schema: addPostSchema }, addPostHandler);
     fastify.post('/edit', { schema: editPostSchema }, editPostHandler);
@@ -30,24 +28,24 @@ module.exports[Symbol.for('plugin-meta')] = {
 }
 
 async function addPostHandler(req, reply) {
-    const { uid } = req.user
+    const { uid } = req.user;
+    const { toTid, toPid, postContent } = req.body;
     const postData = {
-        'toTid': req.body.toTid,
-        'toPid': req.body.toPid,
-        'postContent': req.body.postContent
+        'toTid': toTid,
+        'toPid': toPid,
+        'postContent': postContent
     }
-    await this.postService.addPost(uid, postData)
-    reply.code(204)
+    return this.postService.addPost(uid, postData, null);
 }
 
 async function editPostHandler(req, reply) {
     const { uid } = req.user
+    const { pid, postContent } = req.body;
     const postData = {
-        "pid": req.body.pid,
-        "postContent": req.body.postContent
+        "pid": pid,
+        "postContent": postContent
     }
-    await this.postService.editPost(uid, postData)
-    reply.code(204)
+    return this.postService.editPost(uid, postData)
 }
 
 async function getPostsHandler(req, reply) {
