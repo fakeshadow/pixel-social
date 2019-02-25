@@ -90,11 +90,8 @@ const login = {
 const getProfile = {
     body: {
         type: 'object',
-        required: ['type', 'uid'],
+        required: ['uid'],
         properties: {
-            type: {
-                type: 'string'
-            },
             uid: {
                 type: 'integer'
             }
@@ -106,10 +103,23 @@ const getProfile = {
     }
 }
 
+const updateProfile = {
+    body: {
+        require: ['avatar'],
+        properties: {
+            avatar: {
+                type: 'string'
+            }
+        },
+        additionalProperties: false
+    },
+}
+
 module.exports = {
     registration,
     login,
     // search,
     getProfile,
+    updateProfile,
     userObject,
 }

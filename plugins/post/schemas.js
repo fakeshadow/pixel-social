@@ -44,9 +44,6 @@ const rawPostObject = {
         },
         createdAt: {
             type: 'string'
-        },
-        isTopicMain: {
-            type: 'integer'
         }
     },
     additionalProperties: false
@@ -81,11 +78,8 @@ const postObject = {
 const getPosts = {
     body: {
         type: 'object',
-        required: ['type', 'uid', 'toTid', 'toPid', 'page'],
+        required: ['uid', 'toTid', 'toPid', 'lastPid'],
         properties: {
-            type: {
-                type: 'string'
-            },
             uid: {
                 type: 'integer'
             },
@@ -95,7 +89,7 @@ const getPosts = {
             toPid: {
                 type: 'integer'
             },
-            page: {
+            lastPid: {
                 type: 'integer'
             },
         },
@@ -103,31 +97,35 @@ const getPosts = {
     },
     response: {
         200: {
-            type: 'object',
-            required: ['cache', 'database'],
-            properties: {
-                cache: {
-                    type: 'array',
-                    items: rawPostObject
-                },
-                database: {
-                    type: 'array',
-                    items: postObject
-                },
-            },
-            additionalProperties: false
+            type: 'array',
+            items: postObject
         }
     }
+
+    // response: {
+    //     200: {
+    //         type: 'object',
+    //         required: ['cache', 'database'],
+    //         properties: {
+    //             cache: {
+    //                 type: 'array',
+    //                 items: rawPostObject
+    //             },
+    //             database: {
+    //                 type: 'array',
+    //                 items: postObject
+    //             },
+    //         },
+    //         additionalProperties: false
+    //     }
+    // }
 }
 
 const addPost = {
     body: {
         type: 'object',
-        required: ['type', 'toPid', 'toTid', 'postContent'],
+        required: ['toPid', 'toTid', 'postContent'],
         properties: {
-            type: {
-                type: 'string'
-            },
             toPid: {
                 type: 'integer'
             },
@@ -147,11 +145,8 @@ const addPost = {
 const editPost = {
     body: {
         type: 'object',
-        required: ['type', 'pid', 'postContent'],
+        required: ['pid', 'postContent'],
         properties: {
-            type: {
-                type: 'string'
-            },
             pid: {
                 type: 'integer'
             },
@@ -187,7 +182,6 @@ module.exports = {
     addPost,
     editPost,
     getPosts,
-
     // for cache hook
     rawPostObject,
     postObject

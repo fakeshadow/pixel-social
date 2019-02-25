@@ -6,14 +6,21 @@ const {
 } = require('./schemas')
 
 module.exports = async function (fastify, opts) {
-    
-    fastify
-        .addHook('preHandler', fastify.authPreHandler)
-        .addHook('preHandler', fastify.cachePreHandler)
-        .addHook('preSerialization', fastify.cachePreSerialHandler);
 
-    fastify.post('/get', { schema: getTopicsSchema }, getTopicsHandler)
-    fastify.post('/add', { schema: addTopicSchema }, addTopicHandler)
+    fastify.register(async function (fastify) {
+        fastify
+            .addHook('preHandler', fastify.authPreHandler)
+            .addHook('preHandler', fastify.topicPreHandler)
+            .addHook('preSerialization', fastify.topicPreSerialHandler);
+        fastify.post('/', { schema: getTopicsSchema }, getTopicsHandler)
+    })
+
+    fastify.register(async function (fastify) {
+        fastify
+            .addHook('preHandler', fastify.authPreHandler)
+            .addHook('preSerialization', fastify.topicPreSerialHandler);
+        fastify.post('/add', { schema: addTopicSchema }, addTopicHandler);
+    })
 
     fastify.setErrorHandler((error, req, res) => {
         res.send(error);
@@ -24,16 +31,17 @@ module.exports[Symbol.for('plugin-meta')] = {
     decorators: {
         fastify: [
             'authPreHandler',
+            'topicPreHandler',
+            'topicPreSerialHandler',
             'topicService',
             'postService',
-            'userService'
         ]
     }
 }
 
 async function getTopicsHandler(req, reply) {
     const { cids, page } = req.body;
-    return await this.topicService.getTopics(cids, page);
+    return this.topicService.getTopics(cids, page);
 }
 
 async function addTopicHandler(req, reply) {

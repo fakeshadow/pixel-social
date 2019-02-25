@@ -4,14 +4,21 @@ const { addPost: addPostSchema, editPost: editPostSchema, getPosts: getPostsSche
 
 module.exports = async function (fastify, opts) {
 
-    fastify
-        .addHook('preHandler', fastify.authPreHandler)
-        .addHook('preHandler', fastify.cachePreHandler)
-        .addHook('preSerialization', fastify.cachePreSerialHandler);
-        
-    fastify.post('/get', { schema: getPostsSchema }, getPostsHandler);
-    fastify.post('/add', { schema: addPostSchema }, addPostHandler);
-    fastify.post('/edit', { schema: editPostSchema }, editPostHandler);
+    fastify.register(async function (fastify) {
+        fastify
+            .addHook('preHandler', fastify.authPreHandler)
+            .addHook('preHandler', fastify.postPreHandler)
+            .addHook('preSerialization', fastify.postPreSerialHandler);
+        fastify.post('/', { schema: getPostsSchema }, getPostsHandler);
+    })
+
+    fastify.register(async function (fastify) {
+        fastify
+            .addHook('preHandler', fastify.authPreHandler)
+            .addHook('preSerialization', fastify.postPreSerialHandler);
+        fastify.post('/add', { schema: addPostSchema }, addPostHandler);
+        fastify.post('/edit', { schema: editPostSchema }, editPostHandler);
+    })
 
     fastify.setErrorHandler((error, req, res) => {
         res.send(error);
@@ -22,6 +29,8 @@ module.exports[Symbol.for('plugin-meta')] = {
     decorators: {
         fastify: [
             'authPreHandler',
+            'postPreHandler',
+            'postPreSerialHandler',
             'postService'
         ]
     }

@@ -12,7 +12,6 @@ class UserService {
     }
 
     async register(username, email, password) {
-        let dbResult;
         try {
             const _username = username.replace(/ /g, '').trim();
             const _email = email.replace(/ /g, '').trim();
@@ -35,21 +34,19 @@ class UserService {
         return { 'uid': uid, 'username': _username, 'email': _email, 'avatar': '' };
     }
 
-    async login(username, password) {
-        const _username = username.replace(/ /g, '').trim();
-        const users = await this.userCollection.find({ username: _username }).toArray()
-        const { uid } = users[0]
-        const checkSalt = await checksaltHashPassword(users[0].saltedpassword, password);
+    async login(user, pass) {
+        const _username = user.replace(/ /g, '').trim();
+        const { saltedpassword, username, uid, email, avatar } = await this.userCollection.findOne({ username: _username }, { projection: { _id: 0 } });
+        const checkSalt = await checksaltHashPassword(saltedpassword, pass);
         if (!uid || !checkSalt) throw new Error('Failed to login')
-        return { uid }
+        return { uid, username, email, avatar }
     }
 
-    updateProfile(uid, updateType) {
+    async updateProfile(uid, userData) {
         const _uid = parseInt(uid, 10);
-        const { type, path } = updateType;
-        if (type === 'avatar') {
-            return this.userCollection.findOneAndUpdate({ uid: _uid }, { $set: { avatar: path } }, { upsert: true, projection: { uid: 1 } });
-        }
+        const { avatar } = userData;
+        const { value } = await this.userCollection.findOneAndUpdate({ uid: _uid }, { $set: { avatar: avatar } }, { returnOriginal: false, upsert: true, projection: { _id: 0, saltedpassword: 0 } });
+        return value;
     }
 
     getProfile(uid) {

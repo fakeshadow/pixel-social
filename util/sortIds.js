@@ -56,7 +56,6 @@ exports.alterTopics = (arrayMap, uidsDetails) => {
     })
 }
 
-
 exports.parseCache = cache => {
     const array = [];
     return new Promise(resolve => {

@@ -1,7 +1,6 @@
 'use strict'
 
 module.exports = async (fastify, opts) => {
-    fastify.addHook('preHandler', fastify.cachePreHandler);
     fastify.get('/', testHandler)
 
     fastify.setErrorHandler((error, req, res) => {

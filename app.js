@@ -5,11 +5,15 @@ const fp = require('fastify-plugin');
 const morgan = require('morgan');
 
 const { authPreHook } = require('./hooks/authHooks');
-const { cachePreHook, cachePreSerialHook } = require('./hooks/cacheHooks');
+const { userPreHook, userPreSerialHook } = require('./hooks/userHooks');
+const { postPreHook, postPreSerialHook } = require('./hooks/postHooks');
+const { topicPreHook, topicPreSerialHook } = require('./hooks/topicHooks');
+
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
 const TopicService = require('./plugins/topic/service');
 const FileService = require('./plugins/file/service');
+const CacheService = require('./plugins/cache/service');
 
 require('dotenv').config();
 
@@ -17,6 +21,7 @@ fastify.use(morgan('tiny'));
 
 const decorateFastifyInstance = async (fastify) => {
     const db = fastify.mongo.db
+    const redis = fastify.redis
 
     const globalCollection = await db.createCollection('global')
     const userCollection = await db.createCollection('users')
@@ -24,9 +29,10 @@ const decorateFastifyInstance = async (fastify) => {
     const topicCollection = await db.createCollection('topics')
 
     const userService = new UserService(userCollection, globalCollection);
-    const topicService = new TopicService(topicCollection, userCollection, globalCollection);
-    const postService = new PostService(topicCollection, postCollection, userCollection, globalCollection);
+    const topicService = new TopicService(topicCollection, globalCollection);
+    const postService = new PostService(topicCollection, postCollection, globalCollection);
     const fileService = new FileService(postCollection);
+    const cacheService = new CacheService(redis);
 
     await userService.ensureIndexes(db);
     await postService.ensureIndexes(db);
@@ -37,9 +43,14 @@ const decorateFastifyInstance = async (fastify) => {
         .decorate('postService', postService)
         .decorate('topicService', topicService)
         .decorate('fileService', fileService)
+        .decorate('cacheService', cacheService)
         .decorate('authPreHandler', authPreHook)
-        .decorate('cachePreHandler', cachePreHook)
-        .decorate('cachePreSerialHandler', cachePreSerialHook)
+        .decorate('userPreHandler', userPreHook)
+        .decorate('userPreSerialHandler', userPreSerialHook)
+        .decorate('postPreHandler', postPreHook)
+        .decorate('postPreSerialHandler', postPreSerialHook)
+        .decorate('topicPreHandler', topicPreHook)
+        .decorate('topicPreSerialHandler', topicPreSerialHook)
 }
 
 fastify
@@ -56,11 +67,11 @@ fastify
 
 const start = async () => {
     try {
-        await fastify.listen(3100, "192.168.1.197")
+        await fastify.listen(process.env.PORT || 3100, process.env.IP || '127.0.0.1')
         console.log(`server listening on ${fastify.server.address().port}`)
     } catch (e) {
         console.log(e)
         process.exit(1)
     }
 }
-start()
+start();
