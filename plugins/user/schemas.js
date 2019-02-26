@@ -37,9 +37,8 @@ const registration = {
         },
         additionalProperties: false
     },
-    response: {
-        200: userObject
-    }
+    response: 200
+
 }
 
 const login = {

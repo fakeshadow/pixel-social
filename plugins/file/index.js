@@ -1,9 +1,5 @@
 'use strict'
 
-const {
-    upload: uploadSchema,
-} = require('./schemas')
-
 module.exports = async function (fastify, opts) {
     fastify.addHook('preHandler', fastify.authPreHandler)
     fastify.post('/upload', uploadHandler)

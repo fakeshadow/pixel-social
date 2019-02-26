@@ -1,37 +1,29 @@
 'use strict'
 
-const {
-    saltHashPassword,
-    checksaltHashPassword
-} = require('../../util/salthash');
+const { saltHashPassword, checksaltHashPassword } = require('../../util/salthash');
 
 class UserService {
     constructor(userCollection, globalCollection) {
         this.userCollection = userCollection;
-        this.globalCollection = globalCollection;
+        this.globalCollection = globalCollection
     }
 
     async register(username, email, password) {
         try {
             const _username = username.replace(/ /g, '').trim();
             const _email = email.replace(/ /g, '').trim();
-            // const name = await this.globalCollection.find({ username: _username }).toArray();
-            // const mail = await this.globalCollection.find({ email: _email }).toArray();
-            // if (name.length) throw new Error('username taken');
-            // if (mail.length) throw new Error('email taken');
+            const result = await this.userCollection.find({ $or: [{ username: _username }, { email: _email }] }).toArray();
+            if (result.length) throw new Error('username or email taken');
+
             const saltedpassword = await saltHashPassword(password);
-            const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { '$exists': 1 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true });
-            const uid = parseInt(value.nextUid, 10);
-            if (!uid) throw new Error('Can not get uid from database');
-            await Promise.all([
-                await this.globalCollection.insertOne({ username: _username }),
-                await this.globalCollection.insertOne({ email: _email }),
-                await this.userCollection.insertOne({ uid: uid, username: _username, email: _email, saltedpassword: saltedpassword, avatar: '' }),
-            ]);
+            const { value } = await this.globalCollection.findOneAndUpdate({ nextUid: { $gt: 0 } }, { $inc: { nextUid: 1 } }, { returnOriginal: true, upsert: true });
+            if (!value) throw new Error('Can not get uid from database');
+            const { nextUid } = value;
+
+            return await this.userCollection.insertOne({ uid: nextUid, username: _username, email: _email, saltedpassword: saltedpassword, avatar: '' });
         } catch (e) {
             throw e;
         }
-        return { 'uid': uid, 'username': _username, 'email': _email, 'avatar': '' };
     }
 
     async login(user, pass) {

@@ -21,7 +21,6 @@ fastify.use(morgan('tiny'));
 
 const decorateFastifyInstance = async (fastify) => {
     const db = fastify.mongo.db
-    const redis = fastify.redis
 
     const globalCollection = await db.createCollection('global')
     const userCollection = await db.createCollection('users')
@@ -32,7 +31,7 @@ const decorateFastifyInstance = async (fastify) => {
     const topicService = new TopicService(topicCollection, globalCollection);
     const postService = new PostService(topicCollection, postCollection, globalCollection);
     const fileService = new FileService(postCollection);
-    const cacheService = new CacheService(redis);
+    const cacheService = new CacheService(fastify.redis);
 
     await userService.ensureIndexes(db);
     await postService.ensureIndexes(db);
@@ -53,11 +52,16 @@ const decorateFastifyInstance = async (fastify) => {
         .decorate('topicPreSerialHandler', topicPreSerialHook)
 }
 
+async function connectToDatabases(fastify) {
+    fastify
+        .register(require('fastify-mongodb'), { url: process.env.MONGO, useNewUrlParser: true })
+        .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
+}
+
 fastify
-    .register(require('fastify-mongodb'), { url: process.env.MONGO, useNewUrlParser: true })
-    .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
     .register(require('fastify-jwt'), { secret: process.env.JWT, algorithms: ['RS256'] })
     .register(require('fastify-multipart'))
+    .register(fp(connectToDatabases))
     .register(fp(decorateFastifyInstance))
     .register(require('./plugins/user'), { prefix: '/api/user' })
     .register(require('./plugins/post'), { prefix: '/api/post' })
@@ -74,4 +78,5 @@ const start = async () => {
         process.exit(1)
     }
 }
+
 start();

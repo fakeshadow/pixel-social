@@ -57,8 +57,8 @@ async function loginHandler(req, reply) {
 
 async function registerHandler(req, reply) {
     const { username, email, password } = req.body
-    const userId = await this.userService.register(username, email, password)
-    return { userId: userId }
+    await this.userService.register(username, email, password)
+    return { 'message': 'success please login' }
 }
 
 async function userHandler(req, reply) {

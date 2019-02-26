@@ -25,11 +25,11 @@ class PostService {
                 throw new Error('illegal query');
             }
 
-            return await this.postCollection.aggregate(
+            return this.postCollection.aggregate(
                 { $match: { $and: [query, { pid: { $gt: _lastPid } }] } },
-                { $project: { _id: 0 } },
                 { $sort: { pid: 1 } },
                 { $limit: 20 },
+                { $project: { _id: 0 } },
                 {
                     $lookup: {
                         from: 'users',
@@ -43,7 +43,6 @@ class PostService {
                 },
                 { $unwind: "$user" },
                 { $project: {} }).toArray();
-
         } catch (e) {
             throw (e)
         }
@@ -56,46 +55,42 @@ class PostService {
             const _toPid = parseInt(toPid, 10);
             const _toTid = parseInt(toTid, 10);
 
-            if (_toPid < 0 || _toTid < 0) throw new Error('illegal postData');
             if (topicData === null && _toTid === 0) throw new Error('illegal topicData');
+            if (_toPid < 0 || _toTid < 0) throw new Error('illegal postData');
             if (_toPid > 0 && _toTid > 0) {
                 const toPidCheck = await this.postCollection.findOne({ toTid: _toTid, pid: _toPid });
                 if (!toPidCheck) throw new Error('illegal reply request')
             }
 
             let _tid = 0;
-            let _cid, _topicContent;
+            let _cid, _topicContent, _pid;
             if (topicData !== null && _toPid === 0 && _toTid === 0) {
-                const { value } = await this.globalCollection.findOneAndUpdate({ nextTid: { '$exists': 1 } }, { $inc: { nextTid: 1 } }, { returnOriginal: true, upsert: true });
-                if (!value.nextTid) throw new Error('Can not get tid from database');
+                const { value } = await this.globalCollection.findOneAndUpdate({ nextTid: { $gt: 0 } }, { $inc: { nextTid: 1, nextPid: 1 } }, { projection: { _id: 0 }, returnOriginal: true, upsert: false })
+                if (!value) throw new Error('Can not get tid from database');
                 _tid = value.nextTid;
+                _pid = value.nextPid;
                 _cid = topicData.cid;
                 _topicContent = topicData.topicContent;
             }
-            const { value } = await this.globalCollection.findOneAndUpdate({ nextPid: { '$exists': 1 } }, { $inc: { nextPid: 1 } }, { returnOriginal: true, upsert: true });
-            const pid = value.nextPid;
-            if (!pid) throw new Error('Can not get pid from database')
+            else {
+                const { value } = await this.globalCollection.findOneAndUpdate({ nextPid: { $gt: 0 } }, { $inc: { nextPid: 1 } }, { projection: { _id: 0, nextPid: 1 }, returnOriginal: true, upsert: false })
+                if (!value) throw new Error('Can not get pid from database')
+                _pid = value.nextPid;
+            }
 
             const toTidFinal = _toTid === 0 ? _tid : _toTid
-
             const date = new Date();
-            let relatedTopic, relatedPost, selfTopic;
+            let selfPost, relatedTopic, relatedPost, selfTopic;
             await Promise.all([
-                await this.postCollection.insertOne({ uid: _uid, pid: pid, toTid: toTidFinal, toPid: _toPid, postContent: postContent, postCount: 0, createdAt: date }, { upsert: true }),
-                relatedPost = _toPid > 0 ? await this.postCollection.findOneAndUpdate({ pid: _toPid }, { $inc: { postCount: 1 } }, { returnOriginal: false, upsert: true, projection: { _id: 0 } }) : null,
-                relatedTopic = _toTid > 0 ? await this.topicCollection.findOneAndUpdate({ tid: _toTid }, { $set: { lastPostTime: date }, $inc: { postCount: 1 } }, { returnOriginal: false, upsert: true, projection: { _id: 0 } }) : null,
-                selfTopic = _tid > 0 ? await this.topicCollection.insertOne({ tid: _tid, cid: _cid, uid: _uid, mainPid: pid, topicContent: _topicContent, lastPostTime: date, postCount: 0 }, { returnOriginal: false, upsert: true, projection: { _id: 0 } }) : null,
+                selfPost = await this.postCollection.insertOne({ uid: _uid, pid: _pid, toTid: toTidFinal, toPid: _toPid, postContent: postContent, postCount: 0, createdAt: date }, { projection: { _id: 0 } }),
+                selfTopic = _tid > 0 ? await this.topicCollection.insertOne({ tid: _tid, cid: _cid, uid: _uid, mainPid: _pid, topicContent: _topicContent, lastPostTime: date, postCount: 0 }, { projection: { _id: 0 } }) : null,
+                relatedPost = _toPid > 0 ? await this.postCollection.findOneAndUpdate({ pid: _toPid }, { $inc: { postCount: 1 } }, { returnOriginal: false, upsert: false, projection: { _id: 0 } }) : null,
+                relatedTopic = _toTid > 0 ? await this.topicCollection.findOneAndUpdate({ tid: _toTid }, { $set: { lastPostTime: date }, $inc: { postCount: 1 } }, { returnOriginal: false, upsert: false, projection: { _id: 0 } }) : null,
             ]);
 
             return {
-                uid: _uid,
-                pid: pid,
-                toTid: toTidFinal,
-                toPid: _toPid,
-                postContent: postContent,
-                postCount: 0,
-                createdAt: date,
-                selfTopic: selfTopic !== null ? selfTopic.value : null,
+                selfPost: selfPost.ops[0],
+                selfTopic: selfTopic !== null ? selfTopic.ops[0] : null,
                 relatedPost: relatedPost !== null ? relatedPost.value : null,
                 relatedTopic: relatedTopic !== null ? relatedTopic.value : null,
             }
@@ -111,7 +106,11 @@ class PostService {
             const _pid = parseInt(pid, 10);
             const date = new Date();
 
-            const { value } = await this.postCollection.findOneAndUpdate({ uid: _uid, pid: _pid, }, { $set: { postContent: postContent, createdAt: date } }, { returnOriginal: false, upsert: true, projection: { _id: 0 } });
+            const { value } = await this.postCollection.findOneAndUpdate(
+                { uid: _uid, pid: _pid, },
+                { $set: { postContent: postContent, createdAt: date } },
+                { returnOriginal: false, upsert: true, projection: { _id: 0 } });
+
             return value;
         } catch (e) {
             throw e;
