@@ -1,7 +1,7 @@
 'use strict'
 
-//check if the request content are in cache
-async function topicPreHook(req, res) {
+
+async function topicPreHandler(req, res) {
     try {
         const { body } = req;
         const cached = await this.cacheService.getTopicsCache(body);
@@ -11,7 +11,7 @@ async function topicPreHook(req, res) {
     }
 }
 
-async function topicPreSerialHook(req, res, payload) {
+async function topicPreSerialHandler(req, res, payload) {
     try {
         const { selfPost, selfTopic } = payload;
         if (Array.isArray(payload)) {
@@ -28,6 +28,6 @@ async function topicPreSerialHook(req, res, payload) {
 }
 
 module.exports = {
-    topicPreHook,
-    topicPreSerialHook
+    topicPreHandler,
+    topicPreSerialHandler
 }

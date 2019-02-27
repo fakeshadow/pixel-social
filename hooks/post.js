@@ -1,6 +1,6 @@
 'use strict'
 
-async function postPreHook(req, res) {
+async function postPreHandler(req, res) {
     try {
         const { body } = req;
         const cached = await this.cacheService.getPostsCache(body);
@@ -10,7 +10,7 @@ async function postPreHook(req, res) {
     }
 }
 
-async function postPreSerialHook(req, res, payload) {
+async function postPreSerialHandler(req, res, payload) {
     try {
         const { selfPost, relatedPost, relatedTopic } = payload;
         if (Array.isArray(payload)) {
@@ -29,6 +29,6 @@ async function postPreSerialHook(req, res, payload) {
 }
 
 module.exports = {
-    postPreHook,
-    postPreSerialHook
+    postPreHandler,
+    postPreSerialHandler
 }

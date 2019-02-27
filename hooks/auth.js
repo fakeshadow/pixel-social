@@ -1,6 +1,6 @@
 'use strict'
 
-exports.authPreHook = async (req, res) => {
+exports.authPreHandler = async (req, res) => {
     try {
         await req.jwtVerify()
     } catch (err) {

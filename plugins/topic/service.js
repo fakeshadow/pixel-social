@@ -6,15 +6,13 @@ class TopicService {
         this.globalCollection = globalCollection;
     }
 
-    async getTopics(cids, lastPostTime) {
+    async getTopics(cid, lastPostTime) {
         try {
             const _lastPostTime = new Date(lastPostTime);
             _lastPostTime.toISOString();
-            const _cids = await this.globalCollection.find({ cid: { $in: cids } }).toArray();
-            if (_cids.length !== cids.length) throw new Error('Wrong Categories');
 
-            return this.topicCollection.aggregate(
-                { $match: { $and: [{ cid: { $in: cids } }, { lastPostTime: { $lt: _lastPostTime } }] } },
+            return this.topicCollection.aggregate([
+                { $match: { $and: [{ cid: cid }, { lastPostTime: { $lt: _lastPostTime } }] } },
                 { $sort: { lastPostTime: -1 } },
                 { $limit: 20 },
                 { $project: { _id: 0 } },
@@ -29,8 +27,8 @@ class TopicService {
                         as: 'user'
                     }
                 },
-                { $unwind: "$user" },
-                { $project: {} }).toArray();
+                { $unwind: "$user" }
+            ]).toArray();
         } catch (e) {
             throw e
         }

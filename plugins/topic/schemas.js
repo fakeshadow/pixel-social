@@ -52,9 +52,9 @@ const topicObject = {
 const getTopics = {
     body: {
         type: 'object',
-        required: ['cids', 'lastPostTime'],
+        required: ['cid', 'lastPostTime'],
         properties: {
-            cids: { type: 'array', items: { type: 'string' } },
+            cid: { type: 'string' },
             lastPostTime: { type: 'string' },
         },
         additionalProperties: false

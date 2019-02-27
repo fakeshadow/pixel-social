@@ -12,21 +12,30 @@ exports.mapUid = arrayMap => {
     })
 }
 
-exports.alterPosts = (arrayMap, uidsDetails) => {
+exports.alterArray = (arrayMap, uidsDetails) => {
     return new Promise(resolve => {
         const result = [];
         arrayMap.forEach(index => {
             uidsDetails.forEach(detail => {
                 if (index.uid === detail.uid) {
-                    result.push({
-                        'pid': index.pid,
-                        'toTid': index.toTid,
-                        'toPid': index.toPid,
-                        'postContent': index.postContent,
-                        'postCount': index.postCount,
-                        'createdAt': index.createdAt,
-                        'user': detail
-                    });
+                    index.tid !== undefined ?
+                        result.push({
+                            'tid': index.tid,
+                            'cid': index.cid,
+                            'mainPid': index.mainPid,
+                            'topicContent': index.topicContent,
+                            'lastPostTime': index.lastPostTime,
+                            'postCount': index.postCount,
+                            'user': detail
+                        }) : result.push({
+                            'pid': index.pid,
+                            'toTid': index.toTid,
+                            'toPid': index.toPid,
+                            'postContent': index.postContent,
+                            'postCount': index.postCount,
+                            'createdAt': index.createdAt,
+                            'user': detail
+                        });
                 }
             });
         })
@@ -34,33 +43,4 @@ exports.alterPosts = (arrayMap, uidsDetails) => {
     })
 }
 
-exports.alterTopics = (arrayMap, uidsDetails) => {
-    return new Promise(resolve => {
-        const result = [];
-        arrayMap.forEach(index => {
-            uidsDetails.forEach(detail => {
-                if (index.uid === detail.uid) {
-                    result.push({
-                        'tid': index.tid,
-                        'cid': index.cid,
-                        'mainPid': index.mainPid,
-                        'topicContent': index.topicContent,
-                        'lastPostTime': index.lastPostTime,
-                        'postCount': index.postCount,
-                        'user': detail
-                    });
-                }
-            });
-        })
-        return resolve(result);
-    })
-}
-
-exports.parseCache = cache => {
-    const array = [];
-    return new Promise(resolve => {
-        cache.forEach(cache => array.push(JSON.parse(cache)))
-        resolve(array);
-    })
-}
 

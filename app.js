@@ -1,13 +1,13 @@
 'use strict'
 
+const path = require('path');
 const fastify = require('fastify')();
 const fp = require('fastify-plugin');
-const morgan = require('morgan');
 
-const { authPreHook } = require('./hooks/authHooks');
-const { userPreHook, userPreSerialHook } = require('./hooks/userHooks');
-const { postPreHook, postPreSerialHook } = require('./hooks/postHooks');
-const { topicPreHook, topicPreSerialHook } = require('./hooks/topicHooks');
+const { authPreHandler } = require('./hooks/auth');
+const { userPreHandler, userPreSerialHandler } = require('./hooks/user');
+const { postPreHandler, postPreSerialHandler } = require('./hooks/post');
+const { topicPreHandler, topicPreSerialHandler } = require('./hooks/topic');
 
 const UserService = require('./plugins/user/service');
 const PostService = require('./plugins/post/service');
@@ -17,9 +17,9 @@ const CacheService = require('./plugins/cache/service');
 
 require('dotenv').config();
 
-fastify.use(morgan('tiny'));
+fastify.use(require('morgan')('tiny'));
 
-const decorateFastifyInstance = async (fastify) => {
+const decorateFastifyInstance = async fastify => {
     const db = fastify.mongo.db
 
     const globalCollection = await db.createCollection('global')
@@ -43,16 +43,16 @@ const decorateFastifyInstance = async (fastify) => {
         .decorate('topicService', topicService)
         .decorate('fileService', fileService)
         .decorate('cacheService', cacheService)
-        .decorate('authPreHandler', authPreHook)
-        .decorate('userPreHandler', userPreHook)
-        .decorate('userPreSerialHandler', userPreSerialHook)
-        .decorate('postPreHandler', postPreHook)
-        .decorate('postPreSerialHandler', postPreSerialHook)
-        .decorate('topicPreHandler', topicPreHook)
-        .decorate('topicPreSerialHandler', topicPreSerialHook)
+        .decorate('authPreHandler', authPreHandler)
+        .decorate('userPreHandler', userPreHandler)
+        .decorate('userPreSerialHandler', userPreSerialHandler)
+        .decorate('postPreHandler', postPreHandler)
+        .decorate('postPreSerialHandler', postPreSerialHandler)
+        .decorate('topicPreHandler', topicPreHandler)
+        .decorate('topicPreSerialHandler', topicPreSerialHandler)
 }
 
-async function connectToDatabases(fastify) {
+const connectToDatabases = async fastify => {
     fastify
         .register(require('fastify-mongodb'), { url: process.env.MONGO, useNewUrlParser: true })
         .register(require('fastify-redis'), { host: process.env.REDIS_IP, port: process.env.REDIS_PORT, family: 4, password: process.env.REDIS_PASS })
@@ -61,13 +61,13 @@ async function connectToDatabases(fastify) {
 fastify
     .register(require('fastify-jwt'), { secret: process.env.JWT, algorithms: ['RS256'] })
     .register(require('fastify-multipart'))
+    .register(require('fastify-static'), { root: path.join(__dirname, 'public'), prefix: '/public/', })
     .register(fp(connectToDatabases))
     .register(fp(decorateFastifyInstance))
     .register(require('./plugins/user'), { prefix: '/api/user' })
     .register(require('./plugins/post'), { prefix: '/api/post' })
     .register(require('./plugins/topic'), { prefix: '/api/topic' })
     .register(require('./plugins/file'), { prefix: '/api/file' })
-    .register(require('./plugins/test'), { prefix: '/api/test' })
 
 const start = async () => {
     try {

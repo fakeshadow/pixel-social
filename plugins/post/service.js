@@ -25,7 +25,7 @@ class PostService {
                 throw new Error('illegal query');
             }
 
-            return this.postCollection.aggregate(
+            return this.postCollection.aggregate([
                 { $match: { $and: [query, { pid: { $gt: _lastPid } }] } },
                 { $sort: { pid: 1 } },
                 { $limit: 20 },
@@ -41,8 +41,8 @@ class PostService {
                         as: 'user'
                     }
                 },
-                { $unwind: "$user" },
-                { $project: {} }).toArray();
+                { $unwind: "$user" }
+            ]).toArray();
         } catch (e) {
             throw (e)
         }

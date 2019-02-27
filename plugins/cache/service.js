@@ -1,7 +1,7 @@
 'use strict'
 
-const { postStringify, postsStringify, topicStringify, topicsStringify, userStringify } = require('../../util/fastStringify');
-const { mapUid, alterTopics, parseCache, alterPosts } = require('../../util/sortIds');
+const { postStringify, postsStringify, topicStringify, topicsStringify, userStringify, postParse, topicParse, userParse } = require('../../util/fastJSON');
+const { mapUid, alterArray } = require('../../util/sortIds');
 
 class CacheService {
     constructor(redis) {
@@ -14,11 +14,10 @@ class CacheService {
 
     async getUserCache(request) {
         const { uid } = request;
-        const _uid = parseInt(uid, 10);
-        if (!_uid) return;
-        const cachedUser = await this.redis.zrangebyscore('users', _uid, _uid);
+        if (uid < 1) throw new Error('illegal uid')
+        const cachedUser = await this.redis.zrangebyscore('users', uid, uid);
         if (cachedUser.length) {
-            const user = await parseCache(cachedUser);
+            const user = await parseCache(userParse, cachedUser);
             return userStringify(user[0]);
         }
         return null;
@@ -26,37 +25,32 @@ class CacheService {
 
     async getPostsCache(request) {
         const { toTid, lastPid } = request;
-        const _lastPid = parseInt(lastPid, 10);
-        const _toTid = parseInt(toTid, 10);
-        if (_lastPid < 0) throw new Error('wrong page');
+        if (lastPid <= 0 || toTid <= 0) throw new Error('wrong page');
 
-        const postsCacheAll = await this.redis.zrangebyscore(`toTid:${_toTid}`, `(${_lastPid}`, '+inf');
+        const postsCacheAll = await this.redis.zrangebyscore(`toTid:${toTid}`, `(${lastPid}`, '+inf');
         const postsCache = postsCacheAll.slice(0, 20)
         if (postsCache.length > 0) {
-            const posts = await parseCache(postsCache);
+            const posts = await parseCache(postParse, postsCache);
             const uidsMap = await mapUid(posts);
-            const usersCache = await mapUsersCache(uidsMap, this.redis);
-            const users = await parseCache(usersCache);
-            const postsFinal = await alterPosts(posts, users);
+            const users = await mapAndParseUsersCache(uidsMap, this.redis);
+            const postsFinal = await alterArray(posts, users);
             return postsStringify(postsFinal);
         }
         return null;
     }
 
     async getTopicsCache(request) {
-        const { cids, lastPostTime } = request;
-        const _cid = cids[0];
+        const { cid, lastPostTime } = request;
         const timeString = new Date(lastPostTime).toISOString();
         const timeScore = Date.parse(timeString);
 
-        const topicsCacheAll = await this.redis.zrevrangebyscore(`topics:${_cid}`, `(${timeScore}`, '-inf');
+        const topicsCacheAll = await this.redis.zrevrangebyscore(`topics:${cid}`, `(${timeScore}`, '-inf');
         const topicsCache = topicsCacheAll.slice(0, 20)
-        if (topicsCache.length > 1) {
-            const topics = await parseCache(topicsCache);
+        if (topicsCache.length > 0) {
+            const topics = await parseCache(topicParse, topicsCache);
             const uidsMap = await mapUid(topics);
-            const usersCache = await mapUsersCache(uidsMap, this.redis);
-            const users = await parseCache(usersCache);
-            const topicsFinal = await alterTopics(topics, users);
+            const users = await mapAndParseUsersCache(uidsMap, this.redis);
+            const topicsFinal = await alterArray(topics, users);
             return topicsStringify(topicsFinal);
         }
         return null;
@@ -134,15 +128,23 @@ class CacheService {
 
 module.exports = CacheService;
 
-const mapUsersCache = (uidsMap, redis) => {
+const mapAndParseUsersCache = (uidsMap, redis) => {
     return new Promise(resolve => {
-        let usersCache = [];
+        const usersCache = [];
         uidsMap.forEach(async (uid, index) => {
             const user = await redis.zrangebyscore('users', uid, uid);
-            usersCache = usersCache.concat(user);
+            usersCache.push(userParse(user[0]));
             if (index === uidsMap.length - 1) {
                 return resolve(usersCache);
             }
         })
+    })
+}
+
+const parseCache = (fastParse, cache) => {
+    const array = [];
+    return new Promise(resolve => {
+        cache.forEach(cache => array.push(fastParse(cache)))
+        resolve(array);
     })
 }

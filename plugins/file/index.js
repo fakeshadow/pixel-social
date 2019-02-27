@@ -2,6 +2,7 @@
 
 module.exports = async function (fastify, opts) {
     fastify.addHook('preHandler', fastify.authPreHandler)
+    .addHook('preSerialization', fastify.userPreSerialHandler)
     fastify.post('/upload', uploadHandler)
 
     fastify.setErrorHandler((error, req, res) => {
@@ -13,6 +14,7 @@ module.exports[Symbol.for('plugin-meta')] = {
     decorators: {
         fastify: [
             'authPreHandler',
+            'userPreSerialHandler',
             'fileService'
         ]
     }
