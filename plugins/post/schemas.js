@@ -101,24 +101,6 @@ const getPosts = {
             items: postObject
         }
     }
-
-    // response: {
-    //     200: {
-    //         type: 'object',
-    //         required: ['cache', 'database'],
-    //         properties: {
-    //             cache: {
-    //                 type: 'array',
-    //                 items: rawPostObject
-    //             },
-    //             database: {
-    //                 type: 'array',
-    //                 items: postObject
-    //             },
-    //         },
-    //         additionalProperties: false
-    //     }
-    // }
 }
 
 const addPost = {

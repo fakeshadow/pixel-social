@@ -24,6 +24,7 @@ class CacheService {
     }
 
     async getPostsCache(request) {
+        // need to work on toPid posts query;
         const { toTid, lastPid } = request;
         if (lastPid <= 0 || toTid <= 0) throw new Error('wrong page');
 
