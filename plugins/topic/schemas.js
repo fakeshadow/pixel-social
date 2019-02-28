@@ -5,7 +5,8 @@ const userObject = {
     require: ['uid', 'username', 'email', 'avatar'],
     properties: {
         uid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         username: {
             type: 'string'
@@ -23,12 +24,24 @@ const userObject = {
 const rawTopicObject = {
     type: 'object',
     properties: {
-        uid: { type: 'integer' },
-        tid: { type: 'integer' },
+        uid: {
+            type: 'integer',
+            minimum: 1
+        },
+        tid: {
+            type: 'integer',
+            minimum: 1
+        },
         cid: { type: 'string' },
-        mainPid: { type: 'integer' },
+        mainPid: {
+            type: 'integer',
+            minimum: 1
+        },
         topicContent: { type: 'string' },
-        postCount: { type: 'integer' },
+        postCount: {
+            type: 'integer',
+            minimum: 0
+        },
         lastPostTime: { type: 'string' },
     },
     additionalProperties: false
@@ -38,11 +51,20 @@ const rawTopicObject = {
 const topicObject = {
     type: 'object',
     properties: {
-        tid: { type: 'integer' },
+        tid: {
+            type: 'integer',
+            minimum: 1
+        },
         cid: { type: 'string' },
-        mainPid: { type: 'integer' },
+        mainPid: {
+            type: 'integer',
+            minimum: 1
+        },
         topicContent: { type: 'string' },
-        postCount: { type: 'integer' },
+        postCount: {
+            type: 'integer',
+            minimum: 0
+        },
         lastPostTime: { type: 'string' },
         user: userObject,
     },

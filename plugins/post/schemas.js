@@ -5,7 +5,8 @@ const userObject = {
     require: ['uid', 'username', 'email', 'avatar'],
     properties: {
         uid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         username: {
             type: 'string'
@@ -25,22 +26,27 @@ const rawPostObject = {
     type: 'object',
     properties: {
         uid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         pid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         toTid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         toPid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 0
         },
         postContent: {
             type: 'string'
         },
         postCount: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 0
         },
         createdAt: {
             type: 'string'
@@ -53,19 +59,23 @@ const postObject = {
     type: 'object',
     properties: {
         pid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         toTid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         toPid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 0
         },
         postContent: {
             type: 'string'
         },
         postCount: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 0
         },
         createdAt: {
             type: 'string'
@@ -81,16 +91,20 @@ const getPosts = {
         required: ['uid', 'toTid', 'toPid', 'lastPid'],
         properties: {
             uid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0,
             },
             toTid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0,
             },
             toPid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0,
             },
             lastPid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0,
             },
         },
         additionalProperties: false
@@ -109,10 +123,12 @@ const addPost = {
         required: ['toPid', 'toTid', 'postContent'],
         properties: {
             toPid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0
             },
             toTid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 0
             },
             postContent: {
                 type: 'string',
@@ -130,7 +146,8 @@ const editPost = {
         required: ['pid', 'postContent'],
         properties: {
             pid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 1
             },
             postContent: {
                 type: 'string',

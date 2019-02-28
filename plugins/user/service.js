@@ -41,10 +41,12 @@ class UserService {
         return value;
     }
 
-    getProfile(uid) {
+    async getProfile(uid) {
         const _uid = parseInt(uid, 10);
         if (!_uid) throw new Error('Wrong uid');
-        return this.userCollection.findOne({ uid: _uid }, { projection: { _id: 0, saltedpassword: 0 } })
+        const userData = await this.userCollection.findOne({ uid: _uid }, { projection: { _id: 0, saltedpassword: 0 } })
+        if(!userData) throw new Error('No user found')
+        return userData
     }
 
     async ensureIndexes(db) {

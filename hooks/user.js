@@ -13,14 +13,15 @@ async function userPreHandler(req, res) {
 
 async function userPreSerialHandler(req, res, payload) {
     try {
+        
         // hook for update profile when user upload a new avatar
-        const { avatar } = payload;
-        const { uid } = req.user;
-        if (avatar !== undefined && avatar !== null) {
-            const userData = { avatar: avatar };
-            const payloadNew = await this.userService.updateProfile(uid, userData);
-            return this.cacheService.refreshUserCache(payloadNew);
-        }
+        // const { avatar } = payload;
+        // const { uid } = req.user;
+        // if (avatar !== undefined && avatar !== null) {
+        //     const userData = { avatar: avatar };
+        //     const payloadNew = await this.userService.updateProfile(uid, userData);
+        //     return this.cacheService.refreshUserCache(payloadNew);
+        // }
         return this.cacheService.refreshUserCache(payload);
     } catch (err) {
         res.send(err)

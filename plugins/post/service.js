@@ -55,7 +55,6 @@ class PostService {
         const _toTid = parseInt(toTid, 10);
 
         if (topicData === null && _toTid === 0) throw new Error('illegal topicData');
-        if (_toPid < 0 || _toTid < 0) throw new Error('illegal postData');
         if (_toPid > 0 && _toTid > 0) {
             const toPidCheck = await this.postCollection.findOne({ toTid: _toTid, pid: _toPid });
             if (!toPidCheck) throw new Error('illegal reply request')

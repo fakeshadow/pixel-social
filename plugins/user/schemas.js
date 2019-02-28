@@ -5,7 +5,8 @@ const userObject = {
     require: ['uid', 'username', 'email', 'avatar'],
     properties: {
         uid: {
-            type: 'integer'
+            type: 'integer',
+            minimum: 1
         },
         username: {
             type: 'string'
@@ -92,7 +93,8 @@ const getProfile = {
         required: ['uid'],
         properties: {
             uid: {
-                type: 'integer'
+                type: 'integer',
+                minimum: 1
             }
         },
         additionalProperties: false

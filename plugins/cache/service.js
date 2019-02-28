@@ -14,7 +14,6 @@ class CacheService {
 
     async getUserCache(request) {
         const { uid } = request;
-        if (uid < 1) throw new Error('illegal uid')
         const cachedUser = await this.redis.zrangebyscore('users', uid, uid);
         if (cachedUser.length) {
             const user = await parseCache(userParse, cachedUser);
@@ -26,7 +25,6 @@ class CacheService {
     async getPostsCache(request) {
         // need to work on toPid posts query;
         const { toTid, lastPid } = request;
-        if (lastPid <= 0 || toTid <= 0) throw new Error('wrong page');
 
         const postsCacheAll = await this.redis.zrangebyscore(`toTid:${toTid}`, `(${lastPid}`, '+inf');
         const postsCache = postsCacheAll.slice(0, 20)
@@ -59,11 +57,13 @@ class CacheService {
 
     addUsersCache(payload) {
         return new Promise(resolve => {
+            if (!payload.length) return resolve();
+
             payload.forEach(async data => {
                 const { user } = data;
                 const { uid } = user;
                 await this.redis.zremrangebyscore('users', uid, uid)
-                await this.redis.zadd('users', uid, userStringify(user));
+                this.redis.zadd('users', uid, userStringify(user));
             })
             return resolve();
         })
@@ -72,7 +72,7 @@ class CacheService {
 
     addPostsCache(payload) {
         return new Promise(resolve => {
-            if (!payload.length) return resolve(payload);
+            if (!payload.length) return resolve();
 
             payload.forEach(async postData => {
                 this.refreshPostCache(postData).catch(e => reject(e))
@@ -83,7 +83,7 @@ class CacheService {
 
     addTopicsCache(payload) {
         return new Promise((resolve, reject) => {
-            if (!payload.length) return resolve(payload);
+            if (!payload.length) return resolve();
 
             payload.forEach(async topicData => {
                 this.refreshTopicCache(topicData).catch(e => reject(e))
@@ -94,6 +94,7 @@ class CacheService {
 
     async refreshUserCache(payload) {
         const { uid } = payload;
+        if (!uid) return payload;
         await this.redis.zremrangebyscore('users', uid, uid);
         this.redis.zadd('users', uid, userStringify(payload));
         return payload;
@@ -106,24 +107,20 @@ class CacheService {
     }
 
     async refreshTopicCache(topicData) {
-        try {
-            const { cid, tid, lastPostTime } = topicData;
-            const timeString = new Date(lastPostTime).toISOString();
-            const timeScoreNew = Date.parse(timeString);
-            const timeScoreOld = await this.redis.zrangebyscore('topics:time', tid, tid);
-            if (timeScoreOld.length) {
-                await Promise.all([
-                    await this.redis.zremrangebyscore(`topics:${cid}`, timeScoreOld[0], timeScoreOld[0]),
-                    await this.redis.zremrangebyscore('topics:time', tid, tid),
-                ])
-            }
+        const { cid, tid, lastPostTime } = topicData;
+        const timeString = new Date(lastPostTime).toISOString();
+        const timeScoreNew = Date.parse(timeString);
+        const timeScoreOld = await this.redis.zrangebyscore('topics:time', tid, tid);
+        if (timeScoreOld.length) {
             await Promise.all([
-                await this.redis.zadd(`topics:${cid}`, timeScoreNew, topicStringify(topicData)),
-                await this.redis.zadd('topics:time', tid, timeScoreNew)
+                await this.redis.zremrangebyscore(`topics:${cid}`, timeScoreOld[0], timeScoreOld[0]),
+                await this.redis.zremrangebyscore('topics:time', tid, tid),
             ])
-        } catch (e) {
-            throw e
         }
+        await Promise.all([
+            await this.redis.zadd(`topics:${cid}`, timeScoreNew, topicStringify(topicData)),
+            await this.redis.zadd('topics:time', tid, timeScoreNew)
+        ])
     }
 }
 
