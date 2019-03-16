@@ -1,0 +1,4 @@
+.env
+.history
+node_modules
+public
