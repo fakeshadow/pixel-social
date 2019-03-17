@@ -1,10 +1,11 @@
-###**A Simple Community App backend**
+### **A Simple Community App backend**
 
-####Reuirement:
+#### Reuirement:
 `Rustup 1.33 and above`<br>
 `PostgreSQL 10 and above`<br>
 
-####Setup:
+#### Setup:
+
 
 
 

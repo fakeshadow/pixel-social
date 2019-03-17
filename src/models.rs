@@ -15,13 +15,15 @@ impl Actor for DbExecutor {
 #[derive(Debug, Serialize, Deserialize, Queryable, Insertable)]
 #[table_name = "users"]
 pub struct User {
-    pub uid:  u32,
-    pub username:  String,
-    pub email:  String,
-    pub password:  String,
-    pub avatar_url:  String,
-    pub signature:  String,
-    pub created_at:  NaiveDateTime,
+    pub uid: u32,
+    pub username: String,
+    pub email: String,
+    pub password: String,
+    pub avatar_url: String,
+    pub signature: String,
+    pub created_at: NaiveDateTime,
+    pub is_admin: bool,
+    pub blocked: bool,
 }
 
 impl User {
@@ -35,6 +37,8 @@ impl User {
             avatar_url: String::from(""),
             signature: String::from(""),
             created_at: Local::now().naive_local(),
+            is_admin: false,
+            blocked: false
         }
     }
 }

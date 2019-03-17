@@ -1,5 +1,6 @@
 use actix_web::{error::ResponseError, HttpResponse};
-use diesel::result::{DatabaseErrorKind, Error};
+use actix::MailboxError as future_err;
+use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 
 #[derive(Fail, Debug)]
 pub enum ServiceError {
@@ -8,6 +9,9 @@ pub enum ServiceError {
 
     #[fail(display = "BadRequest: {}", _0)]
     BadRequest(String),
+
+    #[fail(display = "QueryConflict: {}", _0)]
+    QueryConflict(String),
 }
 
 impl ResponseError for ServiceError {
@@ -16,15 +20,16 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => {
                 HttpResponse::InternalServerError().json("Internal Server Error")
             }
-            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(message)
+            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(message),
+            ServiceError::QueryConflict(ref message) => HttpResponse::Forbidden().json(message),
         }
     }
 }
 
-impl From<Error> for ServiceError {
-    fn from(error: Error) -> ServiceError {
+impl From<diesel_err> for ServiceError {
+    fn from(error: diesel_err) -> ServiceError {
         match error {
-            Error::DatabaseError(kind, info) => {
+            diesel_err::DatabaseError(kind, info) => {
                 if let DatabaseErrorKind::UniqueViolation = kind {
                     let message = info.details().unwrap_or_else(|| info.message()).to_string();
                     return ServiceError::BadRequest(message);
@@ -33,5 +38,12 @@ impl From<Error> for ServiceError {
             }
             _ => ServiceError::InternalServerError
         }
+    }
+}
+
+impl From<future_err> for ServiceError {
+    fn from(error: future_err) -> ServiceError {
+        // need to improve error handling here
+        ServiceError::InternalServerError
     }
 }

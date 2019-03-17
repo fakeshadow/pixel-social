@@ -1,1 +1,1 @@
-pub mod initIds;
+pub mod init_ids;

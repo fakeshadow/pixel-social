@@ -8,6 +8,7 @@ extern crate dotenv;
 extern crate futures;
 extern crate r2d2;
 extern crate uuid;
+
 #[macro_use]
 extern crate diesel;
 #[macro_use]
@@ -33,7 +34,7 @@ mod router;
 mod ulti;
 mod schema;
 
-use ulti::initIds::init;
+use ulti::init_ids::init;
 
 fn main() {
     dotenv().ok();
@@ -42,16 +43,11 @@ fn main() {
     let sys = actix::System::new("PixelShare");
 
     // search database and find the largest uid,pid,tid and then populate the app state with them.
-    let nextIds = init(&database_url);
+    let next_ids = init(&database_url);
 
-    let next_uid = Arc::new(Mutex::new(nextIds[0]));
-
-    let next_pid = Arc::new(Mutex::new(1));
-    let next_tid = Arc::new(Mutex::new(1));
-
-
-
-    println!("{:?}",nextIds);
+    let next_uid = Arc::new(Mutex::new(next_ids[0]));
+    let next_pid = Arc::new(Mutex::new(next_ids[1]));
+    let next_tid = Arc::new(Mutex::new(next_ids[2]));
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = r2d2::Pool::builder()
