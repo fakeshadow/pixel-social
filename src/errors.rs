@@ -6,22 +6,33 @@ use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 pub enum ServiceError {
     #[fail(display = "Internal Server Error")]
     InternalServerError,
-
     #[fail(display = "BadRequest: {}", _0)]
     BadRequest(String),
-
-    #[fail(display = "QueryConflict: {}", _0)]
-    QueryConflict(String),
+    #[fail(display = "BadRequest")]
+    FutureError,
+    #[fail(display = "BadRequest")]
+    ArcLockError,
+    #[fail(display = "Forbidden")]
+    UsernameTaken,
+    #[fail(display = "Forbidden")]
+    EmailTaken,
+    #[fail(display = "BadRequest")]
+    NoUser,
+    #[fail(display = "Forbidden")]
+    WrongPwd,
 }
 
 impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match *self {
-            ServiceError::InternalServerError => {
-                HttpResponse::InternalServerError().json("Internal Server Error")
-            }
+            ServiceError::InternalServerError => HttpResponse::InternalServerError().json("Internal Server Error"),
             ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(message),
-            ServiceError::QueryConflict(ref message) => HttpResponse::Forbidden().json(message),
+            ServiceError::FutureError => HttpResponse::BadRequest().json("Async error need more work"),
+            ServiceError::ArcLockError => HttpResponse::BadRequest().json("Maybe Server is too busy"),
+            ServiceError::UsernameTaken => HttpResponse::Forbidden().json("Username Taken"),
+            ServiceError::EmailTaken => HttpResponse::Forbidden().json("Email already registered"),
+            ServiceError::NoUser => HttpResponse::BadRequest().json("No user found"),
+            ServiceError::WrongPwd => HttpResponse::Forbidden().json("Password is wrong"),
         }
     }
 }
@@ -44,6 +55,9 @@ impl From<diesel_err> for ServiceError {
 impl From<future_err> for ServiceError {
     fn from(error: future_err) -> ServiceError {
         // need to improve error handling here
-        ServiceError::InternalServerError
+        match error {
+            future_err::Timeout => ServiceError::FutureError,
+            future_err::Closed => ServiceError::FutureError
+        }
     }
 }

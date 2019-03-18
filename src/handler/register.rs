@@ -1,42 +1,21 @@
 use actix::{Handler, Message};
 use diesel::prelude::*;
-use bcrypt::verify;
-use actix_web::{FromRequest, HttpRequest, middleware::identity::RequestIdentity};
 
 use crate::errors::ServiceError;
-use crate::models::{DbExecutor, User};
-
-use crate::schema::{
-    users::{columns::username, columns::email, dsl::users},
+use crate::model::{
+    user::{User, RegisterCheck, RegisterData},
+    db::DbExecutor,
 };
 
-#[derive(Debug, Deserialize)]
-pub struct IncomingRegister {
-    pub username: String,
-    pub password: String,
-    pub email: String,
-}
-
-#[derive(Debug)]
-pub struct RegisterData {
-    pub uid: u32,
-    pub username: String,
-    pub password: String,
-    pub email: String,
-}
-
-#[derive(Debug)]
-pub struct RegisterCheck {
-    pub username: String,
-    pub email: String,
-}
+use crate::schema::users::dsl::*;
+use crate::util::hash;
 
 impl Message for RegisterData {
     type Result = Result<(), ServiceError>;
 }
 
 impl Message for RegisterCheck {
-    type Result = Result<bool, ServiceError>;
+    type Result = Result<(), ServiceError>;
 }
 
 impl Handler<RegisterData> for DbExecutor {
@@ -45,8 +24,8 @@ impl Handler<RegisterData> for DbExecutor {
     fn handle(&mut self, msg: RegisterData, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
 
-//        let password: String = hash_password(&msg.password)?;
-        let user = User::create(msg.uid, msg.username, msg.email, msg.password);
+        let password_hash: String = hash::hash_password(&msg.password)?;
+        let user = User::create(msg.uid, msg.username, msg.email, password_hash);
 
         diesel::insert_into(users)
             .values(&user)
@@ -56,20 +35,26 @@ impl Handler<RegisterData> for DbExecutor {
 }
 
 impl Handler<RegisterCheck> for DbExecutor {
-    type Result = Result<bool, ServiceError>;
+    type Result = Result<(), ServiceError>;
 
     fn handle(&mut self, msg: RegisterCheck, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
 
-        let exist_user = users
+        let exist_user: Vec<(String, String)> = users
             .select((username, email))
-            .filter(username.eq(msg.username))
-            .or_filter(email.eq(msg.email))
-            .execute(conn)?;
-        if exist_user > 0 {
-            Err(ServiceError::QueryConflict(String::from("username or email taken")))
+            .filter(username.eq(&msg.username))
+            .or_filter(email.eq(&msg.email))
+            .load(conn)?;
+
+        if exist_user.len() == 0 {
+            Ok(())
         } else {
-            Ok(true)
+            let (exist_username, _) = &exist_user[0];
+            if exist_username == &msg.username {
+                Err(ServiceError::UsernameTaken)
+            } else {
+                Err(ServiceError::EmailTaken)
+            }
         }
     }
 }
