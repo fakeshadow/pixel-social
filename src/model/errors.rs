@@ -11,28 +11,31 @@ pub enum ServiceError {
     #[fail(display = "BadRequest")]
     FutureError,
     #[fail(display = "BadRequest")]
-    ArcLockError,
-    #[fail(display = "Forbidden")]
     UsernameTaken,
-    #[fail(display = "Forbidden")]
+    #[fail(display = "BadRequest")]
     EmailTaken,
     #[fail(display = "BadRequest")]
     NoUser,
     #[fail(display = "Forbidden")]
     WrongPwd,
+    #[fail(display = "Forbidden")]
+    Unauthorized,
+    #[fail(display = "Forbidden")]
+    AuthTimeout
 }
 
 impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match *self {
-            ServiceError::InternalServerError => HttpResponse::InternalServerError().json("Internal Server Error"),
-            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(message),
-            ServiceError::FutureError => HttpResponse::BadRequest().json("Async error need more work"),
-            ServiceError::ArcLockError => HttpResponse::BadRequest().json("Maybe Server is too busy"),
-            ServiceError::UsernameTaken => HttpResponse::Forbidden().json("Username Taken"),
-            ServiceError::EmailTaken => HttpResponse::Forbidden().json("Email already registered"),
-            ServiceError::NoUser => HttpResponse::BadRequest().json("No user found"),
-            ServiceError::WrongPwd => HttpResponse::Forbidden().json("Password is wrong"),
+            ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
+            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
+            ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
+            ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
+            ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
+            ServiceError::NoUser => HttpResponse::BadRequest().json(ErrorMessage::new("No user found")),
+            ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
+            ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
+            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again"))
         }
     }
 }
@@ -58,6 +61,19 @@ impl From<future_err> for ServiceError {
         match error {
             future_err::Timeout => ServiceError::FutureError,
             future_err::Closed => ServiceError::FutureError
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorMessage<'a> {
+    error: &'a str,
+}
+
+impl<'a> ErrorMessage<'a> {
+    fn new(msg: &'a str) -> Self {
+        ErrorMessage {
+            error: msg
         }
     }
 }

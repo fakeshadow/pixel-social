@@ -1,21 +1,37 @@
-use frank_jwt::{Algorithm, encode, Error};
-use chrono::{NaiveDateTime, Local};
+use std::env;
 
-#[derive(Debug, Serialize)]
-pub struct JwtPayLoad<'a> {
-    pub iat: NaiveDateTime,
-    pub uid: &'a u32,
+use jsonwebtoken::{encode, decode, Header, Validation};
+use chrono::{Local, Duration};
+
+use crate::model::errors::ServiceError;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JwtPayLoad {
+    pub iat: i64,
+    pub exp: i64,
+    pub uid: i32,
 }
 
-impl<'a> JwtPayLoad<'a> {
-    pub fn new(uid: &'a u32) -> Self {
+impl JwtPayLoad {
+    pub fn new(uid: i32) -> Self {
         JwtPayLoad {
-            iat: Local::now().naive_local(),
+            iat: Local::now().timestamp(),
+            exp: (Local::now() + Duration::days(30)).timestamp(),
             uid,
         }
     }
-    pub fn sign(&self) -> Result<String, Error> {
-        let secret = String::from("123456");
-        encode(json!({}), &secret, &json!(self), Algorithm::HS256)
+    pub fn decode(token: &str) -> Result<JwtPayLoad, ServiceError> {
+        decode::<JwtPayLoad>(token, get_secret().as_ref(), &Validation::default())
+            .map(|data| Ok(data.claims.into()))
+            .map_err(|_err| ServiceError::Unauthorized)?
     }
+
+    pub fn sign(&self) -> Result<String, ServiceError> {
+        encode(&Header::default(), &self, get_secret().as_ref())
+            .map_err(|_err| ServiceError::InternalServerError)
+    }
+}
+
+fn get_secret() -> String {
+    env::var("JWT_SECRET").unwrap_or_else(|_| "fallback secret".into())
 }

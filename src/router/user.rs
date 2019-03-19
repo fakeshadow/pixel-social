@@ -1,92 +1,70 @@
-use actix_web::{
-    AsyncResponder,
-    FutureResponse,
-    HttpResponse,
-    ResponseError,
-    State,
-    Json};
+use actix_web::{AsyncResponder, FutureResponse, HttpResponse, ResponseError, State, Json, Path};
 
-use futures::{
-    future::{
-        err as future_error,
-        result as future_result,
-        ok as future_ok,
-    },
-    Future,
-};
+use futures::Future;
 
 use crate::app::AppState;
+use crate::model::response::Response;
+use crate::model::user::{UserQuery, RegisterRequest, LoginRequest};
+use crate::handler::auth::UserJwt;
 
-use crate::model::user::{
-    LoginData,
-    RegisterData,
-    RegisterCheck,
-    IncomingRegister,
-};
-
-use crate::errors::ServiceError;
-
-pub fn register_user((incoming_register, state): (Json<IncomingRegister>, State<AppState>))
+pub fn register_user((register_request, state): (Json<RegisterRequest>, State<AppState>))
                      -> FutureResponse<HttpResponse> {
-    let register_check = register_check(&incoming_register, &state).wait();
-    match register_check {
-        Err(service_error) => Box::new(future_result(Ok(service_error.error_response()))),
-        Ok(_) => {
-            let uid: u32;
-            let guard = state.next_ids.next_uid.lock();
-            match guard {
-                Ok(mut mutex_guard) => {
-                    uid = *mutex_guard;
-                    *mutex_guard += 1;
-                }
-                Err(_) => return Box::new(future_result(Ok(ServiceError::ArcLockError.error_response())))
-            }
-
-            let register_data = RegisterData {
-                uid,
-                username: incoming_register.username.clone(),
-                email: incoming_register.email.clone(),
-                password: incoming_register.password.clone(),
-            };
-
-            state.db.send(register_data)
-                .from_err()
-                .and_then(|db_response| match db_response {
-                    Ok(_) => Ok(HttpResponse::Ok().json("Register Success")),
-                    Err(service_error) => Ok(service_error.error_response()),
-                })
-                .responder()
-        }
-    }
-}
-
-pub fn login_user((incoming_login, state): (Json<LoginData>, State<AppState>))
-                  -> FutureResponse<HttpResponse> {
-    let login_data = LoginData {
-        username: incoming_login.username.clone(),
-        password: incoming_login.password.clone(),
-    };
-
     state.db
-        .send(login_data)
+        .send(UserQuery::Register(RegisterRequest {
+            username: register_request.username.clone(),
+            email: register_request.email.clone(),
+            password: register_request.password.clone(),
+        }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(logged_in_response_data) => Ok(HttpResponse::Ok().json(logged_in_response_data)),
+            Ok(_) => Ok(Response::RegisterSuccess(true).response()),
             Err(service_error) => Ok(service_error.error_response()),
         })
         .responder()
 }
 
-fn register_check(incoming_register: &Json<IncomingRegister>, state: &State<AppState>) -> impl Future<Item=(), Error=ServiceError> {
-    let register_check = RegisterCheck {
-        username: incoming_register.username.clone(),
-        email: incoming_register.email.clone(),
-    };
+pub fn login_user((login_request, state): (Json<LoginRequest>, State<AppState>))
+                  -> FutureResponse<HttpResponse> {
     state.db
-        .send(register_check)
+        .send(UserQuery::Login(LoginRequest {
+            username: login_request.username.clone(),
+            password: login_request.password.clone(),
+        }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => future_ok(()),
-            Err(service_error) => future_error(service_error)
+            Ok(query_result) => {
+                match query_result.to_login_data() {
+                    Some(login_data) => Ok(Response::LoginSuccess(login_data).response()),
+                    None => Ok(Response::ToError(true).response())
+                }
+            },
+            Err(service_error) => Ok(service_error.error_response()),
         })
+        .responder()
+}
+
+pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppState>))
+                -> FutureResponse<HttpResponse> {
+    // add check username here
+
+    let name = username.to_string();
+    let message = if &name == "me" {
+        UserQuery::GetMe(user_jwt.uid)
+    } else {
+        UserQuery::GetUser(name)
+    };
+
+    state.db
+        .send(message)
+        .from_err()
+        .and_then(|db_response| match db_response {
+            Ok(query_result) => {
+                match query_result.to_user_data() {
+                    None => Ok(Response::ToError(true).response()),
+                    Some(user_data) => Ok(Response::GetUserSuccess(user_data).response())
+                }
+            },
+            Err(service_error) => Ok(service_error.error_response()),
+        })
+        .responder()
 }

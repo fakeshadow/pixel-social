@@ -7,17 +7,14 @@ extern crate chrono;
 extern crate dotenv;
 extern crate futures;
 extern crate r2d2;
-extern crate frank_jwt;
+extern crate jsonwebtoken;
 
-#[macro_use]
-extern crate serde_json;
 #[macro_use]
 extern crate diesel;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate failure;
-
 
 use actix::prelude::*;
 use actix_web::server;
@@ -27,24 +24,23 @@ use std::env;
 
 mod app;
 mod model;
-mod errors;
 mod handler;
 mod router;
 mod util;
 mod schema;
 
 use model::db::DbExecutor;
-use util::init_ids::init;
 
 fn main() {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let sys = actix::System::new("PixelShare");
+    let server_ip_port = match env::var("SERVER_IP_PORT") {
+        Ok(ip_port) => ip_port,
+        _ => String::from("127.0.0.1:3100")
+    };
 
-    // search database and find the largest uid,pid,tid and then populate the app state with them.
-    let next_ids_vec = init(&database_url);
-    let next_ids_struct = app::NextIds::create(next_ids_vec);
+    let sys = actix::System::new("PixelShare");
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = r2d2::Pool::builder()
@@ -53,10 +49,10 @@ fn main() {
 
     let address :Addr<DbExecutor>  = SyncArbiter::start(4, move || DbExecutor(pool.clone()));
 
-    server::new(move || app::create_app(address.clone(), next_ids_struct.clone()))
+    server::new(move || app::create_app(address.clone()))
         .workers(4)
-        .bind("127.0.0.1:3100")
-        .expect("Can not bind to '127.0.0.1:3100'")
+        .bind(server_ip_port)
+        .expect("Can not bind to target IP/Port")
         .start();
 
     sys.run();

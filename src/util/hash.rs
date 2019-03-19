@@ -1,7 +1,7 @@
 use std::env;
 use bcrypt::{hash, verify, DEFAULT_COST};
 
-use crate::errors::ServiceError;
+use crate::model::errors::ServiceError;
 
 pub fn hash_password(password: &str) -> Result<String, ServiceError> {
     let hash_cost: u32 = match env::var("HASH_ROUNDS") {
@@ -20,6 +20,6 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<(), Servic
                 Err(ServiceError::WrongPwd)
             }
         }
-        _ => Err(ServiceError::WrongPwd)
+        _ => Err(ServiceError::InternalServerError)
     }
 }
