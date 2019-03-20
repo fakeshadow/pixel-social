@@ -75,6 +75,31 @@ impl Handler<UserQuery> for DbExecutor {
                     None => Err(ServiceError::NotFound)
                 }
             }
+            UserQuery::UpdateUser(update_request) => {
+                let user_id = update_request.id.unwrap_or(-1);
+                let user_old = users.find(&user_id).first::<User>(conn)?;
+                match update_request.update_user_data(user_old) {
+                    Ok(user_new) => {
+                        let updated_user =
+                            diesel::update(
+                                users.filter(id.eq(&user_id)))
+                                .set((username.eq(&user_new.username), avatar_url.eq(&user_new.avatar_url), signature.eq(&user_new.signature)))
+                                .get_result(conn)?;
+                        Ok(UserQueryResult::GotUser(updated_user))
+                    }
+                    Err(_) => Err(ServiceError::InternalServerError)
+                }
+
+//                match update_request.update_user_data(exist_user) {
+//                    Ok(new_user) => {
+//                        diesel::insert_into(users)
+//                            .values(&new_user)
+//                            .execute(conn)?;
+//                        Ok(UserQueryResult::Updated)
+//                    }
+//                    Err(_) => Err(ServiceError::InternalServerError)
+//                }
+            }
         }
     }
 }

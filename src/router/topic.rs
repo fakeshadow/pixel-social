@@ -10,8 +10,10 @@ pub fn add_topic((topic_request, state, user_jwt): (Json<TopicRequest>, State<Ap
     state.db
         .send(TopicQuery::AddTopic(NewTopic {
             user_id: user_jwt.user_id.clone(),
-            title_content: topic_request.title_content.clone(),
-            post_content: topic_request.post_content.clone(),
+            category_id: topic_request.category_id.clone(),
+            thumbnail: topic_request.thumbnail.clone(),
+            title: topic_request.title.clone(),
+            body: topic_request.body.clone(),
         }))
         .from_err()
         .and_then(|db_response| match db_response {

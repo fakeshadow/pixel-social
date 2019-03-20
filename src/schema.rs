@@ -1,4 +1,12 @@
 table! {
+    categories (id) {
+        id -> Int4,
+        name -> Varchar,
+        theme -> Varchar,
+    }
+}
+
+table! {
     posts (id) {
         id -> Int4,
         user_id -> Int4,
@@ -14,8 +22,10 @@ table! {
     topics (id) {
         id -> Int4,
         user_id -> Int4,
-        title_content -> Varchar,
-        post_content -> Varchar,
+        category_id -> Int4,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
     }
@@ -38,9 +48,11 @@ table! {
 
 joinable!(posts -> topics (to_tid));
 joinable!(posts -> users (user_id));
+joinable!(topics -> categories (category_id));
 joinable!(topics -> users (user_id));
 
 allow_tables_to_appear_in_same_query!(
+    categories,
     posts,
     topics,
     users,

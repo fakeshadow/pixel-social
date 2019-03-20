@@ -26,7 +26,7 @@ impl<T> Response<T>
 
             Response::ToError(_) => HttpResponse::BadRequest().finish(),
 
-            _ => HttpResponse::Ok().finish()
+//            _ => HttpResponse::Ok().finish()
         }
     }
 }

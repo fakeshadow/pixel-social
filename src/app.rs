@@ -14,11 +14,14 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
         .middleware(middleware::Logger::new("\"%r\" %s %b %Dms"))
         .scope("/user", |api| {
             api
-                .resource("/register", |r| {
+                .resource("/register/", |r| {
                     r.method(Method::POST).with(user::register_user);
                 })
-                .resource("/login", |r| {
+                .resource("/login/", |r| {
                     r.method(Method::POST).with(user::login_user);
+                })
+                .resource("/update/", |r| {
+                    r.method(Method::POST).with(user::update_user);
                 })
                 .resource("/{username}", |r| {
                     r.method(Method::GET).with(user::get_user);

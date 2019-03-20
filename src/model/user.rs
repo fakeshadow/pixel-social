@@ -1,4 +1,5 @@
 use actix::Message;
+use actix_web::Json;
 use chrono::NaiveDateTime;
 use crate::schema::users;
 
@@ -59,11 +60,44 @@ pub struct LoginData {
     pub user_data: SlimUser,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateRequest {
+    pub id: Option<i32>,
+    pub username: Option<String>,
+    pub avatar_url: Option<String>,
+    pub signature: Option<String>,
+}
+
+impl UpdateRequest {
+    pub fn new(raw_request: Json<UpdateRequest>, user_id: i32) -> UpdateRequest {
+        UpdateRequest {
+            id: Some(user_id),
+            username: raw_request.username.clone(),
+            avatar_url: raw_request.avatar_url.clone(),
+            signature: raw_request.signature.clone(),
+        }
+    }
+
+    pub fn update_user_data(self, mut user: User) -> Result<User, ()> {
+        if let Some(new_username) = self.username {
+            user.username = new_username
+        };
+        if let Some(new_avatar_url) = self.avatar_url {
+            user.avatar_url = new_avatar_url
+        };
+        if let Some(new_signature) = self.signature {
+            user.signature = new_signature
+        };
+        Ok(user)
+    }
+}
+
 pub enum UserQuery {
     Register(RegisterRequest),
     Login(LoginRequest),
     GetMe(i32),
     GetUser(String),
+    UpdateUser(UpdateRequest),
 }
 
 impl Message for UserQuery {
@@ -73,7 +107,7 @@ impl Message for UserQuery {
 pub enum UserQueryResult {
     Registered,
     LoggedIn(LoginData),
-    GotUser(User),
+    GotUser(User)
 }
 
 impl UserQueryResult {
@@ -97,7 +131,7 @@ impl<'a> User {
             username,
             email,
             hashed_password,
-            // change to default avatar url later
+// change to default avatar url later
             avatar_url: String::from(""),
             signature: String::from(""),
         }

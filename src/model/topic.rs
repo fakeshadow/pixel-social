@@ -8,8 +8,10 @@ use crate::model::errors::ServiceError;
 pub struct Topic {
     pub id: i32,
     pub user_id: i32,
-    pub title_content: String,
-    pub post_content: String,
+    pub category_id: i32,
+    pub title: String,
+    pub body: String,
+    pub thumbnail: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -18,14 +20,18 @@ pub struct Topic {
 #[table_name = "topics"]
 pub struct NewTopic {
     pub user_id: i32,
-    pub title_content: String,
-    pub post_content: String,
+    pub category_id: i32,
+    pub thumbnail: String,
+    pub title: String,
+    pub body: String,
 }
 
 #[derive(Deserialize)]
 pub struct TopicRequest {
-    pub title_content: String,
-    pub post_content: String,
+    pub category_id: i32,
+    pub thumbnail: String,
+    pub title: String,
+    pub body: String,
 }
 
 impl Message for TopicQuery {
