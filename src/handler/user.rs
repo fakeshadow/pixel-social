@@ -46,7 +46,7 @@ impl Handler<UserQuery> for DbExecutor {
                     Some(user) => {
                         match hash::verify_password(&login_request.password, &user.hashed_password) {
                             Ok(_) => {
-                                let token = match jwt::JwtPayLoad::new(user.uid).sign() {
+                                let token = match jwt::JwtPayLoad::new(user.id).sign() {
                                     Ok(jwt_token) => jwt_token,
                                     Err(service_error) => return Err(service_error)
                                 };
@@ -58,21 +58,21 @@ impl Handler<UserQuery> for DbExecutor {
                             Err(service_error) => Err(service_error)
                         }
                     }
-                    None => Err(ServiceError::NoUser)
+                    None => Err(ServiceError::NotFound)
                 }
             }
-            UserQuery::GetMe(my_uid) => {
-                let user: Option<User> = users.filter(&uid.eq(&my_uid)).load::<User>(conn)?.pop();
+            UserQuery::GetMe(my_id) => {
+                let user: Option<User> = users.filter(&id.eq(&my_id)).load::<User>(conn)?.pop();
                 match user {
                     Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
-                    None => Err(ServiceError::NoUser)
+                    None => Err(ServiceError::NotFound)
                 }
             }
             UserQuery::GetUser(other_username) => {
                 let user: Option<User> = users.filter(&username.eq(&other_username)).load::<User>(conn)?.pop();
                 match user {
                     Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
-                    None => Err(ServiceError::NoUser)
+                    None => Err(ServiceError::NotFound)
                 }
             }
         }

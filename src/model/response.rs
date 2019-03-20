@@ -2,10 +2,13 @@ use actix_web::HttpResponse;
 use serde::Serialize;
 
 pub enum Response<T> {
-    LoginSuccess(T),
-    GetUserSuccess(T),
-    RegisterSuccess(T),
-    PostSuccess(T),
+    GetUser(T),
+    GetPost(T),
+    GetTopic(T),
+    Register(T),
+    Login(T),
+    Topic(T),
+    Post(T),
     ToError(T)
 }
 
@@ -13,10 +16,13 @@ impl<T> Response<T>
     where T: Serialize {
     pub fn response(&self) -> HttpResponse {
         match &self {
-            Response::LoginSuccess(t) => HttpResponse::Ok().json(t),
-            Response::GetUserSuccess(r) => HttpResponse::Ok().json(r),
-            Response::RegisterSuccess(_) => HttpResponse::Ok().json(GeneralResponse::new("Register Success")),
-            Response::PostSuccess(_) => HttpResponse::Ok().json(GeneralResponse::new("Add Post Success")),
+            Response::Login(t) => HttpResponse::Ok().json(t),
+            Response::GetUser(r) => HttpResponse::Ok().json(r),
+            Response::GetPost(r) => HttpResponse::Ok().json(r),
+            Response::GetTopic(r) => HttpResponse::Ok().json(r),
+            Response::Register(_) => HttpResponse::Ok().json(GeneralResponse::new("Register Success")),
+            Response::Post(_) => HttpResponse::Ok().json(GeneralResponse::new("Add Post Success")),
+            Response::Topic(_) => HttpResponse::Ok().json(GeneralResponse::new("Add Topic Success")),
 
             Response::ToError(_) => HttpResponse::BadRequest().finish(),
 

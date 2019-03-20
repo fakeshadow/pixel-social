@@ -1,9 +1,9 @@
 table! {
-    posts (pid) {
-        pid -> Int4,
-        uid -> Int4,
+    posts (id) {
+        id -> Int4,
+        user_id -> Int4,
         to_tid -> Int4,
-        to_pid -> Nullable<Int4>,
+        to_pid -> Int4,
         post_content -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -11,9 +11,9 @@ table! {
 }
 
 table! {
-    topics (tid) {
-        tid -> Int4,
-        uid -> Int4,
+    topics (id) {
+        id -> Int4,
+        user_id -> Int4,
         title_content -> Varchar,
         post_content -> Varchar,
         created_at -> Timestamp,
@@ -22,8 +22,8 @@ table! {
 }
 
 table! {
-    users (uid) {
-        uid -> Int4,
+    users (id) {
+        id -> Int4,
         username -> Varchar,
         email -> Varchar,
         hashed_password -> Varchar,
@@ -37,8 +37,8 @@ table! {
 }
 
 joinable!(posts -> topics (to_tid));
-joinable!(posts -> users (uid));
-joinable!(topics -> users (uid));
+joinable!(posts -> users (user_id));
+joinable!(topics -> users (user_id));
 
 allow_tables_to_appear_in_same_query!(
     posts,

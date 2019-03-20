@@ -9,15 +9,15 @@ use crate::model::errors::ServiceError;
 pub struct JwtPayLoad {
     pub iat: i64,
     pub exp: i64,
-    pub uid: i32,
+    pub user_id: i32,
 }
 
 impl JwtPayLoad {
-    pub fn new(uid: i32) -> Self {
+    pub fn new(user_id: i32) -> Self {
         JwtPayLoad {
             iat: Local::now().timestamp(),
             exp: (Local::now() + Duration::days(30)).timestamp(),
-            uid,
+            user_id,
         }
     }
     pub fn decode(token: &str) -> Result<JwtPayLoad, ServiceError> {

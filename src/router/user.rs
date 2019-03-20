@@ -17,7 +17,7 @@ pub fn register_user((register_request, state): (Json<RegisterRequest>, State<Ap
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::RegisterSuccess(true).response()),
+            Ok(_) => Ok(Response::Register(true).response()),
             Err(service_error) => Ok(service_error.error_response()),
         })
         .responder()
@@ -34,7 +34,7 @@ pub fn login_user((login_request, state): (Json<LoginRequest>, State<AppState>))
         .and_then(|db_response| match db_response {
             Ok(query_result) => {
                 match query_result.to_login_data() {
-                    Some(login_data) => Ok(Response::LoginSuccess(login_data).response()),
+                    Some(login_data) => Ok(Response::Login(login_data).response()),
                     None => Ok(Response::ToError(true).response())
                 }
             },
@@ -49,7 +49,7 @@ pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppSt
 
     let name = username.to_string();
     let message = if &name == "me" {
-        UserQuery::GetMe(user_jwt.uid)
+        UserQuery::GetMe(user_jwt.user_id)
     } else {
         UserQuery::GetUser(name)
     };
@@ -61,7 +61,7 @@ pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppSt
             Ok(query_result) => {
                 match query_result.to_user_data() {
                     None => Ok(Response::ToError(true).response()),
-                    Some(user_data) => Ok(Response::GetUserSuccess(user_data).response())
+                    Some(user_data) => Ok(Response::GetUser(user_data).response())
                 }
             },
             Err(service_error) => Ok(service_error.error_response()),

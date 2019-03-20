@@ -15,7 +15,7 @@ pub enum ServiceError {
     #[fail(display = "BadRequest")]
     EmailTaken,
     #[fail(display = "BadRequest")]
-    NoUser,
+    NotFound,
     #[fail(display = "Forbidden")]
     WrongPwd,
     #[fail(display = "Forbidden")]
@@ -32,7 +32,7 @@ impl ResponseError for ServiceError {
             ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
             ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
-            ServiceError::NoUser => HttpResponse::BadRequest().json(ErrorMessage::new("No user found")),
+            ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again"))

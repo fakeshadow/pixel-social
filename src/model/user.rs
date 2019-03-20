@@ -1,5 +1,3 @@
-use std::convert::From;
-
 use actix::Message;
 use chrono::NaiveDateTime;
 use crate::schema::users;
@@ -9,7 +7,7 @@ use crate::model::errors::ServiceError;
 #[derive(Debug, Serialize, Deserialize, Queryable, Insertable)]
 #[table_name = "users"]
 pub struct User {
-    pub uid: i32,
+    pub id: i32,
     pub username: String,
     pub email: String,
     pub hashed_password: String,
@@ -23,7 +21,7 @@ pub struct User {
 
 #[derive(Debug, Serialize)]
 pub struct SlimUser {
-    pub uid: i32,
+    pub id: i32,
     pub username: String,
     pub email: String,
     pub avatar_url: String,
@@ -106,7 +104,7 @@ impl<'a> User {
     }
     pub fn slim(self) -> SlimUser {
         SlimUser {
-            uid: self.uid,
+            id: self.id,
             username: self.username,
             email: self.email,
             avatar_url: self.avatar_url,
