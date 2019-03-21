@@ -4,7 +4,7 @@ use crate::schema::categories;
 use crate::model::errors::ServiceError;
 use crate::model::topic::Topic;
 
-#[derive(Identifiable, Queryable,Serialize)]
+#[derive(Identifiable, Queryable, Serialize)]
 #[table_name = "categories"]
 pub struct Category {
     pub id: i32,
@@ -12,39 +12,36 @@ pub struct Category {
     pub theme: String,
 }
 
+
 #[derive(Deserialize)]
 pub struct CategoryRequest {
-    pub categories: Vec<i32>,
-    pub page: u32,
+    pub categories: Option<Vec<i32>>,
+    /// 0 add category, 1 modify category, 2 delete category
+    pub modify_type: Option<u32>,
+    pub category_id: Option<i32>,
+    pub category_data: Option<CategoryData>,
+    pub page: Option<i32>,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, Deserialize, Clone)]
 #[table_name = "categories"]
-pub struct NewCategory<'a> {
-    pub name: &'a str,
-    pub theme: &'a str,
-}
-
-impl<'a> Category {
-    fn new(name: &'a str, theme: &'a str) -> NewCategory<'a> {
-        NewCategory {
-            name,
-            theme,
-        }
-    }
+pub struct CategoryData {
+    pub name: String,
+    pub theme: String,
 }
 
 pub enum CategoryQuery {
     GetAllCategories,
     GetPopular(u32),
     GetCategory(CategoryRequest),
-    AddCategory(CategoryRequest),
+    ModifyCategory(CategoryRequest),
 }
 
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
     GotTopics(Vec<Topic>),
     AddedCategory,
+    ModifiedCategory,
 }
 
 impl Message for CategoryQuery {

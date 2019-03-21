@@ -44,8 +44,11 @@ pub fn get_category((category_query, state, ): (Path<(u32, u32)>, State<AppState
     let (category_id, page) = category_query.into_inner();
     state.db
         .send(CategoryQuery::GetCategory(CategoryRequest {
-            categories: vec![category_id as i32],
-            page,
+            categories: Some(vec![category_id as i32]),
+            modify_type: None,
+            category_id: None,
+            category_data: None,
+            page: Some(page as i32),
         }))
         .from_err()
         .and_then(|db_response| match db_response {
@@ -65,6 +68,9 @@ pub fn get_categories((category_request, state, _): (Json<CategoryRequest>, Stat
     state.db
         .send(CategoryQuery::GetCategory(CategoryRequest {
             categories: category_request.categories.clone(),
+            modify_type: None,
+            category_id: None,
+            category_data: None,
             page: category_request.page.clone(),
         }))
         .from_err()

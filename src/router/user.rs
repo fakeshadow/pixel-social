@@ -68,11 +68,18 @@ pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppSt
         .responder()
 }
 
-pub fn update_user((update_request, user_jwt, state): (Json<UpdateRequest>, UserJwt, State<AppState>))
+pub fn update_user((update_request, user_jwt, state): (Json<UserUpdateRequest>, UserJwt, State<AppState>))
                    -> FutureResponse<HttpResponse> {
 
     state.db
-        .send(UserQuery::UpdateUser(UpdateRequest::new(update_request, user_jwt.user_id)))
+        .send(UserQuery::UpdateUser(UserUpdateRequest{
+            id: Some(user_jwt.user_id),
+            username: update_request.username.clone(),
+            avatar_url: update_request.avatar_url.clone(),
+            signature: update_request.signature.clone(),
+            is_admin: None,
+            blocked: None
+        }))
         .from_err()
         .and_then(|db_response| match db_response {
             Ok(query_result) => {

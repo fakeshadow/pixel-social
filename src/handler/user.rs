@@ -93,7 +93,6 @@ impl Handler<UserQuery> for DbExecutor {
                     }
                     Err(_) => Err(ServiceError::InternalServerError)
                 }
-
             }
         }
     }

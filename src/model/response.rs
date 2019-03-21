@@ -7,7 +7,8 @@ pub enum Response<T> {
     Register(T),
     Topic(T),
     Post(T),
-    ToError(T)
+    ToError(T),
+    Modified(T),
 }
 
 impl<T> Response<T>
@@ -15,22 +16,23 @@ impl<T> Response<T>
     pub fn response(&self) -> HttpResponse {
         match &self {
             Response::SendData(t) => HttpResponse::Ok().json(t),
-            Response::Register(_) => HttpResponse::Ok().json(GeneralResponse::new("Register Success")),
-            Response::Post(_) => HttpResponse::Ok().json(GeneralResponse::new("Add Post Success")),
-            Response::Topic(_) => HttpResponse::Ok().json(GeneralResponse::new("Add Topic Success")),
+            Response::Register(_) => HttpResponse::Ok().json(Message::new("Register Success")),
+            Response::Post(_) => HttpResponse::Ok().json(Message::new("Add Post Success")),
+            Response::Topic(_) => HttpResponse::Ok().json(Message::new("Add Topic Success")),
             Response::ToError(_) => HttpResponse::BadRequest().finish(),
+            Response::Modified(_) => HttpResponse::Ok().json(Message::new("Modify Success"))
         }
     }
 }
 
 #[derive(Serialize)]
-pub struct GeneralResponse<'a> {
+pub struct Message<'a> {
     message: &'a str
 }
 
-impl<'a> GeneralResponse<'a> {
+impl<'a> Message<'a> {
     fn new(msg: &'a str) -> Self {
-        GeneralResponse {
+        Message {
             message: msg
         }
     }

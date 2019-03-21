@@ -11,6 +11,21 @@ pub struct AppState {
 pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
     App::with_state(AppState { db })
         .middleware(middleware::Logger::new("\"%r\" %s %b %Dms"))
+        .scope("/admin", |api| {
+            api
+                .resource("/category/", |r| {
+                    r.method(Method::POST).with(admin::admin_modify_category);
+                })
+                .resource("/user/", |r| {
+                    r.method(Method::POST).with(admin::admin_update_user);
+                })
+                .resource("/topic/", |r| {
+                    r.method(Method::POST).with(admin::admin_update_topic);
+                })
+//                .resource("/post/", |r| {
+//                    r.method(Method::POST).with(user::register_user);
+//                })
+        })
         .scope("/user", |api| {
             api
                 .resource("/register/", |r| {
@@ -25,6 +40,9 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
                 .resource("/{username}", |r| {
                     r.method(Method::GET).with(user::get_user);
                 })
+//                .resource("/block/", |r| {
+//                    r.method(Method::POST).with(user::block_user);
+//                })
         })
         .scope("/post", |api| {
             api

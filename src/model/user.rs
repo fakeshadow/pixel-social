@@ -1,5 +1,4 @@
 use actix::Message;
-use actix_web::Json;
 use chrono::NaiveDateTime;
 use crate::schema::users;
 
@@ -20,7 +19,17 @@ pub struct User {
     pub blocked: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Insertable)]
+#[table_name = "users"]
+pub struct NewUser<'a> {
+    pub username: &'a str,
+    pub email: &'a str,
+    pub hashed_password: &'a str,
+    pub avatar_url: String,
+    pub signature: String,
+}
+
+#[derive(Serialize)]
 pub struct SlimUser {
     pub id: i32,
     pub username: String,
@@ -31,52 +40,36 @@ pub struct SlimUser {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Insertable)]
-#[table_name = "users"]
-pub struct RegisterUserData<'a> {
-    pub username: &'a str,
-    pub email: &'a str,
-    pub hashed_password: &'a str,
-    pub avatar_url: String,
-    pub signature: String,
+#[derive(Serialize)]
+pub struct LoginData {
+    pub token: String,
+    pub user_data: SlimUser,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub email: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct LoginData {
-    pub token: String,
-    pub user_data: SlimUser,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateRequest {
+#[derive(Deserialize, Clone)]
+pub struct UserUpdateRequest {
     pub id: Option<i32>,
     pub username: Option<String>,
     pub avatar_url: Option<String>,
     pub signature: Option<String>,
+    pub is_admin: Option<i32>,
+    pub blocked: Option<bool>,
 }
 
-impl UpdateRequest {
-    pub fn new(raw_request: Json<UpdateRequest>, user_id: i32) -> UpdateRequest {
-        UpdateRequest {
-            id: Some(user_id),
-            username: raw_request.username.clone(),
-            avatar_url: raw_request.avatar_url.clone(),
-            signature: raw_request.signature.clone(),
-        }
-    }
+impl UserUpdateRequest {
 
     pub fn update_user_data(self, mut user: User) -> Result<User, ()> {
         if let Some(new_username) = self.username {
@@ -88,6 +81,12 @@ impl UpdateRequest {
         if let Some(new_signature) = self.signature {
             user.signature = new_signature
         };
+        if let Some(new_is_admin) = self.is_admin {
+            user.is_admin = new_is_admin
+        };
+        if let Some(new_blocked) = self.blocked {
+            user.blocked = new_blocked
+        };
         Ok(user)
     }
 }
@@ -98,7 +97,7 @@ pub enum UserQuery {
     Login(LoginRequest),
     GetMe(i32),
     GetUser(String),
-    UpdateUser(UpdateRequest),
+    UpdateUser(UserUpdateRequest),
 }
 
 impl Message for UserQuery {
@@ -108,9 +107,8 @@ impl Message for UserQuery {
 pub enum UserQueryResult {
     Registered,
     LoggedIn(LoginData),
-    GotUser(User)
+    GotUser(User),
 }
-
 
 impl UserQueryResult {
     pub fn to_login_data(self) -> Option<LoginData> {
@@ -128,8 +126,8 @@ impl UserQueryResult {
 }
 
 impl<'a> User {
-    pub fn new(username: &'a str, email: &'a str, hashed_password: &'a str) -> RegisterUserData<'a> {
-        RegisterUserData {
+    pub fn new(username: &'a str, email: &'a str, hashed_password: &'a str) -> NewUser<'a> {
+        NewUser {
             username,
             email,
             hashed_password,

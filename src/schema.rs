@@ -15,6 +15,9 @@ table! {
         post_content -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
     }
 }
 
@@ -28,6 +31,9 @@ table! {
         thumbnail -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
     }
 }
 

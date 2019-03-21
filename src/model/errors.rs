@@ -9,6 +9,9 @@ pub enum ServiceError {
     #[fail(display = "BadRequest: {}", _0)]
     BadRequest(String),
     #[fail(display = "BadRequest")]
+    BadRequestGeneral,
+
+    #[fail(display = "BadRequest")]
     FutureError,
     #[fail(display = "BadRequest")]
     UsernameTaken,
@@ -28,6 +31,7 @@ impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match *self {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
+            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().finish(),
             ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
             ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),

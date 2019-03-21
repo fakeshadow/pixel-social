@@ -13,6 +13,9 @@ pub struct Post {
     pub post_content: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub last_reply_time: NaiveDateTime,
+    pub reply_count: i32,
+    pub is_locked: bool,
 }
 
 #[derive(Insertable)]
@@ -37,7 +40,7 @@ impl Message for PostQuery {
 
 pub enum PostQuery {
     AddPost(NewPost),
-    GetPost(i32),
+    GetPost(i32)
 }
 
 pub enum PostQueryResult {
