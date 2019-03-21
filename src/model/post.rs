@@ -8,8 +8,8 @@ use crate::model::errors::ServiceError;
 pub struct Post {
     pub id: i32,
     pub user_id: i32,
-    pub to_pid: i32,
-    pub to_tid: i32,
+    pub post_id: i32,
+    pub topic_id: i32,
     pub post_content: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -19,15 +19,15 @@ pub struct Post {
 #[table_name = "posts"]
 pub struct NewPost {
     pub user_id: i32,
-    pub to_pid: i32,
-    pub to_tid: i32,
+    pub post_id: i32,
+    pub topic_id: i32,
     pub post_content: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PostRequest {
-    pub to_pid: Option<i32>,
-    pub to_tid: i32,
+    pub post_id: Option<i32>,
+    pub topic_id: i32,
     pub post_content: String,
 }
 

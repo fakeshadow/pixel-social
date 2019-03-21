@@ -32,7 +32,7 @@ pub fn get_topic((topic_id, state, _): (Path<i32>, State<AppState>, UserJwt))
         .and_then(|db_response| match db_response {
             Ok(query_result) => {
                 match query_result.to_topic_data() {
-                    Some(topic_data) => Ok(Response::GetTopic(topic_data).response()),
+                    Some(topic_data) => Ok(Response::SendData(topic_data).response()),
                     None => Ok(Response::ToError(true).response())
                 }
             }

@@ -1,10 +1,9 @@
 use actix_web::{AsyncResponder, FutureResponse, HttpResponse, ResponseError, State, Json, Path};
-
 use futures::Future;
 
 use crate::app::AppState;
 use crate::model::response::Response;
-use crate::model::user::{UserQuery, RegisterRequest, LoginRequest, UpdateRequest};
+use crate::model::user::*;
 use crate::handler::auth::UserJwt;
 
 pub fn register_user((register_request, state): (Json<RegisterRequest>, State<AppState>))
@@ -34,7 +33,7 @@ pub fn login_user((login_request, state): (Json<LoginRequest>, State<AppState>))
         .and_then(|db_response| match db_response {
             Ok(query_result) => {
                 match query_result.to_login_data() {
-                    Some(login_data) => Ok(Response::Login(login_data).response()),
+                    Some(login_data) => Ok(Response::SendData(login_data).response()),
                     None => Ok(Response::ToError(true).response())
                 }
             }
@@ -61,7 +60,7 @@ pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppSt
             Ok(query_result) => {
                 match query_result.to_user_data() {
                     None => Ok(Response::ToError(true).response()),
-                    Some(user_data) => Ok(Response::GetUser(user_data).response())
+                    Some(user_data) => Ok(Response::SendData(user_data).response())
                 }
             }
             Err(service_error) => Ok(service_error.error_response()),
@@ -79,7 +78,7 @@ pub fn update_user((update_request, user_jwt, state): (Json<UpdateRequest>, User
             Ok(query_result) => {
                 match query_result.to_user_data() {
                     None => Ok(Response::ToError(true).response()),
-                    Some(user_data) => Ok(Response::GetUser(user_data).response())
+                    Some(user_data) => Ok(Response::SendData(user_data).response())
                 }
             }
             Err(service_error) => Ok(service_error.error_response()),

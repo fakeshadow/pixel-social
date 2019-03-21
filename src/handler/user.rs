@@ -38,6 +38,7 @@ impl Handler<UserQuery> for DbExecutor {
                     Ok(UserQueryResult::Registered)
                 }
             }
+
             UserQuery::Login(login_request) => {
                 let exist_user: Option<User> = users
                     .filter(&username.eq(&login_request.username))
@@ -61,6 +62,7 @@ impl Handler<UserQuery> for DbExecutor {
                     None => Err(ServiceError::NotFound)
                 }
             }
+
             UserQuery::GetMe(my_id) => {
                 let user: Option<User> = users.filter(&id.eq(&my_id)).load::<User>(conn)?.pop();
                 match user {
@@ -68,6 +70,7 @@ impl Handler<UserQuery> for DbExecutor {
                     None => Err(ServiceError::NotFound)
                 }
             }
+
             UserQuery::GetUser(other_username) => {
                 let user: Option<User> = users.filter(&username.eq(&other_username)).load::<User>(conn)?.pop();
                 match user {
@@ -75,6 +78,7 @@ impl Handler<UserQuery> for DbExecutor {
                     None => Err(ServiceError::NotFound)
                 }
             }
+
             UserQuery::UpdateUser(update_request) => {
                 let user_id = update_request.id.unwrap_or(-1);
                 let user_old = users.find(&user_id).first::<User>(conn)?;
@@ -90,15 +94,6 @@ impl Handler<UserQuery> for DbExecutor {
                     Err(_) => Err(ServiceError::InternalServerError)
                 }
 
-//                match update_request.update_user_data(exist_user) {
-//                    Ok(new_user) => {
-//                        diesel::insert_into(users)
-//                            .values(&new_user)
-//                            .execute(conn)?;
-//                        Ok(UserQueryResult::Updated)
-//                    }
-//                    Err(_) => Err(ServiceError::InternalServerError)
-//                }
             }
         }
     }

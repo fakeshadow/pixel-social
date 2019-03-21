@@ -11,8 +11,8 @@ impl Handler<PostQuery> for DbExecutor {
     fn handle(&mut self, message: PostQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
         match message {
-            PostQuery::GetPost(post_id) => {
-                match posts.find(&post_id).first::<Post>(conn) {
+            PostQuery::GetPost(pid) => {
+                match posts.find(&pid).first::<Post>(conn) {
                     Ok(post) => Ok(PostQueryResult::GotPost(post)),
                     Err(_) => {
                         Err(ServiceError::InternalServerError)

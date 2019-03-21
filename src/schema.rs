@@ -10,8 +10,8 @@ table! {
     posts (id) {
         id -> Int4,
         user_id -> Int4,
-        to_tid -> Int4,
-        to_pid -> Int4,
+        topic_id -> Int4,
+        post_id -> Int4,
         post_content -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -46,7 +46,7 @@ table! {
     }
 }
 
-joinable!(posts -> topics (to_tid));
+joinable!(posts -> topics (topic_id));
 joinable!(posts -> users (user_id));
 joinable!(topics -> categories (category_id));
 joinable!(topics -> users (user_id));

@@ -4,3 +4,4 @@ pub mod post;
 pub mod topic;
 pub mod errors;
 pub mod response;
+pub mod category;

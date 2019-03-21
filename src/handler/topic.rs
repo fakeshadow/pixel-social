@@ -5,7 +5,7 @@ use crate::model::errors::ServiceError;
 use crate::model::{topic::*, db::DbExecutor};
 use crate::schema::topics::dsl::*;
 
-impl  Handler<TopicQuery> for DbExecutor {
+impl Handler<TopicQuery> for DbExecutor {
     type Result = Result<TopicQueryResult, ServiceError>;
 
     fn handle(&mut self, message: TopicQuery, _: &mut Self::Context) -> Self::Result {
@@ -19,6 +19,7 @@ impl  Handler<TopicQuery> for DbExecutor {
                     }
                 }
             }
+
             TopicQuery::AddTopic(new_topic) => {
                 diesel::insert_into(topics)
                     .values(&new_topic)

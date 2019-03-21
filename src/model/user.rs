@@ -92,6 +92,7 @@ impl UpdateRequest {
     }
 }
 
+
 pub enum UserQuery {
     Register(RegisterRequest),
     Login(LoginRequest),
@@ -109,6 +110,7 @@ pub enum UserQueryResult {
     LoggedIn(LoginData),
     GotUser(User)
 }
+
 
 impl UserQueryResult {
     pub fn to_login_data(self) -> Option<LoginData> {
