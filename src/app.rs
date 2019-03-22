@@ -58,9 +58,13 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
                 .resource("/", |r| {
                     r.method(Method::POST).with(topic::add_topic);
                 })
-                .resource("/{topic_id}", |r| {
+                .resource("/edit/", |r| {
+                    r.method(Method::POST).with(topic::update_topic);
+                })
+                .resource("/{topic_id}/{page}", |r| {
                     r.method(Method::GET).with(topic::get_topic);
                 })
+
         })
         .scope("/categories", |api| {
             api

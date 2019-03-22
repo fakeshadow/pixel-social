@@ -23,19 +23,36 @@ pub fn add_topic((topic_request, state, user_jwt): (Json<TopicRequest>, State<Ap
         .responder()
 }
 
-pub fn get_topic((topic_id, state, _): (Path<i32>, State<AppState>, UserJwt))
+pub fn get_topic((query_path, state, _): (Path<(u32, u32)>, State<AppState>, UserJwt))
                  -> FutureResponse<HttpResponse> {
-    let topic_id = topic_id.into_inner();
+    let (topic_id, page) = query_path.into_inner();
     state.db
-        .send(TopicQuery::GetTopic(topic_id))
+        .send(TopicQuery::GetTopic(topic_id as i32, page as i64))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => {
-                match query_result.to_topic_data() {
-                    Some(topic_data) => Ok(Response::SendData(topic_data).response()),
-                    None => Ok(Response::ToError(true).response())
-                }
-            }
+            Ok(query_result) => Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Err(service_error) => Ok(service_error.error_response())
+        })
+        .responder()
+}
+
+pub fn update_topic((topic_update_request, state, user_jwt): (Json<TopicUpdateRequest>, State<AppState>, UserJwt))
+                    -> FutureResponse<HttpResponse> {
+    state.db
+        .send(TopicQuery::UpdateTopic(TopicUpdateRequest {
+            id: topic_update_request.id.clone(),
+            user_id: Some(user_jwt.user_id),
+            category_id: None,
+            title: topic_update_request.title.clone(),
+            body: topic_update_request.body.clone(),
+            thumbnail: topic_update_request.thumbnail.clone(),
+            last_reply_time: None,
+            is_locked: None,
+            is_admin: None
+        }))
+        .from_err()
+        .and_then(|db_response| match db_response {
+            Ok(query_result) =>  Ok(Response::SendData(query_result.to_topic_data()).response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()

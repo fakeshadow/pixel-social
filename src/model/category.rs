@@ -12,7 +12,6 @@ pub struct Category {
     pub theme: String,
 }
 
-
 #[derive(Deserialize)]
 pub struct CategoryRequest {
     pub categories: Option<Vec<i32>>,
@@ -20,7 +19,7 @@ pub struct CategoryRequest {
     pub modify_type: Option<u32>,
     pub category_id: Option<i32>,
     pub category_data: Option<CategoryData>,
-    pub page: Option<i32>,
+    pub page: Option<i64>,
 }
 
 #[derive(Insertable, Deserialize, Clone)]
@@ -32,7 +31,7 @@ pub struct CategoryData {
 
 pub enum CategoryQuery {
     GetAllCategories,
-    GetPopular(u32),
+    GetPopular(i64),
     GetCategory(CategoryRequest),
     ModifyCategory(CategoryRequest),
 }
@@ -40,7 +39,6 @@ pub enum CategoryQuery {
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
     GotTopics(Vec<Topic>),
-    AddedCategory,
     ModifiedCategory,
 }
 

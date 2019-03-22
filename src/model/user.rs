@@ -4,7 +4,7 @@ use crate::schema::users;
 
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Serialize, Deserialize, Queryable, Insertable)]
+#[derive(Queryable, Insertable)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,
@@ -29,7 +29,7 @@ pub struct NewUser<'a> {
     pub signature: String,
 }
 
-#[derive(Serialize)]
+#[derive(Queryable, Serialize)]
 pub struct SlimUser {
     pub id: i32,
     pub username: String,
@@ -70,7 +70,6 @@ pub struct UserUpdateRequest {
 }
 
 impl UserUpdateRequest {
-
     pub fn update_user_data(self, mut user: User) -> Result<User, ()> {
         if let Some(new_username) = self.username {
             user.username = new_username

@@ -11,7 +11,7 @@ table! {
         id -> Int4,
         user_id -> Int4,
         topic_id -> Int4,
-        post_id -> Int4,
+        post_id -> Nullable<Int4>,
         post_content -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,

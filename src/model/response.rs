@@ -7,7 +7,6 @@ pub enum Response<T> {
     Register(T),
     Topic(T),
     Post(T),
-    ToError(T),
     Modified(T),
 }
 
@@ -19,7 +18,6 @@ impl<T> Response<T>
             Response::Register(_) => HttpResponse::Ok().json(Message::new("Register Success")),
             Response::Post(_) => HttpResponse::Ok().json(Message::new("Add Post Success")),
             Response::Topic(_) => HttpResponse::Ok().json(Message::new("Add Topic Success")),
-            Response::ToError(_) => HttpResponse::BadRequest().finish(),
             Response::Modified(_) => HttpResponse::Ok().json(Message::new("Modify Success"))
         }
     }

@@ -1,15 +1,18 @@
 use actix::Message;
 use chrono::NaiveDateTime;
-use crate::schema::posts;
 
+use crate::schema::posts;
+use crate::model::topic::Topic;
 use crate::model::errors::ServiceError;
 
-#[derive(Identifiable, Queryable, Serialize)]
+#[derive(Debug, Identifiable, Queryable, Serialize, Associations)]
+#[belongs_to(Topic)]
+#[table_name = "posts"]
 pub struct Post {
     pub id: i32,
     pub user_id: i32,
-    pub post_id: i32,
     pub topic_id: i32,
+    pub post_id: Option<i32>,
     pub post_content: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -22,8 +25,8 @@ pub struct Post {
 #[table_name = "posts"]
 pub struct NewPost {
     pub user_id: i32,
-    pub post_id: i32,
     pub topic_id: i32,
+    pub post_id: Option<i32>,
     pub post_content: String,
 }
 

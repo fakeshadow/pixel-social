@@ -5,6 +5,7 @@ use crate::schema::topics;
 use crate::model::errors::ServiceError;
 
 #[derive(Identifiable, Queryable, Serialize)]
+#[table_name = "topics"]
 pub struct Topic {
     pub id: i32,
     pub user_id: i32,
@@ -40,18 +41,20 @@ pub struct TopicRequest {
 #[derive(Deserialize, Clone)]
 pub struct TopicUpdateRequest {
     pub id: Option<i32>,
+    pub user_id: Option<i32>,
     pub category_id: Option<i32>,
     pub title: Option<String>,
     pub body: Option<String>,
     pub thumbnail: Option<String>,
     pub last_reply_time: Option<bool>,
     pub is_locked: Option<bool>,
+    pub is_admin: Option<bool>
 }
 
 impl TopicUpdateRequest {
     pub fn update_topic_data(self, mut topic: Topic) -> Result<Topic, ()> {
-        if let Some(new_username) = self.category_id {
-            topic.category_id = new_username
+        if let Some(new_category_id) = self.category_id {
+            topic.category_id = new_category_id
         };
         if let Some(new_title) = self.title {
             topic.title = new_title
@@ -64,7 +67,7 @@ impl TopicUpdateRequest {
         };
         if let Some(bool) = self.last_reply_time {
             if bool == true {
-                topic.last_reply_time = NaiveDateTime::parse_from_str("2015-09-05 23:56:04", "%Y-%m-%d %H:%M:%S").unwrap()
+                topic.last_reply_time = NaiveDateTime::parse_from_str("1970-01-01 23:33:33", "%Y-%m-%d %H:%M:%S").unwrap()
             }
         };
         if let Some(new_is_locked) = self.is_locked {
@@ -74,20 +77,18 @@ impl TopicUpdateRequest {
     }
 }
 
-
 impl Message for TopicQuery {
     type Result = Result<TopicQueryResult, ServiceError>;
 }
 
 pub enum TopicQuery {
     AddTopic(NewTopic),
-    GetTopic(i32),
+    GetTopic(i32, i64),
     UpdateTopic(TopicUpdateRequest),
 }
 
 pub enum TopicQueryResult {
     AddedTopic,
-    UpdatedTopic,
     GotTopic(Topic),
 }
 

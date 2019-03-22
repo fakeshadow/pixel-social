@@ -8,16 +8,10 @@ use crate::handler::auth::UserJwt;
 
 pub fn add_post((post_request, state, user_jwt): (Json<PostRequest>, State<AppState>, UserJwt))
                 -> FutureResponse<HttpResponse> {
-
-    let post_id = match post_request.post_id {
-        Some(post_id) => post_id,
-        None => -1
-    };
-
     state.db
         .send(PostQuery::AddPost(NewPost {
             user_id: user_jwt.user_id.clone(),
-            post_id,
+            post_id: post_request.post_id.clone(),
             topic_id: post_request.topic_id.clone(),
             post_content: post_request.post_content.clone(),
         }))
@@ -31,19 +25,13 @@ pub fn add_post((post_request, state, user_jwt): (Json<PostRequest>, State<AppSt
 
 pub fn get_post((post_id, state, _): (Path<i32>, State<AppState>, UserJwt))
                 -> FutureResponse<HttpResponse> {
-
     let post_id = post_id.into_inner();
 
     state.db
         .send(PostQuery::GetPost(post_id))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => {
-                match query_result.to_post_data() {
-                    Some(post_data) => Ok(Response::SendData(post_data).response()),
-                    None => Ok(Response::ToError(true).response())
-                }
-            }
+            Ok(query_result) => Ok(Response::SendData(query_result.to_post_data()).response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
