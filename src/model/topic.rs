@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 
 use crate::schema::topics;
 use crate::model::post::PostWithUser;
-use crate::model::user::SlimUser;
+use crate::model::user::{SlimUser, SlimmerUser};
 use crate::model::errors::ServiceError;
 
 #[derive(Debug, Identifiable, Queryable, Serialize)]
@@ -61,9 +61,40 @@ pub struct TopicWithUser {
     pub is_locked: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TopicWithSlimmerUser {
+    pub id: i32,
+    pub user: Option<SlimmerUser>,
+    pub category_id: i32,
+    pub title: String,
+    pub body: String,
+    pub thumbnail: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub last_reply_time: NaiveDateTime,
+    pub reply_count: i32,
+    pub is_locked: bool,
+}
+
 impl Topic {
     pub fn attach_user(self, user: SlimUser) -> TopicWithUser {
         TopicWithUser {
+            id: self.id,
+            user: Some(user),
+            category_id: self.category_id,
+            title: self.title,
+            body: self.body,
+            thumbnail: self.thumbnail,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            last_reply_time: self.last_reply_time,
+            reply_count: self.reply_count,
+            is_locked: self.is_locked,
+        }
+    }
+
+    pub fn attach_slimmer_user(self, user: SlimmerUser) -> TopicWithSlimmerUser {
+        TopicWithSlimmerUser {
             id: self.id,
             user: Some(user),
             category_id: self.category_id,

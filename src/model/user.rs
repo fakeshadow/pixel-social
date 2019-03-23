@@ -33,13 +33,12 @@ pub struct SlimUser {
 
 #[derive(Debug, Queryable, Identifiable, Serialize)]
 #[table_name = "users"]
-pub struct TopicUser {
+pub struct SlimmerUser {
     pub id: i32,
     pub username: String,
     pub avatar_url: String,
     pub updated_at: NaiveDateTime,
 }
-
 
 #[derive(Insertable)]
 #[table_name = "users"]
@@ -51,23 +50,17 @@ pub struct NewUser<'a> {
     pub signature: String,
 }
 
+#[derive(Deserialize)]
+pub struct AuthRequest{
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub email: Option<String>
+}
+
 #[derive(Serialize)]
-pub struct LoginData {
+pub struct AuthResponse {
     pub token: String,
     pub user_data: SlimUser,
-}
-
-#[derive(Deserialize)]
-pub struct RegisterRequest {
-    pub username: String,
-    pub password: String,
-    pub email: String,
-}
-
-#[derive(Deserialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -101,10 +94,9 @@ impl UserUpdateRequest {
     }
 }
 
-
 pub enum UserQuery {
-    Register(RegisterRequest),
-    Login(LoginRequest),
+    Register(AuthRequest),
+    Login(AuthRequest),
     GetMe(i32),
     GetUser(String),
     UpdateUser(UserUpdateRequest),
@@ -116,12 +108,12 @@ impl Message for UserQuery {
 
 pub enum UserQueryResult {
     Registered,
-    LoggedIn(LoginData),
+    LoggedIn(AuthResponse),
     GotUser(User),
 }
 
 impl UserQueryResult {
-    pub fn to_login_data(self) -> Option<LoginData> {
+    pub fn to_auth_data(self) -> Option<AuthResponse> {
         match self {
             UserQueryResult::LoggedIn(login_data) => Some(login_data),
             _ => None

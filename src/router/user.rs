@@ -27,16 +27,17 @@ pub fn get_user((username, user_jwt, state): (Path<String>, UserJwt, State<AppSt
         .responder()
 }
 
-pub fn login_user((login_request, state): (Json<LoginRequest>, State<AppState>))
+pub fn login_user((login_request, state): (Json<AuthRequest>, State<AppState>))
                   -> FutureResponse<HttpResponse> {
     state.db
-        .send(UserQuery::Login(LoginRequest {
+        .send(UserQuery::Login(AuthRequest {
             username: login_request.username.clone(),
             password: login_request.password.clone(),
+            email: None
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_login_data()).response()),
+            Ok(query_result) => Ok(Response::SendData(query_result.to_auth_data()).response()),
             Err(service_error) => Ok(service_error.error_response()),
         })
         .responder()
@@ -61,10 +62,10 @@ pub fn update_user((update_request, user_jwt, state): (Json<UserUpdateRequest>, 
         .responder()
 }
 
-pub fn register_user((register_request, state): (Json<RegisterRequest>, State<AppState>))
+pub fn register_user((register_request, state): (Json<AuthRequest>, State<AppState>))
                      -> FutureResponse<HttpResponse> {
     state.db
-        .send(UserQuery::Register(RegisterRequest {
+        .send(UserQuery::Register(AuthRequest {
             username: register_request.username.clone(),
             email: register_request.email.clone(),
             password: register_request.password.clone(),

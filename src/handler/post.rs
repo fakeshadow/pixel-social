@@ -1,6 +1,6 @@
 use actix::Handler;
 use diesel::prelude::*;
-use chrono::Local;
+use chrono::Utc;
 
 use crate::model::errors::ServiceError;
 use crate::model::{post::*, db::DbExecutor};
@@ -13,6 +13,7 @@ impl Handler<PostQuery> for DbExecutor {
     fn handle(&mut self, message: PostQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
         match message {
+
             PostQuery::GetPost(pid) => {
                 match posts::table.find(&pid).get_result::<Post>(conn) {
                     Ok(post) => Ok(PostQueryResult::GotPost(post)),
@@ -23,7 +24,7 @@ impl Handler<PostQuery> for DbExecutor {
             }
 
             PostQuery::AddPost(mut new_post) => {
-                let now = Local::now().naive_local();
+                let now = Utc::now().naive_local();
 
                 let to_topic = topics::table.filter(topics::id.eq(&new_post.topic_id));
                 let update_data = (topics::last_reply_time.eq(&now), topics::reply_count.eq(topics::reply_count + 1));

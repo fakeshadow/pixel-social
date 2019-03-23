@@ -14,6 +14,7 @@ impl Handler<UserQuery> for DbExecutor {
     fn handle(&mut self, message: UserQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
         match message {
+
             UserQuery::GetMe(my_id) => {
                 let user: Option<User> = users.filter(&id.eq(&my_id)).load::<User>(conn)?.pop();
                 match user {
@@ -31,18 +32,21 @@ impl Handler<UserQuery> for DbExecutor {
             }
 
             UserQuery::Login(login_request) => {
+                let _username = login_request.username.unwrap_or("".to_string());
+                let _password = login_request.password.unwrap_or("".to_string());
+
                 let exist_user: Option<User> = users
-                    .filter(&username.eq(&login_request.username))
+                    .filter(&username.eq(&_username))
                     .load::<User>(conn)?.pop();
                 match exist_user {
                     Some(user) => {
-                        match hash::verify_password(&login_request.password, &user.hashed_password) {
+                        match hash::verify_password(&_password, &user.hashed_password) {
                             Ok(_) => {
                                 let token = match jwt::JwtPayLoad::new(user.id).sign() {
                                     Ok(jwt_token) => jwt_token,
                                     Err(service_error) => return Err(service_error)
                                 };
-                                Ok(UserQueryResult::LoggedIn(LoginData {
+                                Ok(UserQueryResult::LoggedIn(AuthResponse {
                                     token,
                                     user_data: user.slim(),
                                 }))
@@ -56,6 +60,7 @@ impl Handler<UserQuery> for DbExecutor {
 
             UserQuery::UpdateUser(update_request) => {
                 let user_id = update_request.id.unwrap_or(-1);
+
                 let user_old = users.find(&user_id).first::<User>(conn)?;
                 match update_request.update_user_data(user_old) {
                     Ok(user_new) => {
@@ -71,22 +76,26 @@ impl Handler<UserQuery> for DbExecutor {
             }
 
             UserQuery::Register(register_request) => {
+                let _username = register_request.username.unwrap();
+                let _password = register_request.password.unwrap();
+                let _email = register_request.email.unwrap();
+
                 let exist_user: Vec<(String, String)> = users
                     .select((username, email))
-                    .filter(username.eq(&register_request.username))
-                    .or_filter(email.eq(&register_request.email))
+                    .filter(username.eq(&_username))
+                    .or_filter(email.eq(&_email))
                     .load(conn)?;
 
                 if exist_user.len() > 0 {
                     let (exist_username, _) = &exist_user[0];
-                    if exist_username == &register_request.username {
+                    if exist_username == &_username {
                         Err(ServiceError::UsernameTaken)
                     } else {
                         Err(ServiceError::EmailTaken)
                     }
                 } else {
-                    let password_hash: String = hash::hash_password(&register_request.password)?;
-                    let user = User::new(&register_request.username, &register_request.email, &password_hash);
+                    let password_hash: String = hash::hash_password(&_password)?;
+                    let user = User::new(&_username, &_email, &password_hash);
 
                     diesel::insert_into(users)
                         .values(&user)

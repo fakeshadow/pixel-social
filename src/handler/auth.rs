@@ -26,7 +26,7 @@ impl<S> FromRequest<S> for UserJwt {
                     Err(service_error) => Err(service_error)
                 }
             }
-            None => Err(ServiceError::InternalServerError)
+            None => Err(ServiceError::Unauthorized)
         }
     }
 }

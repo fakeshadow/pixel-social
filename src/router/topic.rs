@@ -23,7 +23,7 @@ pub fn add_topic((topic_request, state, user_jwt): (Json<TopicRequest>, State<Ap
         .responder()
 }
 
-pub fn get_topic((query_path, state, _): (Path<(u32, u32)>, State<AppState>, UserJwt))
+pub fn get_topic((query_path, state): (Path<(u32, u32)>, State<AppState>))
                  -> FutureResponse<HttpResponse> {
     let (topic_id, page) = query_path.into_inner();
     state.db

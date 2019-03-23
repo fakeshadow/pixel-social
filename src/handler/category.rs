@@ -2,41 +2,61 @@ use actix::Handler;
 use diesel::prelude::*;
 
 use crate::model::errors::ServiceError;
-use crate::model::{topic::*, category::*, db::DbExecutor};
-use crate::schema::{topics::dsl::*, categories::dsl as category_table};
+use crate::model::{topic::*, category::*, user::SlimmerUser, db::DbExecutor};
+use crate::schema::{topics, users, categories};
 
 impl Handler<CategoryQuery> for DbExecutor {
     type Result = Result<CategoryQueryResult, ServiceError>;
 
     fn handle(&mut self, message: CategoryQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
+        let select_user_columns = (
+            users::id,
+            users::username,
+            users::avatar_url,
+            users::updated_at);
+
         match message {
-            CategoryQuery::GetAllCategories => {
-                let categories_data = category_table::categories.load::<Category>(conn)?;
-                Ok(CategoryQueryResult::GotCategories(categories_data))
-            }
 
             CategoryQuery::GetPopular(page) => {
-                let offset = (page - 1) * 50;
-                let topics_data = topics
-                    .order(&updated_at.desc())
-                    .limit(50)
+                let limit = 20 as i64;
+                let offset = (page - 1) * 20;
+                let topics_with_user: Vec<(Topic, SlimmerUser)> = topics::table
+                    .order(topics::last_reply_time.desc())
+                    .limit(limit)
                     .offset(offset)
-                    .load::<Topic>(conn)?;
-                Ok(CategoryQueryResult::GotTopics(topics_data))
+                    .inner_join(users::table)
+                    .select((topics::all_columns, &select_user_columns))
+                    .load::<(Topic, SlimmerUser)>(conn)?;
+
+                Ok(CategoryQueryResult::GotTopics(topics_with_user.into_iter()
+                    .map(|(topic, user)| topic.attach_slimmer_user(user))
+                    .collect()))
             }
 
             CategoryQuery::GetCategory(category_request) => {
                 let page = category_request.page.unwrap_or(1);
-                let offset = (page - 1) * 50;
+                let limit = 20 as i64;
+                let offset = (page - 1) * 20;
                 let category_vec = category_request.categories.unwrap_or(vec![1]);
-                let topics_data = topics
-                    .filter(&category_id.eq_any(&category_vec))
-                    .order(&last_reply_time.desc())
-                    .limit(50)
+
+                let topics_with_user: Vec<(Topic, SlimmerUser)> = topics::table
+                    .filter(topics::category_id.eq_any(&category_vec))
+                    .order(topics::last_reply_time.desc())
+                    .limit(limit)
                     .offset(offset)
-                    .load::<Topic>(conn)?;
-                Ok(CategoryQueryResult::GotTopics(topics_data))
+                    .inner_join(users::table)
+                    .select((topics::all_columns, &select_user_columns))
+                    .load::<(Topic, SlimmerUser)>(conn)?;
+
+                Ok(CategoryQueryResult::GotTopics(topics_with_user.into_iter()
+                    .map(|(topic, user)| topic.attach_slimmer_user(user))
+                    .collect()))
+            }
+
+            CategoryQuery::GetAllCategories => {
+                let categories_data = categories::table.load::<Category>(conn)?;
+                Ok(CategoryQueryResult::GotCategories(categories_data))
             }
 
             CategoryQuery::ModifyCategory(category_request) => {
@@ -45,23 +65,23 @@ impl Handler<CategoryQuery> for DbExecutor {
                 match category_request.category_data {
                     Some(category_data) => {
                         let target_category_id = category_request.category_id.unwrap_or(0);
-                        let exist_category = category_table::categories
-                            .filter(category_table::name.eq(&category_data.name))
+                        let exist_category = categories::table
+                            .filter(categories::name.eq(&category_data.name))
                             .execute(conn)?;
 
                         if modify_type == 0 && exist_category == 0 {
-                            diesel::insert_into(category_table::categories)
+                            diesel::insert_into(categories::table)
                                 .values(&category_data)
                                 .execute(conn)?;
                             Ok(CategoryQueryResult::ModifiedCategory)
                         } else if modify_type == 1 && exist_category > 0 {
-                            diesel::update(category_table::categories
-                                .filter(category_table::id.eq(&target_category_id)))
-                                .set((category_table::name.eq(&category_data.name), category_table::theme.eq(&category_data.theme)))
+                            diesel::update(categories::table
+                                .filter(categories::id.eq(&target_category_id)))
+                                .set((categories::name.eq(&category_data.name), categories::theme.eq(&category_data.theme)))
                                 .execute(conn)?;
                             Ok(CategoryQueryResult::ModifiedCategory)
                         } else if modify_type == 2 && exist_category > 0 {
-                            diesel::delete(category_table::categories.find(&target_category_id))
+                            diesel::delete(categories::table.find(&target_category_id))
                                 .execute(conn)?;
                             Ok(CategoryQueryResult::ModifiedCategory)
                         } else {

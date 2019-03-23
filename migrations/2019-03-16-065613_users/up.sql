@@ -39,13 +39,13 @@ CREATE TABLE posts
   id              SERIAL        NOT NULL UNIQUE PRIMARY KEY,
   user_id         INTEGER       NOT NULL REFERENCES users (id),
   topic_id        INTEGER       NOT NULL REFERENCES topics (id),
-  post_id         INTEGER       NOT NULL REFERENCES posts (id) DEFAULT -1,
+  post_id         INTEGER       REFERENCES posts (id),
   post_content    VARCHAR(1024) NOT NULL,
-  created_at      TIMESTAMP     NOT NULL                      DEFAULT CURRENT_TIMESTAMP,
-  updated_at      TIMESTAMP     NOT NULL                      DEFAULT CURRENT_TIMESTAMP,
-  last_reply_time TIMESTAMP     NOT NULL                      DEFAULT CURRENT_TIMESTAMP,
-  reply_count     INTEGER       NOT NULL                      DEFAULT 0,
-  is_locked       BOOLEAN       NOT NULL                      DEFAULT FALSE
+  created_at      TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
+  last_reply_time TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
+  reply_count     INTEGER       NOT NULL                       DEFAULT 0,
+  is_locked       BOOLEAN       NOT NULL                       DEFAULT FALSE
 );
 
 CREATE UNIQUE INDEX users_username ON users (username);

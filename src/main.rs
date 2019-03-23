@@ -35,10 +35,9 @@ fn main() {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let server_ip_port = match env::var("SERVER_IP_PORT") {
-        Ok(ip_port) => ip_port,
-        _ => String::from("127.0.0.1:3100")
-    };
+
+    let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
+    let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
 
     let sys = actix::System::new("PixelShare");
 
@@ -47,11 +46,11 @@ fn main() {
         .build(manager)
         .expect("Failed to create pool.");
 
-    let address :Addr<DbExecutor>  = SyncArbiter::start(4, move || DbExecutor(pool.clone()));
+    let address: Addr<DbExecutor> = SyncArbiter::start(4, move || DbExecutor(pool.clone()));
 
     server::new(move || app::create_app(address.clone()))
         .workers(4)
-        .bind(server_ip_port)
+        .bind(format!("{}:{}", &server_ip, &server_port))
         .expect("Can not bind to target IP/Port")
         .start();
 
