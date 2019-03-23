@@ -52,7 +52,7 @@ pub fn update_topic((topic_update_request, state, user_jwt): (Json<TopicUpdateRe
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) =>  Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Ok(_) =>  Ok(Response::Modified(true).response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()

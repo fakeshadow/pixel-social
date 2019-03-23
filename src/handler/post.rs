@@ -1,9 +1,9 @@
 use actix::Handler;
 use diesel::prelude::*;
-use chrono::{Local,NaiveDateTime};
+use chrono::Local;
 
 use crate::model::errors::ServiceError;
-use crate::model::{post::*, topic::Topic, db::DbExecutor};
+use crate::model::{post::*, db::DbExecutor};
 use crate::schema::posts;
 use crate::schema::topics;
 

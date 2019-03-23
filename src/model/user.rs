@@ -4,7 +4,7 @@ use crate::schema::users;
 
 use crate::model::errors::ServiceError;
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Identifiable, Insertable)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,
@@ -19,17 +19,8 @@ pub struct User {
     pub blocked: bool,
 }
 
-#[derive(Insertable)]
+#[derive(Queryable, Identifiable, Serialize, Associations, Debug)]
 #[table_name = "users"]
-pub struct NewUser<'a> {
-    pub username: &'a str,
-    pub email: &'a str,
-    pub hashed_password: &'a str,
-    pub avatar_url: String,
-    pub signature: String,
-}
-
-#[derive(Queryable, Serialize)]
 pub struct SlimUser {
     pub id: i32,
     pub username: String,
@@ -38,6 +29,26 @@ pub struct SlimUser {
     pub signature: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Queryable, Identifiable, Serialize)]
+#[table_name = "users"]
+pub struct TopicUser {
+    pub id: i32,
+    pub username: String,
+    pub avatar_url: String,
+    pub updated_at: NaiveDateTime,
+}
+
+
+#[derive(Insertable)]
+#[table_name = "users"]
+pub struct NewUser<'a> {
+    pub username: &'a str,
+    pub email: &'a str,
+    pub hashed_password: &'a str,
+    pub avatar_url: String,
+    pub signature: String,
 }
 
 #[derive(Serialize)]

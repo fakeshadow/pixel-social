@@ -1,10 +1,12 @@
 use actix::Message;
 use chrono::NaiveDateTime;
-use crate::schema::topics;
 
+use crate::schema::topics;
+use crate::model::post::PostWithUser;
+use crate::model::user::SlimUser;
 use crate::model::errors::ServiceError;
 
-#[derive(Identifiable, Queryable, Serialize)]
+#[derive(Debug, Identifiable, Queryable, Serialize)]
 #[table_name = "topics"]
 pub struct Topic {
     pub id: i32,
@@ -38,6 +40,46 @@ pub struct TopicRequest {
     pub body: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TopicResponse {
+    pub topic: Option<TopicWithUser>,
+    pub posts: Option<Vec<PostWithUser>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TopicWithUser {
+    pub id: i32,
+    pub user: Option<SlimUser>,
+    pub category_id: i32,
+    pub title: String,
+    pub body: String,
+    pub thumbnail: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub last_reply_time: NaiveDateTime,
+    pub reply_count: i32,
+    pub is_locked: bool,
+}
+
+impl Topic {
+    pub fn attach_user(self, user: SlimUser) -> TopicWithUser {
+        TopicWithUser {
+            id: self.id,
+            user: Some(user),
+            category_id: self.category_id,
+            title: self.title,
+            body: self.body,
+            thumbnail: self.thumbnail,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            last_reply_time: self.last_reply_time,
+            reply_count: self.reply_count,
+            is_locked: self.is_locked,
+        }
+    }
+}
+
+
 #[derive(Deserialize, Clone)]
 pub struct TopicUpdateRequest {
     pub id: Option<i32>,
@@ -48,7 +90,7 @@ pub struct TopicUpdateRequest {
     pub thumbnail: Option<String>,
     pub last_reply_time: Option<bool>,
     pub is_locked: Option<bool>,
-    pub is_admin: Option<bool>
+    pub is_admin: Option<bool>,
 }
 
 impl TopicUpdateRequest {
@@ -89,11 +131,11 @@ pub enum TopicQuery {
 
 pub enum TopicQueryResult {
     AddedTopic,
-    GotTopic(Topic),
+    GotTopic(TopicResponse),
 }
 
 impl TopicQueryResult {
-    pub fn to_topic_data(self) -> Option<Topic> {
+    pub fn to_topic_data(self) -> Option<TopicResponse> {
         match self {
             TopicQueryResult::GotTopic(topic_data) => Some(topic_data),
             _ => None
