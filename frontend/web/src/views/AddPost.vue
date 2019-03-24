@@ -43,8 +43,8 @@
                         </v-flex>
 
                         <v-flex xs12 class="pt-4">
-                            <ckeditor :editor="editor" v-model="topic_data.body" :config="editorConfig">
-                            </ckeditor>
+                                <ckeditor :editor="editor" v-model="topic_data.body" :config="editorConfig" class="ck-editor__editable">
+                                </ckeditor>
                         </v-flex>
                         <v-flex xs12 text-xs-center>
                             <v-btn v-ripple color="primary" @click="addTopic">
@@ -78,8 +78,7 @@
                 editor: ClassicEditor,
                 editorData: "",
                 editorConfig: {
-                    placeholder: "Have fun posting",
-                    resize_minHeight: 700
+                    placeholder: "Have fun posting"
                 },
                 topic_data: {
                     category_id: 1,
@@ -111,7 +110,6 @@
                         }
                     });
 
-                    console.log(localStorage.jwt);
                     const response = await fetch(`${process.env.VUE_APP_COMMURL}/topic/`, {
                         method: "post",
                         body: JSON.stringify(this.topic_data),
@@ -168,9 +166,10 @@
     };
 </script>
 
-<style scoped>
-    .ck-editor {
-        min-height: 500px;
+<style>
+    .ck-editor__editable {
+        min-height: 300px;
     }
+
 </style>
 

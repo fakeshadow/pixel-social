@@ -1,6 +1,6 @@
 <template>
     <v-container fluid>
-        <v-layout row wrap justify-center>
+        <v-layout row wrap justify-center fluid>
             <v-speed-dial fixed bottom right fab>
                 <template v-slot:activator>
                     <v-btn color="blue darken-2" dark fab to="/addpost" v-ripple>
@@ -8,7 +8,7 @@
                     </v-btn>
                 </template>
             </v-speed-dial>
-            <v-flex xs12 sm10 md8 lg5>
+            <v-flex xs12 sm10 md9 lg8 xl5>
                 <v-tabs v-model="active" slider-color="black" fixed-tabs>
                     <v-tab
                             v-for="n in categories.length"
@@ -35,7 +35,8 @@
                                                             offset-x
                                                     >
                                                         <template v-slot:activator="{ on }">
-                                                            <v-list-tile-avatar v-ripple v-on="on" :size="60" class="pt-3">
+                                                            <v-list-tile-avatar v-ripple v-on="on" :size="50"
+                                                                                class="pt-3">
                                                                 <img
                                                                         src="https://upload.wikimedia.org/wikipedia/commons/e/e8/CandymyloveYasu.png"
                                                                 >
@@ -72,21 +73,23 @@
                                                 </v-list-tile>
                                             </v-list>
                                         </v-flex>
+
                                         <v-flex xs4></v-flex>
-                                        <v-flex xs8>
-                                            <v-list>
+                                        <v-flex xs12>
+                                            <v-list three-line>
                                                 <v-list-tile>
-                                                    <v-list-tile-avatar v-if="$vuetify.breakpoint.smAndUp">
+                                                    <v-list-tile-avatar v-if="$vuetify.breakpoint.smAndUp" :size="50">
                                                     </v-list-tile-avatar>
-                                                    <v-list-tile-content>
-                                                        <v-list-tile-title v-ripple class="headline font-weight-black pl-3">
+                                                    <v-list-tile-content class="test">
+                                                        <v-list-tile-sub-title v-ripple
+                                                                               class="subheading font-weight-black pl-3 margin"
+                                                                               @click="show_topic(d.id)">
                                                             {{d.title}}
-                                                        </v-list-tile-title>
+                                                        </v-list-tile-sub-title>
                                                     </v-list-tile-content>
                                                 </v-list-tile>
                                             </v-list>
                                         </v-flex>
-                                        <v-flex xs4></v-flex>
                                     </v-layout>
 
                                 </v-card>
@@ -144,25 +147,34 @@
         },
         methods: {
             async getCategory(category_index) {
-                this.isLoading = true;
-                const response = await fetch(
-                    `${process.env.VUE_APP_COMMURL}/categories/${category_index}/${this.first_page}`
-                );
-                const json = await response.json();
-                this.data = json;
+                try {
+                    this.isLoading = true;
+                    const response = await fetch(
+                        `${process.env.VUE_APP_COMMURL}/categories/${category_index}/${this.first_page}`
+                    );
+                    const result = await response.json();
+                    if (result.error) throw result.error;
+                    this.data = result;
+                    this.isLoading = false;
+                } catch (e) {
+                    this.$emit("gotSnack", {error: e})
+                }
                 this.isLoading = false;
             },
-            async showUserDetail(uid) {
-                this.userDetailMenu = true;
+            show_topic(topic_id) {
+                setTimeout(() => {
+                    this.$router.push({name: 'topic', params: {topic_id}})
+                }, 200)
+
             }
         }
     };
 </script>
 
-<style scoped>
-    .postContent {
-        white-space: pre-wrap;
-        overflow-wrap: break-word;
+<style>
+    .margin {
+        margin-top: -1.2em;
+        margin-left: -0.2em;
     }
 </style>
 

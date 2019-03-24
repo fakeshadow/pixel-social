@@ -4,6 +4,7 @@ import Home from './views/Home.vue'
 import Store from './views/Store.vue'
 import People from './views/People.vue'
 import Talk from './views/Talk.vue'
+import Topic from './views/Topic.vue'
 import AddPost from './views/AddPost.vue'
 
 Vue.use(Router)
@@ -31,6 +32,11 @@ export default new Router({
       path: '/talk',
       name: 'talk',
       component: Talk
+    },
+    {
+      path: '/topic',
+      name: 'topic',
+      component: Topic
     },
     {
       path: '/addpost',

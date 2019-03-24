@@ -10,11 +10,10 @@
   "dependencies": {
     "@ckeditor/ckeditor5-build-classic": "^12.0.0",
     "@ckeditor/ckeditor5-vue": "^1.0.0-beta.1",
-    "tiptap": "^1.14.0",
     "vue": "^2.6.6",
     "vue-router": "^3.0.1",
     "vue-timeago": "^5.0.0",
-    "vuetify": "^1.5.5"
+    "vuetify": "^1.5.7"
   },
   "devDependencies": {
     "@vue/cli-plugin-babel": "^3.5.0",
