@@ -14,7 +14,6 @@ impl Handler<UserQuery> for DbExecutor {
     fn handle(&mut self, message: UserQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
         match message {
-
             UserQuery::GetMe(my_id) => {
                 let user: Option<User> = users.filter(&id.eq(&my_id)).load::<User>(conn)?.pop();
                 match user {
@@ -67,7 +66,10 @@ impl Handler<UserQuery> for DbExecutor {
                         let updated_user =
                             diesel::update(
                                 users.filter(id.eq(&user_id)))
-                                .set((username.eq(&user_new.username), avatar_url.eq(&user_new.avatar_url), signature.eq(&user_new.signature)))
+                                .set((
+                                    username.eq(&user_new.username),
+                                    avatar_url.eq(&user_new.avatar_url),
+                                    signature.eq(&user_new.signature)))
                                 .get_result(conn)?;
                         Ok(UserQueryResult::GotUser(updated_user))
                     }

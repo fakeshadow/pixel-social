@@ -42,6 +42,9 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
                 .resource("/post/", |r| {
                     r.method(Method::POST).with(post::add_post);
                 })
+                .resource("/post/edit/", |r| {
+                    r.method(Method::POST).with(post::update_post);
+                })
                 .resource("/post/{pid}", |r| {
                     r.method(Method::GET).with(post::get_post);
                 })
@@ -65,6 +68,9 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
                 })
                 .resource("/categories/{category_id}/{page}", |r| {
                     r.method(Method::GET).with(category::get_category);
+                })
+                .resource("/upload/", |r| {
+                    r.method(Method::POST).with(stream::upload_file);
                 })
                 .register()
         })

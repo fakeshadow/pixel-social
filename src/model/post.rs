@@ -76,6 +76,7 @@ impl Message for PostQuery {
 
 pub enum PostQuery {
     AddPost(NewPost),
+    EditPost(NewPost),
     GetPost(i32),
 }
 

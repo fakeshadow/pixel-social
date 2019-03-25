@@ -69,6 +69,7 @@ impl From<future_err> for ServiceError {
     }
 }
 
+
 #[derive(Serialize)]
 struct ErrorMessage<'a> {
     error: &'a str,

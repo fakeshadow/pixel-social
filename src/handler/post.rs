@@ -13,7 +13,6 @@ impl Handler<PostQuery> for DbExecutor {
     fn handle(&mut self, message: PostQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
         match message {
-
             PostQuery::GetPost(pid) => {
                 match posts::table.find(&pid).get_result::<Post>(conn) {
                     Ok(post) => Ok(PostQueryResult::GotPost(post)),
@@ -40,6 +39,19 @@ impl Handler<PostQuery> for DbExecutor {
 
                 diesel::insert_into(posts::table).values(&new_post).execute(conn)?;
                 Ok(PostQueryResult::AddedPost)
+            }
+
+            PostQuery::EditPost(new_post) => {
+                match new_post.post_id {
+                    Some(pid) => {
+                        let old_post = posts::table.filter(posts::id.eq(&pid).and(posts::user_id.eq(&new_post.user_id)));
+                        let update_data = posts::post_content.eq(&new_post.post_content);
+
+                        diesel::update(old_post).set(update_data).execute(conn)?;
+                        Ok(PostQueryResult::AddedPost)
+                    }
+                    None => Err(ServiceError::BadRequestGeneral)
+                }
             }
         }
     }

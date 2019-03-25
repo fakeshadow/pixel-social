@@ -13,9 +13,7 @@ impl<S> FromRequest<S> for UserJwt {
     fn from_request(req: &HttpRequest<S>, _: &Self::Config) -> Self::Result {
         match req.headers().get("Authorization") {
             Some(token) => {
-                let token_str = token.to_str().unwrap_or("no token");
-                let split = token_str.split(" ");
-                let vec: Vec<&str> = split.collect();
+                let vec: Vec<&str> = token.to_str().unwrap_or("no token").split(" ").collect();
                 match JwtPayLoad::decode(vec[1]) {
                     Ok(result) => {
                         if result.exp as i64 - Local::now().timestamp() < 0 {
