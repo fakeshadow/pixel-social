@@ -4,7 +4,7 @@ use crate::schema::users;
 
 use crate::model::errors::ServiceError;
 
-#[derive(Queryable, Identifiable, Insertable)]
+#[derive(Debug, Queryable, Identifiable, Insertable)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,
@@ -19,7 +19,7 @@ pub struct User {
     pub blocked: bool,
 }
 
-#[derive(Queryable, Identifiable, Serialize, Associations, Debug)]
+#[derive(Queryable, Identifiable, Serialize, Associations, Debug, Clone)]
 #[table_name = "users"]
 pub struct SlimUser {
     pub id: i32,
@@ -31,7 +31,7 @@ pub struct SlimUser {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Identifiable, Serialize)]
+#[derive(Debug, Queryable, Identifiable, Serialize ,Clone)]
 #[table_name = "users"]
 pub struct SlimmerUser {
     pub id: i32,

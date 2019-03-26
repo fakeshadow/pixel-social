@@ -1,4 +1,5 @@
 #![allow(proc_macro_derive_resolution_fallback)]
+
 extern crate rand;
 extern crate actix;
 extern crate actix_web;
@@ -35,10 +36,8 @@ fn main() {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
     let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
-
     let sys = actix::System::new("PixelShare");
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);

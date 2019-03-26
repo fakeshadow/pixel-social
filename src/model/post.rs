@@ -39,9 +39,9 @@ pub struct PostRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PostWithUser {
+pub struct PostWithSlimUser {
     pub id: i32,
-    pub user: SlimUser,
+    pub user: Option<SlimUser>,
     pub topic_id: i32,
     pub post_id: Option<i32>,
     pub post_content: String,
@@ -53,10 +53,31 @@ pub struct PostWithUser {
 }
 
 impl Post {
-    pub fn attach_user(self, user: SlimUser) -> PostWithUser {
-        PostWithUser {
+    pub fn attach_slim_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
+        let mut _index: Vec<usize> = Vec::with_capacity(1);
+        for (index, user) in users.iter().enumerate() {
+            if &self.user_id == &user.id {
+                _index.push(index);
+                break;
+            }
+        };
+        if _index.len() == 0 {
+            return PostWithSlimUser {
+                id: self.id,
+                user: None,
+                topic_id: self.topic_id,
+                post_id: self.post_id,
+                post_content: self.post_content,
+                created_at: self.created_at,
+                updated_at: self.updated_at,
+                last_reply_time: self.last_reply_time,
+                reply_count: self.reply_count,
+                is_locked: self.is_locked,
+            };
+        }
+        PostWithSlimUser {
             id: self.id,
-            user,
+            user: Some(users[_index[0]].clone()),
             topic_id: self.topic_id,
             post_id: self.post_id,
             post_content: self.post_content,

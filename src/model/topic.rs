@@ -2,7 +2,7 @@ use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::topics;
-use crate::model::post::PostWithUser;
+use crate::model::post::PostWithSlimUser;
 use crate::model::user::{SlimUser, SlimmerUser};
 use crate::model::errors::ServiceError;
 
@@ -42,12 +42,12 @@ pub struct TopicRequest {
 
 #[derive(Debug, Serialize)]
 pub struct TopicResponse {
-    pub topic: Option<TopicWithUser>,
-    pub posts: Option<Vec<PostWithUser>>,
+    pub topic: Option<TopicWithSlimUser>,
+    pub posts: Option<Vec<PostWithSlimUser>>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct TopicWithUser {
+pub struct TopicWithSlimUser {
     pub id: i32,
     pub user: Option<SlimUser>,
     pub category_id: i32,
@@ -77,10 +77,32 @@ pub struct TopicWithSlimmerUser {
 }
 
 impl Topic {
-    pub fn attach_user(self, user: SlimUser) -> TopicWithUser {
-        TopicWithUser {
+    pub fn attach_slim_user(self, users: &Vec<SlimUser>) -> TopicWithSlimUser {
+        let mut _index: Vec<usize> = Vec::with_capacity(1);
+        for (index, user) in users.iter().enumerate() {
+            if &self.user_id == &user.id {
+                _index.push(index);
+                break;
+            }
+        };
+        if _index.len() == 0 {
+            return  TopicWithSlimUser {
+                id: self.id,
+                user: None,
+                category_id: self.category_id,
+                title: self.title,
+                body: self.body,
+                thumbnail: self.thumbnail,
+                created_at: self.created_at,
+                updated_at: self.updated_at,
+                last_reply_time: self.last_reply_time,
+                reply_count: self.reply_count,
+                is_locked: self.is_locked,
+            }
+        }
+        TopicWithSlimUser {
             id: self.id,
-            user: Some(user),
+            user: Some(users[_index[0]].clone()),
             category_id: self.category_id,
             title: self.title,
             body: self.body,
@@ -93,10 +115,32 @@ impl Topic {
         }
     }
 
-    pub fn attach_slimmer_user(self, user: SlimmerUser) -> TopicWithSlimmerUser {
+    pub fn attach_slimmer_user(self, users: &Vec<SlimmerUser>) -> TopicWithSlimmerUser {
+        let mut _index: Vec<usize> = Vec::with_capacity(1);
+        for (index, user) in users.iter().enumerate() {
+            if &self.user_id == &user.id {
+                _index.push(index);
+                break;
+            }
+        };
+        if _index.len() == 0 {
+            return TopicWithSlimmerUser {
+                id: self.id,
+                user: None,
+                category_id: self.category_id,
+                title: self.title,
+                body: self.body,
+                thumbnail: self.thumbnail,
+                created_at: self.created_at,
+                updated_at: self.updated_at,
+                last_reply_time: self.last_reply_time,
+                reply_count: self.reply_count,
+                is_locked: self.is_locked,
+            };
+        }
         TopicWithSlimmerUser {
             id: self.id,
-            user: Some(user),
+            user: Some(users[_index[0]].clone()),
             category_id: self.category_id,
             title: self.title,
             body: self.body,
@@ -109,7 +153,6 @@ impl Topic {
         }
     }
 }
-
 
 #[derive(Deserialize, Clone)]
 pub struct TopicUpdateRequest {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use actix::Handler;
 use diesel::prelude::*;
 
@@ -5,63 +7,38 @@ use crate::model::errors::ServiceError;
 use crate::model::{topic::*, post::Post, user::SlimUser, db::DbExecutor};
 use crate::schema::{topics, posts, users};
 
+const LIMIT: i64 = 20;
+const VEC_CAPACITY: usize = 20;
+
 impl Handler<TopicQuery> for DbExecutor {
     type Result = Result<TopicQueryResult, ServiceError>;
 
     fn handle(&mut self, message: TopicQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
-        let limit = 20 as i64;
-        let select_user_columns = (
-            users::id,
-            users::username,
-            users::email,
-            users::avatar_url,
-            users::signature,
-            users::created_at,
-            users::updated_at);
 
         match message {
             TopicQuery::GetTopic(topic_id, page) => {
                 let offset = (page - 1) * 20;
 
-                let (topic, topic_user) = topics::table
+                let _topic: Topic = topics::table
                     .filter(topics::id.eq(&topic_id))
-                    .inner_join(users::table)
-                    .select((topics::all_columns, select_user_columns))
-                    .first::<(Topic, SlimUser)>(conn)?;
+                    .first::<Topic>(conn)?;
 
-                let posts_with_user: Vec<(Post, SlimUser)> = Post::belonging_to(&topic)
+                let _posts: Vec<Post> = posts::table
+                    .filter(posts::topic_id.eq(&_topic.id))
                     .order(posts::id.asc())
-                    .limit(limit)
+                    .limit(LIMIT)
                     .offset(offset)
-                    .inner_join(users::table)
-                    .select((posts::all_columns, select_user_columns))
-                    .load::<(Post, SlimUser)>(conn)?;
+                    .load::<Post>(conn)?;
 
-                let posts_with_user = posts_with_user.into_iter()
-                    .map(|(post, user)| post.attach_user(user))
-                    .collect();
-
-                let result = if page == 1 {
-                    TopicResponse {
-                        topic: Some(topic.attach_user(topic_user)),
-                        posts: Some(posts_with_user),
-                    }
-                } else {
-                    TopicResponse {
-                        topic: None,
-                        posts: Some(posts_with_user),
-                    }
-                };
-
-                Ok(TopicQueryResult::GotTopic(result))
+                join_topics_users(_topic, _posts, conn, &page)
             }
 
             TopicQuery::AddTopic(new_topic) => {
                 let tid = new_topic.category_id;
 
-                let category_check:usize = topics::table.find(&tid).execute(conn)?;
-                if category_check == 0 {return Err(ServiceError::NotFound)};
+                let category_check: usize = topics::table.find(&tid).execute(conn)?;
+                if category_check == 0 { return Err(ServiceError::NotFound); };
 
                 diesel::insert_into(topics::table)
                     .values(&new_topic)
@@ -99,4 +76,50 @@ impl Handler<TopicQuery> for DbExecutor {
             }
         }
     }
+}
+
+fn join_topics_users(topic: Topic, posts: Vec<Post>, conn: &PgConnection, page: &i64) -> Result<TopicQueryResult, ServiceError> {
+    let select_user_columns = (
+        users::id,
+        users::username,
+        users::email,
+        users::avatar_url,
+        users::signature,
+        users::created_at,
+        users::updated_at);
+
+    let mut result: Vec<&i32> = Vec::with_capacity(VEC_CAPACITY + 1);
+    let mut hash_set = HashSet::with_capacity(VEC_CAPACITY + 1);
+
+    result.push(&topic.user_id);
+
+    for post in posts.iter() {
+        if !hash_set.contains(&post.user_id) {
+            result.push(&post.user_id);
+            hash_set.insert(&post.user_id);
+        }
+    };
+
+    let users: Vec<SlimUser> = users::table
+        .filter(users::id.eq_any(&result))
+        .select(&select_user_columns)
+        .load::<SlimUser>(conn)?;
+
+    let posts = posts
+        .into_iter()
+        .map(|post| post.attach_slim_user(&users))
+        .collect();
+    let result = if page == &1 {
+        TopicResponse {
+            topic: Some(topic.attach_slim_user(&users)),
+            posts: Some(posts),
+        }
+    } else {
+        TopicResponse {
+            topic: None,
+            posts: Some(posts),
+        }
+    };
+
+    Ok(TopicQueryResult::GotTopic(result))
 }

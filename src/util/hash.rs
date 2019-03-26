@@ -1,4 +1,5 @@
 use std::env;
+
 use bcrypt::{hash, verify, DEFAULT_COST};
 
 use crate::model::errors::ServiceError;
