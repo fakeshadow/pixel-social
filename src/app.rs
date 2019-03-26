@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use actix_web::{http::{header, Method}, middleware, middleware::cors::Cors, App};
+use actix_web::{http::{header, Method}, middleware, middleware::cors::Cors, App, fs};
 
 use crate::model::db::DbExecutor;
 use crate::router::*;
@@ -74,6 +74,11 @@ pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
                 })
                 .register()
         })
+        .handler(
+            "/public",
+            fs::StaticFiles::new("./public")
+                .unwrap()
+                .show_files_listing())
 }
 
 

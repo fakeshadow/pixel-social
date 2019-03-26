@@ -1,4 +1,4 @@
-use actix_web::{error::ResponseError, HttpResponse};
+use actix_web::{error::ResponseError, error::MultipartError as multi_err, HttpResponse};
 use actix::MailboxError as future_err;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 
@@ -10,7 +10,6 @@ pub enum ServiceError {
     BadRequest(String),
     #[fail(display = "BadRequest")]
     BadRequestGeneral,
-
     #[fail(display = "BadRequest")]
     FutureError,
     #[fail(display = "BadRequest")]
@@ -24,7 +23,7 @@ pub enum ServiceError {
     #[fail(display = "Forbidden")]
     Unauthorized,
     #[fail(display = "Forbidden")]
-    AuthTimeout
+    AuthTimeout,
 }
 
 impl ResponseError for ServiceError {
@@ -43,6 +42,27 @@ impl ResponseError for ServiceError {
         }
     }
 }
+
+impl From<multi_err> for ServiceError {
+    fn from(error: multi_err) -> ServiceError {
+        match error {
+            multi_err::Payload(a) => {
+                println!("{:?}", a);
+                return ServiceError::BadRequestGeneral
+            },
+            _=> ServiceError::InternalServerError
+        }
+    }
+}
+
+impl From<actix_web::Error> for ServiceError {
+    fn from (err: actix_web::Error) -> ServiceError {
+        match err {
+            _=> ServiceError::InternalServerError
+        }
+    }
+}
+
 
 impl From<diesel_err> for ServiceError {
     fn from(error: diesel_err) -> ServiceError {

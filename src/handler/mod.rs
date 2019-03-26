@@ -3,3 +3,4 @@ pub mod user;
 pub mod topic;
 pub mod auth;
 pub mod category;
+pub mod stream;
