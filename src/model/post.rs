@@ -2,13 +2,12 @@ use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::posts;
-use crate::model::topic::Topic;
+use crate::model::common::*;
+
 use crate::model::user::SlimUser;
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Identifiable, Queryable, Serialize, Associations)]
-#[belongs_to(Topic)]
-#[table_name = "posts"]
+#[derive(Debug, Queryable, Serialize)]
 pub struct Post {
     pub id: i32,
     pub user_id: i32,
@@ -38,7 +37,7 @@ pub struct PostRequest {
     pub post_content: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize, Debug)]
 pub struct PostWithSlimUser {
     pub id: i32,
     pub user: Option<SlimUser>,
@@ -52,32 +51,17 @@ pub struct PostWithSlimUser {
     pub is_locked: bool,
 }
 
+impl MatchUser for Post {
+    fn get_user_id(&self) -> &i32 {
+        &self.user_id
+    }
+}
+
 impl Post {
-    pub fn attach_slim_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
-        let mut _index: Vec<usize> = Vec::with_capacity(1);
-        for (index, user) in users.iter().enumerate() {
-            if &self.user_id == &user.id {
-                _index.push(index);
-                break;
-            }
-        };
-        if _index.len() == 0 {
-            return PostWithSlimUser {
-                id: self.id,
-                user: None,
-                topic_id: self.topic_id,
-                post_id: self.post_id,
-                post_content: self.post_content,
-                created_at: self.created_at,
-                updated_at: self.updated_at,
-                last_reply_time: self.last_reply_time,
-                reply_count: self.reply_count,
-                is_locked: self.is_locked,
-            };
-        }
+    pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
         PostWithSlimUser {
             id: self.id,
-            user: Some(users[_index[0]].clone()),
+            user: self.make_user_field(users),
             topic_id: self.topic_id,
             post_id: self.post_id,
             post_content: self.post_content,
@@ -89,7 +73,6 @@ impl Post {
         }
     }
 }
-
 
 impl Message for PostQuery {
     type Result = Result<PostQueryResult, ServiceError>;

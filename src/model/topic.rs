@@ -2,8 +2,10 @@ use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::topics;
+use crate::model::common::*;
+
 use crate::model::post::PostWithSlimUser;
-use crate::model::user::{SlimUser, SlimmerUser};
+use crate::model::user::*;
 use crate::model::errors::ServiceError;
 
 #[derive(Debug, Identifiable, Queryable, Serialize)]
@@ -40,107 +42,39 @@ pub struct TopicRequest {
     pub body: String,
 }
 
+#[derive(Serialize, Debug)]
+pub struct TopicWithUser<T> {
+    pub id: i32,
+    pub user: Option<T>,
+    pub category_id: i32,
+    pub title: String,
+    pub body: String,
+    pub thumbnail: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub last_reply_time: NaiveDateTime,
+    pub reply_count: i32,
+    pub is_locked: bool,
+}
+
 #[derive(Debug, Serialize)]
-pub struct TopicResponse {
-    pub topic: Option<TopicWithSlimUser>,
+pub struct TopicResponseSlim {
+    pub topic: Option<TopicWithUser<SlimUser>>,
     pub posts: Option<Vec<PostWithSlimUser>>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct TopicWithSlimUser {
-    pub id: i32,
-    pub user: Option<SlimUser>,
-    pub category_id: i32,
-    pub title: String,
-    pub body: String,
-    pub thumbnail: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
-    pub is_locked: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TopicWithSlimmerUser {
-    pub id: i32,
-    pub user: Option<SlimmerUser>,
-    pub category_id: i32,
-    pub title: String,
-    pub body: String,
-    pub thumbnail: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
-    pub is_locked: bool,
+impl MatchUser for Topic {
+    fn get_user_id(&self) -> &i32 {
+        &self.user_id
+    }
 }
 
 impl Topic {
-    pub fn attach_slim_user(self, users: &Vec<SlimUser>) -> TopicWithSlimUser {
-        let mut _index: Vec<usize> = Vec::with_capacity(1);
-        for (index, user) in users.iter().enumerate() {
-            if &self.user_id == &user.id {
-                _index.push(index);
-                break;
-            }
-        };
-        if _index.len() == 0 {
-            return  TopicWithSlimUser {
-                id: self.id,
-                user: None,
-                category_id: self.category_id,
-                title: self.title,
-                body: self.body,
-                thumbnail: self.thumbnail,
-                created_at: self.created_at,
-                updated_at: self.updated_at,
-                last_reply_time: self.last_reply_time,
-                reply_count: self.reply_count,
-                is_locked: self.is_locked,
-            }
-        }
-        TopicWithSlimUser {
+    pub fn attach_user<T>(self, users: &Vec<T>) -> TopicWithUser<T>
+        where T: Clone + GetSelfField {
+        TopicWithUser {
             id: self.id,
-            user: Some(users[_index[0]].clone()),
-            category_id: self.category_id,
-            title: self.title,
-            body: self.body,
-            thumbnail: self.thumbnail,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            last_reply_time: self.last_reply_time,
-            reply_count: self.reply_count,
-            is_locked: self.is_locked,
-        }
-    }
-
-    pub fn attach_slimmer_user(self, users: &Vec<SlimmerUser>) -> TopicWithSlimmerUser {
-        let mut _index: Vec<usize> = Vec::with_capacity(1);
-        for (index, user) in users.iter().enumerate() {
-            if &self.user_id == &user.id {
-                _index.push(index);
-                break;
-            }
-        };
-        if _index.len() == 0 {
-            return TopicWithSlimmerUser {
-                id: self.id,
-                user: None,
-                category_id: self.category_id,
-                title: self.title,
-                body: self.body,
-                thumbnail: self.thumbnail,
-                created_at: self.created_at,
-                updated_at: self.updated_at,
-                last_reply_time: self.last_reply_time,
-                reply_count: self.reply_count,
-                is_locked: self.is_locked,
-            };
-        }
-        TopicWithSlimmerUser {
-            id: self.id,
-            user: Some(users[_index[0]].clone()),
+            user: self.make_user_field(users),
             category_id: self.category_id,
             title: self.title,
             body: self.body,
@@ -205,13 +139,13 @@ pub enum TopicQuery {
 
 pub enum TopicQueryResult {
     AddedTopic,
-    GotTopic(TopicResponse),
+    GotTopicSlim(TopicResponseSlim),
 }
 
 impl TopicQueryResult {
-    pub fn to_topic_data(self) -> Option<TopicResponse> {
+    pub fn to_slim_data(self) -> Option<TopicResponseSlim> {
         match self {
-            TopicQueryResult::GotTopic(topic_data) => Some(topic_data),
+            TopicQueryResult::GotTopicSlim(topic_data) => Some(topic_data),
             _ => None
         }
     }

@@ -2,7 +2,8 @@ use actix::Message;
 use crate::schema::categories;
 
 use crate::model::errors::ServiceError;
-use crate::model::topic::TopicWithSlimmerUser;
+use crate::model::topic::{TopicWithUser};
+use crate::model::user::SlimmerUser;
 
 #[derive(Identifiable, Queryable, Serialize)]
 #[table_name = "categories"]
@@ -38,7 +39,7 @@ pub enum CategoryQuery {
 
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
-    GotTopics(Vec<TopicWithSlimmerUser>),
+    GotTopics(Vec<TopicWithUser<SlimmerUser>>),
     ModifiedCategory,
 }
 
@@ -47,7 +48,7 @@ impl Message for CategoryQuery {
 }
 
 impl CategoryQueryResult {
-    pub fn to_topic_data(self) -> Option<Vec<TopicWithSlimmerUser>> {
+    pub fn to_topic_data(self) -> Option<Vec<TopicWithUser<SlimmerUser>>> {
         match self {
             CategoryQueryResult::GotTopics(topics_data) => Some(topics_data),
             _ => None

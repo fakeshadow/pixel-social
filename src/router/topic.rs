@@ -30,7 +30,7 @@ pub fn get_topic((query_path, state): (Path<(u32, u32)>, State<AppState>))
         .send(TopicQuery::GetTopic(topic_id as i32, page as i64))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Ok(query_result) => Ok(Response::SendData(query_result.to_slim_data()).response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()

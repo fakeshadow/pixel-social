@@ -1,10 +1,11 @@
 use actix::Message;
 use chrono::NaiveDateTime;
-use crate::schema::users;
 
+use crate::schema::users;
+use crate::model::common::{GetSelfField, Validator};
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Queryable, Identifiable, Insertable)]
+#[derive(Queryable, Insertable)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,
@@ -19,8 +20,7 @@ pub struct User {
     pub blocked: bool,
 }
 
-#[derive(Queryable, Identifiable, Serialize, Associations, Debug, Clone)]
-#[table_name = "users"]
+#[derive(Queryable, Serialize, Clone, Debug)]
 pub struct SlimUser {
     pub id: i32,
     pub username: String,
@@ -31,8 +31,7 @@ pub struct SlimUser {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Debug, Queryable, Identifiable, Serialize ,Clone)]
-#[table_name = "users"]
+#[derive(Queryable, Serialize, Clone, Debug)]
 pub struct SlimmerUser {
     pub id: i32,
     pub username: String,
@@ -51,10 +50,10 @@ pub struct NewUser<'a> {
 }
 
 #[derive(Deserialize)]
-pub struct AuthRequest{
+pub struct AuthRequest {
     pub username: Option<String>,
     pub password: Option<String>,
-    pub email: Option<String>
+    pub email: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -62,6 +61,31 @@ pub struct AuthResponse {
     pub token: String,
     pub user_data: SlimUser,
 }
+
+impl Validator for AuthRequest {
+    fn get_username(&self) -> &str {
+        match &self.username {
+            Some(username) => username,
+            None => ""
+        }
+    }
+
+    fn get_password(&self) -> &str {
+        match &self.password {
+            Some(password) => password,
+            None => ""
+        }
+    }
+
+    fn get_email(&self) -> &str {
+        match &self.email {
+            Some(email) => email,
+            None => ""
+        }
+    }
+}
+
+
 
 #[derive(Deserialize, Clone)]
 pub struct UserUpdateRequest {
@@ -91,6 +115,18 @@ impl UserUpdateRequest {
             user.blocked = new_blocked
         };
         Ok(user)
+    }
+}
+
+impl GetSelfField for SlimUser {
+    fn get_self_id(&self) -> &i32 {
+        &self.id
+    }
+}
+
+impl GetSelfField for SlimmerUser {
+    fn get_self_id(&self) -> &i32 {
+        &self.id
     }
 }
 
@@ -133,7 +169,7 @@ impl<'a> User {
             username,
             email,
             hashed_password,
-// change to default avatar url later
+            // change to default avatar url later
             avatar_url: String::from(""),
             signature: String::from(""),
         }

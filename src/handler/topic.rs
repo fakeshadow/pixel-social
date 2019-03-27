@@ -107,19 +107,19 @@ fn join_topics_users(topic: Topic, posts: Vec<Post>, conn: &PgConnection, page: 
 
     let posts = posts
         .into_iter()
-        .map(|post| post.attach_slim_user(&users))
+        .map(|post| post.attach_user(&users))
         .collect();
     let result = if page == &1 {
-        TopicResponse {
-            topic: Some(topic.attach_slim_user(&users)),
+        TopicResponseSlim {
+            topic: Some(topic.attach_user(&users)),
             posts: Some(posts),
         }
     } else {
-        TopicResponse {
+        TopicResponseSlim {
             topic: None,
             posts: Some(posts),
         }
     };
 
-    Ok(TopicQueryResult::GotTopic(result))
+    Ok(TopicQueryResult::GotTopicSlim(result))
 }

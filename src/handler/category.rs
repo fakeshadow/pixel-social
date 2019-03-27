@@ -41,7 +41,7 @@ impl Handler<CategoryQuery> for DbExecutor {
                     .offset(offset)
                     .load::<Topic>(conn)?;
 
-                join_topics_users(_topics,conn)
+                join_topics_users(_topics, conn)
             }
 
             CategoryQuery::GetAllCategories => {
@@ -63,19 +63,20 @@ impl Handler<CategoryQuery> for DbExecutor {
                             diesel::insert_into(categories::table)
                                 .values(&category_data)
                                 .execute(conn)?;
-
                         } else if modify_type == 1 && exist_category > 0 {
+                            let update_field = (
+                                categories::name.eq(&category_data.name),
+                                categories::theme.eq(&category_data.theme));
+
                             diesel::update(categories::table
                                 .filter(categories::id.eq(&target_category_id)))
-                                .set((categories::name.eq(&category_data.name), categories::theme.eq(&category_data.theme)))
+                                .set(update_field)
                                 .execute(conn)?;
-
                         } else if modify_type == 2 && exist_category > 0 {
                             diesel::delete(categories::table.find(&target_category_id))
                                 .execute(conn)?;
-
                         } else {
-                            return Err(ServiceError::BadRequestGeneral)
+                            return Err(ServiceError::BadRequestGeneral);
                         }
 
                         Ok(CategoryQueryResult::ModifiedCategory)
@@ -87,8 +88,7 @@ impl Handler<CategoryQuery> for DbExecutor {
     }
 }
 
-fn join_topics_users(topics: Vec<Topic>, conn: &PgConnection) -> Result<CategoryQueryResult, ServiceError>{
-
+fn join_topics_users(topics: Vec<Topic>, conn: &PgConnection) -> Result<CategoryQueryResult, ServiceError> {
     if topics.len() == 0 { return Ok(CategoryQueryResult::GotTopics(vec![])); };
 
     let select_user_columns = (
@@ -115,7 +115,7 @@ fn join_topics_users(topics: Vec<Topic>, conn: &PgConnection) -> Result<Category
     Ok(CategoryQueryResult::GotTopics(
         topics
             .into_iter()
-            .map(|topic| topic.attach_slimmer_user(&users))
+            .map(|topic| topic.attach_user(&users))
             .collect()
     ))
 }

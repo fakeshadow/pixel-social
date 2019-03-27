@@ -51,15 +51,3 @@ table! {
         blocked -> Bool,
     }
 }
-
-joinable!(posts -> topics (topic_id));
-joinable!(posts -> users (user_id));
-joinable!(topics -> categories (category_id));
-joinable!(topics -> users (user_id));
-
-allow_tables_to_appear_in_same_query!(
-    categories,
-    posts,
-    topics,
-    users,
-);

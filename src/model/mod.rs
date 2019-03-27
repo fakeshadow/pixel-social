@@ -5,3 +5,4 @@ pub mod topic;
 pub mod errors;
 pub mod response;
 pub mod category;
+pub mod common;

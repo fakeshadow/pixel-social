@@ -1,3 +1,5 @@
+use std::env;
+
 use actix::prelude::*;
 use actix_web::{http::{header, Method}, middleware, middleware::cors::Cors, App, fs};
 
@@ -9,11 +11,13 @@ pub struct AppState {
 }
 
 pub fn create_app(db: Addr<DbExecutor>) -> App<AppState> {
+    let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
+
     App::with_state(AppState { db })
         .middleware(middleware::Logger::new("\"%r\" %s %b %Dms"))
         .configure(|app| {
             Cors::for_app(app)
-                .allowed_origin("http://localhost:8080")
+                .allowed_origin(&cors_origin)
                 .allowed_methods(vec!["GET", "POST"])
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                 .allowed_header(header::CONTENT_TYPE)
