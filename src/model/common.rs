@@ -1,9 +1,33 @@
+use std::collections::HashSet;
+
+use crate::util::validation as validate;
+
 pub trait GetSelfField {
     fn get_self_id(&self) -> &i32;
 }
 
 pub trait MatchUser {
     fn get_user_id(&self) -> &i32;
+
+    // only add topic user_id when query for the first page of a topic. Other case just pass None in
+    fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a i32>) -> Vec<&'a i32>
+        where T: MatchUser {
+        let mut result: Vec<&i32> = Vec::with_capacity(21);
+        let mut hash_set = HashSet::with_capacity(21);
+
+        if let Some(user_id) = topic_user_id {
+            result.push(user_id);
+            hash_set.insert(user_id);
+        }
+
+        for item in items.iter() {
+            if !hash_set.contains(item.get_user_id()) {
+                result.push(item.get_user_id());
+                hash_set.insert(item.get_user_id());
+            }
+        };
+        result
+    }
 
     fn match_user_index<T>(&self, users: &Vec<T>) -> Option<usize>
         where T: GetSelfField {
@@ -36,28 +60,26 @@ pub trait Validator {
 
     fn check_username(&self) -> bool {
         let username = self.get_username();
-        if username.len() < 3 { return false; };
-        true
+        validate::validate_username(username)
     }
 
     fn check_password(&self) -> bool {
         let password = self.get_password();
-        if password.len() < 8 { return false; };
-        true
+        validate::validate_password(password)
     }
 
     fn check_email(&self) -> bool {
         let email = self.get_email();
         if !email.contains("@") { return false; }
-        let vec: Vec<&str> = email.split("@").collect();
-        if vec[0].len() < 3 || vec[1].len() < 3 { return false; }
-        true
+        let email_str_vec: Vec<&str> = email.rsplitn(2, "@").collect();
+        validate::validate_email(email_str_vec)
     }
 
     fn check_register(&self) -> bool {
-        if !&self.check_email() || !&self.check_password() || !&self.check_username() {
-            return false
-        }
-        true
+        self.check_email() && self.check_password() && self.check_username()
+    }
+
+    fn check_login(&self) -> bool {
+        self.check_password() && self.check_username()
     }
 }

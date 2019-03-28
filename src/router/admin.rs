@@ -38,6 +38,8 @@ pub fn admin_update_user((user_update_request, state): (Json<UserUpdateRequest>,
         .send(UserQuery::UpdateUser(UserUpdateRequest {
             id: user_update_request.id.clone(),
             username: None,
+            password: None,
+            email: None,
             avatar_url: None,
             signature: None,
             is_admin: user_update_request.is_admin.clone(),

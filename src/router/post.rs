@@ -17,7 +17,7 @@ pub fn add_post((post_request, state, user_jwt): (Json<PostRequest>, State<AppSt
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Post(true).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -31,7 +31,7 @@ pub fn get_post((post_id, state, _): (Path<i32>, State<AppState>, UserJwt))
         .send(PostQuery::GetPost(post_id))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_post_data()).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -48,9 +48,15 @@ pub fn update_post((post_request, state, user_jwt): (Json<PostRequest>, State<Ap
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Post(true).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
 }
 
+fn match_query_result(result: PostQueryResult) -> HttpResponse{
+    match result {
+        PostQueryResult::AddedPost => Response::Post(true).response(),
+        PostQueryResult::GotPost(post) => Response::SendData(post).response()
+    }
+}

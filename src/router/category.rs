@@ -10,7 +10,7 @@ pub fn get_all_categories(state: State<AppState>) -> FutureResponse<HttpResponse
         .send(CategoryQuery::GetAllCategories)
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_categories_data()).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -23,7 +23,7 @@ pub fn get_popular((page, state): (Path<(u32)>, State<AppState>))
         .send(CategoryQuery::GetPopular(page as i64))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -42,7 +42,7 @@ pub fn get_category((category_query, state, ): (Path<(u32, u32)>, State<AppState
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -60,8 +60,16 @@ pub fn get_categories((category_request, state, _): (Json<CategoryRequest>, Stat
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(Response::SendData(query_result.to_topic_data()).response()),
+            Ok(query_result) => Ok(match_query_result(query_result)),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
+}
+
+fn match_query_result(result: CategoryQueryResult) -> HttpResponse{
+    match result {
+        CategoryQueryResult::GotCategories(categories) => Response::SendData(categories).response(),
+        CategoryQueryResult::GotTopics(topics) => Response::SendData(topics).response(),
+        CategoryQueryResult::ModifiedCategory => Response::Modified(true).response()
+    }
 }

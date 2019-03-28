@@ -17,6 +17,8 @@ pub enum ServiceError {
     #[fail(display = "BadRequest")]
     EmailTaken,
     #[fail(display = "BadRequest")]
+    UsernameShort,
+    #[fail(display = "BadRequest")]
     NotFound,
     #[fail(display = "Forbidden")]
     WrongPwd,
@@ -34,6 +36,7 @@ impl ResponseError for ServiceError {
             ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
             ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
+            ServiceError::UsernameShort => HttpResponse::BadRequest().json(ErrorMessage::new("Username Too Short")),
             ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
             ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),

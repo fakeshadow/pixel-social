@@ -46,18 +46,3 @@ pub enum CategoryQueryResult {
 impl Message for CategoryQuery {
     type Result = Result<CategoryQueryResult, ServiceError>;
 }
-
-impl CategoryQueryResult {
-    pub fn to_topic_data(self) -> Option<Vec<TopicWithUser<SlimmerUser>>> {
-        match self {
-            CategoryQueryResult::GotTopics(topics_data) => Some(topics_data),
-            _ => None
-        }
-    }
-    pub fn to_categories_data(self) -> Option<Vec<Category>> {
-        match self {
-            CategoryQueryResult::GotCategories(categories_data) => Some(categories_data),
-            _ => None
-        }
-    }
-}

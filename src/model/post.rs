@@ -88,12 +88,3 @@ pub enum PostQueryResult {
     AddedPost,
     GotPost(Post),
 }
-
-impl PostQueryResult {
-    pub fn to_post_data(self) -> Option<Post> {
-        match self {
-            PostQueryResult::GotPost(post_data) => Some(post_data),
-            _ => None
-        }
-    }
-}

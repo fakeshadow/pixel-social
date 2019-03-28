@@ -1,6 +1,4 @@
 #![allow(proc_macro_derive_resolution_fallback)]
-
-extern crate rand;
 extern crate actix;
 extern crate actix_web;
 extern crate serde;
@@ -9,7 +7,12 @@ extern crate dotenv;
 extern crate futures;
 extern crate r2d2;
 extern crate jsonwebtoken;
+extern crate rand;
+extern crate regex;
+extern crate lettre;
 
+#[macro_use]
+extern crate lazy_static;
 #[macro_use]
 extern crate diesel;
 #[macro_use]

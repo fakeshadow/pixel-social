@@ -22,8 +22,8 @@ CREATE TABLE categories
 CREATE TABLE topics
 (
   id              SERIAL        NOT NULL UNIQUE PRIMARY KEY,
-  user_id         INTEGER       NOT NULL REFERENCES users (id),
-  category_id     INTEGER       NOT NULL REFERENCES categories (id),
+  user_id         INTEGER       NOT NULL,
+  category_id     INTEGER       NOT NULL,
   title           VARCHAR(1024) NOT NULL,
   body            VARCHAR(1024) NOT NULL,
   thumbnail       VARCHAR(1024) NOT NULL,
@@ -37,17 +37,28 @@ CREATE TABLE topics
 CREATE TABLE posts
 (
   id              SERIAL        NOT NULL UNIQUE PRIMARY KEY,
-  user_id         INTEGER       NOT NULL REFERENCES users (id),
-  topic_id        INTEGER       NOT NULL REFERENCES topics (id),
-  post_id         INTEGER       REFERENCES posts (id),
+  user_id         INTEGER       NOT NULL,
+  topic_id        INTEGER       NOT NULL,
+  post_id         INTEGER,
   post_content    VARCHAR(1024) NOT NULL,
-  created_at      TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
-  updated_at      TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
-  last_reply_time TIMESTAMP     NOT NULL                       DEFAULT CURRENT_TIMESTAMP,
-  reply_count     INTEGER       NOT NULL                       DEFAULT 0,
-  is_locked       BOOLEAN       NOT NULL                       DEFAULT FALSE
+  created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reply_count     INTEGER       NOT NULL DEFAULT 0,
+  is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE associates
+(
+  id SERIAL NOT NULL UNIQUE PRIMARY KEY,
+  user_id INTEGER NOT NULL UNIQUE,
+  psn_id VARCHAR(128) UNIQUE,
+  live_id VARCHAR(128) UNIQUE,
+  last_update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
 CREATE UNIQUE INDEX categories_name ON categories (name);
+CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
+CREATE UNIQUE INDEX associates_live_id ON associates (live_id);

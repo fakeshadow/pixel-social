@@ -5,7 +5,7 @@ use crate::schema::users;
 use crate::model::common::{GetSelfField, Validator};
 use crate::model::errors::ServiceError;
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Serialize)]
 #[table_name = "users"]
 pub struct User {
     pub id: i32,
@@ -69,14 +69,12 @@ impl Validator for AuthRequest {
             None => ""
         }
     }
-
     fn get_password(&self) -> &str {
         match &self.password {
             Some(password) => password,
             None => ""
         }
     }
-
     fn get_email(&self) -> &str {
         match &self.email {
             Some(email) => email,
@@ -85,16 +83,31 @@ impl Validator for AuthRequest {
     }
 }
 
-
-
 #[derive(Deserialize, Clone)]
 pub struct UserUpdateRequest {
     pub id: Option<i32>,
     pub username: Option<String>,
+    pub password: Option<String>,
+    pub email: Option<String>,
     pub avatar_url: Option<String>,
     pub signature: Option<String>,
     pub is_admin: Option<i32>,
     pub blocked: Option<bool>,
+}
+
+impl Validator for UserUpdateRequest {
+    fn get_username(&self) -> &str {
+        match &self.username {
+            Some(username) => username,
+            None => ""
+        }
+    }
+    fn get_password(&self) -> &str {
+       ""
+    }
+    fn get_email(&self) -> &str {
+       ""
+    }
 }
 
 impl UserUpdateRequest {
@@ -146,21 +159,7 @@ pub enum UserQueryResult {
     Registered,
     LoggedIn(AuthResponse),
     GotUser(User),
-}
-
-impl UserQueryResult {
-    pub fn to_auth_data(self) -> Option<AuthResponse> {
-        match self {
-            UserQueryResult::LoggedIn(login_data) => Some(login_data),
-            _ => None
-        }
-    }
-    pub fn to_user_data(self) -> Option<SlimUser> {
-        match self {
-            UserQueryResult::GotUser(user) => Some(user.slim()),
-            _ => None
-        }
-    }
+    GotSlimUser(SlimUser),
 }
 
 impl<'a> User {

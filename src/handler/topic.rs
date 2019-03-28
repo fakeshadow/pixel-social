@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use actix::Handler;
 use diesel::prelude::*;
 
@@ -8,7 +6,6 @@ use crate::model::{topic::*, post::Post, user::SlimUser, db::DbExecutor};
 use crate::schema::{topics, posts, users};
 
 const LIMIT: i64 = 20;
-const VEC_CAPACITY: usize = 20;
 
 impl Handler<TopicQuery> for DbExecutor {
     type Result = Result<TopicQueryResult, ServiceError>;
@@ -88,17 +85,9 @@ fn join_topics_users(topic: Topic, posts: Vec<Post>, conn: &PgConnection, page: 
         users::created_at,
         users::updated_at);
 
-    let mut result: Vec<&i32> = Vec::with_capacity(VEC_CAPACITY + 1);
-    let mut hash_set = HashSet::with_capacity(VEC_CAPACITY + 1);
-
-    result.push(&topic.user_id);
-
-    for post in posts.iter() {
-        if !hash_set.contains(&post.user_id) {
-            result.push(&post.user_id);
-            hash_set.insert(&post.user_id);
-        }
-    };
+    // use to bring the trait to scope
+    use crate::model::common::MatchUser;
+    let result = Post::get_unique_id(&posts, Some(&topic.user_id));
 
     let users: Vec<SlimUser> = users::table
         .filter(users::id.eq_any(&result))

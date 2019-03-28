@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use actix::Handler;
 use diesel::prelude::*;
 
@@ -8,7 +6,6 @@ use crate::model::{topic::*, category::*, user::SlimmerUser, db::DbExecutor};
 use crate::schema::{topics, users, categories};
 
 const LIMIT: i64 = 20;
-const VEC_CAPACITY: usize = 20;
 
 impl Handler<CategoryQuery> for DbExecutor {
     type Result = Result<CategoryQueryResult, ServiceError>;
@@ -97,15 +94,9 @@ fn join_topics_users(topics: Vec<Topic>, conn: &PgConnection) -> Result<Category
         users::avatar_url,
         users::updated_at);
 
-    let mut result: Vec<&i32> = Vec::with_capacity(VEC_CAPACITY);
-    let mut hash_set = HashSet::with_capacity(VEC_CAPACITY);
-
-    for topic in topics.iter() {
-        if !hash_set.contains(&topic.user_id) {
-            result.push(&topic.user_id);
-            hash_set.insert(&topic.user_id);
-        }
-    };
+    // use to bring the trait to scope
+    use crate::model::common::MatchUser;
+    let result = Topic::get_unique_id(&topics, None);
 
     let users: Vec<SlimmerUser> = users::table
         .filter(users::id.eq_any(&result))

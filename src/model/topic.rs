@@ -141,12 +141,3 @@ pub enum TopicQueryResult {
     AddedTopic,
     GotTopicSlim(TopicResponseSlim),
 }
-
-impl TopicQueryResult {
-    pub fn to_slim_data(self) -> Option<TopicResponseSlim> {
-        match self {
-            TopicQueryResult::GotTopicSlim(topic_data) => Some(topic_data),
-            _ => None
-        }
-    }
-}

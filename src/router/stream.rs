@@ -45,9 +45,9 @@ pub fn save_file(
         None => return Box::new(future::err(error::ErrorBadRequest("No file type found")))
     };
 
-    let vec: Vec<&str> = file_name.split(".").collect();
-    let origin_name = vec[0];
-    let file_type = vec[vec.len() - 1];
+    let vec: Vec<&str> = file_name.rsplitn(2,".").collect();
+    let origin_name = vec[1];
+    let file_type = vec[0];
 
     if file_type != "jpg" && file_type != "png" && file_type != "gif" {
         return Box::new(future::err(error::ErrorBadRequest(format!(".{} can't be uploaded", file_type))));

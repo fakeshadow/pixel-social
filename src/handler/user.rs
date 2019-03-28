@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use crate::model::errors::ServiceError;
 use crate::model::{db::DbExecutor, user::*};
 
-use crate::schema::users::dsl::*;
+use crate::schema::users;
 use crate::util::hash;
 use crate::util::jwt;
 
@@ -13,9 +13,19 @@ impl Handler<UserQuery> for DbExecutor {
 
     fn handle(&mut self, message: UserQuery, _: &mut Self::Context) -> Self::Result {
         let conn: &PgConnection = &self.0.get().unwrap();
+        let select_user_column = (
+            users::id,
+            users::username,
+            users::email,
+            users::avatar_url,
+            users::signature,
+            users::created_at,
+            users::updated_at,
+        );
+
         match message {
             UserQuery::GetMe(my_id) => {
-                let user: Option<User> = users.filter(&id.eq(&my_id)).load::<User>(conn)?.pop();
+                let user: Option<User> = users::table.filter(users::id.eq(&my_id)).load::<User>(conn)?.pop();
                 match user {
                     Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
                     None => Err(ServiceError::NotFound)
@@ -23,9 +33,12 @@ impl Handler<UserQuery> for DbExecutor {
             }
 
             UserQuery::GetUser(other_username) => {
-                let user: Option<User> = users.filter(&username.eq(&other_username)).load::<User>(conn)?.pop();
+                let user: Option<SlimUser> = users::table
+                    .filter(users::username.eq(&other_username))
+                    .select(select_user_column)
+                    .load::<SlimUser>(conn)?.pop();
                 match user {
-                    Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
+                    Some(user_data) => Ok(UserQueryResult::GotSlimUser(user_data)),
                     None => Err(ServiceError::NotFound)
                 }
             }
@@ -34,11 +47,14 @@ impl Handler<UserQuery> for DbExecutor {
                 let _username = login_request.username.unwrap_or("".to_string());
                 let _password = login_request.password.unwrap_or("".to_string());
 
-                let exist_user: Option<User> = users
-                    .filter(&username.eq(&_username))
+                let exist_user: Option<User> = users::table
+                    .filter(users::username.eq(&_username))
                     .load::<User>(conn)?.pop();
                 match exist_user {
                     Some(user) => {
+                        if user.blocked == true {
+                            return Err(ServiceError::Unauthorized);
+                        }
                         match hash::verify_password(&_password, &user.hashed_password) {
                             Ok(_) => {
                                 let token = match jwt::JwtPayLoad::new(user.id).sign() {
@@ -60,16 +76,17 @@ impl Handler<UserQuery> for DbExecutor {
             UserQuery::UpdateUser(update_request) => {
                 let user_id = update_request.id.unwrap_or(-1);
 
-                let user_old = users.find(&user_id).first::<User>(conn)?;
+                let user_old = users::table.find(&user_id).first::<User>(conn)?;
+
                 match update_request.update_user_data(user_old) {
                     Ok(user_new) => {
                         let updated_user =
                             diesel::update(
-                                users.filter(id.eq(&user_id)))
+                                users::table.filter(users::id.eq(&user_id)))
                                 .set((
-                                    username.eq(&user_new.username),
-                                    avatar_url.eq(&user_new.avatar_url),
-                                    signature.eq(&user_new.signature)))
+                                    users::username.eq(&user_new.username),
+                                    users::avatar_url.eq(&user_new.avatar_url),
+                                    users::signature.eq(&user_new.signature)))
                                 .get_result(conn)?;
                         Ok(UserQueryResult::GotUser(updated_user))
                     }
@@ -82,10 +99,10 @@ impl Handler<UserQuery> for DbExecutor {
                 let _password = register_request.password.unwrap();
                 let _email = register_request.email.unwrap();
 
-                let exist_user: Vec<(String, String)> = users
-                    .select((username, email))
-                    .filter(username.eq(&_username))
-                    .or_filter(email.eq(&_email))
+                let exist_user: Vec<(String, String)> = users::table
+                    .select((users::username, users::email))
+                    .filter(users::username.eq(&_username))
+                    .or_filter(users::email.eq(&_email))
                     .load(conn)?;
 
                 if exist_user.len() > 0 {
@@ -99,7 +116,7 @@ impl Handler<UserQuery> for DbExecutor {
                     let password_hash: String = hash::hash_password(&_password)?;
                     let user = User::new(&_username, &_email, &password_hash);
 
-                    diesel::insert_into(users)
+                    diesel::insert_into(users::table)
                         .values(&user)
                         .execute(conn)?;
                     Ok(UserQueryResult::Registered)
