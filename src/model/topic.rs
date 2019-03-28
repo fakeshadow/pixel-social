@@ -2,16 +2,17 @@ use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::topics;
-use crate::model::common::*;
 
+use crate::model::common::{GetSelfId, MatchUser, GetSelfTimeStamp};
 use crate::model::post::PostWithSlimUser;
-use crate::model::user::*;
+use crate::model::user::{SlimUser, SlimmerUser};
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Identifiable, Queryable, Serialize)]
+#[derive(Debug, Identifiable, Queryable, Serialize, Clone)]
 #[table_name = "topics"]
 pub struct Topic {
     pub id: i32,
+    #[serde(skip_serializing)]
     pub user_id: i32,
     pub category_id: i32,
     pub title: String,
@@ -42,19 +43,11 @@ pub struct TopicRequest {
     pub body: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct TopicWithUser<T> {
-    pub id: i32,
+    #[serde(flatten)]
+    pub topic: Topic,
     pub user: Option<T>,
-    pub category_id: i32,
-    pub title: String,
-    pub body: String,
-    pub thumbnail: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
-    pub is_locked: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,26 +57,19 @@ pub struct TopicResponseSlim {
 }
 
 impl MatchUser for Topic {
-    fn get_user_id(&self) -> &i32 {
-        &self.user_id
-    }
+    fn get_user_id(&self) -> &i32 { &self.user_id }
+}
+
+impl<T> GetSelfTimeStamp for TopicWithUser<T> {
+    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
 }
 
 impl Topic {
     pub fn attach_user<T>(self, users: &Vec<T>) -> TopicWithUser<T>
-        where T: Clone + GetSelfField {
+        where T: Clone + GetSelfId {
         TopicWithUser {
-            id: self.id,
             user: self.make_user_field(users),
-            category_id: self.category_id,
-            title: self.title,
-            body: self.body,
-            thumbnail: self.thumbnail,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            last_reply_time: self.last_reply_time,
-            reply_count: self.reply_count,
-            is_locked: self.is_locked,
+            topic: self,
         }
     }
 }

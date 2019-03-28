@@ -1,15 +1,30 @@
 use std::collections::HashSet;
+use chrono::{Local, NaiveDateTime};
 
 use crate::util::validation as validate;
 
-pub trait GetSelfField {
+pub trait GetSelfId {
     fn get_self_id(&self) -> &i32;
 }
+
+pub trait GetSelfCategory {
+    fn get_self_category(&self) -> &i32;
+}
+
+pub trait GetSelfTimeStamp {
+    fn get_last_reply_time(&self) -> &NaiveDateTime;
+    fn get_last_reply_timestamp(&self) -> i64 {
+        self.get_last_reply_time().timestamp()
+    }
+}
+
+
 
 pub trait MatchUser {
     fn get_user_id(&self) -> &i32;
 
     // only add topic user_id when query for the first page of a topic. Other case just pass None in
+    // capacity has to be changed along side with the limit constant in handlers.
     fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a i32>) -> Vec<&'a i32>
         where T: MatchUser {
         let mut result: Vec<&i32> = Vec::with_capacity(21);
@@ -30,7 +45,7 @@ pub trait MatchUser {
     }
 
     fn match_user_index<T>(&self, users: &Vec<T>) -> Option<usize>
-        where T: GetSelfField {
+        where T: GetSelfId {
         let mut _index: Vec<usize> = Vec::with_capacity(1);
         for (index, user) in users.iter().enumerate() {
             if &self.get_user_id() == &user.get_self_id() {
@@ -44,9 +59,9 @@ pub trait MatchUser {
 
     // add user privacy filter here
     fn make_user_field<T>(&self, users: &Vec<T>) -> Option<T>
-        where T: Clone + GetSelfField {
-        match &self.match_user_index(users) {
-            Some(index) => Some(users[*index].clone()),
+        where T: Clone + GetSelfId {
+        match self.match_user_index(users) {
+            Some(index) => Some(users[index].clone()),
             None => None
         }
     }

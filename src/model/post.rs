@@ -10,6 +10,7 @@ use crate::model::errors::ServiceError;
 #[derive(Debug, Queryable, Serialize)]
 pub struct Post {
     pub id: i32,
+    #[serde(skip_serializing)]
     pub user_id: i32,
     pub topic_id: i32,
     pub post_id: Option<i32>,
@@ -39,16 +40,9 @@ pub struct PostRequest {
 
 #[derive(Serialize, Debug)]
 pub struct PostWithSlimUser {
-    pub id: i32,
+    #[serde(flatten)]
+    pub post: Post,
     pub user: Option<SlimUser>,
-    pub topic_id: i32,
-    pub post_id: Option<i32>,
-    pub post_content: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
-    pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
-    pub is_locked: bool,
 }
 
 impl MatchUser for Post {
@@ -60,16 +54,8 @@ impl MatchUser for Post {
 impl Post {
     pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
         PostWithSlimUser {
-            id: self.id,
             user: self.make_user_field(users),
-            topic_id: self.topic_id,
-            post_id: self.post_id,
-            post_content: self.post_content,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            last_reply_time: self.last_reply_time,
-            reply_count: self.reply_count,
-            is_locked: self.is_locked,
+            post: self
         }
     }
 }

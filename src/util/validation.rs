@@ -25,6 +25,7 @@ pub fn validate_email(email_str_vec: Vec<&str>) -> bool {
     EMAIL_DOMAIN_RE.is_match(domain_part)
 }
 
+// need to improve validation with regex
 pub fn validate_username(username: &str) -> bool {
     username.len() >= USERNAME_MIN
 }

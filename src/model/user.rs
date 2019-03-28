@@ -2,7 +2,7 @@ use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::users;
-use crate::model::common::{GetSelfField, Validator};
+use crate::model::common::{GetSelfId, Validator};
 use crate::model::errors::ServiceError;
 
 #[derive(Queryable, Insertable, Serialize)]
@@ -131,37 +131,6 @@ impl UserUpdateRequest {
     }
 }
 
-impl GetSelfField for SlimUser {
-    fn get_self_id(&self) -> &i32 {
-        &self.id
-    }
-}
-
-impl GetSelfField for SlimmerUser {
-    fn get_self_id(&self) -> &i32 {
-        &self.id
-    }
-}
-
-pub enum UserQuery {
-    Register(AuthRequest),
-    Login(AuthRequest),
-    GetMe(i32),
-    GetUser(String),
-    UpdateUser(UserUpdateRequest),
-}
-
-impl Message for UserQuery {
-    type Result = Result<UserQueryResult, ServiceError>;
-}
-
-pub enum UserQueryResult {
-    Registered,
-    LoggedIn(AuthResponse),
-    GotUser(User),
-    GotSlimUser(SlimUser),
-}
-
 impl<'a> User {
     pub fn new(username: &'a str, email: &'a str, hashed_password: &'a str) -> NewUser<'a> {
         NewUser {
@@ -186,3 +155,34 @@ impl<'a> User {
     }
 }
 
+
+impl GetSelfId for SlimUser {
+    fn get_self_id(&self) -> &i32 {
+        &self.id
+    }
+}
+
+impl GetSelfId for SlimmerUser {
+    fn get_self_id(&self) -> &i32 {
+        &self.id
+    }
+}
+
+pub enum UserQuery {
+    Register(AuthRequest),
+    Login(AuthRequest),
+    GetMe(i32),
+    GetUser(String),
+    UpdateUser(UserUpdateRequest),
+}
+
+impl Message for UserQuery {
+    type Result = Result<UserQueryResult, ServiceError>;
+}
+
+pub enum UserQueryResult {
+    Registered,
+    LoggedIn(AuthResponse),
+    GotUser(User),
+    GotSlimUser(SlimUser),
+}

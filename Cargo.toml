@@ -10,6 +10,8 @@ actix-web = "0.7.8"
 bcrypt = "0.2.0"
 chrono = { version = "0.4.6", features = ["serde"] }
 diesel = { version = "1.4.2", features = ["postgres", "r2d2", "chrono"] }
+actix-redis = "0.5.1"
+redis-async = "0.4.4"
 dotenv = "0.13.0"
 env_logger = "0.5.13"
 failure = "0.1.2"
@@ -27,4 +29,5 @@ lettre_email = "0.9"
 
 [profile.release]
 opt-level = 3
+codegen-units = 1
 debug = false

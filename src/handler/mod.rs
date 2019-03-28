@@ -5,3 +5,4 @@ pub mod auth;
 pub mod category;
 pub mod stream;
 pub mod email;
+pub mod cache;

@@ -30,7 +30,9 @@ pub fn get_topic((query_path, state): (Path<(u32, u32)>, State<AppState>))
         .send(TopicQuery::GetTopic(topic_id as i32, page as i64))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(query_result) =>  Ok(match_query_result(query_result)),
+            Ok(query_result) =>  {
+                Ok(match_query_result(query_result))
+            },
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -57,7 +59,6 @@ pub fn update_topic((topic_update_request, state, user_jwt): (Json<TopicUpdateRe
         })
         .responder()
 }
-
 
 fn match_query_result(result: TopicQueryResult) -> HttpResponse{
     match result {
