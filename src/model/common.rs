@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use chrono::{Local, NaiveDateTime};
+use chrono::NaiveDateTime;
 
 use crate::util::validation as validate;
 
@@ -17,7 +17,6 @@ pub trait GetSelfTimeStamp {
         self.get_last_reply_time().timestamp()
     }
 }
-
 
 
 pub trait MatchUser {

@@ -1,24 +1,21 @@
 use actix_web::HttpResponse;
 use serde::Serialize;
 
-pub enum Response<T> {
-    SendData(T),
+pub enum Response {
 
-    Register(T),
-    Topic(T),
-    Post(T),
-    Modified(T),
+    Register,
+    Topic,
+    Post,
+    Modified,
 }
 
-impl<T> Response<T>
-    where T: Serialize {
+impl Response {
     pub fn response(&self) -> HttpResponse {
         match &self {
-            Response::SendData(t) => HttpResponse::Ok().json(t),
-            Response::Register(_) => HttpResponse::Ok().json(Message::new("Register Success")),
-            Response::Post(_) => HttpResponse::Ok().json(Message::new("Add Post Success")),
-            Response::Topic(_) => HttpResponse::Ok().json(Message::new("Add Topic Success")),
-            Response::Modified(_) => HttpResponse::Ok().json(Message::new("Modify Success"))
+            Response::Register => HttpResponse::Ok().json(Message::new("Register Success")),
+            Response::Post => HttpResponse::Ok().json(Message::new("Add Post Success")),
+            Response::Topic => HttpResponse::Ok().json(Message::new("Add Topic Success")),
+            Response::Modified => HttpResponse::Ok().json(Message::new("Modify Success"))
         }
     }
 }

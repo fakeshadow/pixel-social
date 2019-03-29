@@ -62,7 +62,7 @@ pub fn update_topic((topic_update_request, state, user_jwt): (Json<TopicUpdateRe
 
 fn match_query_result(result: TopicQueryResult) -> HttpResponse{
     match result {
-        TopicQueryResult::AddedTopic => Response::Topic(true).response(),
-        TopicQueryResult::GotTopicSlim(topic) => Response::SendData(topic).response()
+        TopicQueryResult::AddedTopic => Response::Topic.response(),
+        TopicQueryResult::GotTopicSlim(topic) => HttpResponse::Ok().json(topic),
     }
 }

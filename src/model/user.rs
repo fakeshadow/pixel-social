@@ -20,7 +20,7 @@ pub struct User {
     pub blocked: bool,
 }
 
-#[derive(Queryable, Serialize, Clone, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct SlimUser {
     pub id: i32,
     pub username: String,
@@ -31,7 +31,7 @@ pub struct SlimUser {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Queryable, Serialize, Clone, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct SlimmerUser {
     pub id: i32,
     pub username: String,
@@ -103,10 +103,10 @@ impl Validator for UserUpdateRequest {
         }
     }
     fn get_password(&self) -> &str {
-       ""
+        ""
     }
     fn get_email(&self) -> &str {
-       ""
+        ""
     }
 }
 

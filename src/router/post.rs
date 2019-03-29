@@ -56,7 +56,7 @@ pub fn update_post((post_request, state, user_jwt): (Json<PostRequest>, State<Ap
 
 fn match_query_result(result: PostQueryResult) -> HttpResponse{
     match result {
-        PostQueryResult::AddedPost => Response::Post(true).response(),
-        PostQueryResult::GotPost(post) => Response::SendData(post).response()
+        PostQueryResult::AddedPost => Response::Post.response(),
+        PostQueryResult::GotPost(post) => HttpResponse::Ok().json(post),
     }
 }

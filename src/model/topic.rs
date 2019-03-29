@@ -5,14 +5,14 @@ use crate::schema::topics;
 
 use crate::model::common::{GetSelfId, MatchUser, GetSelfTimeStamp};
 use crate::model::post::PostWithSlimUser;
-use crate::model::user::{SlimUser, SlimmerUser};
+use crate::model::user::SlimUser;
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Identifiable, Queryable, Serialize, Clone)]
+#[derive(Debug, Identifiable, Queryable, Serialize, Deserialize, Clone)]
 #[table_name = "topics"]
 pub struct Topic {
     pub id: i32,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     pub user_id: i32,
     pub category_id: i32,
     pub title: String,
@@ -43,14 +43,14 @@ pub struct TopicRequest {
     pub body: String,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TopicWithUser<T> {
     #[serde(flatten)]
     pub topic: Topic,
     pub user: Option<T>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TopicResponseSlim {
     pub topic: Option<TopicWithUser<SlimUser>>,
     pub posts: Option<Vec<PostWithSlimUser>>,

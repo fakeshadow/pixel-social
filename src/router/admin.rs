@@ -23,7 +23,7 @@ pub fn admin_modify_category((category_request, state): (Json<CategoryRequest>, 
                 }))
                 .from_err()
                 .and_then(|db_response| match db_response {
-                    Ok(_) => Ok(Response::Modified(true).response()),
+                    Ok(_) => Ok(Response::Modified.response()),
                     Err(service_error) => Ok(service_error.error_response())
                 })
                 .responder()
@@ -47,7 +47,7 @@ pub fn admin_update_user((user_update_request, state): (Json<UserUpdateRequest>,
         }))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Modified(true).response()),
+            Ok(_) => Ok(Response::Modified.response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
@@ -59,7 +59,7 @@ pub fn admin_update_topic((topic_update_request, state): (Json<TopicUpdateReques
         .send(TopicQuery::UpdateTopic(topic_update_request.clone()))
         .from_err()
         .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Modified(true).response()),
+            Ok(_) => Ok(Response::Modified.response()),
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()

@@ -1,19 +1,17 @@
 use std::env;
-use std::sync::Arc;
 
 use actix::prelude::*;
 use actix_web::{http::{header, Method}, middleware, middleware::cors::Cors, App, fs};
-use actix_redis::RedisActor as CacheExecutor;
 
-use crate::model::db::DbExecutor;
+use crate::model::db::{DbExecutor, CacheExecutor};
 use crate::router::*;
 
 pub struct AppState {
     pub db: Addr<DbExecutor>,
-    pub cache: Arc<Addr<CacheExecutor>>
+    pub cache: Addr<CacheExecutor>
 }
 
-pub fn create_app(db: Addr<DbExecutor>, cache: Arc<Addr<CacheExecutor>> ) -> App<AppState> {
+pub fn create_app(db: Addr<DbExecutor>, cache: Addr<CacheExecutor>) -> App<AppState> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
     App::with_state(AppState { db, cache })

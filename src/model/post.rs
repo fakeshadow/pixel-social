@@ -7,10 +7,10 @@ use crate::model::common::*;
 use crate::model::user::SlimUser;
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Queryable, Serialize)]
+#[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
     pub id: i32,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, skip_deserializing)]
     pub user_id: i32,
     pub topic_id: i32,
     pub post_id: Option<i32>,
@@ -38,7 +38,7 @@ pub struct PostRequest {
     pub post_content: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize,Deserialize, Debug)]
 pub struct PostWithSlimUser {
     #[serde(flatten)]
     pub post: Post,

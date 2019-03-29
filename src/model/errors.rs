@@ -2,6 +2,8 @@ use actix_web::{error::ResponseError, error::MultipartError as multi_err, HttpRe
 use actix::MailboxError as future_err;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 
+use redis::{RedisError as redis_err, ErrorKind};
+
 #[derive(Fail, Debug)]
 pub enum ServiceError {
     #[fail(display = "Internal Server Error")]
@@ -66,6 +68,14 @@ impl From<actix_web::Error> for ServiceError {
     }
 }
 
+impl From<redis_err> for ServiceError {
+    fn from (err: redis_err) -> ServiceError {
+        match err {
+
+            _ => ServiceError::InternalServerError
+        }
+    }
+}
 
 impl From<diesel_err> for ServiceError {
     fn from(error: diesel_err) -> ServiceError {

@@ -123,9 +123,9 @@ pub fn register_user((register_request, state): (Json<AuthRequest>, State<AppSta
 
 fn match_query_result(result: UserQueryResult) -> HttpResponse{
     match result {
-        UserQueryResult::GotSlimUser(slim_user) => Response::SendData(slim_user).response(),
-        UserQueryResult::GotUser(user) => Response::SendData(user).response(),
-        UserQueryResult::LoggedIn(login_data) => Response::SendData(login_data).response(),
-        UserQueryResult::Registered => Response::Register(true).response()
+        UserQueryResult::GotSlimUser(slim_user) => HttpResponse::Ok().json(slim_user),
+        UserQueryResult::GotUser(user) => HttpResponse::Ok().json(user),
+        UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(login_data),
+        UserQueryResult::Registered => Response::Register.response()
     }
 }
