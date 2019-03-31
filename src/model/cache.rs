@@ -9,17 +9,20 @@ pub struct CacheRequest {
     pub page: Option<isize>,
 }
 
-
-
 impl Message for CacheQuery {
     type Result = Result<CacheQueryResult, ServiceError>;
 }
 
 pub enum CacheQuery {
-    GetCategory(CacheRequest)
+    GetAllCategories,
+    GetPopular(i64),
+    GetCategory(CacheRequest),
+    UpdateCategory(Vec<TopicWithUser<SlimmerUser>>)
 }
 
 pub enum CacheQueryResult {
+    GotAllCategories,
+    GotPopular,
     GotCategory(Vec<TopicWithUser<SlimmerUser>>),
     Tested(String)
 }

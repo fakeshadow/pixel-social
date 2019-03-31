@@ -1,62 +1,66 @@
-use actix_web::{AsyncResponder, FutureResponse, HttpResponse, ResponseError, State, Json, Path};
-use futures::Future;
+use actix_web::{web, HttpResponse};
+use futures::IntoFuture;
 
-use crate::app::AppState;
 use crate::model::post::*;
 use crate::model::response::Response;
 use crate::handler::auth::UserJwt;
 
-pub fn add_post((post_request, state, user_jwt): (Json<PostRequest>, State<AppState>, UserJwt))
-                -> FutureResponse<HttpResponse> {
-    state.db
-        .send(PostQuery::AddPost(NewPost {
-            user_id: user_jwt.user_id.clone(),
-            post_id: post_request.post_id.clone(),
-            topic_id: post_request.topic_id.clone(),
-            post_content: post_request.post_content.clone(),
-        }))
-        .from_err()
-        .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(match_query_result(query_result)),
-            Err(service_error) => Ok(service_error.error_response())
-        })
-        .responder()
+use crate::model::types::*;
+use crate::handler::post::post_handler;
+use crate::model::errors::ServiceError;
+
+pub fn add_post(
+    user_jwt: UserJwt,
+    post_request: web::Json<PostRequest>,
+    db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
+    let post_query = PostQuery::AddPost(NewPost {
+        user_id: user_jwt.user_id,
+        post_id: post_request.post_id.clone(),
+        topic_id: post_request.topic_id.clone(),
+        post_content: post_request.post_content.clone(),
+    });
+
+    match_query_result(post_handler(post_query, db))
 }
 
-pub fn get_post((post_id, state, _): (Path<i32>, State<AppState>, UserJwt))
-                -> FutureResponse<HttpResponse> {
+pub fn get_post(
+    _: UserJwt,
+    post_id: web::Path<i32>,
+    db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     let post_id = post_id.into_inner();
+    let post_query = PostQuery::GetPost(post_id);
 
-    state.db
-        .send(PostQuery::GetPost(post_id))
-        .from_err()
-        .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(match_query_result(query_result)),
-            Err(service_error) => Ok(service_error.error_response())
-        })
-        .responder()
+    match_query_result(post_handler(post_query, db))
 }
 
-pub fn update_post((post_request, state, user_jwt): (Json<PostRequest>, State<AppState>, UserJwt))
-                   -> FutureResponse<HttpResponse> {
-    state.db
-        .send(PostQuery::EditPost(NewPost {
-            user_id: user_jwt.user_id.clone(),
-            post_id: post_request.post_id.clone(),
-            topic_id: post_request.topic_id.clone(),
-            post_content: post_request.post_content.clone(),
-        }))
-        .from_err()
-        .and_then(|db_response| match db_response {
-            Ok(query_result) => Ok(match_query_result(query_result)),
-            Err(service_error) => Ok(service_error.error_response())
-        })
-        .responder()
+pub fn update_post(
+    user_jwt: UserJwt,
+    post_request: web::Json<PostRequest>,
+    db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
+    let post_query = PostQuery::EditPost(NewPost {
+        user_id: user_jwt.user_id,
+        post_id: post_request.post_id.clone(),
+        topic_id: post_request.topic_id.clone(),
+        post_content: post_request.post_content.clone(),
+    });
+
+    match_query_result(post_handler(post_query, db))
 }
 
-fn match_query_result(result: PostQueryResult) -> HttpResponse{
+fn match_query_result(result: Result<PostQueryResult, ServiceError>) -> Result<HttpResponse, ServiceError> {
     match result {
-        PostQueryResult::AddedPost => Response::Post.response(),
-        PostQueryResult::GotPost(post) => HttpResponse::Ok().json(post),
+        Ok(query_result) => {
+            match query_result {
+                PostQueryResult::AddedPost => Ok(Response::Post.response()),
+                PostQueryResult::GotPost(post) => Ok(HttpResponse::Ok().json(post)),
+            }
+        }
+        Err(e) => Err(e)
     }
 }

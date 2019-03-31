@@ -1,8 +1,6 @@
 use actix_web::HttpResponse;
-use serde::Serialize;
 
 pub enum Response {
-
     Register,
     Topic,
     Post,

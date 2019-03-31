@@ -1,5 +1,4 @@
 /target
 **/*.rs.bk
-.vscode
+/.idea
 .env
-.idea

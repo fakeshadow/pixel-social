@@ -155,7 +155,6 @@ impl<'a> User {
     }
 }
 
-
 impl GetSelfId for SlimUser {
     fn get_self_id(&self) -> &i32 {
         &self.id
@@ -174,10 +173,6 @@ pub enum UserQuery {
     GetMe(i32),
     GetUser(String),
     UpdateUser(UserUpdateRequest),
-}
-
-impl Message for UserQuery {
-    type Result = Result<UserQueryResult, ServiceError>;
 }
 
 pub enum UserQueryResult {

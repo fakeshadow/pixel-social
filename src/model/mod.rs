@@ -1,5 +1,5 @@
 pub mod user;
-pub mod db;
+pub mod types;
 pub mod post;
 pub mod topic;
 pub mod errors;

@@ -2,7 +2,8 @@ use actix_web::{error::ResponseError, error::MultipartError as multi_err, HttpRe
 use actix::MailboxError as future_err;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 
-use redis::{RedisError as redis_err, ErrorKind};
+use r2d2::Error as r2d2_err;
+use r2d2_redis::redis::RedisError as redis_err;
 
 #[derive(Fail, Debug)]
 pub enum ServiceError {
@@ -28,13 +29,20 @@ pub enum ServiceError {
     Unauthorized,
     #[fail(display = "Forbidden")]
     AuthTimeout,
+    #[fail(display = "Forbidden")]
+    NoCacheFound,
+    #[fail(display = "Internal Server Error")]
+    RedisOffline,
+    #[fail(display = "IBadRequest")]
+    RegisterLimit
 }
+
 
 impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
-        match *self {
+        match self {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
-            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().finish(),
+            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
             ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
@@ -43,7 +51,10 @@ impl ResponseError for ServiceError {
             ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
-            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again"))
+            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
+            ServiceError::RedisOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
+            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected")),
+            ServiceError::RegisterLimit => HttpResponse::BadRequest().json(ErrorMessage::new("Register requirement not met")),
         }
     }
 }
@@ -52,27 +63,24 @@ impl From<multi_err> for ServiceError {
     fn from(error: multi_err) -> ServiceError {
         match error {
             multi_err::Payload(a) => {
-                println!("{:?}", a);
-                return ServiceError::BadRequestGeneral
-            },
-            _=> ServiceError::InternalServerError
-        }
-    }
-}
-
-impl From<actix_web::Error> for ServiceError {
-    fn from (err: actix_web::Error) -> ServiceError {
-        match err {
-            _=> ServiceError::InternalServerError
+                return ServiceError::BadRequestGeneral;
+            }
+            _ => ServiceError::InternalServerError
         }
     }
 }
 
 impl From<redis_err> for ServiceError {
-    fn from (err: redis_err) -> ServiceError {
-        match err {
+    fn from(err: redis_err) -> ServiceError {
+        println!("{:?}", err);
+        ServiceError::InternalServerError
+    }
+}
 
-            _ => ServiceError::InternalServerError
+impl From<r2d2_err> for ServiceError {
+    fn from(err: r2d2_err) -> ServiceError {
+        match err {
+            _ => ServiceError::NoCacheFound
         }
     }
 }
@@ -92,6 +100,15 @@ impl From<diesel_err> for ServiceError {
     }
 }
 
+//use std::option::NoneError as none_err;
+//
+//impl From<none_err> for ServiceError {
+//    fn from(err: none_err) -> ServiceError {
+//        ServiceError::GotNone
+//    }
+//}
+
+
 impl From<future_err> for ServiceError {
     fn from(error: future_err) -> ServiceError {
         // need to improve error handling here
@@ -101,7 +118,6 @@ impl From<future_err> for ServiceError {
         }
     }
 }
-
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {
