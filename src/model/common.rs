@@ -1,14 +1,54 @@
 use std::collections::HashSet;
-use chrono::NaiveDateTime;
+use std::sync::{Arc, Mutex};
 
+use actix_web::web;
+use chrono::NaiveDateTime;
+use diesel::{
+    result::Error,
+    prelude::*,
+    pg::PgConnection,
+    r2d2::{ConnectionManager, Pool as diesel_pool},
+};
+use r2d2_redis::{
+    redis,
+    r2d2 as redis_r2d2,
+    RedisConnectionManager,
+};
+
+use crate::schema::{users, posts, topics};
 use crate::util::validation as validate;
 
+
+pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
+pub type RedisPool = redis_r2d2::Pool<RedisConnectionManager>;
+
+// query option for handlers
+pub struct QueryOption<'a> {
+    pub db_pool: Option<&'a web::Data<PostgresPool>>,
+    pub global_var: Option<&'a web::Data<GlobalGuard>>,
+}
+
+
+#[derive(Serialize)]
+pub struct ResponseMessage<'a> {
+    message: &'a str
+}
+
+impl<'a> ResponseMessage<'a> {
+    pub fn new(msg: &'a str) -> Self {
+        ResponseMessage {
+            message: msg
+        }
+    }
+}
+
+
 pub trait GetSelfId {
-    fn get_self_id(&self) -> &i32;
+    fn get_self_id(&self) -> &u32;
 }
 
 pub trait GetSelfCategory {
-    fn get_self_category(&self) -> &i32;
+    fn get_self_category(&self) -> &u32;
 }
 
 pub trait GetSelfTimeStamp {
@@ -19,13 +59,13 @@ pub trait GetSelfTimeStamp {
 }
 
 pub trait MatchUser {
-    fn get_user_id(&self) -> &i32;
+    fn get_user_id(&self) -> &u32;
 
     // only add topic user_id when query for the first page of a topic. Other case just pass None in
     // capacity has to be changed along side with the limit constant in handlers.
-    fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a i32>) -> Vec<&'a i32>
+    fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
         where T: MatchUser {
-        let mut result: Vec<&i32> = Vec::with_capacity(21);
+        let mut result: Vec<&u32> = Vec::with_capacity(21);
         let mut hash_set = HashSet::with_capacity(21);
 
         if let Some(user_id) = topic_user_id {
@@ -94,5 +134,47 @@ pub trait Validator {
 
     fn check_login(&self) -> bool {
         self.check_password() && self.check_username()
+    }
+}
+
+
+// type and struct for global vars
+pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
+
+#[derive(Debug, Clone)]
+pub struct GlobalVar {
+    pub next_uid: u32,
+    pub next_pid: u32,
+    pub next_tid: u32,
+}
+
+impl GlobalVar {
+    pub fn init(database_url: &str) -> Arc<Mutex<GlobalVar>> {
+        let connection = PgConnection::establish(database_url).unwrap_or_else(|_| panic!("Failed to connect to database"));
+
+        let last_uid = users::table.select(users::id).order(users::id.desc()).limit(1).load(&connection);
+        let next_uid = match_id(last_uid);
+
+        let last_pid = posts::table.select(posts::id).order(posts::id.desc()).limit(1).load(&connection);
+        let next_pid = match_id(last_pid);
+
+        let last_tid = topics::table.select(topics::id).order(topics::id.desc()).limit(1).load(&connection);
+        let next_tid = match_id(last_tid);
+
+        Arc::new(Mutex::new(GlobalVar {
+            next_uid,
+            next_pid,
+            next_tid,
+        }))
+    }
+}
+
+fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
+    match last_id {
+        Ok(id) => {
+            if id.len() > 0 { id[0] + 1}
+            else { 1 }
+        }
+        Err(_) => panic!("Database error.Failed to get ids")
     }
 }

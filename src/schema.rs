@@ -1,6 +1,16 @@
 table! {
+    associates (id) {
+        id -> Oid,
+        user_id -> Oid,
+        psn_id -> Nullable<Varchar>,
+        live_id -> Nullable<Varchar>,
+        last_update_time -> Timestamp,
+    }
+}
+
+table! {
     categories (id) {
-        id -> Int4,
+        id -> Oid,
         name -> Varchar,
         theme -> Varchar,
     }
@@ -8,10 +18,10 @@ table! {
 
 table! {
     posts (id) {
-        id -> Int4,
-        user_id -> Int4,
-        topic_id -> Int4,
-        post_id -> Nullable<Int4>,
+        id -> Oid,
+        user_id -> Oid,
+        topic_id -> Oid,
+        post_id -> Nullable<Oid>,
         post_content -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
@@ -23,9 +33,9 @@ table! {
 
 table! {
     topics (id) {
-        id -> Int4,
-        user_id -> Int4,
-        category_id -> Int4,
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
         title -> Varchar,
         body -> Varchar,
         thumbnail -> Varchar,
@@ -39,7 +49,7 @@ table! {
 
 table! {
     users (id) {
-        id -> Int4,
+        id -> Oid,
         username -> Varchar,
         email -> Varchar,
         hashed_password -> Varchar,
@@ -47,7 +57,15 @@ table! {
         signature -> Varchar,
         created_at -> Timestamp,
         updated_at -> Timestamp,
-        is_admin -> Int4,
+        is_admin -> Oid,
         blocked -> Bool,
     }
 }
+
+allow_tables_to_appear_in_same_query!(
+    associates,
+    categories,
+    posts,
+    topics,
+    users,
+);

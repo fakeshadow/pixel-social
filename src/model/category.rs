@@ -1,27 +1,29 @@
-use actix::Message;
 use crate::schema::categories;
-
-use crate::model::errors::ServiceError;
-use crate::model::topic::{TopicWithUser};
-use crate::model::user::SlimmerUser;
+use crate::model::{
+    errors::ServiceError,
+    user::SlimmerUser,
+    topic::{TopicWithUser}
+};
 
 #[derive(Identifiable, Queryable, Serialize)]
 #[table_name = "categories"]
 pub struct Category {
-    pub id: i32,
+    pub id: u32,
     pub name: String,
     pub theme: String,
 }
 
 #[derive(Deserialize)]
-pub struct CategoryRequest {
-    pub categories: Option<Vec<i32>>,
-    /// 0 add category, 1 modify category, 2 delete category
-    pub modify_type: Option<u32>,
-    pub category_id: Option<i32>,
-    pub category_data: Option<CategoryData>,
-    pub page: Option<i64>,
+pub struct CategoryJson {
+    pub categories: Vec<u32>,
+    pub page: i64,
 }
+
+pub struct CategoryRequest<'a> {
+    pub categories: &'a Vec<u32>,
+    pub page: &'a i64,
+}
+
 
 #[derive(Insertable, Deserialize, Clone)]
 #[table_name = "categories"]
@@ -30,19 +32,16 @@ pub struct CategoryData {
     pub theme: String,
 }
 
-pub enum CategoryQuery {
+
+pub enum CategoryQuery<'a> {
     GetAllCategories,
     GetPopular(i64),
-    GetCategory(CategoryRequest),
-    ModifyCategory(CategoryRequest),
+    GetCategory(CategoryRequest<'a>),
+    ModifyCategory(CategoryRequest<'a>),
 }
 
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
     GotTopics(Vec<TopicWithUser<SlimmerUser>>),
     ModifiedCategory,
-}
-
-impl Message for CategoryQuery {
-    type Result = Result<CategoryQueryResult, ServiceError>;
 }

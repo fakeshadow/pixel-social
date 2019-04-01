@@ -1,19 +1,18 @@
-use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::schema::posts;
-use crate::model::common::*;
-
-use crate::model::user::SlimUser;
-use crate::model::errors::ServiceError;
+use crate::model::{
+    common::*,
+    user::SlimUser,
+    errors::ServiceError,
+};
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
-    pub id: i32,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub user_id: i32,
-    pub topic_id: i32,
-    pub post_id: Option<i32>,
+    pub id: u32,
+    pub user_id: u32,
+    pub topic_id: u32,
+    pub post_id: Option<u32>,
     pub post_content: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
@@ -24,21 +23,42 @@ pub struct Post {
 
 #[derive(Insertable)]
 #[table_name = "posts"]
-pub struct NewPost {
-    pub user_id: i32,
-    pub topic_id: i32,
-    pub post_id: Option<i32>,
+pub struct NewPost<'a> {
+    pub id: u32,
+    pub user_id: &'a u32,
+    pub topic_id: &'a u32,
+    pub post_id: Option<&'a u32>,
+    pub post_content: &'a str,
+}
+
+pub struct PostRequest<'a> {
+    pub user_id: &'a u32,
+    pub topic_id: &'a u32,
+    pub post_id: Option<&'a u32>,
+    pub post_content: &'a str,
+}
+
+pub struct UpdatePostRequest<'a> {
+    pub id: &'a u32,
+    pub user_id: &'a u32,
+    pub post_content: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PostJson {
+    pub post_id: Option<u32>,
+    pub topic_id: u32,
     pub post_content: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PostRequest {
-    pub post_id: Option<i32>,
-    pub topic_id: i32,
+pub struct UpdatePostJson {
+    pub id: u32,
     pub post_content: String,
 }
 
-#[derive(Serialize,Deserialize, Debug)]
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PostWithSlimUser {
     #[serde(flatten)]
     pub post: Post,
@@ -46,28 +66,34 @@ pub struct PostWithSlimUser {
 }
 
 impl MatchUser for Post {
-    fn get_user_id(&self) -> &i32 {
+    fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
 }
 
 impl Post {
+    pub fn new(id: u32, post_request: PostRequest) -> NewPost {
+        NewPost {
+            id,
+            user_id: post_request.user_id,
+            topic_id: post_request.topic_id,
+            post_id: post_request.post_id,
+            post_content: post_request.post_content,
+        }
+    }
+
     pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
         PostWithSlimUser {
             user: self.make_user_field(users),
-            post: self
+            post: self,
         }
     }
 }
 
-impl Message for PostQuery {
-    type Result = Result<PostQueryResult, ServiceError>;
-}
-
-pub enum PostQuery {
-    AddPost(NewPost),
-    EditPost(NewPost),
-    GetPost(i32),
+pub enum PostQuery<'a> {
+    AddPost(PostRequest<'a>),
+    EditPost(UpdatePostRequest<'a>),
+    GetPost(u32),
 }
 
 pub enum PostQueryResult {

@@ -5,10 +5,10 @@ use crate::schema::users;
 use crate::model::common::{GetSelfId, Validator};
 use crate::model::errors::ServiceError;
 
-#[derive(Queryable, Insertable, Serialize)]
+#[derive(Queryable, Insertable, Serialize, Debug)]
 #[table_name = "users"]
 pub struct User {
-    pub id: i32,
+    pub id: u32,
     pub username: String,
     pub email: String,
     pub hashed_password: String,
@@ -16,13 +16,13 @@ pub struct User {
     pub signature: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub is_admin: i32,
+    pub is_admin: u32,
     pub blocked: bool,
 }
 
 #[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct SlimUser {
-    pub id: i32,
+    pub id: u32,
     pub username: String,
     pub email: String,
     pub avatar_url: String,
@@ -33,7 +33,7 @@ pub struct SlimUser {
 
 #[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct SlimmerUser {
-    pub id: i32,
+    pub id: u32,
     pub username: String,
     pub avatar_url: String,
     pub updated_at: NaiveDateTime,
@@ -42,6 +42,7 @@ pub struct SlimmerUser {
 #[derive(Insertable)]
 #[table_name = "users"]
 pub struct NewUser<'a> {
+    pub id: u32,
     pub username: &'a str,
     pub email: &'a str,
     pub hashed_password: &'a str,
@@ -50,11 +51,18 @@ pub struct NewUser<'a> {
 }
 
 #[derive(Deserialize)]
-pub struct AuthRequest {
-    pub username: Option<String>,
-    pub password: Option<String>,
+pub struct AuthJson {
+    pub username: String,
+    pub password: String,
     pub email: Option<String>,
 }
+
+pub struct AuthRequest<'a> {
+    pub username: &'a str,
+    pub password: &'a str,
+    pub email: &'a str
+}
+
 
 #[derive(Serialize)]
 pub struct AuthResponse {
@@ -62,18 +70,12 @@ pub struct AuthResponse {
     pub user_data: SlimUser,
 }
 
-impl Validator for AuthRequest {
+impl Validator for AuthJson {
     fn get_username(&self) -> &str {
-        match &self.username {
-            Some(username) => username,
-            None => ""
-        }
+        &self.username
     }
     fn get_password(&self) -> &str {
-        match &self.password {
-            Some(password) => password,
-            None => ""
-        }
+        &self.password
     }
     fn get_email(&self) -> &str {
         match &self.email {
@@ -85,13 +87,13 @@ impl Validator for AuthRequest {
 
 #[derive(Deserialize, Clone)]
 pub struct UserUpdateRequest {
-    pub id: Option<i32>,
+    pub id: Option<u32>,
     pub username: Option<String>,
     pub password: Option<String>,
     pub email: Option<String>,
     pub avatar_url: Option<String>,
     pub signature: Option<String>,
-    pub is_admin: Option<i32>,
+    pub is_admin: Option<u32>,
     pub blocked: Option<bool>,
 }
 
@@ -132,8 +134,9 @@ impl UserUpdateRequest {
 }
 
 impl<'a> User {
-    pub fn new(username: &'a str, email: &'a str, hashed_password: &'a str) -> NewUser<'a> {
+    pub fn new(id:u32 ,username: &'a str, email: &'a str, hashed_password: &'a str) -> NewUser<'a> {
         NewUser {
+            id,
             username,
             email,
             hashed_password,
@@ -156,22 +159,22 @@ impl<'a> User {
 }
 
 impl GetSelfId for SlimUser {
-    fn get_self_id(&self) -> &i32 {
+    fn get_self_id(&self) -> &u32 {
         &self.id
     }
 }
 
 impl GetSelfId for SlimmerUser {
-    fn get_self_id(&self) -> &i32 {
+    fn get_self_id(&self) -> &u32 {
         &self.id
     }
 }
 
-pub enum UserQuery {
-    Register(AuthRequest),
-    Login(AuthRequest),
-    GetMe(i32),
-    GetUser(String),
+pub enum UserQuery<'a> {
+    Register(AuthRequest<'a>),
+    Login(AuthRequest<'a>),
+    GetMe(&'a u32),
+    GetUser(&'a str),
     UpdateUser(UserUpdateRequest),
 }
 

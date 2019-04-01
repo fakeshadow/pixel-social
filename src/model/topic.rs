@@ -1,20 +1,18 @@
-use actix::Message;
 use chrono::NaiveDateTime;
-
 use crate::schema::topics;
 
-use crate::model::common::{GetSelfId, MatchUser, GetSelfTimeStamp};
-use crate::model::post::PostWithSlimUser;
-use crate::model::user::SlimUser;
-use crate::model::errors::ServiceError;
+use crate::model::{
+    user::SlimUser,
+    post::PostWithSlimUser,
+    common::{GetSelfId, MatchUser, GetSelfTimeStamp},
+};
 
 #[derive(Debug, Identifiable, Queryable, Serialize, Deserialize, Clone)]
 #[table_name = "topics"]
 pub struct Topic {
-    pub id: i32,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub user_id: i32,
-    pub category_id: i32,
+    pub id: u32,
+    pub user_id: u32,
+    pub category_id: u32,
     pub title: String,
     pub body: String,
     pub thumbnail: String,
@@ -27,17 +25,26 @@ pub struct Topic {
 
 #[derive(Insertable)]
 #[table_name = "topics"]
-pub struct NewTopic {
-    pub user_id: i32,
-    pub category_id: i32,
-    pub thumbnail: String,
-    pub title: String,
-    pub body: String,
+pub struct NewTopic<'a> {
+    pub id: u32,
+    pub user_id: &'a u32,
+    pub category_id: &'a u32,
+    pub thumbnail: &'a str,
+    pub title: &'a str,
+    pub body: &'a str,
+}
+
+pub struct NewTopicRequest<'a> {
+    pub user_id: &'a u32,
+    pub category_id: &'a u32,
+    pub thumbnail: &'a str,
+    pub title: &'a str,
+    pub body: &'a str,
 }
 
 #[derive(Deserialize)]
-pub struct TopicRequest {
-    pub category_id: i32,
+pub struct TopicJson {
+    pub category_id: u32,
     pub thumbnail: String,
     pub title: String,
     pub body: String,
@@ -57,14 +64,30 @@ pub struct TopicResponseSlim {
 }
 
 impl MatchUser for Topic {
-    fn get_user_id(&self) -> &i32 { &self.user_id }
+    fn get_user_id(&self) -> &u32 { &self.user_id }
 }
 
-impl<T> GetSelfTimeStamp for TopicWithUser<T> {
-    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
+impl<T> GetSelfId for TopicWithUser<T> {
+    fn get_self_id(&self) -> &u32 {
+        &self.topic.id
+    }
 }
+
+//impl<T> GetSelfTimeStamp for TopicWithUser<T> {
+//    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
+//}
 
 impl Topic {
+    pub fn new(id:u32, request: NewTopicRequest) -> NewTopic {
+        NewTopic {
+            id,
+            user_id: request.user_id,
+            category_id: request.category_id,
+            thumbnail: request.thumbnail,
+            title: request.title,
+            body: request.body,
+        }
+    }
     pub fn attach_user<T>(self, users: &Vec<T>) -> TopicWithUser<T>
         where T: Clone + GetSelfId {
         TopicWithUser {
@@ -76,9 +99,9 @@ impl Topic {
 
 #[derive(Deserialize, Clone)]
 pub struct TopicUpdateRequest {
-    pub id: Option<i32>,
-    pub user_id: Option<i32>,
-    pub category_id: Option<i32>,
+    pub id: Option<u32>,
+    pub user_id: Option<u32>,
+    pub category_id: Option<u32>,
     pub title: Option<String>,
     pub body: Option<String>,
     pub thumbnail: Option<String>,
@@ -113,13 +136,9 @@ impl TopicUpdateRequest {
     }
 }
 
-impl Message for TopicQuery {
-    type Result = Result<TopicQueryResult, ServiceError>;
-}
-
-pub enum TopicQuery {
-    AddTopic(NewTopic),
-    GetTopic(i32, i64),
+pub enum TopicQuery<'a> {
+    AddTopic(NewTopicRequest<'a>),
+    GetTopic(&'a u32, &'a i64),
     UpdateTopic(TopicUpdateRequest),
 }
 

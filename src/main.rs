@@ -1,16 +1,5 @@
-//#![allow(unused_imports)]
-//extern crate actix;
-//extern crate actix_web;
-//extern crate serde;
-//extern crate chrono;
-//extern crate dotenv;
-//extern crate futures;
-//extern crate r2d2;
-//extern crate jsonwebtoken;
-//extern crate rand;
-//extern crate regex;
-//extern crate lettre;
-//extern crate r2d2_redis;
+#![allow(proc_macro_derive_resolution_fallback)]
+#![allow(unused_imports)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -25,7 +14,6 @@ use actix_web::{web, App, HttpServer, middleware::{Logger, cors::Cors}, http::he
 use actix::prelude::*;
 use actix_files as fs;
 
-
 use diesel::{r2d2::ConnectionManager, PgConnection};
 use r2d2_redis::{redis, r2d2 as redis_r2d2, RedisConnectionManager};
 use dotenv::dotenv;
@@ -36,19 +24,23 @@ mod router;
 mod util;
 mod schema;
 
+use crate::model::common::GlobalVar;
+
 fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let redis_url = std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_string());
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL must be set");
     let server_ip = std::env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
     let server_port = std::env::var("SERVER_PORT").unwrap_or("8081".to_string());
     let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
-    // clear cache on start up for test purpose
+
+//     clear cache on start up for test purpose
 //    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
 //    let clear_cache = redis_client.get_connection().unwrap();
 //    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+    let global_arc = GlobalVar::init(&database_url);
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let postgres_pool = r2d2::Pool::builder()
@@ -64,6 +56,7 @@ fn main() -> std::io::Result<()> {
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
+            .data(global_arc.clone())
             .wrap(Logger::default())
             .wrap(Cors::new()
                       .allowed_origin(&cors_origin)
@@ -134,11 +127,17 @@ fn main() -> std::io::Result<()> {
                     .service(
                         web::resource("/popular/{page}")
                             .route(web::get().to_async(router::category::get_popular))
-
                     )
                     .service(
                         web::resource("/{category_id}/{page}")
                             .route(web::get().to_async(router::category::get_category))
+                    )
+            )
+            .service(
+                web::scope("/test")
+                    .service(
+                        web::resource("/")
+                            .route(web::get().to_async(router::test::test_lock))
                     )
             )
 //            .service(

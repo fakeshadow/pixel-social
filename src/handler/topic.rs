@@ -2,14 +2,14 @@ use actix_web::web;
 use diesel::prelude::*;
 
 use crate::model::errors::ServiceError;
+use crate::model::common::{PostgresPool, QueryOption};
 use crate::model::{topic::*, post::Post, user::SlimUser};
-use crate::schema::{topics, posts, users};
+use crate::schema::{topics, posts, users, categories};
 
 const LIMIT: i64 = 20;
 
-use crate::model::types::*;
-
-pub fn topic_handler(topic_query: TopicQuery, db_pool: web::Data<PostgresPool>) -> Result<TopicQueryResult, ServiceError> {
+pub fn topic_handler(topic_query: TopicQuery, opt: QueryOption) -> Result<TopicQueryResult, ServiceError> {
+    let db_pool = opt.db_pool.unwrap();
     let conn: &PgConnection = &db_pool.get().unwrap();
 
     match topic_query {
@@ -30,11 +30,24 @@ pub fn topic_handler(topic_query: TopicQuery, db_pool: web::Data<PostgresPool>) 
             join_topics_users(_topic, _posts, conn, &page)
         }
 
-        TopicQuery::AddTopic(new_topic) => {
-            let tid = new_topic.category_id;
+        TopicQuery::AddTopic(new_topic_request) => {
+            let cid = new_topic_request.category_id;
 
-            let category_check: usize = topics::table.find(&tid).execute(conn)?;
+            let category_check: usize = categories::table.find(&cid).execute(conn)?;
             if category_check == 0 { return Err(ServiceError::NotFound); };
+
+            let global_var = opt.global_var.unwrap();
+
+            let id: u32 = match global_var.lock() {
+                Ok(mut guarded_global_var) => {
+                    let next_tid = guarded_global_var.next_tid;
+                    guarded_global_var.next_tid += 1;
+                    next_tid
+                }
+                Err(_) => { return Err(ServiceError::InternalServerError); }
+            };
+
+            let new_topic = Topic::new(id, new_topic_request);
 
             diesel::insert_into(topics::table)
                 .values(&new_topic)
@@ -43,7 +56,7 @@ pub fn topic_handler(topic_query: TopicQuery, db_pool: web::Data<PostgresPool>) 
         }
 
         TopicQuery::UpdateTopic(topic_update_request) => {
-            let tid = topic_update_request.id.unwrap_or(-1);
+            let tid = topic_update_request.id.unwrap_or(0);
             let topic_old = topics::table.find(&tid).first::<Topic>(conn)?;
 
             if let Some(user_id_check) = topic_update_request.user_id {

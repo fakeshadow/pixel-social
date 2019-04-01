@@ -7,18 +7,15 @@ use crate::model::errors::ServiceError;
 use crate::handler::auth::UserJwt;
 use crate::handler::topic::topic_handler;
 
-pub fn add_topic(
-    user_jwt: UserJwt,
-    topic_json: web::Json<TopicJson>,
+pub fn test_lock(
     global_var: web::Data<GlobalGuard>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-
-    let user_id = &user_jwt.user_id;
-    let category_id = &topic_json.category_id;
-    let thumbnail = &topic_json.thumbnail;
-    let title = &topic_json.title;
-    let body = &topic_json.body;
+    let user_id = &1;
+    let category_id = &1;
+    let thumbnail = "test thumbnail";
+    let title = "test title";
+    let body = "test body";
 
     let topic_query = TopicQuery::AddTopic(NewTopicRequest {
         user_id,
@@ -42,7 +39,6 @@ pub fn get_topic(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (topic_id, page) = query_path.into_inner();
-
     let topic_query = TopicQuery::GetTopic(&topic_id, &page);
 
     let opt = QueryOption {

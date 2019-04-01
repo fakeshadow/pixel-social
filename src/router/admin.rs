@@ -1,39 +1,44 @@
-use actix_web::{AsyncResponder, FutureResponse, HttpResponse, ResponseError, State, Json};
-use futures::{Future, future::result};
+use actix_web::{web, HttpResponse};
+use futures::IntoFuture;
 
-use crate::app::AppState;
-use crate::model::response::Response;
-use crate::model::{category::*, user::*, topic::*};
-use crate::model::errors::ServiceError;
-use crate::model::topic::TopicQuery;
+use crate::model::{
+    errors::ServiceError,
+    admin::*,
+    common::{ResponseMessage, PostgresPool, RedisPool},
+};
 
-pub fn admin_modify_category((category_request, state): (Json<CategoryRequest>, State<AppState>))
-                             -> FutureResponse<HttpResponse> {
+use crate::handler::{
+    cache::cache_handler,
+    category::category_handler,
+};
+
+pub fn admin_modify_category(
+    admin_request: Json<AdminJson>,
+    cache: web::Data<RedisPool>,
+    db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     match category_request.modify_type {
         Some(request_type) => if request_type > 2 {
-            Box::new(result(Ok(ServiceError::NotFound.error_response())))
+           return Err(ServiceError::NotFound)
         } else {
-            state.db
-                .send(CategoryQuery::ModifyCategory(CategoryRequest {
-                    categories: None,
-                    modify_type: category_request.modify_type.clone(),
-                    category_id: category_request.category_id.clone(),
-                    category_data: category_request.category_data.clone(),
-                    page: None,
-                }))
-                .from_err()
-                .and_then(|db_response| match db_response {
-                    Ok(_) => Ok(Response::Modified.response()),
-                    Err(service_error) => Ok(service_error.error_response())
-                })
-                .responder()
+            let admin_request = AdminRequest {
+                modify_type: category_request.modify_type.clone(),
+                category_id: category_request.category_id.clone(),
+                category_data: category_request.category_data.clone(),
+
+            };
+
+
         },
-        None => Box::new(result(Ok(ServiceError::InternalServerError.error_response())))
+        None => Err(ServiceError::NotFound)
     }
 }
 
-pub fn admin_update_user((user_update_request, state): (Json<UserUpdateRequest>, State<AppState>))
-                         -> FutureResponse<HttpResponse> {
+pub fn admin_update_user(
+cache: web::Data<RedisPool>,
+db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     state.db
         .send(UserQuery::UpdateUser(UserUpdateRequest {
             id: user_update_request.id.clone(),
@@ -53,8 +58,11 @@ pub fn admin_update_user((user_update_request, state): (Json<UserUpdateRequest>,
         .responder()
 }
 
-pub fn admin_update_topic((topic_update_request, state): (Json<TopicUpdateRequest>, State<AppState>))
-                          -> FutureResponse<HttpResponse> {
+pub fn admin_update_topic(
+    cache: web::Data<RedisPool>,
+    db: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     state.db
         .send(TopicQuery::UpdateTopic(topic_update_request.clone()))
         .from_err()
@@ -63,4 +71,19 @@ pub fn admin_update_topic((topic_update_request, state): (Json<TopicUpdateReques
             Err(service_error) => Ok(service_error.error_response())
         })
         .responder()
+}
+
+fn match_query_result(result: Result<AdminQueryResult, ServiceError>) -> Result<HttpResponse, ServiceError> {
+    match result {
+        Ok(query_result) => {
+            match query_result {
+                UserQueryResult::GotSlimUser(slim_user) => Ok(HttpResponse::Ok().json(slim_user)),
+                UserQueryResult::GotUser(user) => Ok(HttpResponse::Ok().json(user)),
+                UserQueryResult::LoggedIn(login_data) => Ok(HttpResponse::Ok().json(login_data)),
+                UserQueryResult::Registered => Ok(HttpResponse::Ok().json(ResponseMessage::new("Register Success")))
+            }
+        },
+        Err(err) => Err(err)
+
+    }
 }

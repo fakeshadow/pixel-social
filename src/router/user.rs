@@ -1,58 +1,61 @@
 use actix_web::{web, HttpResponse};
-
 use futures::IntoFuture;
 
-use crate::model::response::Response;
-use crate::model::user::*;
-use crate::model::types::*;
-
-use crate::handler::auth::UserJwt;
-use crate::model::common::Validator;
-use crate::model::errors::ServiceError;
+use crate::model::{user::*, errors::ServiceError, common::{Validator, ResponseMessage, PostgresPool, RedisPool , QueryOption}};
 use crate::util::validation::validate_username;
-
-use crate::handler::user::user_handler;
-
-
+use crate::handler::{auth::UserJwt,user::{user_handler}};
+use crate::model::common::{GlobalGuard};
 
 pub fn get_user(
     user_jwt: UserJwt,
     username: web::Path<String>,
-    db: web::Data<PostgresPool>,
+    db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
     if !validate_username(&username) {return Err(ServiceError::UsernameShort)}
 
     let name = username.to_string();
     let user_query = if &name == "me" {
-        UserQuery::GetMe(user_jwt.user_id)
+        UserQuery::GetMe(&user_jwt.user_id)
     } else {
-        UserQuery::GetUser(name)
+        UserQuery::GetUser(&name)
     };
 
-    match_query_result(user_handler(user_query, db))
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        global_var: None
+    };
+
+    match_query_result(user_handler(user_query, opt))
 }
 
 pub fn login_user(
-    login_request: web::Json<AuthRequest>,
-    db: web::Data<PostgresPool>,
+    login_request: web::Json<AuthJson>,
+    db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
     if !login_request.check_login() {return Err(ServiceError::BadRequestGeneral)}
+    let username = login_request.get_username();
+    let password = login_request.get_password();
 
     let user_query = UserQuery::Login(AuthRequest {
-        username: login_request.username.clone(),
-        password: login_request.password.clone(),
-        email: None,
+        username,
+        password,
+        email: "",
     });
 
-    match_query_result(user_handler(user_query, db))
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        global_var: None
+    };
+
+    match_query_result(user_handler(user_query, opt))
 }
 
 pub fn update_user(
     user_jwt: UserJwt,
     update_request: web::Json<UserUpdateRequest>,
-    db: web::Data<PostgresPool>,
+    db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
     if let Some(_) = update_request.username {
@@ -72,7 +75,12 @@ pub fn update_user(
         blocked: None,
     });
 
-    match_query_result(user_handler(user_query, db))
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        global_var: None
+    };
+
+    match_query_result(user_handler(user_query, opt))
 }
 
 //pub fn update_user_password((update_request, state): (Json<UserUpdateRequest>, State<AppState>))
@@ -97,31 +105,29 @@ pub fn update_user(
 //}
 
 pub fn register_user(
-    register_request: web::Json<AuthRequest>,
-    db: web::Data<PostgresPool>,
+    global_var: web::Data<GlobalGuard>,
+    register_request: web::Json<AuthJson>,
+    db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
     if !register_request.check_register() { return Err(ServiceError::RegisterLimit)}
+    let username = register_request.get_username();
+    let email = register_request.get_email();
+    let password = register_request.get_password();
 
     let user_query = UserQuery::Register(AuthRequest {
-            username: register_request.username.clone(),
-            email: register_request.email.clone(),
-            password: register_request.password.clone(),
+            username,
+            email,
+            password,
         });
 
-    match_query_result(user_handler(user_query, db))
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        global_var: Some(&global_var)
+    };
+
+    match_query_result(user_handler(user_query, opt))
 }
-
-//fn match_query_result(query_result: UserQueryResult) -> HttpResponse {
-//    match query_result {
-//        UserQueryResult::GotSlimUser(slim_user) => HttpResponse::Ok().json(slim_user),
-//        UserQueryResult::GotUser(user) => HttpResponse::Ok().json(user),
-//        UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(login_data),
-//        UserQueryResult::Registered => Response::Register.response()
-//    }
-//}
-
-
 
 fn match_query_result(result: Result<UserQueryResult, ServiceError>) -> Result<HttpResponse, ServiceError> {
     match result {
@@ -130,7 +136,7 @@ fn match_query_result(result: Result<UserQueryResult, ServiceError>) -> Result<H
                 UserQueryResult::GotSlimUser(slim_user) => Ok(HttpResponse::Ok().json(slim_user)),
                 UserQueryResult::GotUser(user) => Ok(HttpResponse::Ok().json(user)),
                 UserQueryResult::LoggedIn(login_data) => Ok(HttpResponse::Ok().json(login_data)),
-                UserQueryResult::Registered => Ok(Response::Register.response())
+                UserQueryResult::Registered => Ok(HttpResponse::Ok().json(ResponseMessage::new("Register Success")))
             }
         },
         Err(err) => Err(err)

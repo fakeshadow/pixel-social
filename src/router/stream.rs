@@ -5,7 +5,6 @@ use rand::Rng;
 use actix_web::{dev, FutureResponse, HttpResponse, HttpRequest, multipart, Error, error, HttpMessage};
 use futures::{Future, future, Stream};
 
-use crate::app::AppState;
 use crate::handler::auth::UserJwt;
 use actix_web::error::{MultipartError};
 
