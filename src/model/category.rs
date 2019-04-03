@@ -1,9 +1,5 @@
+use crate::model::{errors::ServiceError, topic::TopicWithUser, user::SlimUser};
 use crate::schema::categories;
-use crate::model::{
-    errors::ServiceError,
-    user::SlimmerUser,
-    topic::{TopicWithUser}
-};
 
 #[derive(Identifiable, Queryable, Serialize)]
 #[table_name = "categories"]
@@ -24,14 +20,12 @@ pub struct CategoryRequest<'a> {
     pub page: &'a i64,
 }
 
-
 #[derive(Insertable, Deserialize, Clone)]
 #[table_name = "categories"]
 pub struct CategoryData {
     pub name: String,
     pub theme: String,
 }
-
 
 pub enum CategoryQuery<'a> {
     GetAllCategories,
@@ -42,6 +36,6 @@ pub enum CategoryQuery<'a> {
 
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
-    GotTopics(Vec<TopicWithUser<SlimmerUser>>),
+    GotTopics(Vec<TopicWithUser<SlimUser>>),
     ModifiedCategory,
 }

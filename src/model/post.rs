@@ -1,11 +1,7 @@
 use chrono::NaiveDateTime;
 
+use crate::model::{common::*, errors::ServiceError, user::SlimUser};
 use crate::schema::posts;
-use crate::model::{
-    common::*,
-    user::SlimUser,
-    errors::ServiceError,
-};
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -57,12 +53,25 @@ pub struct UpdatePostJson {
     pub post_content: String,
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PostWithSlimUser {
+pub struct PostWithUser {
     #[serde(flatten)]
     pub post: Post,
     pub user: Option<SlimUser>,
+}
+
+impl PostWithUser {
+    pub fn check_user_id(&self) -> Option<u32> {
+        match &self.user {
+            Some(user) => Some(user.get_self_id_copy()),
+            None => None
+        }
+    }
+}
+
+impl GetSelfId for PostWithUser {
+    fn get_self_id(&self) -> &u32 { &self.post.id }
+    fn get_self_id_copy(&self) -> u32 { self.post.id }
 }
 
 impl MatchUser for Post {
@@ -82,8 +91,8 @@ impl Post {
         }
     }
 
-    pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithSlimUser {
-        PostWithSlimUser {
+    pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithUser {
+        PostWithUser {
             user: self.make_user_field(users),
             post: self,
         }

@@ -8,14 +8,16 @@ lazy_static! {
     static ref EMAIL_USER_RE: Regex = Regex::new(r"^(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+\z").unwrap();
     static ref EMAIL_DOMAIN_RE: Regex = Regex::new(
         r"(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$"
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 pub fn validate_email(email_str_vec: Vec<&str>) -> bool {
     let domain_part = email_str_vec[0];
     let user_part = email_str_vec[1];
-    if !validate_length(domain_part.len(), EMAIL_MIN) ||
-        !validate_length(user_part.len(), EMAIL_MIN) {
+    if !validate_length(domain_part.len(), EMAIL_MIN)
+        || !validate_length(user_part.len(), EMAIL_MIN)
+    {
         return false;
     }
     if !EMAIL_USER_RE.is_match(user_part) {

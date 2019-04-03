@@ -4,8 +4,13 @@ use chrono::NaiveDateTime;
 
 use crate::model::{topic::*, user::*};
 
-pub struct CacheRequest<'a> {
+pub struct CategoryCacheRequest<'a> {
     pub categories: &'a Vec<u32>,
+    pub page: &'a isize,
+}
+
+pub struct TopicCacheRequest<'a> {
+    pub topic: &'a u32,
     pub page: &'a isize,
 }
 
@@ -52,20 +57,21 @@ pub struct PostRank {
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct CategoryRank {
     pub name: String,
-    pub theme: String
+    pub theme: String,
 }
-
 
 pub enum CacheQuery<'a> {
     GetAllCategories,
     GetPopular(i64),
-    GetCategory(CacheRequest<'a>),
-    UpdateCategory(Vec<TopicWithUser<SlimmerUser>>)
+    GetTopic(TopicCacheRequest<'a>),
+    GetCategory(CategoryCacheRequest<'a>),
+    UpdateCategory(Vec<TopicWithUser<SlimUser>>),
+    UpdateTopic(&'a TopicWithPost)
 }
 
 pub enum CacheQueryResult {
     GotAllCategories,
     GotPopular,
-    GotCategory(Vec<TopicWithUser<SlimmerUser>>),
-    Tested(String)
+    GotCategory(Vec<TopicWithUser<SlimUser>>),
+    GotTopic(TopicWithPost),
 }

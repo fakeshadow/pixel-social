@@ -62,10 +62,4 @@ table! {
     }
 }
 
-allow_tables_to_appear_in_same_query!(
-    associates,
-    categories,
-    posts,
-    topics,
-    users,
-);
+allow_tables_to_appear_in_same_query!(associates, categories, posts, topics, users,);

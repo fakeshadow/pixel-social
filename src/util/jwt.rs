@@ -1,7 +1,7 @@
 use std::env;
 
-use jsonwebtoken::{encode, decode, Header, Validation};
-use chrono::{Local, Duration};
+use chrono::{Duration, Local};
+use jsonwebtoken::{decode, encode, Header, Validation};
 
 use crate::model::errors::ServiceError;
 

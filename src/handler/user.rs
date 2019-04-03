@@ -1,11 +1,18 @@
 use actix_web::web;
 use diesel::prelude::*;
 
-use crate::model::{user::*, common::{PostgresPool, GlobalGuard, QueryOption}, errors::ServiceError};
+use crate::model::{
+    common::{GlobalGuard, PostgresPool, QueryOption},
+    errors::ServiceError,
+    user::*,
+};
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
-pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQueryResult, ServiceError> {
+pub fn user_handler(
+    user_query: UserQuery,
+    opt: QueryOption,
+) -> Result<UserQueryResult, ServiceError> {
     let db_pool = opt.db_pool.unwrap();
     let conn: &PgConnection = &db_pool.get().unwrap();
 
@@ -21,10 +28,13 @@ pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQuery
 
     match user_query {
         UserQuery::GetMe(my_id) => {
-            let user: Option<User> = users::table.filter(users::id.eq(&my_id)).load::<User>(conn)?.pop();
+            let user: Option<User> = users::table
+                .filter(users::id.eq(&my_id))
+                .load::<User>(conn)?
+                .pop();
             match user {
                 Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
-                None => Err(ServiceError::NotFound)
+                None => Err(ServiceError::NotFound),
             }
         }
 
@@ -45,20 +55,22 @@ pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQuery
                 .filter(users::username.eq(&_username))
                 .first::<User>(conn)?;
 
-            if exist_user.blocked { return Err(ServiceError::Unauthorized); }
+            if exist_user.blocked {
+                return Err(ServiceError::Unauthorized);
+            }
 
             match hash::verify_password(&_password, &exist_user.hashed_password) {
                 Ok(_) => {
                     let token = match jwt::JwtPayLoad::new(exist_user.id).sign() {
                         Ok(jwt_token) => jwt_token,
-                        Err(service_error) => return Err(service_error)
+                        Err(service_error) => return Err(service_error),
                     };
                     Ok(UserQueryResult::LoggedIn(AuthResponse {
                         token,
                         user_data: exist_user.slim(),
                     }))
                 }
-                Err(service_error) => Err(service_error)
+                Err(service_error) => Err(service_error),
             }
         }
 
@@ -69,17 +81,16 @@ pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQuery
 
             match update_request.update_user_data(user_old) {
                 Ok(user_new) => {
-                    let updated_user =
-                        diesel::update(
-                            users::table.filter(users::id.eq(&user_id)))
-                            .set((
-                                users::username.eq(&user_new.username),
-                                users::avatar_url.eq(&user_new.avatar_url),
-                                users::signature.eq(&user_new.signature)))
-                            .get_result(conn)?;
+                    let updated_user = diesel::update(users::table.filter(users::id.eq(&user_id)))
+                        .set((
+                            users::username.eq(&user_new.username),
+                            users::avatar_url.eq(&user_new.avatar_url),
+                            users::signature.eq(&user_new.signature),
+                        ))
+                        .get_result(conn)?;
                     Ok(UserQueryResult::GotUser(updated_user))
                 }
-                Err(_) => Err(ServiceError::InternalServerError)
+                Err(_) => Err(ServiceError::InternalServerError),
             }
         }
 
@@ -96,7 +107,11 @@ pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQuery
 
             if exist_user.len() > 0 {
                 let (exist_username, _) = &exist_user[0];
-                if exist_username == &_username { Err(ServiceError::UsernameTaken) } else { Err(ServiceError::EmailTaken) }
+                if exist_username == &_username {
+                    Err(ServiceError::UsernameTaken)
+                } else {
+                    Err(ServiceError::EmailTaken)
+                }
             } else {
                 let password_hash: String = hash::hash_password(_password)?;
                 let global_var = opt.global_var.unwrap();
@@ -107,7 +122,9 @@ pub fn user_handler(user_query: UserQuery, opt: QueryOption) -> Result<UserQuery
                         guarded_global_var.next_uid += 1;
                         next_uid
                     }
-                    Err(_) => { return Err(ServiceError::InternalServerError); }
+                    Err(_) => {
+                        return Err(ServiceError::InternalServerError);
+                    }
                 };
 
                 let user = User::new(id, &_username, &_email, &password_hash);

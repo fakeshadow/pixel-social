@@ -1,9 +1,9 @@
 use actix::Message;
 use chrono::NaiveDateTime;
 
-use crate::schema::users;
 use crate::model::common::{GetSelfId, Validator};
 use crate::model::errors::ServiceError;
+use crate::schema::users;
 
 #[derive(Queryable, Insertable, Serialize, Debug)]
 #[table_name = "users"]
@@ -31,14 +31,6 @@ pub struct SlimUser {
     pub updated_at: NaiveDateTime,
 }
 
-#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
-pub struct SlimmerUser {
-    pub id: u32,
-    pub username: String,
-    pub avatar_url: String,
-    pub updated_at: NaiveDateTime,
-}
-
 #[derive(Insertable)]
 #[table_name = "users"]
 pub struct NewUser<'a> {
@@ -60,9 +52,8 @@ pub struct AuthJson {
 pub struct AuthRequest<'a> {
     pub username: &'a str,
     pub password: &'a str,
-    pub email: &'a str
+    pub email: &'a str,
 }
-
 
 #[derive(Serialize)]
 pub struct AuthResponse {
@@ -80,7 +71,7 @@ impl Validator for AuthJson {
     fn get_email(&self) -> &str {
         match &self.email {
             Some(email) => email,
-            None => ""
+            None => "",
         }
     }
 }
@@ -101,7 +92,7 @@ impl Validator for UserUpdateRequest {
     fn get_username(&self) -> &str {
         match &self.username {
             Some(username) => username,
-            None => ""
+            None => "",
         }
     }
     fn get_password(&self) -> &str {
@@ -134,7 +125,12 @@ impl UserUpdateRequest {
 }
 
 impl<'a> User {
-    pub fn new(id:u32 ,username: &'a str, email: &'a str, hashed_password: &'a str) -> NewUser<'a> {
+    pub fn new(
+        id: u32,
+        username: &'a str,
+        email: &'a str,
+        hashed_password: &'a str,
+    ) -> NewUser<'a> {
         NewUser {
             id,
             username,
@@ -162,11 +158,8 @@ impl GetSelfId for SlimUser {
     fn get_self_id(&self) -> &u32 {
         &self.id
     }
-}
-
-impl GetSelfId for SlimmerUser {
-    fn get_self_id(&self) -> &u32 {
-        &self.id
+    fn get_self_id_copy(&self) -> u32 {
+        self.id
     }
 }
 

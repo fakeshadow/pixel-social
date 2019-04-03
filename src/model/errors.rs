@@ -1,6 +1,7 @@
-use actix_web::{error::ResponseError, error::MultipartError as multi_err, HttpResponse};
 use actix::MailboxError as future_err;
+use actix_web::{error, error::ResponseError, Error, HttpResponse};
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
+use serde_json::Error as json_err;
 
 use r2d2::Error as r2d2_err;
 use r2d2_redis::redis::RedisError as redis_err;
@@ -34,38 +35,59 @@ pub enum ServiceError {
     #[fail(display = "Internal Server Error")]
     RedisOffline,
     #[fail(display = "IBadRequest")]
-    RegisterLimit
+    RegisterLimit,
 }
-
 
 impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
-            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
-            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
-            ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
-            ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
-            ServiceError::UsernameShort => HttpResponse::BadRequest().json(ErrorMessage::new("Username Too Short")),
-            ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
+            ServiceError::InternalServerError => {
+                HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error"))
+            }
+            ServiceError::BadRequestGeneral => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request"))
+            }
+            ServiceError::BadRequest(ref message) => {
+                HttpResponse::BadRequest().json(ErrorMessage::new(message))
+            }
+            ServiceError::FutureError => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work"))
+            }
+            ServiceError::UsernameTaken => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken"))
+            }
+            ServiceError::UsernameShort => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Username Too Short"))
+            }
+            ServiceError::EmailTaken => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered"))
+            }
             ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
-            ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
-            ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
-            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::RedisOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
-            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected")),
-            ServiceError::RegisterLimit => HttpResponse::BadRequest().json(ErrorMessage::new("Register requirement not met")),
+            ServiceError::WrongPwd => {
+                HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong"))
+            }
+            ServiceError::Unauthorized => {
+                HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized"))
+            }
+            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new(
+                "Authentication Timeout.Please login again",
+            )),
+            ServiceError::RedisOffline => HttpResponse::InternalServerError()
+                .json(ErrorMessage::new("Cache service is offline")),
+            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(
+                ErrorMessage::new("Cache not found and database is not connected"),
+            ),
+            ServiceError::RegisterLimit => {
+                HttpResponse::BadRequest().json(ErrorMessage::new("Register requirement not met"))
+            }
         }
     }
 }
 
-impl From<multi_err> for ServiceError {
-    fn from(error: multi_err) -> ServiceError {
-        match error {
-            multi_err::Payload(a) => {
-                return ServiceError::BadRequestGeneral;
-            }
-            _ => ServiceError::InternalServerError
+impl From<Error> for ServiceError {
+    fn from(err: Error) -> ServiceError {
+        match err {
+            _ => ServiceError::BadRequest(err.to_string()),
         }
     }
 }
@@ -80,22 +102,30 @@ impl From<redis_err> for ServiceError {
 impl From<r2d2_err> for ServiceError {
     fn from(err: r2d2_err) -> ServiceError {
         match err {
-            _ => ServiceError::NoCacheFound
+            _ => ServiceError::NoCacheFound,
         }
     }
 }
+
+impl From<json_err> for ServiceError {
+    fn from(err: json_err) -> ServiceError {
+        ServiceError::InternalServerError
+    }
+}
+
 
 impl From<diesel_err> for ServiceError {
     fn from(error: diesel_err) -> ServiceError {
         match error {
             diesel_err::DatabaseError(kind, info) => {
                 if let DatabaseErrorKind::UniqueViolation = kind {
+                    println!("{:?}", info);
                     let message = info.details().unwrap_or_else(|| info.message()).to_string();
                     return ServiceError::BadRequest(message);
                 }
                 ServiceError::InternalServerError
             }
-            _ => ServiceError::InternalServerError
+            _ => ServiceError::InternalServerError,
         }
     }
 }
@@ -108,13 +138,13 @@ impl From<diesel_err> for ServiceError {
 //    }
 //}
 
-
 impl From<future_err> for ServiceError {
-    fn from(error: future_err) -> ServiceError {
+    fn from(err: future_err) -> ServiceError {
         // need to improve error handling here
-        match error {
+        println!("is it here though {:?}", err);
+        match err {
             future_err::Timeout => ServiceError::FutureError,
-            future_err::Closed => ServiceError::FutureError
+            future_err::Closed => ServiceError::BadRequest(err.to_string()),
         }
     }
 }
@@ -126,8 +156,6 @@ struct ErrorMessage<'a> {
 
 impl<'a> ErrorMessage<'a> {
     fn new(msg: &'a str) -> Self {
-        ErrorMessage {
-            error: msg
-        }
+        ErrorMessage { error: msg }
     }
 }

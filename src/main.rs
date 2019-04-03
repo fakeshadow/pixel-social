@@ -1,4 +1,3 @@
-#![allow(proc_macro_derive_resolution_fallback)]
 #![allow(unused_imports)]
 
 #[macro_use]
@@ -10,36 +9,41 @@ extern crate serde_derive;
 #[macro_use]
 extern crate failure;
 
-use actix_web::{web, App, HttpServer, middleware::{Logger, cors::Cors}, http::header};
+use std::env;
+
 use actix::prelude::*;
 use actix_files as fs;
+use actix_web::{
+    http::header,
+    middleware::{cors::Cors, Logger},
+    web, App, HttpServer,
+};
 
 use diesel::{r2d2::ConnectionManager, PgConnection};
-use r2d2_redis::{redis, r2d2 as redis_r2d2, RedisConnectionManager};
 use dotenv::dotenv;
+use r2d2_redis::{r2d2 as redis_r2d2, redis, RedisConnectionManager};
 
-mod model;
 mod handler;
+mod model;
 mod router;
-mod util;
 mod schema;
+mod util;
 
 use crate::model::common::GlobalVar;
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL must be set");
-    let server_ip = std::env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
-    let server_port = std::env::var("SERVER_PORT").unwrap_or("8081".to_string());
-    let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or("*".to_string());
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
+    let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
+    let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
+    let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
-
-//     clear cache on start up for test purpose
-//    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
-//    let clear_cache = redis_client.get_connection().unwrap();
-//    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+    //     clear cache on start up for test purpose
+    //    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
+    //    let clear_cache = redis_client.get_connection().unwrap();
+    //    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
     let global_arc = GlobalVar::init(&database_url);
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
@@ -52,18 +56,21 @@ fn main() -> std::io::Result<()> {
         .build(cache_manager)
         .expect("Failed to crate redis pool.");
 
+    let sys = actix_rt::System::new("PixelShare");    
+
     HttpServer::new(move || {
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
             .data(global_arc.clone())
             .wrap(Logger::default())
-            .wrap(Cors::new()
-                      .allowed_origin(&cors_origin)
-                      .allowed_methods(vec!["GET", "POST"])
-                      .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                      .allowed_header(header::CONTENT_TYPE)
-                      .max_age(3600),
+            .wrap(
+                Cors::new()
+                    .allowed_origin(&cors_origin)
+                    .allowed_methods(vec!["GET", "POST"])
+                    .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
+                    .allowed_header(header::CONTENT_TYPE)
+                    .max_age(3600),
             )
             .service(
                 web::scope("/user")
@@ -73,82 +80,71 @@ fn main() -> std::io::Result<()> {
                             .route(web::get().to_async(router::user::get_user)),
                     )
                     .service(
-                        web::resource("/register").route(
-                            web::post().to_async(router::user::register_user),
-                        ),
+                        web::resource("/register")
+                            .route(web::post().to_async(router::user::register_user)),
                     )
                     .service(
                         web::resource("/login")
-                            .route(web::post().to_async(router::user::login_user)
-                            ),
+                            .route(web::post().to_async(router::user::login_user)),
                     ),
             )
             .service(
                 web::scope("/post")
+                    .service(web::resource("/").route(web::post().to_async(router::post::add_post)))
                     .service(
-                        web::resource("/").route(
-                            web::post().to_async(router::post::add_post)
-                        )
+                        web::resource("/{pid}").route(web::get().to_async(router::post::get_post)),
                     )
                     .service(
-                        web::resource("/{pid}").route(
-                            web::get().to_async(router::post::get_post)
-                        )
-                    )
-                    .service(
-                        web::resource("/edit").route(
-                            web::post().to_async(router::post::update_post)
-                        )
-                    )
+                        web::resource("/edit")
+                            .route(web::post().to_async(router::post::update_post)),
+                    ),
             )
             .service(
                 web::scope("/topic")
                     .service(
-                        web::resource("/")
-                            .route(web::post().to_async(router::topic::add_topic)
-                            )
+                        web::resource("/").route(web::post().to_async(router::topic::add_topic)),
                     )
                     .service(
                         web::resource("/edit")
-                            .route(web::post().to_async(router::topic::update_topic))
+                            .route(web::post().to_async(router::topic::update_topic)),
                     )
                     .service(
                         web::resource("/{topic_id}/{page}")
-                            .route(web::get().to_async(router::topic::get_topic))
-                    )
+                            .route(web::get().to_async(router::topic::get_topic)),
+                    ),
             )
             .service(
                 web::scope("/categories")
                     .service(
                         web::resource("/")
                             .route(web::get().to_async(router::category::get_all_categories))
-                            .route(web::post().to_async(router::category::get_categories))
+                            .route(web::post().to_async(router::category::get_categories)),
                     )
                     .service(
                         web::resource("/popular/{page}")
-                            .route(web::get().to_async(router::category::get_popular))
+                            .route(web::get().to_async(router::category::get_popular)),
                     )
                     .service(
                         web::resource("/{category_id}/{page}")
-                            .route(web::get().to_async(router::category::get_category))
-                    )
+                            .route(web::get().to_async(router::category::get_category)),
+                    ),
             )
             .service(
-                web::scope("/test")
-                    .service(
-                        web::resource("/")
-                            .route(web::get().to_async(router::test::test_lock))
-                    )
+                web::scope("/test").service(
+                    web::resource("/").route(web::get().to_async(router::test::test_lock)),
+                ),
             )
-//            .service(
-//                web::scope("/upload")
-//                    .service(
-//                        web::resource("/")
-//                            .route(web::post().to_async(router::))
-//                    )
-//            )
-            .service(fs::Files::new("/", "./public/"))
+        //            .service(
+        //                web::scope("/upload")
+        //                    .service(
+        //                        web::resource("/")
+        //                            .route(web::post().to_async(router::stream::upload_file))
+        //                    )
+        //            )
+        //            .service(fs::Files::new("/", "./public/"))
     })
-        .bind(format!("{}:{}", &server_ip, &server_port))?
-        .run()
+    .bind(format!("{}:{}", &server_ip, &server_port))?
+    .start();
+
+    sys.run()
 }
