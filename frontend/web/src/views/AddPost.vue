@@ -25,8 +25,10 @@
                             ></v-text-field>
                         </v-flex>
                         <v-flex xs12 text-xs-center>
-                            <v-btn @click="removeImage" color="primary" v-if="topic_data.thumbnail">Remove Thumbnail</v-btn>
-                            <v-menu bottom origin="center center" transition="scale-transition" v-if="!topic_data.thumbnail">
+                            <v-btn @click="removeImage" color="primary" v-if="topic_data.thumbnail">Remove Thumbnail
+                            </v-btn>
+                            <v-menu bottom origin="center center" transition="scale-transition"
+                                    v-if="!topic_data.thumbnail">
                                 <template v-slot:activator="{ on }">
                                     <v-btn color="primary" dark v-on="on"> Add a thumbnail?
                                     </v-btn>
@@ -43,8 +45,9 @@
                         </v-flex>
 
                         <v-flex xs12 class="pt-4">
-                                <ckeditor :editor="editor" v-model="topic_data.body" :config="editorConfig" class="ck-editor__editable">
-                                </ckeditor>
+                            <ckeditor :editor="editor" v-model="topic_data.body" :config="editorConfig"
+                                      class="ck-editor__editable">
+                            </ckeditor>
                         </v-flex>
                         <v-flex xs12 text-xs-center>
                             <v-btn v-ripple color="primary" @click="addTopic">
@@ -61,6 +64,7 @@
 
 <script>
     import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
+    import axios from "axios";
 
     export default {
         name: "addpost",
@@ -80,6 +84,7 @@
                 editorConfig: {
                     placeholder: "Have fun posting"
                 },
+                upload_file: [],
                 topic_data: {
                     category_id: 1,
                     title: "",
@@ -109,6 +114,24 @@
                             return this.topic_data.category_id = category.id;
                         }
                     });
+
+                    if (this.upload_file.length>0) {
+                        let form_data = new FormData();
+                        form_data.append("thumbnail", this.upload_file[0]);
+
+                        const response = await axios.post(
+                            `${process.env.VUE_APP_COMMURL}/upload/`,
+                            form_data,
+                            {
+                                headers: {
+                                    'Content-Type': 'multipart/form-data',
+                                    "Authorization": `Bearer ${localStorage.jwt}`
+                                }
+                            });
+
+                        if (response.status !== 200) throw new Error("failed to upload thumbnail");
+                        this.topic_data.thumbnail = response.data[0].upload_name;
+                    }
 
                     const response = await fetch(`${process.env.VUE_APP_COMMURL}/topic/`, {
                         method: "post",
@@ -144,11 +167,13 @@
                 this.show_err = false;
                 const files = e.target.files || e.dataTransfer.files;
                 if (!files.length) return;
-                if (files[0].size >= 999999) {
+                if (files[0].size >= 9999999) {
                     return this.$emit("gotSnack", {
                         error: "Image file too big. Please reduce the size to less than 1mb"
                     });
                 }
+                ;
+                this.upload_file.push(files[0]);
                 this.createImage(files[0]);
             },
             createImage(file) {
@@ -160,7 +185,8 @@
                 reader.readAsDataURL(file);
             },
             removeImage() {
-                this.topic_data.thumbnail = "";
+                this.topic_data.thumbnail = ""
+                this.upload_file = [];
             }
         }
     };

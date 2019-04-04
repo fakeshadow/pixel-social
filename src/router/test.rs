@@ -1,13 +1,16 @@
 use actix_web::{web, Error, HttpResponse, ResponseError};
-use futures::IntoFuture;
+use futures::{IntoFuture, Future};
 
-use crate::handler::auth::UserJwt;
-use crate::handler::topic::topic_handler;
-use crate::model::common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, ResponseMessage};
-use crate::model::errors::ServiceError;
-use crate::model::topic::*;
+use crate::handler::{auth::UserJwt, cache::*, category::*, topic::*};
+use crate::model::{
+    cache::*,
+    category::*,
+    topic::*,
+    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, ResponseMessage},
+    errors::ServiceError,
+};
 
-pub fn test_lock(
+pub fn test_global_var(
     global_var: web::Data<GlobalGuard>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
@@ -33,6 +36,37 @@ pub fn test_lock(
 
     match_query_result(topic_handler(topic_query, opt))
 }
+
+// async test of db query. not good result for now
+pub fn get_category_async(
+    db_pool: web::Data<PostgresPool>,
+) -> impl Future<Item=HttpResponse, Error=ServiceError> {
+
+    let categories = vec![1];
+    let page = 1i64;
+    let category_request = CategoryRequestTest {
+        categories,
+        page,
+    };
+
+    let query = CategoryQueryTest::GetCategory(category_request);
+    use crate::handler::category::category_handler_test;
+
+    category_handler_test(query, db_pool.clone())
+        .from_err()
+        .and_then(|result| match result {
+            CategoryQueryResult::GotCategories(categories) => {
+                Ok(HttpResponse::Ok().json(categories))
+            }
+            CategoryQueryResult::GotTopics(topics) => {
+                Ok(HttpResponse::Ok().json(topics))
+            }
+            CategoryQueryResult::ModifiedCategory => {
+                Ok(HttpResponse::Ok().json(ResponseMessage::new("Modify Success")))
+            }
+        })
+}
+
 
 fn match_query_result(
     result: Result<TopicQueryResult, ServiceError>,

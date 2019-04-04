@@ -12,14 +12,14 @@ use crate::model::{
 pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let cache_query = CacheQuery::GetAllCategories;
     let category_query = CategoryQuery::GetAllCategories;
 
     let opt = QueryOption {
         db_pool: Some(&db_pool),
         cache_pool: None,
-        global_var:None
+        global_var: None,
     };
 
     match_query_result(category_handler(category_query, opt), &cache_pool)
@@ -29,7 +29,7 @@ pub fn get_popular(
     page: web::Path<(u32)>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let page = page.into_inner();
     let cache_query = CacheQuery::GetPopular(page as i64);
     let category_query = CategoryQuery::GetPopular(page as i64);
@@ -37,7 +37,7 @@ pub fn get_popular(
     let opt = QueryOption {
         db_pool: Some(&db_pool),
         cache_pool: None,
-        global_var:None
+        global_var: None,
     };
 
     match_query_result(category_handler(category_query, opt), &cache_pool)
@@ -47,7 +47,7 @@ pub fn get_category(
     category_query: web::Path<(u32, i64)>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
-) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (category_id, page) = category_query.into_inner();
 
     let categories = vec![category_id];
@@ -60,7 +60,7 @@ pub fn get_category(
     let opt = QueryOption {
         db_pool: Some(&db_pool),
         cache_pool: None,
-        global_var:None
+        global_var: None,
     };
 
     let cache_query = CacheQuery::GetCategory(category_request);
@@ -83,7 +83,7 @@ pub fn get_categories(
     category_json: web::Json<CategoryJson>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
-) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let category_request = CategoryRequest {
         categories: &category_json.categories,
         page: &category_json.page,
@@ -92,7 +92,7 @@ pub fn get_categories(
     let opt = QueryOption {
         db_pool: Some(&db_pool),
         cache_pool: None,
-        global_var:None
+        global_var: None,
     };
 
     let category_query = CategoryQuery::GetCategory(category_request);

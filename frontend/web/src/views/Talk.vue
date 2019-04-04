@@ -1,14 +1,14 @@
 <template>
-    <v-container fluid>
+    <v-container>
         <v-layout row wrap justify-center fluid>
-            <v-speed-dial fixed bottom right fab>
+            <v-speed-dial fixed bottom right fab v-if="profile">
                 <template v-slot:activator>
                     <v-btn color="blue darken-2" dark fab to="/addpost" v-ripple>
                         <v-icon>create</v-icon>
                     </v-btn>
                 </template>
             </v-speed-dial>
-            <v-flex xs12 sm10 md9 lg8 xl5>
+            <v-flex xs12 sm9 md7 lg6 xl5>
                 <v-tabs v-model="active" slider-color="black" fixed-tabs>
                     <v-tab
                             v-for="n in categories.length"
@@ -16,86 +16,65 @@
                             ripple
                             light
                             @click="getCategory(n)"
-                    >{{ categories[n - 1] }}
+                    >{{ categories[n - 1].name }}
                     </v-tab>
-                    <v-tab-item v-for="n in categories.length" :key="n">
-                        <template v-for="(d, index) in data">
-                            <v-container :key="index" pa-1>
-                                <v-card light max-width="100%" hover>
-                                    <v-layout row wrap>
-                                        <v-flex xs8>
-                                            <v-list>
-                                                <v-list-tile>
-                                                    <v-menu
-                                                            :close-on-content-click="true"
-                                                            :nudge-width="300"
-                                                            transition="slide-x-transition"
-                                                            bottom
-                                                            left
-                                                            offset-x
-                                                    >
-                                                        <template v-slot:activator="{ on }">
-                                                            <v-list-tile-avatar v-ripple v-on="on" :size="50"
-                                                                                class="pt-3">
-                                                                <img
-                                                                        src="https://upload.wikimedia.org/wikipedia/commons/e/e8/CandymyloveYasu.png"
-                                                                >
-                                                            </v-list-tile-avatar>
-                                                        </template>
-                                                        <v-card>
-                                                            <v-img :src="cards[0].src" height="200px">
-                                                                <v-container fill-height fluid pa-2>
-                                                                    <v-layout fill-height>
-                                                                        <v-flex xs12 align-end flexbox>
-                                                                            <span class="headline white--text"
-                                                                                  v-text="cards[0].title"></span>
-                                                                        </v-flex>
-                                                                        <v-flex xs12 align-end flexbox>
-                                                                            <v-btn icon>
-                                                                                <v-icon>favorite</v-icon>
-                                                                            </v-btn>
-                                                                        </v-flex>
-                                                                    </v-layout>
-                                                                </v-container>
-                                                            </v-img>
-                                                        </v-card>
-                                                    </v-menu>
+                        <v-tab-item v-for="n in categories.length" :key="n">
+                            <template v-for="(topic, index) in topics">
+                                <div class='thread_display' hover :key="index">
+                                    <v-avatar class="thread_display__icon elevation-4"
+                                              v-bind:size="$vuetify.breakpoint.smAndUp? '50' : '35'">
+                                        <img src="https://upload.wikimedia.org/wikipedia/commons/e/e8/CandymyloveYasu.png">
+                                    </v-avatar>
+                                    <div style='width: 100%;' @click='show_topic(topic.id)' v-ripple>
+                                        <div class='thread_display__header'>
+				                        <span class='thread_display__name'>
+                                            {{topic.id}}
+					                        {{topic.title}}
+				                        </span>
+                                            <div class='thread_display__meta_bar'>
+                                                <div>
+                                                    From
+                                                    <span class='thread_display__username font-weight-bold'
+                                                          ref='username'>{{topic.user.username}}</span>
+                                                    in
+                                                    <span class='thread_display__category' ref='category'>{{topic.category_id}}</span>
+                                                    &middot;
+                                                    <span class='thread_display__date'><timeago
+                                                            :datetime="topic.last_reply_time" :auto-update="60"
+                                                            class="body-2 font-weight-thin">
+                                                </timeago>
+                                                </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class='thread_display__replies_bar'>
+                                            <div class='thread_display__latest_reply' v-if="topic.reply_count >0">
+                                                <span class='fa fa-reply fa-fw'></span>
+                                                <span class='thread_display__latest_reply__text'>Latest reply by</span>
+                                                <span class='thread_display__username'>"trest"</span>
+                                                &middot;
+                                                <span class='thread_display__date'>"test"</span>
+                                            </div>
+                                            <span style='cursor: default;' v-else>No replies</span>
+                                            <div class='thread_display__replies' title='Replies to thread'
+                                                 v-if="topic.reply_count >0">
+                                                <span class='fa fa-comment-o fa-fw'></span>
+                                                {{topic.reply_count }}
+                                            </div>
+                                        </div>
+                                        <div class='thread_display__content'>
+                                            <v-img contain max-height="300" position="start"
+                                                   v-bind:src="topic.thumbnail"/>
 
-                                                    <v-list-tile-content class="pl-3 pt-1">
-                                                        <v-list-tile-title class="subheading font-weight-black">
-                                                            {{d.user.username}}
-                                                        </v-list-tile-title>
-                                                        <v-list-tile-sub-title class="subheading font-weight-thin">
-                                                            <timeago :datetime="d.last_reply_time"
-                                                                     :auto-update="60"></timeago>
-                                                        </v-list-tile-sub-title>
-                                                    </v-list-tile-content>
-                                                </v-list-tile>
-                                            </v-list>
-                                        </v-flex>
 
-                                        <v-flex xs4></v-flex>
-                                        <v-flex xs12>
-                                            <v-list three-line>
-                                                <v-list-tile>
-                                                    <v-list-tile-avatar v-if="$vuetify.breakpoint.smAndUp" :size="50">
-                                                    </v-list-tile-avatar>
-                                                    <v-list-tile-content class="test">
-                                                        <v-list-tile-sub-title v-ripple
-                                                                               class="subheading font-weight-black pl-3 margin"
-                                                                               @click="show_topic(d.id)">
-                                                            {{d.title}}
-                                                        </v-list-tile-sub-title>
-                                                    </v-list-tile-content>
-                                                </v-list-tile>
-                                            </v-list>
-                                        </v-flex>
-                                    </v-layout>
-
-                                </v-card>
-                            </v-container>
-                        </template>
-                    </v-tab-item>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <mugen-scroll :handler="loadMore" :should-handle="!isLoading" :handle-on-mount="false">
+                                Loading....
+                            </mugen-scroll>
+                        </v-tab-item>
                 </v-tabs>
             </v-flex>
         </v-layout>
@@ -104,20 +83,23 @@
 
 
 <script>
-    import Loading from "@/components/Loading";
+    import MugenScroll from 'vue-mugen-scroll';
 
     export default {
         name: "talk",
+        props: ["profile"],
         components: {
-            Loading
+            MugenScroll
         },
         data() {
             return {
-                categories: ["General", "Share", "Other"],
-                userDetailMenu: false,
                 isLoading: false,
-                data: [],
-                first_page: 1,
+                selected: [1],
+                categories: [],
+                bottom: false,
+                userDetailMenu: false,
+                topics: [],
+                page: 1,
                 active: 0,
                 cards: [
                     {
@@ -139,26 +121,31 @@
             };
         },
         async mounted() {
-            this.isLoading = true;
-            const response = await fetch(`${process.env.VUE_APP_COMMURL}/categories/popular/1`);
-            const json = await response.json();
-            this.data = json;
-            this.isLoading = false;
+            try {
+                const get_cat = await fetch(`${process.env.VUE_APP_COMMURL}/categories/`);
+                const categories = await get_cat.json();
+                if (categories.error) throw categories.error;
+                this.categories = categories;
+
+                const get_pop = await fetch(`${process.env.VUE_APP_COMMURL}/categories/popular/1`);
+                const popluar = await get_pop.json();
+                if (popluar.error) throw popluar.error;
+                this.topics = this.alter_topics(popluar);
+
+            } catch (e) {
+                this.$emit("gotSnack", {error: e})
+            }
         },
         methods: {
             async getCategory(category_index) {
-                try {
-                    this.isLoading = true;
-                    const response = await fetch(
-                        `${process.env.VUE_APP_COMMURL}/categories/${category_index}/${this.first_page}`
-                    );
-                    const result = await response.json();
-                    if (result.error) throw result.error;
-                    this.data = result;
-                    this.isLoading = false;
-                } catch (e) {
-                    this.$emit("gotSnack", {error: e})
-                }
+                this.page = 1;
+                this.load_topics(category_index, this.page);
+            },
+            async loadMore() {
+                this.isLoading = true;
+                this.page = this.page + 1;
+                console.log(this.selected);
+                this.load_topics(this.selected, this.page);
                 this.isLoading = false;
             },
             show_topic(topic_id) {
@@ -166,15 +153,135 @@
                     this.$router.push({name: 'topic', params: {topic_id}})
                 }, 200)
 
-            }
+            },
+            async load_topics(category_index, page) {
+                try {
+                    const response = await fetch(
+                        `${process.env.VUE_APP_COMMURL}/categories/${category_index}/${page}`
+                    );
+                    const result = await response.json();
+                    if (result.error) throw result.error;
+                    this.topics = this.topics.concat(this.alter_topics(result));
+                } catch (e) {
+                    this.$emit("gotSnack", {error: e})
+                }
+            },
+            alter_topics(response_json) {
+                response_json.map(topic => {
+                    if (topic.thumbnail !== "") {
+                        topic.thumbnail = `${process.env.VUE_APP_COMMURL}/public/${topic.thumbnail}`
+                    }
+                    this.categories.forEach(category => {
+                        if (category.id === topic.category_id) {
+                            topic.category_id = category.name;
+                        }
+                    })
+                });
+                return response_json;
+            },
         }
     };
 </script>
 
-<style>
-    .margin {
-        margin-top: -1.2em;
-        margin-left: -0.2em;
+<style lang="scss">
+    @import '../assets/scss/variables.scss';
+
+    .thread_display {
+        background-color: #fff;
+        border: thin solid $color__gray--darker;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        display: flex;
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        position: relative;
+        transition: background-color 0.1s, box-shadow 0.1s;
+
+        &:hover {
+            @extend .shadow_border--hover;
+        }
+
+        @at-root #{&}__icon {
+            margin-right: 0.5rem;
+        }
+
+        @at-root #{&}__username,
+        #{&}__category,
+        #{&}__date {
+            font-size: 1.15rem;
+            color: $color--text__primary;
+        }
+
+        @at-root #{&}__header {
+            display: column;
+            justify-content: space-between;
+        }
+        @at-root #{&}__name {
+            font-weight: 500;
+            font-size: 1.25rem;
+        }
+        @at-root #{&}__meta_bar {
+            display: flex;
+            color: $color--gray__darkest;
+            justify-content: space-between;
+        }
+
+        @at-root #{&}__replies_bar {
+            display: flex;
+            justify-content: space-between;
+        }
+        @at-root #{&}__latest_reply {
+            color: $color--text__secondary;
+
+            .fa {
+                color: $color--text__primary;
+                font-size: 0.75rem;
+            }
+        }
+        @at-root #{&}__replies {
+            width: 4rem;
+            text-align: right;
+        }
+
+        @at-root #{&}__content {
+            margin-top: 0.5rem;
+            word-break: break-all;
+        }
     }
+
+    @media (max-width: 420px) {
+        .thread_display {
+            @at-root #{&}__header {
+                flex-direction: column;
+            }
+            @at-root #{&}__meta_bar {
+                font-size: 0.9rem;
+                margin-bottom: 0.25rem;
+            }
+
+            @at-root #{&}__content {
+                margin-top: 0.5rem;
+                margin-left: -3rem;
+                word-break: break-all;
+            }
+
+            @at-root #{&}__replies_bar {
+                position: relative;
+                left: -3rem;
+                width: calc(100% + 3rem);
+            }
+
+            @at-root #{&}__latest_reply {
+                .fa {
+                    margin-right: 0.25rem;
+                }
+
+                @at-root #{&}__text {
+                    display: none;
+                }
+            }
+        }
+    }
+
 </style>
 

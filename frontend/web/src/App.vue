@@ -65,7 +65,7 @@
             <v-btn color="pink" flat @click="showSnack = false">Close</v-btn>
         </v-snackbar>
         <v-content>
-            <router-view v-on:gotSnack="gotSnack"/>
+            <router-view v-on:gotSnack="gotSnack" v-bind:profile="profile"/>
         </v-content>
     </v-app>
 </template>
@@ -107,9 +107,7 @@
             gotLogout(boolean) {
                 if (boolean) {
                     localStorage.removeItem("jwt");
-                    localStorage.removeItem("username");
-                    localStorage.removeItem("npId");
-                    localStorage.removeItem("uid");
+                    localStorage.removeItem("profile");
                     this.jwt = null;
                     this.profile = null;
                 }

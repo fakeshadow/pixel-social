@@ -84,6 +84,19 @@ impl ResponseError for ServiceError {
     }
 }
 
+// convert async blocking error. only for test use ands safe to remove
+use actix_web::error::BlockingError;
+use std::fmt::Debug;
+impl<T> From<BlockingError<T>> for ServiceError
+where T: Debug{
+    fn from (err: BlockingError<T>) -> ServiceError {
+        match err {
+            _=> ServiceError::InternalServerError
+        }
+    }
+}
+
+
 impl From<Error> for ServiceError {
     fn from(err: Error) -> ServiceError {
         match err {

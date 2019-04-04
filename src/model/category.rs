@@ -34,6 +34,17 @@ pub enum CategoryQuery<'a> {
     ModifyCategory(CategoryRequest<'a>),
 }
 
+pub enum CategoryQueryTest {
+    GetCategory(CategoryRequestTest),
+}
+
+pub struct CategoryRequestTest {
+    pub categories: Vec<u32>,
+    pub page: i64,
+}
+
+
+
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
     GotTopics(Vec<TopicWithUser<SlimUser>>),

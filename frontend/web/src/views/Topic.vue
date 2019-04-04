@@ -22,31 +22,28 @@
                         </v-card-text>
                     </v-card>
                 </v-container>
-                <div v-if="posts !=[]">
-                    <template v-for="(post, index) in posts">
-                        <v-container :key="index" v-if="posts !== null">
-                            <v-card light max-width="100%" hover>
-                                <v-card-title>
-                                    <div>
-                                        <v-avatar size="60">
-                                            <img src="https://upload.wikimedia.org/wikipedia/commons/e/e8/CandymyloveYasu.png">
-                                        </v-avatar>
-                                    </div>
-                                    <div class="headline ml-3">
-                                        {{post.user.username}}<br>
-                                        <timeago :datetime="post.last_reply_time" :auto-update="60"
-                                                 class="subheading font-weight-thin"></timeago>
-                                    </div>
-                                </v-card-title>
-                                <v-card-text>
-                                    <v-textarea v-html="post.post_content"
-                                                v-bind:class="$vuetify.breakpoint.smAndUp? 'text' : 'text-xs'"></v-textarea>
-                                </v-card-text>
-                            </v-card>
-                        </v-container>
-                    </template>
-                </div>
-
+                <template v-for="(post, index) in posts">
+                    <v-container :key="index" v-if="posts !==[]">
+                        <v-card light max-width="100%" hover v-if="posts !==[]">
+                            <v-card-title>
+                                <div>
+                                    <v-avatar size="60">
+                                        <img src="https://upload.wikimedia.org/wikipedia/commons/e/e8/CandymyloveYasu.png">
+                                    </v-avatar>
+                                </div>
+                                <div class="headline ml-3">
+                                    {{post.user.username}}<br>
+                                    <timeago :datetime="post.last_reply_time" :auto-update="60"
+                                             class="subheading font-weight-thin"></timeago>
+                                </div>
+                            </v-card-title>
+                            <v-card-text>
+                                <v-textarea v-html="post.post_content"
+                                            v-bind:class="$vuetify.breakpoint.smAndUp? 'text' : 'text-xs'"></v-textarea>
+                            </v-card-text>
+                        </v-card>
+                    </v-container>
+                </template>
             </v-flex>
         </v-layout>
     </v-container>
@@ -59,7 +56,7 @@
     export default {
         name: "topic",
         components: {
-            Loading
+            // Loading
         },
         data() {
             return {
@@ -71,7 +68,7 @@
                 first_page: 1,
             };
         },
-        async created() {
+        async mounted() {
             try {
                 if (!this.$route.params.topic_id) {
                     this.topic_id = localStorage.topic_id;
@@ -94,11 +91,12 @@
     };
 </script>
 
-<style>
+<style scoped>
     .text {
         margin-left: 5.5rem;
         margin-top: -1.5rem;
     }
+
     .text-xs {
         margin-top: -1.5rem;
     }

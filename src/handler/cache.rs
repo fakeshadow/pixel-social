@@ -58,35 +58,29 @@ pub fn cache_handler(
                         .arg(offset + LIMIT)
                         .query(conn.deref())?;
 
-                    let post_vec = if !post_string_vec.is_empty() {
-                        let mut _post_vec: Vec<Post> = Vec::with_capacity(20);
-                        for post_string in post_string_vec.iter() {
-                            let _post: Post = match json::from_str(&post_string) {
-                                Ok(post) => post,
-                                Err(_) => return Err(ServiceError::InternalServerError),
-                            };
-                            _post_vec.push(_post);
-                        }
-                        _post_vec
-                    } else {
-                        vec![]
-                    };
+                    let mut post_vec: Vec<Post> = Vec::with_capacity(20);
 
-                    if !post_vec.is_empty() {
-                        for post in post_vec.iter() {
-                            if !user_id_vec.contains(&post.get_user_id()) {
-                                user_id_vec.push(&post.user_id)
-                            }
-                        }
+                    for post_string in post_string_vec.iter() {
+                        let _post: Post = match json::from_str(&post_string) {
+                            Ok(post) => post,
+                            Err(_) => return Err(ServiceError::InternalServerError),
+                        };
+                        post_vec.push(_post);
                     }
 
+                    for post in post_vec.iter() {
+                        if !user_id_vec.contains(&post.get_user_id()) {
+                            user_id_vec.push(&post.user_id)
+                        }
+                    }
                     user_id_vec.sort();
-                    let range_index = user_id_vec.len() -1;
+
+                    let range_index = user_id_vec.len() - 1;
                     let range_start = user_id_vec[0].clone();
                     let range_end = user_id_vec[range_index].clone();
 
                     let user_vec: Vec<(String, u32)> = conn.zrangebyscore_withscores("users", range_start, range_end)?;
-                    
+
                     let mut users: Vec<SlimUser> = Vec::with_capacity(21);
                     for _user in user_vec.iter() {
                         let (_user_string, _user_id) = _user;
@@ -98,15 +92,17 @@ pub fn cache_handler(
                         }
                     };
 
+                    let posts = Some(post_vec.into_iter().map(|post| post.attach_user(&users)).collect());
+
                     let topic_with_post = if page == &1isize {
                         TopicWithPost {
                             topic: Some(_topic.attach_user(&users)),
-                        posts: Some(post_vec.into_iter().map(|post| post.attach_user(&users)).collect())
+                            posts
                         }
                     } else {
                         TopicWithPost {
                             topic: None,
-                        posts: Some(post_vec.into_iter().map(|post| post.attach_user(&users)).collect())
+                            posts
                         }
                     };
 

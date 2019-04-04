@@ -41,9 +41,10 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
     //     clear cache on start up for test purpose
-    //    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
-    //    let clear_cache = redis_client.get_connection().unwrap();
-    //    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+//        let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
+//        let clear_cache = redis_client.get_connection().unwrap();
+//        let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+
     let global_arc = GlobalVar::init(&database_url);
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
@@ -54,9 +55,9 @@ fn main() -> std::io::Result<()> {
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
         .build(cache_manager)
-        .expect("Failed to crate redis pool.");
+        .expect("Failed to create redis pool.");
 
-    let sys = actix_rt::System::new("PixelShare");    
+    let sys = actix_rt::System::new("PixelShare");
 
     HttpServer::new(move || {
         App::new()
@@ -130,9 +131,13 @@ fn main() -> std::io::Result<()> {
                     ),
             )
             .service(
-                web::scope("/test").service(
-                    web::resource("/").route(web::get().to_async(router::test::test_lock)),
-                ),
+                web::scope("/test")
+                    .service(
+                        web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
+                    )
+                    .service(
+                        web::resource("/async_db").route(web::get().to_async(router::test::get_category_async)),
+                    )
             )
         //            .service(
         //                web::scope("/upload")
@@ -143,8 +148,8 @@ fn main() -> std::io::Result<()> {
         //            )
         //            .service(fs::Files::new("/", "./public/"))
     })
-    .bind(format!("{}:{}", &server_ip, &server_port))?
-    .start();
+        .bind(format!("{}:{}", &server_ip, &server_port))?
+        .start();
 
     sys.run()
 }

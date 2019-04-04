@@ -5,15 +5,13 @@ use crate::model::{
     topic::*,
     cache::{CacheQuery, TopicCacheRequest},
     errors::ServiceError,
-    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, ResponseMessage},
+    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, ResponseMessage, SelfHaveField},
 };
 use crate::handler::{
     auth::UserJwt,
     topic::topic_handler,
     cache::*,
 };
-use actix_web::web::to;
-use crate::model::common::SelfHaveField;
 
 pub fn add_topic(
     user_jwt: UserJwt,
@@ -46,7 +44,7 @@ pub fn add_topic(
 }
 
 pub fn get_topic(
-    _: UserJwt,
+//    _: UserJwt,
     query_path: web::Path<(u32, i64)>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,

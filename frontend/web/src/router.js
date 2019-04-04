@@ -6,6 +6,7 @@ import People from './views/People.vue'
 import Talk from './views/Talk.vue'
 import Topic from './views/Topic.vue'
 import AddPost from './views/AddPost.vue'
+import MyPage from './views/MyPage.vue'
 
 Vue.use(Router)
 
@@ -37,6 +38,11 @@ export default new Router({
       path: '/topic',
       name: 'topic',
       component: Topic
+    },
+    {
+      path: '/my_page',
+      name:'my_page',
+      component: MyPage
     },
     {
       path: '/addpost',
