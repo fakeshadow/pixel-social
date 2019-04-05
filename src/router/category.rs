@@ -100,7 +100,7 @@ pub fn get_categories(
     match_query_result(category_handler(category_query, opt), &cache_pool)
 }
 
-fn match_query_result(
+pub fn match_query_result(
     result: Result<CategoryQueryResult, ServiceError>,
     cache_pool: &web::Data<RedisPool>,
 ) -> Result<HttpResponse, ServiceError> {
@@ -115,7 +115,7 @@ fn match_query_result(
                 }
                 Ok(HttpResponse::Ok().json(topics))
             }
-            CategoryQueryResult::ModifiedCategory => {
+            CategoryQueryResult::UpdatedCategory => {
                 Ok(HttpResponse::Ok().json(ResponseMessage::new("Modify Success")))
             }
         },

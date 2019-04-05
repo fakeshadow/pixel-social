@@ -1,18 +1,11 @@
-#[derive(Deserialize)]
-pub struct AdminCategoryJson {
-    modify_type: u32,
-    category_id: u32,
-    category_data: String,
-}
+use crate::model::{
+    user::UserUpdateRequest,
+    category::CategoryUpdateRequest,
+    topic::TopicUpdateRequest
+};
 
-pub enum AdminQuery {
-    ModifyCategory,
-    UpdateUser,
-    UpdateTopic,
-    UpdatePost,
-}
-
-pub enum AdminQueryResult {
-    Modified,
-    Updated,
+pub enum AdminQuery<'a> {
+    UpdateUserCheck(&'a u32, &'a UserUpdateRequest<'a>),
+    UpdateCategoryCheck(&'a u32, &'a CategoryUpdateRequest<'a>),
+    UpdateTopicCheck(&'a u32, &'a TopicUpdateRequest<'a>)
 }

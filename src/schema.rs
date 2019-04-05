@@ -11,8 +11,8 @@ table! {
 table! {
     categories (id) {
         id -> Oid,
-        name -> Varchar,
-        theme -> Varchar,
+        name -> Nullable<Varchar>,
+        theme -> Nullable<Varchar>,
     }
 }
 

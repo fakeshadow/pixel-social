@@ -2,13 +2,13 @@ use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
 
 use crate::handler::{auth::UserJwt, user::user_handler};
-use crate::model::common::GlobalGuard;
 use crate::model::{
-    common::{PostgresPool, QueryOption, RedisPool, ResponseMessage, Validator},
+    common::{PostgresPool, QueryOption, RedisPool, ResponseMessage, Validator, GlobalGuard},
     errors::ServiceError,
-    user::*,
+    user::{UserQuery, AuthJson, AuthRequest, UserQueryResult, UserUpdateRequest},
 };
 use crate::util::validation::validate_username;
+use crate::model::user::UserUpdateJson;
 
 pub fn get_user(
     user_jwt: UserJwt,
@@ -62,7 +62,7 @@ pub fn login_user(
 
 pub fn update_user(
     user_jwt: UserJwt,
-    update_request: web::Json<UserUpdateRequest>,
+    update_request: web::Json<UserUpdateJson>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
     if let Some(_) = update_request.username {
@@ -72,12 +72,10 @@ pub fn update_user(
     }
 
     let user_query = UserQuery::UpdateUser(UserUpdateRequest {
-        id: Some(user_jwt.user_id),
-        username: update_request.username.clone(),
-        password: None,
-        email: None,
-        avatar_url: update_request.avatar_url.clone(),
-        signature: update_request.signature.clone(),
+        id: Some(&user_jwt.user_id),
+        username: update_request.username.as_ref(),
+        avatar_url: update_request.avatar_url.as_ref(),
+        signature: update_request.signature.as_ref(),
         is_admin: None,
         blocked: None,
     });
@@ -139,7 +137,7 @@ pub fn register_user(
     match_query_result(user_handler(user_query, opt))
 }
 
-fn match_query_result(
+pub fn match_query_result(
     result: Result<UserQueryResult, ServiceError>,
 ) -> Result<HttpResponse, ServiceError> {
     match result {

@@ -6,9 +6,9 @@ use actix_web::{error, web, Error, HttpResponse};
 use futures::{future, Future, IntoFuture, Stream};
 
 use crate::handler::auth::UserJwt;
+use actix_multipart as multipart;
 
 use crate::model::errors::ServiceError;
-use actix_web::error::MultipartError;
 
 #[derive(Serialize)]
 pub struct UploadResponse {
@@ -25,7 +25,7 @@ impl UploadResponse {
     }
 }
 
-pub fn save_file(field: web::MultipartField) -> Box<Future<Item = UploadResponse, Error = Error>> {
+pub fn save_file(field: multipart::Field) -> Box<Future<Item = UploadResponse, Error = Error>> {
     // need to add an file size limiter here;
 
     let params = match field.content_disposition() {
@@ -86,10 +86,10 @@ pub fn save_file(field: web::MultipartField) -> Box<Future<Item = UploadResponse
             .fold(
                 UploadResponse::new(file_name, _file_name),
                 move |acc, bytes| {
-                    let rt: Result<UploadResponse, MultipartError> = file
+                    let rt: Result<UploadResponse, multipart::MultipartError> = file
                         .write_all(bytes.as_ref())
                         .map(|_| acc)
-                        .map_err(|e| error::MultipartError::Payload(error::PayloadError::Io(e)));
+                        .map_err(|e| multipart::MultipartError::Payload(error::PayloadError::Io(e)));
                     future::result(rt)
                 },
             )
@@ -98,11 +98,11 @@ pub fn save_file(field: web::MultipartField) -> Box<Future<Item = UploadResponse
 }
 
 pub fn handle_multipart_item(
-    item: web::MultipartItem,
+    item: multipart::Item,
 ) -> Box<Stream<Item = UploadResponse, Error = Error>> {
     match item {
-        web::MultipartItem::Field(field) => Box::new(save_file(field).into_stream()),
-        web::MultipartItem::Nested(mp) => Box::new(
+        multipart::Item::Field(field) => Box::new(save_file(field).into_stream()),
+        multipart::Item::Nested(mp) => Box::new(
             mp.map_err(error::ErrorInternalServerError)
                 .map(handle_multipart_item)
                 .flatten(),
@@ -112,7 +112,7 @@ pub fn handle_multipart_item(
 
 pub fn upload_file(
     _: UserJwt,
-    multipart: web::Multipart,
+    multipart: multipart::Multipart,
 ) -> impl Future<Item = HttpResponse, Error = ServiceError> {
     // need to add an upload limit counter for user;
 

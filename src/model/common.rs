@@ -187,7 +187,7 @@ impl GlobalVar {
     }
 }
 
-fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
+pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
     match last_id {
         Ok(id) => {
             if id.len() > 0 {

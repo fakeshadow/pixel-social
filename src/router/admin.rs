@@ -2,88 +2,118 @@ use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
 
 use crate::model::{
-    errors::ServiceError,
-    admin::*,
-    common::{ResponseMessage, PostgresPool, RedisPool},
+	errors::ServiceError,
+	admin::*,
+	topic::{TopicQuery, TopicUpdateJson, TopicUpdateRequest},
+	category::{CategoryQuery, CategoryUpdateRequest, CategoryUpdateJson},
+	user::{UserQuery, UserQueryResult, UserUpdateJson, UserUpdateRequest},
+	common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
+};
+
+use crate::router::{
+	user::match_query_result as match_user_query_result,
+	topic::match_query_result as match_topic_query_result,
+	category::match_query_result as match_category_query_result,
 };
 
 use crate::handler::{
-    cache::cache_handler,
-    category::category_handler,
+	cache::cache_handler,
+	category::category_handler,
+	admin::admin_handler,
+	user::user_handler,
+	post::post_handler,
+	topic::topic_handler,
+	auth::UserJwt,
 };
 
 pub fn admin_modify_category(
-    admin_request: Json<AdminJson>,
-    cache: web::Data<RedisPool>,
-    db: web::Data<PostgresPool>,
+	user_jwt: UserJwt,
+	update_request: web::Json<CategoryUpdateJson>,
+	cache_pool: web::Data<RedisPool>,
+	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+	let opt = QueryOption {
+		db_pool: Some(&db_pool),
+		cache_pool: None,
+		global_var: None,
+	};
 
-    match category_request.modify_type {
-        Some(request_type) => if request_type > 2 {
-           return Err(ServiceError::NotFound)
-        } else {
-            let admin_request = AdminRequest {
-                modify_type: category_request.modify_type.clone(),
-                category_id: category_request.category_id.clone(),
-                category_data: category_request.category_data.clone(),
+	let update_category_request = CategoryUpdateRequest {
+		modify_type: &update_request.modify_type,
+		category_id: update_request.category_id.as_ref(),
+		category_name: update_request.category_name.as_ref(),
+		category_theme: update_request.category_theme.as_ref(),
+	};
 
-            };
+// admin privilege check. need to improve for a complex level system.
+	let admin_query = AdminQuery::UpdateCategoryCheck(&user_jwt.user_id, &update_category_request);
+	let _checked = admin_handler(admin_query, &opt)?;
 
-
-        },
-        None => Err(ServiceError::NotFound)
-    }
+	let category_query = CategoryQuery::UpdateCategory(update_category_request);
+	match_category_query_result(category_handler(category_query, opt), &cache_pool)
 }
 
+
 pub fn admin_update_user(
-cache: web::Data<RedisPool>,
-db: web::Data<PostgresPool>,
+	user_jwt: UserJwt,
+	update_request: web::Json<UserUpdateJson>,
+	cache_pool: web::Data<RedisPool>,
+	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    state.db
-        .send(UserQuery::UpdateUser(UserUpdateRequest {
-            id: user_update_request.id.clone(),
-            username: None,
-            password: None,
-            email: None,
-            avatar_url: None,
-            signature: None,
-            is_admin: user_update_request.is_admin.clone(),
-            blocked: user_update_request.blocked.clone(),
-        }))
-        .from_err()
-        .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Modified.response()),
-            Err(service_error) => Ok(service_error.error_response())
-        })
-        .responder()
+	let opt = QueryOption {
+		db_pool: Some(&db_pool),
+		cache_pool: None,
+		global_var: None,
+	};
+
+	let update_request = UserUpdateRequest {
+		id: update_request.id.as_ref(),
+		username: None,
+		avatar_url: None,
+		signature: None,
+		is_admin: update_request.is_admin.as_ref(),
+		blocked: update_request.blocked.as_ref(),
+	};
+
+// admin privilege check. need to improve for a complex level system.
+	let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.user_id, &update_request);
+	let _checked = admin_handler(admin_query, &opt)?;
+
+	let user_query = UserQuery::UpdateUser(update_request);
+
+	match_user_query_result(user_handler(user_query, opt))
 }
 
 pub fn admin_update_topic(
-    cache: web::Data<RedisPool>,
-    db: web::Data<PostgresPool>,
+	user_jwt: UserJwt,
+	update_request: web::Json<TopicUpdateJson>,
+	cache_pool: web::Data<RedisPool>,
+	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
-    state.db
-        .send(TopicQuery::UpdateTopic(topic_update_request.clone()))
-        .from_err()
-        .and_then(|db_response| match db_response {
-            Ok(_) => Ok(Response::Modified.response()),
-            Err(service_error) => Ok(service_error.error_response())
-        })
-        .responder()
-}
+	let opt = QueryOption {
+		db_pool: Some(&db_pool),
+		cache_pool: None,
+		global_var: None,
+	};
 
-fn match_query_result(result: Result<AdminQueryResult, ServiceError>) -> Result<HttpResponse, ServiceError> {
-    match result {
-        Ok(query_result) => {
-            match query_result {
-                UserQueryResult::GotSlimUser(slim_user) => Ok(HttpResponse::Ok().json(slim_user)),
-                UserQueryResult::GotUser(user) => Ok(HttpResponse::Ok().json(user)),
-                UserQueryResult::LoggedIn(login_data) => Ok(HttpResponse::Ok().json(login_data)),
-                UserQueryResult::Registered => Ok(HttpResponse::Ok().json(ResponseMessage::new("Register Success")))
-            }
-        },
-        Err(err) => Err(err)
 
-    }
+
+	let update_request = TopicUpdateRequest {
+		id: update_request.id.as_ref(),
+		user_id: update_request.user_id.as_ref(),
+		category_id: update_request.category_id.as_ref(),
+		title: update_request.title.as_ref().map(String::as_str),
+		body: update_request.body.as_ref().map(String::as_str),
+		thumbnail: update_request.thumbnail.as_ref().map(String::as_str),
+		is_locked: update_request.is_locked.as_ref(),
+	};
+
+	let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.user_id, &update_request);
+	let _checked = admin_handler(admin_query, &opt)?;
+
+	let topic_query = TopicQuery::UpdateTopic(update_request);
+
+	match_topic_query_result(topic_handler(topic_query, opt), &cache_pool)
+
 }

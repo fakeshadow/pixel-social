@@ -35,6 +35,16 @@ pub struct NewTopic<'a> {
     pub body: &'a str,
 }
 
+#[derive(Insertable)]
+#[table_name = "topics"]
+pub struct UpdateTopic<'a> {
+    pub category_id: &'a u32,
+    pub title: &'a str,
+    pub body: &'a str,
+    pub thumbnail: &'a str,
+    pub is_locked: &'a bool,
+}
+
 pub struct NewTopicRequest<'a> {
     pub user_id: &'a u32,
     pub category_id: &'a u32,
@@ -144,50 +154,62 @@ impl Topic {
 }
 
 #[derive(Deserialize, Clone)]
-pub struct TopicUpdateRequest {
+pub struct TopicUpdateJson {
     pub id: Option<u32>,
     pub user_id: Option<u32>,
     pub category_id: Option<u32>,
     pub title: Option<String>,
     pub body: Option<String>,
     pub thumbnail: Option<String>,
-    pub last_reply_time: Option<bool>,
     pub is_locked: Option<bool>,
-    pub is_admin: Option<bool>,
 }
 
-impl TopicUpdateRequest {
-    pub fn update_topic_data(self, mut topic: Topic) -> Result<Topic, ()> {
-        if let Some(new_category_id) = self.category_id {
-            topic.category_id = new_category_id
+pub struct TopicUpdateRequest<'a> {
+    pub id: Option<&'a u32>,
+    pub user_id: Option<&'a u32>,
+    pub category_id: Option<&'a u32>,
+    pub title: Option<&'a str>,
+    pub body: Option<&'a str>,
+    pub thumbnail: Option<&'a str>,
+    pub is_locked: Option<&'a bool>,
+}
+
+impl<'a> TopicUpdateRequest<'a> {
+    pub fn update_topic_data(&self, topic: &'a Topic) -> Result<UpdateTopic<'a>, ()> {
+        let category_id = match self.category_id{
+            Some(category_id) => category_id,
+            None => &topic.category_id
         };
-        if let Some(new_title) = self.title {
-            topic.title = new_title
+        let title = match self.title{
+            Some(title) => title,
+            None => &topic.title
         };
-        if let Some(new_body) = self.body {
-            topic.body = new_body
+        let body = match self.body{
+            Some(body) => body,
+            None => &topic.body
         };
-        if let Some(new_thumbnail) = self.thumbnail {
-            topic.thumbnail = new_thumbnail
+        let thumbnail = match self.thumbnail{
+            Some(thumbnail) => thumbnail,
+            None => &topic.thumbnail
         };
-        if let Some(bool) = self.last_reply_time {
-            if bool == true {
-                topic.last_reply_time =
-                    NaiveDateTime::parse_from_str("1970-01-01 23:33:33", "%Y-%m-%d %H:%M:%S")
-                        .unwrap()
-            }
+        let is_locked = match self.is_locked{
+            Some(is_locked) => is_locked,
+            None => &topic.is_locked
         };
-        if let Some(new_is_locked) = self.is_locked {
-            topic.is_locked = new_is_locked
-        };
-        Ok(topic)
+        Ok(UpdateTopic{
+            category_id,
+            title,
+            body,
+            thumbnail,
+            is_locked
+        })
     }
 }
 
 pub enum TopicQuery<'a> {
     AddTopic(NewTopicRequest<'a>),
     GetTopic(&'a u32, &'a i64),
-    UpdateTopic(TopicUpdateRequest),
+    UpdateTopic(TopicUpdateRequest<'a>),
 }
 
 pub enum TopicQueryResult {

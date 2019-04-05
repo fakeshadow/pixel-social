@@ -61,7 +61,7 @@ pub fn get_category_async(
             CategoryQueryResult::GotTopics(topics) => {
                 Ok(HttpResponse::Ok().json(topics))
             }
-            CategoryQueryResult::ModifiedCategory => {
+            CategoryQueryResult::UpdatedCategory => {
                 Ok(HttpResponse::Ok().json(ResponseMessage::new("Modify Success")))
             }
         })

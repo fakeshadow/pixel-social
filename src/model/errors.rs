@@ -96,6 +96,12 @@ where T: Debug{
     }
 }
 
+impl From<()> for ServiceError {
+    fn from(err:()) -> ServiceError {
+        ServiceError::InternalServerError
+    }
+}
+
 
 impl From<Error> for ServiceError {
     fn from(err: Error) -> ServiceError {
