@@ -35,16 +35,6 @@ pub struct NewTopic<'a> {
     pub body: &'a str,
 }
 
-#[derive(Insertable)]
-#[table_name = "topics"]
-pub struct UpdateTopic<'a> {
-    pub category_id: &'a u32,
-    pub title: &'a str,
-    pub body: &'a str,
-    pub thumbnail: &'a str,
-    pub is_locked: &'a bool,
-}
-
 pub struct NewTopicRequest<'a> {
     pub user_id: &'a u32,
     pub category_id: &'a u32,
@@ -164,6 +154,8 @@ pub struct TopicUpdateJson {
     pub is_locked: Option<bool>,
 }
 
+#[derive(AsChangeset)]
+#[table_name="topics"]
 pub struct TopicUpdateRequest<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,
@@ -172,38 +164,6 @@ pub struct TopicUpdateRequest<'a> {
     pub body: Option<&'a str>,
     pub thumbnail: Option<&'a str>,
     pub is_locked: Option<&'a bool>,
-}
-
-impl<'a> TopicUpdateRequest<'a> {
-    pub fn update_topic_data(&self, topic: &'a Topic) -> Result<UpdateTopic<'a>, ()> {
-        let category_id = match self.category_id{
-            Some(category_id) => category_id,
-            None => &topic.category_id
-        };
-        let title = match self.title{
-            Some(title) => title,
-            None => &topic.title
-        };
-        let body = match self.body{
-            Some(body) => body,
-            None => &topic.body
-        };
-        let thumbnail = match self.thumbnail{
-            Some(thumbnail) => thumbnail,
-            None => &topic.thumbnail
-        };
-        let is_locked = match self.is_locked{
-            Some(is_locked) => is_locked,
-            None => &topic.is_locked
-        };
-        Ok(UpdateTopic{
-            category_id,
-            title,
-            body,
-            thumbnail,
-            is_locked
-        })
-    }
 }
 
 pub enum TopicQuery<'a> {

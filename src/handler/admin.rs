@@ -35,9 +35,10 @@ pub fn admin_handler(
 			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
 			let self_admin_level = &admin_user.is_admin;
 
-			let modify_type = _update_category_request.modify_type;
-			if self_admin_level < &2 { return Err(ServiceError::Unauthorized); }
-			if self_admin_level < &9 && modify_type == &2 { return Err(ServiceError::Unauthorized); }
+			if !check_admin_level(_update_category_request.category_name, &self_admin_level, 3) ||
+				!check_admin_level(_update_category_request.category_theme, &self_admin_level, 3) {
+				return Err(ServiceError::Unauthorized);
+			}
 
 			Ok(())
 		}
@@ -53,6 +54,25 @@ pub fn admin_handler(
 				return Err(ServiceError::Unauthorized);
 			}
 
+			Ok(())
+		}
+		AdminQuery::UpdatePostCheck(_self_user_id, _update_post_request) => {
+			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
+			let self_admin_level = &admin_user.is_admin;
+
+			if !check_admin_level(_update_post_request.topic_id, &self_admin_level, 3) ||
+				!check_admin_level(_update_post_request.post_id, &self_admin_level, 3) ||
+				!check_admin_level(_update_post_request.post_content, &self_admin_level, 3) ||
+				!check_admin_level(_update_post_request.is_locked, &self_admin_level, 2) {
+				return Err(ServiceError::Unauthorized);
+			}
+			Ok(())
+		}
+		AdminQuery::DeleteCategoryCheck(_self_user_id, _category_id) => {
+			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
+			let self_admin_level = &admin_user.is_admin;
+
+			if self_admin_level < &9 { return Err(ServiceError::Unauthorized); }
 			Ok(())
 		}
 	}

@@ -78,7 +78,16 @@ fn main() -> std::io::Result<()> {
 						web::resource("/user").route(web::post().to_async(router::admin::admin_update_user)),
 					)
 					.service(
-						web::resource("/category").route(web::post().to_async(router::admin::admin_modify_category)),
+						web::scope("/category")
+							.service(
+								web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::admin_remove_category)),
+							)
+							.service(
+								web::resource("/add").route(web::post().to_async(router::admin::admin_modify_category)),
+							)
+							.service(
+								web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)),
+							)
 					)
 
 			)

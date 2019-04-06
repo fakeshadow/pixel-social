@@ -64,21 +64,12 @@ pub fn user_handler(
 			}))
 		}
 
-		UserQuery::UpdateUser(update_request) => {
-			let user_id = update_request.id;
+		UserQuery::UpdateUser(user_update_request) => {
+			let user_self_id = user_update_request.id;
 
-			let mut user_old = users::table.find(&user_id).first::<User>(conn)?;
-			let user_new = update_request.update_user_data(&mut user_old)?;
+			let user_old_filter = users::table.filter(users::id.eq(&user_self_id));
+			let updated_user = diesel::update(user_old_filter).set(&user_update_request).get_result(conn)?;
 
-			let updated_user = diesel::update(users::table.filter(users::id.eq(&user_id)))
-				.set((
-					users::username.eq(&user_new.username),
-					users::avatar_url.eq(&user_new.avatar_url),
-					users::signature.eq(&user_new.signature),
-					users::is_admin.eq(&user_new.is_admin),
-					users::blocked.eq(&user_new.blocked)
-				))
-				.get_result(conn)?;
 			Ok(UserQueryResult::GotUser(updated_user))
 		}
 

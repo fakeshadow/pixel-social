@@ -68,16 +68,20 @@ pub fn post_handler(
 		}
 
 		PostQuery::UpdatePost(post_request) => {
+			let post_self_id = post_request.id;
 
-
-//			let old_post = posts::table.filter(
-//				posts::id
-//					.eq(&post_request.id)
-//					.and(posts::user_id.eq(&post_request.user_id)),
-//			);
-//			let update_data = posts::post_content.eq(&post_request.post_content);
-//
-//			diesel::update(old_post).set(update_data).execute(conn)?;
+			match post_request.user_id {
+				Some(_user_id) => {
+					let post_old_filter = posts::table.filter(
+						posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id)));
+					diesel::update(post_old_filter).set(&post_request).execute(conn)?;
+				}
+				None => {
+					let post_old_filter = posts::table.filter(
+						posts::id.eq(&post_self_id));
+					diesel::update(post_old_filter).set(&post_request).execute(conn)?;
+				}
+			};
 			Ok(PostQueryResult::AddedPost)
 		}
 	}

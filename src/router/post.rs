@@ -55,10 +55,10 @@ pub fn update_post(
 	let post_request = PostUpdateRequest {
 		id: &update_request.id,
 		user_id: Some(&user_jwt.user_id),
-		topic_id: update_request.topic_id.as_ref(),
-		post_id: update_request.post_id.as_ref(),
+		topic_id: None,
+		post_id: None,
 		post_content: update_request.post_content.as_ref().map(String::as_str),
-		is_locked: update_request.is_locked.as_ref(),
+		is_locked: None,
 	};
 
 	let post_query = PostQuery::UpdatePost(post_request);

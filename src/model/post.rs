@@ -51,6 +51,8 @@ pub struct PostUpdateJson {
     pub is_locked: Option<bool>
 }
 
+#[derive(AsChangeset)]
+#[table_name="posts"]
 pub struct PostUpdateRequest<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,

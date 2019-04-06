@@ -40,17 +40,43 @@ pub fn admin_modify_category(
 	};
 
 	let update_category_request = CategoryUpdateRequest {
-		modify_type: &update_request.modify_type,
 		category_id: update_request.category_id.as_ref(),
-		category_name: update_request.category_name.as_ref(),
-		category_theme: update_request.category_theme.as_ref(),
+		category_name: update_request.category_name.as_ref().map(String::as_str),
+		category_theme: update_request.category_theme.as_ref().map(String::as_str),
 	};
 
-// admin privilege check. need to improve for a complex level system.
+	// admin privilege check. need to improve for a complex level system.
 	let admin_query = AdminQuery::UpdateCategoryCheck(&user_jwt.user_id, &update_category_request);
-	let _checked = admin_handler(admin_query, &opt)?;
+	admin_handler(admin_query, &opt)?;
 
-	let category_query = CategoryQuery::UpdateCategory(update_category_request);
+	let category_query = match update_request.category_id {
+		Some(category_id) => CategoryQuery::UpdateCategory(update_category_request),
+		None => CategoryQuery::AddCategory(update_category_request)
+	};
+
+	match_category_query_result(category_handler(category_query, opt), &cache_pool)
+}
+
+pub fn admin_remove_category(
+	user_jwt: UserJwt,
+	remove_request: web::Path<(u32)>,
+	cache_pool: web::Data<RedisPool>,
+	db_pool: web::Data<PostgresPool>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+	// need to add posts and topics migration along side the remove.
+	let category_id = remove_request.into_inner();
+
+	let opt = QueryOption {
+		db_pool: Some(&db_pool),
+		cache_pool: None,
+		global_var: None,
+	};
+
+	let admin_query = AdminQuery::DeleteCategoryCheck(&user_jwt.user_id, &category_id);
+	admin_handler(admin_query, &opt)?;
+
+	let category_query = CategoryQuery::DeleteCategory(&category_id);
+
 	match_category_query_result(category_handler(category_query, opt), &cache_pool)
 }
 
@@ -82,7 +108,7 @@ pub fn admin_update_user(
 
 // admin privilege check. need to improve for a complex level system.
 	let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.user_id, &update_request);
-	let _checked = admin_handler(admin_query, &opt)?;
+	admin_handler(admin_query, &opt)?;
 
 	let user_query = UserQuery::UpdateUser(update_request);
 
@@ -112,7 +138,7 @@ pub fn admin_update_topic(
 	};
 
 	let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.user_id, &topic_request);
-	let _checked = admin_handler(admin_query, &opt)?;
+	admin_handler(admin_query, &opt)?;
 
 	let topic_query = TopicQuery::UpdateTopic(topic_request);
 
@@ -140,6 +166,9 @@ pub fn admin_update_post(
 		post_content: update_request.post_content.as_ref().map(String::as_str),
 		is_locked: update_request.is_locked.as_ref(),
 	};
+
+	let admin_query = AdminQuery::UpdatePostCheck(&user_jwt.user_id, &post_request);
+	admin_handler(admin_query, &opt)?;
 
 	Ok(HttpResponse::Ok().finish())
 }

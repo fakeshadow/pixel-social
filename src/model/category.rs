@@ -39,25 +39,40 @@ pub struct CategoryRequest<'a> {
 
 #[derive(Deserialize)]
 pub struct CategoryUpdateJson {
-    pub modify_type: u32,
     pub category_id: Option<u32>,
     pub category_name: Option<String>,
     pub category_theme: Option<String>,
 }
 
-
 pub struct CategoryUpdateRequest<'a> {
-    pub modify_type: &'a u32,
     pub category_id: Option<&'a u32>,
-    pub category_name: Option<&'a String>,
-    pub category_theme: Option<&'a String>,
+    pub category_name: Option<&'a str>,
+    pub category_theme: Option<&'a str>,
+}
+
+#[derive(AsChangeset)]
+#[table_name="categories"]
+pub struct CategoryUpdateRequestInsert<'a> {
+    pub name: Option<&'a str>,
+    pub theme: Option<&'a str>,
+}
+
+impl<'a> CategoryUpdateRequest<'a> {
+    pub fn insert(&self) -> CategoryUpdateRequestInsert {
+        CategoryUpdateRequestInsert {
+            name: self.category_name,
+            theme: self.category_theme
+        }
+    }
 }
 
 pub enum CategoryQuery<'a> {
     GetAllCategories,
     GetPopular(i64),
     GetCategory(CategoryRequest<'a>),
+    AddCategory(CategoryUpdateRequest<'a>),
     UpdateCategory(CategoryUpdateRequest<'a>),
+    DeleteCategory(&'a u32)
 }
 
 pub enum CategoryQueryResult {

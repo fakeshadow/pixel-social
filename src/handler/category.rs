@@ -80,56 +80,48 @@ pub fn category_handler(
 			Ok(CategoryQueryResult::GotCategories(categories_data))
 		}
 
+		CategoryQuery::AddCategory(category_request) => {
+			let category_name = match category_request.category_name {
+				Some(name) => name,
+				None => return { Err(ServiceError::BadRequestGeneral) }
+			};
+			let category_theme = match category_request.category_theme {
+				Some(theme) => theme,
+				None => return { Err(ServiceError::BadRequestGeneral) }
+			};
+			let last_cid = categories::table.select(categories::id)
+				.order(categories::id.desc())
+				.limit(1)
+				.load(conn);
+			let next_cid = match_id(last_cid);
+
+			let category_data = Category::new(next_cid, &category_name, &category_theme);
+
+			diesel::insert_into(categories::table)
+				.values(&category_data)
+				.execute(conn)?;
+
+			Ok(CategoryQueryResult::UpdatedCategory)
+		}
+
 		CategoryQuery::UpdateCategory(category_request) => {
+			let target_category_id = match category_request.category_id {
+				Some(id) => id,
+				None => return Err(ServiceError::BadRequestGeneral)
+			};
 
-			let modify_type = category_request.modify_type;
-			if modify_type == &0 {
-				let category_name = match category_request.category_name {
-					Some(name) => name,
-					None => return { Err(ServiceError::BadRequestGeneral) }
-				};
-				let category_theme = match category_request.category_theme {
-					Some(theme) => theme,
-					None => return { Err(ServiceError::BadRequestGeneral) }
-				};
+			let category_old_filter = categories::table
+				.filter(categories::id.eq(&target_category_id));
 
-				let last_cid = categories::table.select(categories::id)
-					.order(categories::id.desc())
-					.limit(1)
-					.load(conn);
-				let next_cid = match_id(last_cid);
+			diesel::update(category_old_filter).set(&category_request.insert()).execute(conn)?;
 
-				let category_data = Category::new(next_cid, &category_name, &category_theme);
+			Ok(CategoryQueryResult::UpdatedCategory)
+		}
 
-				diesel::insert_into(categories::table)
-					.values(&category_data)
-					.execute(conn)?;
+		CategoryQuery::DeleteCategory(category_id) => {
+			diesel::delete(categories::table.find(category_id))
+				.execute(conn)?;
 
-			} else if modify_type == &1 {
-				let target_category_id = match category_request.category_id {
-					Some(id) => id,
-					None => return Err(ServiceError::BadRequestGeneral)
-				};
-
-				let update_field =
-					(categories::name.eq(category_request.category_name),
-					 categories::theme.eq(category_request.category_theme));
-
-				diesel::update(categories::table
-					.filter(categories::id.eq(&target_category_id)))
-					.set(update_field)
-					.execute(conn)?;
-			} else if modify_type == &2 {
-				let target_category_id = match category_request.category_id {
-					Some(id) => id,
-					None => return Err(ServiceError::BadRequestGeneral)
-				};
-
-				diesel::delete(categories::table.find(&target_category_id))
-					.execute(conn)?;
-			} else {
-				return Err(ServiceError::BadRequestGeneral);
-			}
 			Ok(CategoryQueryResult::UpdatedCategory)
 		}
 	}

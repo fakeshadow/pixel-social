@@ -62,26 +62,24 @@ pub fn topic_handler(
 			Ok(TopicQueryResult::AddedTopic)
 		}
 
-		TopicQuery::UpdateTopic(topic_update_request) => {
-			let topic_id = topic_update_request.id;
-			let mut topic_old = topics::table.find(&topic_id).first::<Topic>(conn)?;
+		TopicQuery::UpdateTopic(topic_request) => {
+			let topic_self_id = topic_request.id;
 
-			if let Some(user_id_check) = topic_update_request.user_id {
-				if user_id_check != &topic_old.user_id { return Err(ServiceError::Unauthorized); }
-			}
+			match topic_request.user_id {
+				Some(_user_id) => {
+					let topic_old_filter = topics::table.filter(
+						topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id)));
 
-			let topic_new = topic_update_request.update_topic_data(&mut topic_old)?;
+					diesel::update(topic_old_filter).set(&topic_request).execute(conn)?;
+				},
+				None => {
+					let topic_old_filter = topics::table.filter(
+						topics::id.eq(&topic_self_id));
 
-			diesel::update(topics::table.filter(topics::id.eq(&topic_id)))
-				.set((
-					topics::category_id.eq(&topic_new.category_id),
-					topics::title.eq(&topic_new.title),
-					topics::body.eq(&topic_new.body),
-					topics::thumbnail.eq(&topic_new.thumbnail),
-					topics::is_locked.eq(&topic_new.is_locked),
-					topics::updated_at.eq(&diesel::dsl::now),
-				))
-				.execute(conn)?;
+					diesel::update(topic_old_filter).set(&topic_request).execute(conn)?;
+				}
+			};
+
 			Ok(TopicQueryResult::AddedTopic)
 		}
 	}

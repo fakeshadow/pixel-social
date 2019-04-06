@@ -41,16 +41,6 @@ pub struct NewUser<'a> {
 	pub signature: &'a str,
 }
 
-#[derive(Insertable)]
-#[table_name = "users"]
-pub struct UpdateUser<'a> {
-	pub username: &'a str,
-	pub avatar_url: &'a str,
-	pub signature: &'a str,
-	pub is_admin: &'a u32,
-	pub blocked: &'a bool
-}
-
 #[derive(Deserialize)]
 pub struct AuthJson {
 	pub username: String,
@@ -85,18 +75,18 @@ impl Validator for AuthJson {
 	}
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 pub struct UserUpdateJson {
 	pub id: Option<u32>,
 	pub username: Option<String>,
-	pub password: Option<String>,
-	pub email: Option<String>,
 	pub avatar_url: Option<String>,
 	pub signature: Option<String>,
 	pub is_admin: Option<u32>,
 	pub blocked: Option<bool>,
 }
 
+#[derive(AsChangeset)]
+#[table_name="users"]
 pub struct UserUpdateRequest<'a> {
 	pub id: &'a u32,
 	pub username: Option<&'a str>,
@@ -118,38 +108,6 @@ impl Validator for UserUpdateJson {
 	}
 	fn get_email(&self) -> &str {
 		""
-	}
-}
-
-impl<'a> UserUpdateRequest<'a> {
-	pub fn update_user_data(&self, user: &'a User) -> Result<UpdateUser<'a>,()> {
-		let username = match self.username{
-			Some(username) => username,
-			None => &user.username
-		};
-		let avatar_url = match self.avatar_url{
-			Some(avatar_url) => avatar_url,
-			None => &user.avatar_url
-		};
-		let signature = match self.signature{
-			Some(signature) => signature,
-			None => &user.signature
-		};
-		let is_admin = match self.is_admin{
-			Some(is_admin) => is_admin,
-			None => &user.is_admin
-		};
-		let blocked = match self.blocked{
-			Some(blocked) => blocked,
-			None => &user.blocked
-		};
-		Ok(UpdateUser{
-			username,
-			avatar_url,
-			signature,
-			is_admin,
-			blocked
-		})
 	}
 }
 
