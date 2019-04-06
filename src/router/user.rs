@@ -72,10 +72,10 @@ pub fn update_user(
     }
 
     let user_query = UserQuery::UpdateUser(UserUpdateRequest {
-        id: Some(&user_jwt.user_id),
-        username: update_request.username.as_ref(),
-        avatar_url: update_request.avatar_url.as_ref(),
-        signature: update_request.signature.as_ref(),
+        id: &user_jwt.user_id,
+        username: update_request.username.as_ref().map(String::as_str),
+        avatar_url: update_request.avatar_url.as_ref().map(String::as_str),
+        signature: update_request.signature.as_ref().map(String::as_str),
         is_admin: None,
         blocked: None,
     });

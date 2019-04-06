@@ -5,8 +5,7 @@ use crate::model::common::{GetSelfId, Validator};
 use crate::model::errors::ServiceError;
 use crate::schema::users;
 
-#[derive(Queryable, Insertable, Serialize, Debug)]
-#[table_name = "users"]
+#[derive(Queryable, Deserialize, Serialize, Debug)]
 pub struct User {
 	pub id: u32,
 	pub username: String,
@@ -20,7 +19,7 @@ pub struct User {
 	pub blocked: bool,
 }
 
-#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
+#[derive(Queryable, Deserialize, Serialize, Debug, Clone)]
 pub struct SlimUser {
 	pub id: u32,
 	pub username: String,
@@ -40,6 +39,16 @@ pub struct NewUser<'a> {
 	pub hashed_password: &'a str,
 	pub avatar_url: &'a str,
 	pub signature: &'a str,
+}
+
+#[derive(Insertable)]
+#[table_name = "users"]
+pub struct UpdateUser<'a> {
+	pub username: &'a str,
+	pub avatar_url: &'a str,
+	pub signature: &'a str,
+	pub is_admin: &'a u32,
+	pub blocked: &'a bool
 }
 
 #[derive(Deserialize)]
@@ -89,10 +98,10 @@ pub struct UserUpdateJson {
 }
 
 pub struct UserUpdateRequest<'a> {
-	pub id: Option<&'a u32>,
-	pub username: Option<&'a String>,
-	pub avatar_url: Option<&'a String>,
-	pub signature: Option<&'a String>,
+	pub id: &'a u32,
+	pub username: Option<&'a str>,
+	pub avatar_url: Option<&'a str>,
+	pub signature: Option<&'a str>,
 	pub is_admin: Option<&'a u32>,
 	pub blocked: Option<&'a bool>,
 }
@@ -113,23 +122,34 @@ impl Validator for UserUpdateJson {
 }
 
 impl<'a> UserUpdateRequest<'a> {
-	pub fn update_user_data(&self, user: &'a mut User) -> Result<&'a User,()> {
-		if let Some(new_username) = self.username {
-			user.username = new_username.to_string()
+	pub fn update_user_data(&self, user: &'a User) -> Result<UpdateUser<'a>,()> {
+		let username = match self.username{
+			Some(username) => username,
+			None => &user.username
 		};
-		if let Some(new_avatar_url) = self.avatar_url {
-			user.avatar_url = new_avatar_url.to_string()
+		let avatar_url = match self.avatar_url{
+			Some(avatar_url) => avatar_url,
+			None => &user.avatar_url
 		};
-		if let Some(new_signature) = self.signature {
-			user.signature = new_signature.to_string()
+		let signature = match self.signature{
+			Some(signature) => signature,
+			None => &user.signature
 		};
-		if let Some(new_is_admin) = self.is_admin {
-			user.is_admin = *new_is_admin
+		let is_admin = match self.is_admin{
+			Some(is_admin) => is_admin,
+			None => &user.is_admin
 		};
-		if let Some(new_blocked) = self.blocked {
-			user.blocked = *new_blocked
+		let blocked = match self.blocked{
+			Some(blocked) => blocked,
+			None => &user.blocked
 		};
-		Ok(user)
+		Ok(UpdateUser{
+			username,
+			avatar_url,
+			signature,
+			is_admin,
+			blocked
+		})
 	}
 }
 

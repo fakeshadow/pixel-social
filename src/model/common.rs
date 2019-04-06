@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use actix_web::web;

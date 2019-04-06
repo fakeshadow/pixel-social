@@ -27,19 +27,6 @@ pub struct NewPost<'a> {
     pub post_content: &'a str,
 }
 
-pub struct PostRequest<'a> {
-    pub user_id: &'a u32,
-    pub topic_id: &'a u32,
-    pub post_id: Option<&'a u32>,
-    pub post_content: &'a str,
-}
-
-pub struct UpdatePostRequest<'a> {
-    pub id: &'a u32,
-    pub user_id: &'a u32,
-    pub post_content: &'a str,
-}
-
 #[derive(Debug, Deserialize)]
 pub struct PostJson {
     pub post_id: Option<u32>,
@@ -47,10 +34,30 @@ pub struct PostJson {
     pub post_content: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UpdatePostJson {
+pub struct PostRequest<'a> {
+    pub user_id: &'a u32,
+    pub topic_id: &'a u32,
+    pub post_id: Option<&'a u32>,
+    pub post_content: &'a str,
+}
+
+#[derive(Deserialize)]
+pub struct PostUpdateJson {
     pub id: u32,
-    pub post_content: String,
+    pub user_id: Option<u32>,
+    pub topic_id: Option<u32>,
+    pub post_id: Option<u32>,
+    pub post_content: Option<String>,
+    pub is_locked: Option<bool>
+}
+
+pub struct PostUpdateRequest<'a> {
+    pub id: &'a u32,
+    pub user_id: Option<&'a u32>,
+    pub topic_id: Option<&'a u32>,
+    pub post_id: Option<&'a u32>,
+    pub post_content: Option<&'a str>,
+    pub is_locked: Option<&'a bool>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,7 +108,7 @@ impl Post {
 
 pub enum PostQuery<'a> {
     AddPost(PostRequest<'a>),
-    EditPost(UpdatePostRequest<'a>),
+    UpdatePost(PostUpdateRequest<'a>),
     GetPost(u32),
 }
 

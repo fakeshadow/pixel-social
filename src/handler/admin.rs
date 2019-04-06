@@ -25,14 +25,11 @@ pub fn admin_handler(
 				return Err(ServiceError::Unauthorized);
 			}
 
-			match _update_user_request.id {
-				Some(target_id) => {
-					let target_user: User = users::table.find(&target_id).first::<User>(conn)?;
-					if self_admin_level <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }
-					Ok(())
-				}
-				None => Err(ServiceError::BadRequestGeneral)
-			}
+			let target_id = _update_user_request.id;
+			let target_user: User = users::table.find(&target_id).first::<User>(conn)?;
+			if self_admin_level <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }
+
+			Ok(())
 		}
 		AdminQuery::UpdateCategoryCheck(_self_user_id, _update_category_request) => {
 			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
@@ -52,7 +49,7 @@ pub fn admin_handler(
 				!check_admin_level(_update_topic_request.category_id, &self_admin_level, 3) ||
 				!check_admin_level(_update_topic_request.body, &self_admin_level, 3) ||
 				!check_admin_level(_update_topic_request.thumbnail, &self_admin_level, 3) ||
-				!check_admin_level(_update_topic_request.is_locked, &self_admin_level, 2){
+				!check_admin_level(_update_topic_request.is_locked, &self_admin_level, 2) {
 				return Err(ServiceError::Unauthorized);
 			}
 

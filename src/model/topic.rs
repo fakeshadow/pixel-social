@@ -155,7 +155,7 @@ impl Topic {
 
 #[derive(Deserialize, Clone)]
 pub struct TopicUpdateJson {
-    pub id: Option<u32>,
+    pub id: u32,
     pub user_id: Option<u32>,
     pub category_id: Option<u32>,
     pub title: Option<String>,
@@ -165,7 +165,7 @@ pub struct TopicUpdateJson {
 }
 
 pub struct TopicUpdateRequest<'a> {
-    pub id: Option<&'a u32>,
+    pub id: &'a u32,
     pub user_id: Option<&'a u32>,
     pub category_id: Option<&'a u32>,
     pub title: Option<&'a str>,

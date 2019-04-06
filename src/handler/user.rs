@@ -28,14 +28,11 @@ pub fn user_handler(
 
 	match user_query {
 		UserQuery::GetMe(my_id) => {
-			let user: Option<User> = users::table
-				.filter(users::id.eq(&my_id))
-				.load::<User>(conn)?
-				.pop();
-			match user {
-				Some(user_data) => Ok(UserQueryResult::GotUser(user_data)),
-				None => Err(ServiceError::NotFound),
-			}
+			let user: User = users::table
+				.find(&my_id)
+				.first::<User>(conn)?;
+
+			Ok(UserQueryResult::GotUser(user))
 		}
 
 		UserQuery::GetUser(other_username) => {
@@ -55,27 +52,20 @@ pub fn user_handler(
 				.filter(users::username.eq(&_username))
 				.first::<User>(conn)?;
 
-			if exist_user.blocked {
-				return Err(ServiceError::Unauthorized);
-			}
+			if exist_user.blocked { return Err(ServiceError::Unauthorized); }
 
-			match hash::verify_password(&_password, &exist_user.hashed_password) {
-				Ok(_) => {
-					let token = match jwt::JwtPayLoad::new(exist_user.id).sign() {
-						Ok(jwt_token) => jwt_token,
-						Err(service_error) => return Err(service_error),
-					};
-					Ok(UserQueryResult::LoggedIn(AuthResponse {
-						token,
-						user_data: exist_user.slim(),
-					}))
-				}
-				Err(service_error) => Err(service_error),
-			}
+			let _check_password = hash::verify_password(&_password, &exist_user.hashed_password)?;
+
+			let token = jwt::JwtPayLoad::new(exist_user.id).sign()?;
+
+			Ok(UserQueryResult::LoggedIn(AuthResponse {
+				token,
+				user_data: exist_user.slim(),
+			}))
 		}
 
 		UserQuery::UpdateUser(update_request) => {
-			let user_id = update_request.id.unwrap();
+			let user_id = update_request.id;
 
 			let mut user_old = users::table.find(&user_id).first::<User>(conn)?;
 			let user_new = update_request.update_user_data(&mut user_old)?;

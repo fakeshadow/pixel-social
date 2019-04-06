@@ -91,7 +91,7 @@ pub fn update_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let topic_query = TopicQuery::UpdateTopic(TopicUpdateRequest {
-        id: topic_update_request.id.as_ref(),
+        id: &topic_update_request.id,
         user_id: Some(&user_jwt.user_id),
         category_id: None,
         title: topic_update_request.title.as_ref().map(String::as_str),
