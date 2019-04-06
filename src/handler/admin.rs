@@ -79,7 +79,7 @@ pub fn admin_handler(
 }
 
 fn check_admin_level<T: ?Sized>(t: Option<&T>, self_level: &u32, target_level: u32) -> bool {
-	if let Some(value) = t {
+	if let Some(_value) = t {
 		if self_level < &target_level { return false; }
 	}
 	true

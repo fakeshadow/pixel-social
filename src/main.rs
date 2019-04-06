@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+#![allow(proc_macro_derive_resolution_fallback)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -76,6 +77,12 @@ fn main() -> std::io::Result<()> {
 				web::scope("/admin")
 					.service(
 						web::resource("/user").route(web::post().to_async(router::admin::admin_update_user)),
+					)
+					.service(
+						web::resource("/post").route(web::post().to_async(router::admin::admin_update_post)),
+					)
+					.service(
+						web::resource("/topic").route(web::post().to_async(router::admin::admin_update_topic)),
 					)
 					.service(
 						web::scope("/category")

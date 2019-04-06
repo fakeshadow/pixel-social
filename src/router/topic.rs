@@ -121,7 +121,7 @@ pub fn match_query_result(
             }
             TopicQueryResult::GotTopicSlim(topic_with_post) => {
                 if !topic_with_post.have_post() || !topic_with_post.have_topic() {
-                    cache_handler(CacheQuery::UpdateTopic(&topic_with_post), &cache_pool);
+                    let _ignore = cache_handler(CacheQuery::UpdateTopic(&topic_with_post), &cache_pool);
                 }
                 Ok(HttpResponse::Ok().json(topic_with_post))
             }

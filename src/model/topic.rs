@@ -95,7 +95,7 @@ impl TopicWithPost {
 impl SelfHaveField for TopicWithPost {
     fn have_topic(&self) -> bool {
         match &self.topic {
-            Some(topic) => true,
+            Some(_topic) => true,
             None => false
         }
     }

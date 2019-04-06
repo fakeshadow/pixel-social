@@ -50,7 +50,7 @@ pub fn admin_modify_category(
 	admin_handler(admin_query, &opt)?;
 
 	let category_query = match update_request.category_id {
-		Some(category_id) => CategoryQuery::UpdateCategory(update_category_request),
+		Some(_category_id) => CategoryQuery::UpdateCategory(update_category_request),
 		None => CategoryQuery::AddCategory(update_category_request)
 	};
 
@@ -83,7 +83,7 @@ pub fn admin_remove_category(
 pub fn admin_update_user(
 	user_jwt: UserJwt,
 	update_request: web::Json<UserUpdateJson>,
-	cache_pool: web::Data<RedisPool>,
+//	cache_pool: web::Data<RedisPool>,
 	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 	let id  = match update_request.id {
@@ -148,7 +148,7 @@ pub fn admin_update_topic(
 pub fn admin_update_post(
 	user_jwt: UserJwt,
 	update_request: web::Json<PostUpdateJson>,
-	cache_pool: web::Data<RedisPool>,
+//	cache_pool: web::Data<RedisPool>,
 	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 

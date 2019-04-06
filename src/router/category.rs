@@ -13,7 +13,7 @@ pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let cache_query = CacheQuery::GetAllCategories;
+//    let cache_query = CacheQuery::GetAllCategories;
     let category_query = CategoryQuery::GetAllCategories;
 
     let opt = QueryOption {
@@ -31,7 +31,7 @@ pub fn get_popular(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let page = page.into_inner();
-    let cache_query = CacheQuery::GetPopular(page as i64);
+//    let cache_query = CacheQuery::GetPopular(page as i64);
     let category_query = CategoryQuery::GetPopular(page as i64);
 
     let opt = QueryOption {
@@ -111,7 +111,7 @@ pub fn match_query_result(
             }
             CategoryQueryResult::GotTopics(topics) => {
                 if topics.len() > 0 {
-                    cache_handler(CacheQuery::UpdateCategory(topics.clone()), &cache_pool);
+                    let _ignore = cache_handler(CacheQuery::UpdateCategory(topics.clone()), &cache_pool);
                 }
                 Ok(HttpResponse::Ok().json(topics))
             }

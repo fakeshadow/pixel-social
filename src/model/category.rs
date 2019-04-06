@@ -4,8 +4,8 @@ use crate::schema::categories;
 #[derive(Queryable, Serialize)]
 pub struct Category {
     pub id: u32,
-    pub name: Option<String>,
-    pub theme: Option<String>,
+    pub name: String,
+    pub theme: String
 }
 
 #[derive(Insertable)]

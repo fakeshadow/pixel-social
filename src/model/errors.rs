@@ -97,7 +97,7 @@ where T: Debug{
 }
 
 impl From<()> for ServiceError {
-    fn from(err:()) -> ServiceError {
+    fn from(_err:()) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
@@ -106,7 +106,7 @@ impl From<()> for ServiceError {
 impl From<Error> for ServiceError {
     fn from(err: Error) -> ServiceError {
         match err {
-            _ => ServiceError::BadRequest(err.to_string()),
+            _=> ServiceError::BadRequest(err.to_string()),
         }
     }
 }
@@ -127,7 +127,7 @@ impl From<r2d2_err> for ServiceError {
 }
 
 impl From<json_err> for ServiceError {
-    fn from(err: json_err) -> ServiceError {
+    fn from(_err: json_err) -> ServiceError {
         ServiceError::InternalServerError
     }
 }

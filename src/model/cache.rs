@@ -15,8 +15,8 @@ pub struct TopicCacheRequest<'a> {
 }
 
 pub enum CacheQuery<'a> {
-    GetAllCategories,
-    GetPopular(i64),
+//    GetAllCategories,
+//    GetPopular(i64),
     GetTopic(TopicCacheRequest<'a>),
     GetCategory(CategoryCacheRequest<'a>),
     UpdateCategory(Vec<TopicWithUser<SlimUser>>),
@@ -24,7 +24,7 @@ pub enum CacheQuery<'a> {
 }
 
 pub enum CacheQueryResult {
-    GotAllCategories,
+//    GotAllCategories,
     GotPopular,
     GotCategory(Vec<TopicWithUser<SlimUser>>),
     GotTopic(TopicWithPost),
