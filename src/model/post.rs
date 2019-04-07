@@ -111,7 +111,7 @@ impl Post {
 pub enum PostQuery<'a> {
     AddPost(PostRequest<'a>),
     UpdatePost(PostUpdateRequest<'a>),
-    GetPost(u32),
+    GetPost(&'a u32),
 }
 
 pub enum PostQueryResult {

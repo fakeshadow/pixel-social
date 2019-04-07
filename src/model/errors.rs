@@ -112,8 +112,7 @@ impl From<Error> for ServiceError {
 }
 
 impl From<redis_err> for ServiceError {
-    fn from(err: redis_err) -> ServiceError {
-        println!("{:?}", err);
+    fn from(_err: redis_err) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
@@ -148,14 +147,6 @@ impl From<diesel_err> for ServiceError {
         }
     }
 }
-
-//use std::option::NoneError as none_err;
-//
-//impl From<none_err> for ServiceError {
-//    fn from(err: none_err) -> ServiceError {
-//        ServiceError::GotNone
-//    }
-//}
 
 impl From<future_err> for ServiceError {
     fn from(err: future_err) -> ServiceError {

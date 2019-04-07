@@ -1,8 +1,13 @@
 use actix_web::{web, Error, HttpResponse, ResponseError};
 use futures::{IntoFuture, Future};
 
-use crate::handler::{auth::UserJwt, cache::*, category::*, topic::*};
+use crate::handler::{
+    auth::UserJwt,
+    category::category_handler_test,
+    topic::topic_handler,
+    user::user_handler};
 use crate::model::{
+    user::*,
     cache::*,
     category::*,
     topic::*,
@@ -13,7 +18,8 @@ use crate::model::{
 pub fn test_global_var(
     global_var: web::Data<GlobalGuard>,
     db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     let user_id = &1;
     let category_id = &1;
     let thumbnail = "test thumbnail";
@@ -50,7 +56,6 @@ pub fn get_category_async(
     };
 
     let query = CategoryQueryTest::GetCategory(category_request);
-    use crate::handler::category::category_handler_test;
 
     category_handler_test(query, db_pool.clone())
         .from_err()
@@ -67,6 +72,61 @@ pub fn get_category_async(
         })
 }
 
+pub fn generate_admin(
+    admin_user: web::Path<(String, String, String)>,
+    db_pool: web::Data<PostgresPool>,
+    global_var: web::Data<GlobalGuard>,
+) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
+    let (username, password, email) = admin_user.as_ref();
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        cache_pool: None,
+        global_var: Some(&global_var),
+    };
+    let register_request = AuthRequest {
+        username: &username,
+        password: &password,
+        email: &email,
+    };
+    let user_query = UserQuery::Register(register_request);
+    let _register = user_handler(user_query, opt);
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        cache_pool: None,
+        global_var: None,
+    };
+    let user_query = UserQuery::GetUser(&username);
+    let user_id = match user_handler(user_query, opt) {
+        Ok(query_result) => match query_result {
+            UserQueryResult::GotSlimUser(user) => user.id,
+            _ => 0
+        },
+        Err(e) => return Err(e)
+    };
+    let update_request = UserUpdateRequest {
+        id: &user_id,
+        username: None,
+        avatar_url: None,
+        signature: None,
+        is_admin: Some(&9),
+        blocked: None,
+    };
+    let opt = QueryOption {
+        db_pool: Some(&db_pool),
+        cache_pool: None,
+        global_var: None,
+    };
+
+    let user_query = UserQuery::UpdateUser(update_request);
+    match user_handler(user_query, opt) {
+        Ok(result) => match result {
+            UserQueryResult::GotUser(user) => Ok(HttpResponse::Ok().json(user)),
+            _ => Ok(HttpResponse::Ok().finish())
+        },
+        Err(e) => Err(e)
+    }
+}
 
 fn match_query_result(
     result: Result<TopicQueryResult, ServiceError>,

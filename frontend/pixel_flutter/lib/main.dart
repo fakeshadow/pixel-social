@@ -6,7 +6,6 @@ import 'package:pixel_flutter/blocs/Blocs.dart';
 
 import 'package:pixel_flutter/components/NavigationBar/NavBarCommon.dart';
 import 'package:pixel_flutter/components/NavigationBar/TabNavBar.dart';
-import 'package:pixel_flutter/models/Topic.dart';
 
 import './components//History/HistoryLimit.dart';
 import './Views/ProfilePage.dart';
@@ -89,8 +88,9 @@ class _CommunityPage extends State<CommunityPage> {
 }
 
 class Sliverlist extends StatelessWidget {
-  final String url = 'http://192.168.1.197:3100';
+  final String url = 'http://127.0.0.1:3200';
   final state;
+
   Sliverlist(this.state);
 
   @override

@@ -1,33 +1,31 @@
 name: pixel_flutter
-description: PixelShare blockchain frontend.
+description: A new Flutter project.
 
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.0.0-dev.68.0 <3.0.0"
+  sdk: ">=2.1.0 <3.0.0"
 
 dependencies:
-  http: ^0.12.0
-  rxdart: ^0.19.0
+  http: ^0.12.0+2
+  rxdart: ^0.21.0
   flutter_bloc: ^0.6.0
   equatable: ^0.1.6
+  cupertino_icons: ^0.1.2
   flutter:
     sdk: flutter
-  cupertino_icons: ^0.1.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
 flutter:
-
   uses-material-design: true
+  # assets:
+  #  - images/a_dot_burr.jpeg
+  #  - images/a_dot_ham.jpeg
 
-  assets:
-   - assets/test2.png.
-   - assets/test3.jpg.
-   - assets/logo.png.
-   - assets/test4.jpg.
+  # fonts:
   #   - family: Schyler
   #     fonts:
   #       - asset: fonts/Schyler-Regular.ttf

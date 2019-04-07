@@ -12,18 +12,19 @@ use crate::model::user::UserUpdateJson;
 
 pub fn get_user(
     user_jwt: UserJwt,
-    username: web::Path<String>,
+    username_path: web::Path<String>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item = HttpResponse, Error = ServiceError> {
+    let username = username_path.as_str();
+
     if !validate_username(&username) {
         return Err(ServiceError::UsernameShort);
     }
 
-    let name = username.to_string();
-    let user_query = if &name == "me" {
+    let user_query = if username == "me" {
         UserQuery::GetMe(&user_jwt.user_id)
     } else {
-        UserQuery::GetUser(&name)
+        UserQuery::GetUser(&username)
     };
 
     let opt = QueryOption {

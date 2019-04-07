@@ -19,13 +19,14 @@ pub enum CacheQuery<'a> {
 //    GetPopular(i64),
     GetTopic(TopicCacheRequest<'a>),
     GetCategory(CategoryCacheRequest<'a>),
-    UpdateCategory(Vec<TopicWithUser<SlimUser>>),
+    UpdateCategory(&'a Vec<TopicWithUser<SlimUser>>),
     UpdateTopic(&'a TopicWithPost)
 }
 
 pub enum CacheQueryResult {
 //    GotAllCategories,
     GotPopular,
+    Updated,
     GotCategory(Vec<TopicWithUser<SlimUser>>),
     GotTopic(TopicWithPost),
 }

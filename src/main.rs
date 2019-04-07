@@ -163,6 +163,9 @@ fn main() -> std::io::Result<()> {
 					.service(
 						web::resource("/async_db").route(web::get().to_async(router::test::get_category_async)),
 					)
+					.service(
+						web::resource("/generate_admin/{username}/{password}/{email}").route(web::get().to_async(router::test::generate_admin)),
+					)
 			)
 //            .service(
 //                web::scope("/upload")

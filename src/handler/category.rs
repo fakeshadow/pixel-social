@@ -81,6 +81,7 @@ pub fn category_handler(
 		}
 
 		CategoryQuery::AddCategory(category_request) => {
+
 			let category_name = match category_request.category_name {
 				Some(name) => name,
 				None => return { Err(ServiceError::BadRequestGeneral) }
@@ -89,6 +90,7 @@ pub fn category_handler(
 				Some(theme) => theme,
 				None => return { Err(ServiceError::BadRequestGeneral) }
 			};
+
 			let last_cid = categories::table.select(categories::id)
 				.order(categories::id.desc())
 				.limit(1)

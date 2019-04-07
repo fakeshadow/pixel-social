@@ -26,13 +26,13 @@ pub fn get_all_categories(
 }
 
 pub fn get_popular(
-    page: web::Path<(u32)>,
+    category_path: web::Path<(u32)>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let page = page.into_inner();
+    let page = category_path.as_ref();
 //    let cache_query = CacheQuery::GetPopular(page as i64);
-    let category_query = CategoryQuery::GetPopular(page as i64);
+    let category_query = CategoryQuery::GetPopular(*page as i64);
 
     let opt = QueryOption {
         db_pool: Some(&db_pool),
@@ -44,14 +44,14 @@ pub fn get_popular(
 }
 
 pub fn get_category(
-    category_query: web::Path<(u32, i64)>,
+    category_path: web::Path<(u32, i64)>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (category_id, page) = category_query.into_inner();
+    let (category_id, page) = category_path.as_ref();
 
-    let categories = vec![category_id];
-    let cache_page = page as isize;
+    let categories = vec![*category_id];
+    let cache_page = *page as isize;
     let category_request = CategoryCacheRequest {
         categories: &categories,
         page: &cache_page,
@@ -84,6 +84,7 @@ pub fn get_categories(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     let category_request = CategoryRequest {
         categories: &category_json.categories,
         page: &category_json.page,
@@ -111,7 +112,7 @@ pub fn match_query_result(
             }
             CategoryQueryResult::GotTopics(topics) => {
                 if topics.len() > 0 {
-                    let _ignore = cache_handler(CacheQuery::UpdateCategory(topics.clone()), &cache_pool);
+                    let _ignore = cache_handler(CacheQuery::UpdateCategory(&topics), &cache_pool);
                 }
                 Ok(HttpResponse::Ok().json(topics))
             }

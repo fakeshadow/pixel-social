@@ -13,6 +13,7 @@ pub fn add_post(
 	db_pool: web::Data<PostgresPool>,
 	global_var: web::Data<GlobalGuard>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
 	let post_query = PostQuery::AddPost(PostRequest {
 		user_id: &user_jwt.user_id,
 		post_id: post_json.post_id.as_ref(),
@@ -31,10 +32,11 @@ pub fn add_post(
 
 pub fn get_post(
 	_: UserJwt,
-	post_id: web::Path<u32>,
+	post_path: web::Path<u32>,
 	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-	let post_id = post_id.into_inner();
+
+	let post_id = post_path.as_ref();
 	let post_query = PostQuery::GetPost(post_id);
 
 	let opt = QueryOption {
@@ -48,16 +50,16 @@ pub fn get_post(
 
 pub fn update_post(
 	user_jwt: UserJwt,
-	update_request: web::Json<PostUpdateJson>,
+	update_json: web::Json<PostUpdateJson>,
 	db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 
 	let post_request = PostUpdateRequest {
-		id: &update_request.id,
+		id: &update_json.id,
 		user_id: Some(&user_jwt.user_id),
 		topic_id: None,
 		post_id: None,
-		post_content: update_request.post_content.as_ref().map(String::as_str),
+		post_content: update_json.post_content.as_ref().map(String::as_str),
 		is_locked: None,
 	};
 

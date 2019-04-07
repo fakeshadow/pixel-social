@@ -20,6 +20,7 @@ pub fn add_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     let user_id = &user_jwt.user_id;
     let category_id = &topic_json.category_id;
     let thumbnail = &topic_json.thumbnail;
@@ -44,14 +45,14 @@ pub fn add_topic(
 }
 
 pub fn get_topic(
-//    _: UserJwt,
-    query_path: web::Path<(u32, i64)>,
+    _: UserJwt,
+    topic_path: web::Path<(u32, i64)>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (topic_id, page) = query_path.into_inner();
+    let (topic_id, page) = topic_path.as_ref();
 
-    let cache_page = page as isize;
+    let cache_page = *page as isize;
 
     let cache_query = CacheQuery::GetTopic(TopicCacheRequest {
         topic: &topic_id,
@@ -90,6 +91,7 @@ pub fn update_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+
     let topic_query = TopicQuery::UpdateTopic(TopicUpdateRequest {
         id: &topic_update_request.id,
         user_id: Some(&user_jwt.user_id),
@@ -116,7 +118,6 @@ pub fn match_query_result(
     match result {
         Ok(query_result) => match query_result {
             TopicQueryResult::AddedTopic => {
-
                 Ok(HttpResponse::Ok().json(ResponseMessage::new("Add Topic Success")))
             }
             TopicQueryResult::GotTopicSlim(topic_with_post) => {
