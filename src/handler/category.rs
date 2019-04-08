@@ -11,7 +11,6 @@ const LIMIT: i64 = 20;
 
 // async db test
 use futures::future::{join_all, ok as fut_ok, Future};
-use actix_http::error::DispatchError::Service;
 
 pub fn category_handler_test(
 	category_query: CategoryQueryTest,

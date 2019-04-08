@@ -41,45 +41,20 @@ pub enum ServiceError {
 impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            ServiceError::InternalServerError => {
-                HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error"))
-            }
-            ServiceError::BadRequestGeneral => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request"))
-            }
-            ServiceError::BadRequest(ref message) => {
-                HttpResponse::BadRequest().json(ErrorMessage::new(message))
-            }
-            ServiceError::FutureError => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work"))
-            }
-            ServiceError::UsernameTaken => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken"))
-            }
-            ServiceError::UsernameShort => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Username Too Short"))
-            }
-            ServiceError::EmailTaken => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered"))
-            }
+            ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
+            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
+            ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
+            ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
+            ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
+            ServiceError::UsernameShort => HttpResponse::BadRequest().json(ErrorMessage::new("Username Too Short")),
+            ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
             ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
-            ServiceError::WrongPwd => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong"))
-            }
-            ServiceError::Unauthorized => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized"))
-            }
-            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new(
-                "Authentication Timeout.Please login again",
-            )),
-            ServiceError::RedisOffline => HttpResponse::InternalServerError()
-                .json(ErrorMessage::new("Cache service is offline")),
-            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(
-                ErrorMessage::new("Cache not found and database is not connected"),
-            ),
-            ServiceError::RegisterLimit => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Register requirement not met"))
-            }
+            ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
+            ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
+            ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
+            ServiceError::RedisOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
+            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected")),
+            ServiceError::RegisterLimit => HttpResponse::BadRequest().json(ErrorMessage::new("Register requirement not met"))
         }
     }
 }
@@ -87,26 +62,26 @@ impl ResponseError for ServiceError {
 // convert async blocking error. only for test use ands safe to remove
 use actix_web::error::BlockingError;
 use std::fmt::Debug;
+
 impl<T> From<BlockingError<T>> for ServiceError
-where T: Debug{
-    fn from (err: BlockingError<T>) -> ServiceError {
+    where T: Debug {
+    fn from(err: BlockingError<T>) -> ServiceError {
         match err {
-            _=> ServiceError::InternalServerError
+            _ => ServiceError::InternalServerError
         }
     }
 }
 
 impl From<()> for ServiceError {
-    fn from(_err:()) -> ServiceError {
+    fn from(_err: ()) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
 
-
 impl From<Error> for ServiceError {
     fn from(err: Error) -> ServiceError {
         match err {
-            _=> ServiceError::BadRequest(err.to_string()),
+            _ => ServiceError::BadRequest(err.to_string()),
         }
     }
 }

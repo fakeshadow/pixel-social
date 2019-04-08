@@ -4,4 +4,4 @@ pub mod test;
 pub mod topic;
 pub mod user;
 pub mod admin;
-//pub mod stream;
+pub mod stream;
