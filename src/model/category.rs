@@ -1,4 +1,8 @@
-use crate::model::{errors::ServiceError, topic::TopicWithUser, user::SlimUser};
+use crate::model::{
+    errors::ServiceError,
+    topic::TopicWithUser,
+    user::SlimUser
+};
 use crate::schema::categories;
 
 #[derive(Queryable, Serialize)]

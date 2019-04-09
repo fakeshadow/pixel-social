@@ -2,7 +2,7 @@ import 'package:equatable/equatable.dart';
 
 abstract class TopicEvent extends Equatable {}
 
-class TopicAPI extends TopicEvent {
+class GetTopics extends TopicEvent {
   @override
   String toString() => 'TopicAPI';
 }

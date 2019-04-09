@@ -2,15 +2,15 @@ use actix_web::{web, Error, HttpResponse, ResponseError};
 use futures::IntoFuture;
 
 use crate::model::{
-    topic::*,
-    cache::{CacheQuery, TopicCacheRequest},
     errors::ServiceError,
+    cache::{CacheQuery, TopicCacheRequest},
+    topic::{TopicJson, TopicUpdateJson, NewTopicRequest, TopicUpdateRequest, TopicQuery, TopicQueryResult},
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, ResponseMessage, SelfHaveField},
 };
 use crate::handler::{
     auth::UserJwt,
     topic::topic_handler,
-    cache::*,
+    cache::{match_cache_query_result, cache_handler},
 };
 
 pub fn add_topic(
@@ -20,7 +20,6 @@ pub fn add_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-
     let user_id = &user_jwt.user_id;
     let category_id = &topic_json.category_id;
     let thumbnail = &topic_json.thumbnail;
@@ -91,7 +90,6 @@ pub fn update_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-
     let topic_query = TopicQuery::UpdateTopic(TopicUpdateRequest {
         id: &topic_update_request.id,
         user_id: Some(&user_jwt.user_id),

@@ -4,9 +4,8 @@ use chrono::NaiveDateTime;
 use crate::model::{
     user::SlimUser,
     post::PostWithUser,
-    common::{GetSelfId, GetSelfTimeStamp, MatchUser}
+    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField}
 };
-use crate::model::common::SelfHaveField;
 
 #[derive(Debug, Identifiable, Queryable, Serialize, Deserialize, Clone)]
 #[table_name = "topics"]

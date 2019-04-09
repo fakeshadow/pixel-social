@@ -2,9 +2,9 @@ use actix_web::web;
 use diesel::prelude::*;
 
 use crate::model::{
-	common::{GlobalGuard, PostgresPool, QueryOption},
 	errors::ServiceError,
-	user::*,
+	user::{User, SlimUser, AuthResponse, UserQuery, UserQueryResult},
+	common::{GlobalGuard, PostgresPool, QueryOption},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};

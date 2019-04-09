@@ -1,14 +1,16 @@
 use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
 
-use crate::handler::{auth::UserJwt, user::user_handler};
+use crate::handler::{
+    auth::UserJwt,
+    user::user_handler
+};
 use crate::model::{
-    common::{PostgresPool, QueryOption, RedisPool, ResponseMessage, Validator, GlobalGuard},
     errors::ServiceError,
-    user::{UserQuery, AuthJson, AuthRequest, UserQueryResult, UserUpdateRequest},
+    user::{UserQuery, AuthJson, UserUpdateJson, AuthRequest, UserQueryResult, UserUpdateRequest},
+    common::{PostgresPool, QueryOption, RedisPool, ResponseMessage, Validator, GlobalGuard},
 };
 use crate::util::validation::validate_username;
-use crate::model::user::UserUpdateJson;
 
 pub fn get_user(
     user_jwt: UserJwt,

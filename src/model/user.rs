@@ -1,8 +1,10 @@
 use actix::Message;
 use chrono::NaiveDateTime;
 
-use crate::model::common::{GetSelfId, Validator};
-use crate::model::errors::ServiceError;
+use crate::model::{
+	errors::ServiceError,
+	common::{GetSelfId, Validator}
+};
 use crate::schema::users;
 
 #[derive(Queryable, Deserialize, Serialize, Debug)]

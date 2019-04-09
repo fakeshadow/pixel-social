@@ -1,6 +1,10 @@
 use chrono::NaiveDateTime;
 
-use crate::model::{common::*, errors::ServiceError, user::SlimUser};
+use crate::model::{
+    errors::ServiceError,
+    user::SlimUser,
+    common::{MatchUser, GetSelfId},
+};
 use crate::schema::posts;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]

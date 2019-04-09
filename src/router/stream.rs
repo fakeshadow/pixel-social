@@ -1,14 +1,13 @@
 use rand::Rng;
 use std::fs;
 use std::io::Write;
-
-use actix_web::{error, web, Error, HttpResponse};
 use futures::{future, Future, IntoFuture, Stream};
 
-use crate::handler::auth::UserJwt;
+use actix_web::{error, web, Error, HttpResponse};
 use actix_multipart as multipart;
 
 use crate::model::errors::ServiceError;
+use crate::handler::auth::UserJwt;
 
 #[derive(Serialize)]
 pub struct UploadResponse {

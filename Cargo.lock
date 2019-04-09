@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "pixel_rs"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "actix 0.8.0-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-files 0.1.0-alpha.4 (registry+https://github.com/rust-lang/crates.io-index)",

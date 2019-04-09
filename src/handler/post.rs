@@ -3,9 +3,9 @@ use chrono::Utc;
 use diesel::prelude::*;
 
 use crate::model::{
-	common::{PostgresPool, QueryOption, RedisPool},
 	errors::ServiceError,
-	post::*,
+	post::{Post, PostQuery, PostQueryResult},
+	common::{PostgresPool, QueryOption, RedisPool},
 };
 use crate::schema::{posts, topics};
 

@@ -1,13 +1,16 @@
 use actix_web::web;
 use diesel::prelude::*;
 
-use crate::model::common::{PostgresPool, RedisPool, QueryOption, match_id};
-use crate::model::errors::ServiceError;
-use crate::model::{category::*, topic::*, user::SlimUser};
+use crate::model::{
+	user::SlimUser,
+	topic::Topic,
+	errors::ServiceError,
+	category::{Category, CategoryQuery, CategoryQueryResult, CategoryQueryTest},
+	common::{PostgresPool, RedisPool, QueryOption, match_id}
+};
 use crate::schema::{categories, topics, users};
 
 const LIMIT: i64 = 20;
-
 
 // async db test
 use futures::future::{join_all, ok as fut_ok, Future};

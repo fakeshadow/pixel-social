@@ -1,7 +1,7 @@
 [package]
 name = "pixel_rs"
-version = "0.1.1"
-authors = ["fakeshadow <24548779@q.com>"]
+version = "0.1.2"
+authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2018"
 
 [dependencies]
@@ -9,9 +9,7 @@ actix = { version = "0.8.0-alpha.2", features = ["http"] }
 actix-rt = "0.2.2"
 actix-web = "1.0.0-alpha.4"
 actix-files = "0.1.0-alpha.4"
-#actix-web = { git = "https://github.com/actix/actix-web"}
 actix-multipart = { git = "https://github.com/actix/actix-web.git" }
-
 bcrypt = "0.2.1"
 chrono = { version = "0.4.6", features = ["serde"] }
 diesel = { version = "1.4.2", features = ["postgres", "r2d2", "chrono"] }

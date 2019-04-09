@@ -2,7 +2,10 @@ use crate::model::errors::ServiceError;
 
 use chrono::NaiveDateTime;
 
-use crate::model::{topic::*, user::*};
+use crate::model::{
+    topic::{TopicWithPost, TopicWithUser},
+    user::SlimUser
+};
 
 pub struct CategoryCacheRequest<'a> {
     pub categories: &'a Vec<u32>,

@@ -25,7 +25,7 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
   Stream<TopicState> mapEventToState(
     TopicEvent event,
   ) async* {
-    if (event is TopicAPI && !_hasReachedMax(currentState)) {
+    if (event is GetTopics && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicUninitialized) {
           final topics = await _getTopics(1, 1);
@@ -33,7 +33,9 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
           return;
         }
         if (currentState is TopicLoaded) {
-          final topics = await _getTopics(1, 1);
+          final page =
+              ((currentState as TopicLoaded).topics.length / 20).ceil();
+          final topics = await _getTopics(1, page);
           yield topics.isEmpty
               ? (currentState as TopicLoaded).copyWith(hasReachedMax: true)
               : TopicLoaded(
@@ -50,10 +52,8 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
       state is TopicLoaded && state.hasReachedMax;
 
   Future<List<Topic>> _getTopics(int categoryId, int page) async {
-    final response =
-        await httpClient.get('http://192.168.1.197:3200/categories/1/1', headers: {
-//      "Authorization":
-//          "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjUsImlhdCI6MTU1MDE5MDA2M30.wLwh2W5nezC4F7TcK6iPbJJitFByCQmItWtuTcSHDpc",
+    final response = await httpClient
+        .get('http://192.168.1.197:3200/categories/$categoryId/$page', headers: {
       "Content-Type": "application/json"
     });
 

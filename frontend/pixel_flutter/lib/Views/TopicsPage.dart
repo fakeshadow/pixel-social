@@ -9,7 +9,7 @@ import 'package:pixel_flutter/components/NavigationBar/TabNavBar.dart';
 
 import 'package:pixel_flutter/components/Loader/CenterLoader.dart';
 import 'package:pixel_flutter/components/Loader/BottomLoader.dart';
-import 'package:pixel_flutter/Views/TopicView.dart';
+import 'package:pixel_flutter/components/Topic/TopicView.dart';
 
 class TopicsPage extends StatefulWidget {
   @override
@@ -25,7 +25,7 @@ class _TopicsPageState extends State<TopicsPage> {
 
   _TopicsPageState() {
     _scrollController.addListener(_onScroll);
-    _topicBloc.dispatch(TopicAPI());
+    _topicBloc.dispatch(GetTopics());
   }
 
   @override
@@ -35,7 +35,7 @@ class _TopicsPageState extends State<TopicsPage> {
         builder: (BuildContext context, TopicState state) {
           return Scaffold(
             key: _scaffoldKey,
-            bottomNavigationBar: TabNavBar(1),
+//            bottomNavigationBar: TabNavBar(1),
             endDrawer: Container(
               child: Center(child: Text('abcdefg')),
             ),
@@ -43,7 +43,7 @@ class _TopicsPageState extends State<TopicsPage> {
                 controller: _scrollController,
                 slivers: <Widget>[
                   NavBarCommon(title: 'test', isClose: false),
-                  Sliverlist(state)
+                  TopicList(state)
                 ]),
           );
         });
@@ -59,14 +59,14 @@ class _TopicsPageState extends State<TopicsPage> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     if (maxScroll - currentScroll <= _scrollThreshold) {
-      _topicBloc.dispatch(TopicAPI());
+      _topicBloc.dispatch(GetTopics());
     }
   }
 }
 
-class Sliverlist extends StatelessWidget {
+class TopicList extends StatelessWidget {
   final state;
-  Sliverlist(this.state);
+  TopicList(this.state);
 
   @override
   Widget build(BuildContext context) {

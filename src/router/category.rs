@@ -1,12 +1,17 @@
-use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
 
-use crate::handler::{auth::UserJwt, cache::*, category::category_handler};
+use actix_web::{web, HttpResponse};
+
 use crate::model::{
-    cache::*,
-    category::*,
-    common::{PostgresPool, RedisPool, QueryOption, ResponseMessage},
     errors::ServiceError,
+    cache::{CacheQuery, CategoryCacheRequest},
+    category::{CategoryJson, CategoryRequest, CategoryQuery, CategoryQueryResult},
+    common::{PostgresPool, RedisPool, QueryOption, ResponseMessage},
+};
+use crate::handler::{
+    auth::UserJwt,
+    category::category_handler,
+    cache::{match_cache_query_result, cache_handler},
 };
 
 pub fn get_all_categories(
@@ -84,7 +89,6 @@ pub fn get_categories(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-
     let category_request = CategoryRequest {
         categories: &category_json.categories,
         page: &category_json.page,
