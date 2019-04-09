@@ -2,3 +2,8 @@
 **/*.rs.bk
 /.idea
 .env
+**/android
+**/ios
+**/test
+**/gen
+**/assets

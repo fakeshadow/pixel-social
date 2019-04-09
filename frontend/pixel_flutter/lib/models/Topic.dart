@@ -1,31 +1,33 @@
 import 'package:equatable/equatable.dart';
 
 class Topic extends Equatable {
-  final int uid, tid, mainPid, postCount;
-  final String username, cid, topicContent, lastPostTime, avatar;
-  
-  Topic({
-    this.tid,
-    this.cid,
-    this.mainPid,
-    this.topicContent,
-    this.postCount,
-    this.lastPostTime,
-    this.username,
-    this.uid,
-    this.avatar
-  }) : super([
-          tid,
-          cid,
-          mainPid,
-          topicContent,
-          postCount,
-          lastPostTime,
+  final int id, categoryId, userId, replyCount;
+  final String username, title, body, thumbnail, lastReplyTime, avatarUrl;
+
+  Topic(
+      {this.id,
+      this.categoryId,
+      this.userId,
+      this.replyCount,
+      this.username,
+      this.title,
+      this.body,
+      this.thumbnail,
+      this.lastReplyTime,
+      this.avatarUrl})
+      : super([
+          id,
+          categoryId,
+          userId,
+          replyCount,
           username,
-          avatar,
-          uid
+          title,
+          body,
+          thumbnail,
+          lastReplyTime,
+          avatarUrl
         ]);
 
   @override
-  String toString() => 'Topic {tid: $tid}';
+  String toString() => 'Topic {id: $id}';
 }

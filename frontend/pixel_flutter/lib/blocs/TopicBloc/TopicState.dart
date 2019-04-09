@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-
 import 'package:pixel_flutter/models/Topic.dart';
 
 abstract class TopicState extends Equatable {

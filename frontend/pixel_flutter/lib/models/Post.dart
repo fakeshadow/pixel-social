@@ -1,19 +1,22 @@
 class Post {
-  final int uid, pid, toPid;
-  final String postData, createdAt;
+  final int id, userId, topicId, postId, replyCount;
+  final String postContent, createdAt;
 
-  Post({
-    this.uid,
-    this.pid,
-    this.toPid,
-    this.postData,
-    this.createdAt,
-  });
+  Post(
+      {this.id,
+      this.userId,
+      this.topicId,
+      this.postId,
+      this.postContent,
+      this.createdAt,
+      this.replyCount});
 
   Post.fromJson(Map json)
-      : uid = json['uid'],
-        pid = json['pid'],
-        toPid = json['toPid'],
-        postData = json['postData'],
-        createdAt = json['createdAt'];
+      : id = json['id'],
+        userId = json['user_id'],
+        topicId = json['topic_id'],
+        postId = json['post_id'],
+        postContent = json['post_content'],
+        createdAt = json['created_at'],
+        replyCount = json['reply_count'];
 }

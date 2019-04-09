@@ -9,7 +9,7 @@ environment:
 dependencies:
   http: ^0.12.0+2
   rxdart: ^0.21.0
-  flutter_bloc: ^0.6.0
+  flutter_bloc: ^0.9.1
   equatable: ^0.1.6
   cupertino_icons: ^0.1.2
   flutter:
@@ -21,8 +21,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # assets:
-  #  - images/a_dot_burr.jpeg
+  assets:
+  - assets/test2.png
   #  - images/a_dot_ham.jpeg
 
   # fonts:

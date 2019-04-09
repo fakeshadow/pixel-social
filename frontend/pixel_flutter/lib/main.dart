@@ -3,9 +3,13 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter/blocs/Blocs.dart';
+import 'package:pixel_flutter/models/Topic.dart';
 
 import 'package:pixel_flutter/components/NavigationBar/NavBarCommon.dart';
 import 'package:pixel_flutter/components/NavigationBar/TabNavBar.dart';
+
+import 'package:pixel_flutter/components/Loader/CenterLoader.dart';
+import 'package:pixel_flutter/components/Loader/BottomLoader.dart';
 
 import './components//History/HistoryLimit.dart';
 import './Views/ProfilePage.dart';
@@ -88,7 +92,6 @@ class _CommunityPage extends State<CommunityPage> {
 }
 
 class Sliverlist extends StatelessWidget {
-  final String url = 'http://127.0.0.1:3200';
   final state;
 
   Sliverlist(this.state);
@@ -96,86 +99,68 @@ class Sliverlist extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (state is TopicError) {
-      return Center(
-        child: Text('failed to get topics'),
-      );
+      return CenterLoader();
     }
     if (state is TopicLoaded) {
       if (state.topics.isEmpty) {
-        return Center(
-          child: Text('no more topics'),
-        );
+        return CenterLoader();
       }
       return SliverList(
         delegate: SliverChildBuilderDelegate((context, index) {
           return index >= state.topics.length
               ? BottomLoader()
-              : ListTile(
-                  leading: InkWell(
-                    onTap: () => print('Avatar pressed'),
-                    child: CircleAvatar(
-                      child: Container(
-                        decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            image: DecorationImage(
-                              fit: BoxFit.fill,
-                              image: NetworkImage(
-                                  url + '${state.topics[index].avatar}'),
-                            )),
-                      ),
-                      backgroundColor: Colors.white10,
-                    ),
-                  ),
-                  title: InkWell(
-                    onTap: () => print('pressed'),
-                    child: Text(
-                      '${state.topics[index].topicContent}',
-                      style: TextStyle(
-                        fontSize: 16.0,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  subtitle: Text(
-                    '${state.topics[index].tid}    ${state.topics[index].username}    ${state.topics[index].lastPostTime}',
-                    style:
-                        TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
-                  ),
-                  trailing: Icon(IconData(0x0)),
-                );
+              : Listtile(state.topics[index]);
         },
             childCount: state.hasReachedMax
                 ? state.topics.length
                 : state.topics.length + 1),
       );
     } else {
-      return SliverFillViewport(
-        delegate: SliverChildBuilderDelegate((context, index) {
-          return Container(
-              width: 20,
-              child: Center(
-                child: CircularProgressIndicator(),
-              ));
-        }, childCount: 1),
-      );
+      return CenterLoader();
     }
   }
 }
 
-class BottomLoader extends StatelessWidget {
+class Listtile extends StatelessWidget {
+  final String url = 'http://192.168.1.197:3200';
+  final Topic topic;
+
+  Listtile(this.topic);
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      child: Center(
-        child: SizedBox(
-          width: 33,
-          height: 33,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.5,
+    return ListTile(
+      leading: InkWell(
+        onTap: () => print('Avatar pressed'),
+        child: CircleAvatar(
+          child: Container(
+            decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                image: DecorationImage(
+                  fit: BoxFit.fill,
+                  image: NetworkImage(
+                      url + '${topic.avatarUrl}'),
+                )),
+          ),
+          backgroundColor: Colors.white10,
+        ),
+      ),
+      title: InkWell(
+        onTap: () => print('pressed'),
+        child: Text(
+          '${topic.title}',
+          style: TextStyle(
+            fontSize: 16.0,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
+      subtitle: Text(
+        '${topic.id}    ${topic.username}    ${topic.lastReplyTime}',
+        style:
+        TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
+      ),
+      trailing: Icon(IconData(0x0)),
     );
   }
 }
