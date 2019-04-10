@@ -10,14 +10,16 @@ pub struct JwtPayLoad {
     pub iat: i64,
     pub exp: i64,
     pub user_id: u32,
+    pub is_admin: u32,
 }
 
 impl JwtPayLoad {
-    pub fn new(user_id: u32) -> Self {
+    pub fn new(user_id: u32, is_admin: u32) -> Self {
         JwtPayLoad {
             iat: Local::now().timestamp(),
             exp: (Local::now() + Duration::days(30)).timestamp(),
             user_id,
+            is_admin,
         }
     }
     pub fn decode(token: &str) -> Result<JwtPayLoad, ServiceError> {

@@ -17,10 +17,7 @@ pub fn admin_handler(
 	let conn: &PgConnection = &db_pool.get().unwrap();
 
 	match admin_query {
-		AdminQuery::UpdateUserCheck(_self_user_id, _update_user_request) => {
-			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
-			let self_admin_level = &admin_user.is_admin;
-
+		AdminQuery::UpdateUserCheck(self_admin_level, _update_user_request) => {
 			if !check_admin_level(_update_user_request.is_admin, &self_admin_level, 9) {
 				return Err(ServiceError::Unauthorized);
 			}
@@ -31,10 +28,7 @@ pub fn admin_handler(
 
 			Ok(())
 		}
-		AdminQuery::UpdateCategoryCheck(_self_user_id, _update_category_request) => {
-			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
-			let self_admin_level = &admin_user.is_admin;
-
+		AdminQuery::UpdateCategoryCheck(self_admin_level, _update_category_request) => {
 			if !check_admin_level(_update_category_request.category_name, &self_admin_level, 3) ||
 				!check_admin_level(_update_category_request.category_theme, &self_admin_level, 3) {
 				return Err(ServiceError::Unauthorized);
@@ -42,10 +36,7 @@ pub fn admin_handler(
 
 			Ok(())
 		}
-		AdminQuery::UpdateTopicCheck(_self_user_id, _update_topic_request) => {
-			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
-			let self_admin_level = &admin_user.is_admin;
-
+		AdminQuery::UpdateTopicCheck(self_admin_level, _update_topic_request) => {
 			if !check_admin_level(_update_topic_request.title, &self_admin_level, 3) ||
 				!check_admin_level(_update_topic_request.category_id, &self_admin_level, 3) ||
 				!check_admin_level(_update_topic_request.body, &self_admin_level, 3) ||
@@ -56,10 +47,7 @@ pub fn admin_handler(
 
 			Ok(())
 		}
-		AdminQuery::UpdatePostCheck(_self_user_id, _update_post_request) => {
-			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
-			let self_admin_level = &admin_user.is_admin;
-
+		AdminQuery::UpdatePostCheck(self_admin_level, _update_post_request) => {
 			if !check_admin_level(_update_post_request.topic_id, &self_admin_level, 3) ||
 				!check_admin_level(_update_post_request.post_id, &self_admin_level, 3) ||
 				!check_admin_level(_update_post_request.post_content, &self_admin_level, 3) ||
@@ -68,10 +56,7 @@ pub fn admin_handler(
 			}
 			Ok(())
 		}
-		AdminQuery::DeleteCategoryCheck(_self_user_id, _category_id) => {
-			let admin_user: User = users::table.find(&_self_user_id).first::<User>(conn)?;
-			let self_admin_level = &admin_user.is_admin;
-
+		AdminQuery::DeleteCategoryCheck(self_admin_level, _category_id) => {
 			if self_admin_level < &9 { return Err(ServiceError::Unauthorized); }
 			Ok(())
 		}

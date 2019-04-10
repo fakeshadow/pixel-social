@@ -46,7 +46,7 @@ pub fn admin_modify_category(
 	};
 
 	// admin privilege check. need to improve for a complex level system.
-	let admin_query = AdminQuery::UpdateCategoryCheck(&user_jwt.user_id, &update_category_request);
+	let admin_query = AdminQuery::UpdateCategoryCheck(&user_jwt.is_admin, &update_category_request);
 	admin_handler(admin_query, &opt)?;
 
 	let category_query = match update_request.category_id {
@@ -72,7 +72,7 @@ pub fn admin_remove_category(
 		global_var: None,
 	};
 
-	let admin_query = AdminQuery::DeleteCategoryCheck(&user_jwt.user_id, &category_id);
+	let admin_query = AdminQuery::DeleteCategoryCheck(&user_jwt.is_admin, &category_id);
 	admin_handler(admin_query, &opt)?;
 
 	let category_query = CategoryQuery::DeleteCategory(&category_id);
@@ -107,7 +107,7 @@ pub fn admin_update_user(
 	};
 
 // admin privilege check. need to improve for a complex level system.
-	let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.user_id, &update_request);
+	let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request);
 	admin_handler(admin_query, &opt)?;
 
 	let user_query = UserQuery::UpdateUser(update_request);
@@ -137,7 +137,7 @@ pub fn admin_update_topic(
 		is_locked: update_request.is_locked.as_ref(),
 	};
 
-	let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.user_id, &topic_request);
+	let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.is_admin, &topic_request);
 	admin_handler(admin_query, &opt)?;
 
 	let topic_query = TopicQuery::UpdateTopic(topic_request);
@@ -167,7 +167,7 @@ pub fn admin_update_post(
 		is_locked: update_request.is_locked.as_ref(),
 	};
 
-	let admin_query = AdminQuery::UpdatePostCheck(&user_jwt.user_id, &post_request);
+	let admin_query = AdminQuery::UpdatePostCheck(&user_jwt.is_admin, &post_request);
 	admin_handler(admin_query, &opt)?;
 
 	Ok(HttpResponse::Ok().finish())

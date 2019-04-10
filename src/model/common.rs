@@ -8,7 +8,10 @@ use diesel::{
     r2d2::{ConnectionManager, Pool as diesel_pool},
     result::Error,
 };
-use r2d2_redis::{r2d2 as redis_r2d2, redis, RedisConnectionManager};
+use r2d2_redis::{
+    redis,
+    RedisConnectionManager,
+    r2d2 as redis_r2d2};
 
 use crate::schema::{posts, topics, users};
 use crate::util::validation as validate;
@@ -61,9 +64,7 @@ pub trait MatchUser {
     // only add topic user_id when query for the first page of a topic. Other case just pass None in
     // capacity has to be changed along side with the limit constant in handlers.
     fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
-    where
-        T: MatchUser,
-    {
+        where T: MatchUser {
         let mut result: Vec<&u32> = Vec::with_capacity(21);
 
         if let Some(user_id) = topic_user_id {
@@ -80,8 +81,8 @@ pub trait MatchUser {
     }
 
     fn match_user_index<T>(&self, users: &Vec<T>) -> Option<usize>
-    where
-        T: GetSelfId,
+        where
+            T: GetSelfId,
     {
         let mut _index: Vec<usize> = Vec::with_capacity(1);
         for (index, user) in users.iter().enumerate() {
@@ -98,8 +99,8 @@ pub trait MatchUser {
 
     // add user privacy filter here
     fn make_user_field<T>(&self, users: &Vec<T>) -> Option<T>
-    where
-        T: Clone + GetSelfId,
+        where
+            T: Clone + GetSelfId,
     {
         match self.match_user_index(users) {
             Some(index) => Some(users[index].clone()),
@@ -145,7 +146,7 @@ pub trait Validator {
 // type and struct for global vars
 pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GlobalVar {
     pub next_uid: u32,
     pub next_pid: u32,

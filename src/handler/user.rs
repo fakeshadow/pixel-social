@@ -56,7 +56,7 @@ pub fn user_handler(
 
 			let _check_password = hash::verify_password(&_password, &exist_user.hashed_password)?;
 
-			let token = jwt::JwtPayLoad::new(exist_user.id).sign()?;
+			let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
 
 			Ok(UserQueryResult::LoggedIn(AuthResponse {
 				token,
