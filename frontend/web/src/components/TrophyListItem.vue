@@ -17,7 +17,7 @@
                     method: 'post',
                     body: JSON.stringify({onlineId, npCommunicationId}),
                     headers: {'Content-Type': 'application/json'}
-                })
+                });
                 const listDetail = response.json()
             }
         }

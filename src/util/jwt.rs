@@ -5,7 +5,7 @@ use jsonwebtoken::{decode, encode, Header, Validation};
 
 use crate::model::errors::ServiceError;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct JwtPayLoad {
     pub iat: i64,
     pub exp: i64,

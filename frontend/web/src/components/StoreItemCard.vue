@@ -117,13 +117,13 @@ export default {
   mounted() {
     switch(this.item.region) {
       case 'US':
-        this.moneySymbol = '$'
+        this.moneySymbol = '$';
             break;
       case 'UK':
-        this.moneySymbol = '£'
+        this.moneySymbol = '£';
             break;
       case 'HK':
-        this.moneySymbol = '$'
+        this.moneySymbol = '$';
             break;
     }
   },

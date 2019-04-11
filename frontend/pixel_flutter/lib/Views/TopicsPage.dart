@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:pixel_flutter/blocs/Blocs.dart';
+import 'package:pixel_flutter/blocs/TopicBlocs.dart';
 
 import 'package:pixel_flutter/components/NavigationBar/NavBarCommon.dart';
 import 'package:pixel_flutter/components/NavigationBar/TabNavBar.dart';
@@ -18,14 +17,14 @@ class TopicsPage extends StatefulWidget {
 
 class _TopicsPageState extends State<TopicsPage> {
   final _scrollController = ScrollController();
-  final TopicBloc _topicBloc = TopicBloc(httpClient: http.Client());
+  final TopicBloc _topicBloc = TopicBloc();
   final _scrollThreshold = 200.0;
 
   final _scaffoldKey = new GlobalKey<ScaffoldState>();
 
   _TopicsPageState() {
     _scrollController.addListener(_onScroll);
-    _topicBloc.dispatch(GetTopics());
+    _topicBloc.dispatch(GetTopics(1));
   }
 
   @override
@@ -59,7 +58,7 @@ class _TopicsPageState extends State<TopicsPage> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     if (maxScroll - currentScroll <= _scrollThreshold) {
-      _topicBloc.dispatch(GetTopics());
+      _topicBloc.dispatch(GetTopics(2));
     }
   }
 }

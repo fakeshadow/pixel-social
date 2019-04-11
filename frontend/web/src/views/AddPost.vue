@@ -172,7 +172,6 @@
                         error: "Image file too big. Please reduce the size to less than 1mb"
                     });
                 }
-                ;
                 this.upload_file.push(files[0]);
                 this.createImage(files[0]);
             },
@@ -185,7 +184,7 @@
                 reader.readAsDataURL(file);
             },
             removeImage() {
-                this.topic_data.thumbnail = ""
+                this.topic_data.thumbnail = "";
                 this.upload_file = [];
             }
         }

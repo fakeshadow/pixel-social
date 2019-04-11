@@ -14,13 +14,7 @@ pub fn hash_password(password: &str) -> Result<String, ServiceError> {
 
 pub fn verify_password(password: &str, password_hash: &str) -> Result<(), ServiceError> {
     match verify(password, password_hash) {
-        Ok(valid) => {
-            if valid {
-                Ok(())
-            } else {
-                Err(ServiceError::WrongPwd)
-            }
-        }
+        Ok(valid) =>  if valid { Ok(()) } else { Err(ServiceError::WrongPwd) },
         _ => Err(ServiceError::InternalServerError),
     }
 }

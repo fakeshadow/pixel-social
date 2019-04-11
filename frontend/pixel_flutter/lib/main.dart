@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+
 import './components//History/HistoryLimit.dart';
 import './Views/ProfilePage.dart';
 
 import './Views/TopicsPage.dart';
+import './Views/CategoryPage.dart';
 
 import './blocs/Provider.dart';
 import './components/Auth/LoginScreen.dart';
+
+
 
 void main() => runApp(RootApp());
 
@@ -29,8 +35,7 @@ class RootAppState extends State<RootApp> {
             primarySwatch: Colors.blue,
             accentColor: Colors.deepPurple),
         navigatorObservers: [HistoryLimit(10)],
-        home: Provider(
-          child: Scaffold(body: LoginScreen()),
-        ));
+        home: CategoryPage());
   }
 }
+

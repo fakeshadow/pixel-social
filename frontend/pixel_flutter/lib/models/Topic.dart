@@ -27,7 +27,4 @@ class Topic extends Equatable {
           lastReplyTime,
           avatarUrl
         ]);
-
-  @override
-  String toString() => 'Topic {id: $id}';
 }

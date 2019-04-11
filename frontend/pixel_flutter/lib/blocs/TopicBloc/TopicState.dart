@@ -5,15 +5,9 @@ abstract class TopicState extends Equatable {
   TopicState([List props = const []]) : super(props);
 }
 
-class TopicUninitialized extends TopicState {
-  @override
-  String toString() => 'TopicUninitialized';
-}
+class TopicUninitialized extends TopicState {}
 
-class TopicError extends TopicState {
-  @override
-  String toString() => 'TopicError';
-}
+class TopicError extends TopicState {}
 
 class TopicLoaded extends TopicState {
   final List<Topic> topics;
@@ -33,8 +27,4 @@ class TopicLoaded extends TopicState {
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
     );
   }
-
-  @override
-  String toString() =>
-      'TopicLoaded { topics: ${topics.length}, hasReachedMax: $hasReachedMax }';
 }

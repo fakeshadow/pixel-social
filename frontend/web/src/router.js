@@ -8,7 +8,7 @@ import Topic from './views/Topic.vue'
 import AddPost from './views/AddPost.vue'
 import MyPage from './views/MyPage.vue'
 
-Vue.use(Router)
+Vue.use(Router);
 
 export default new Router({
   mode: 'history',
