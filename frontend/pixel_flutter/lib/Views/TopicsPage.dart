@@ -24,7 +24,7 @@ class _TopicsPageState extends State<TopicsPage> {
 
   _TopicsPageState() {
     _scrollController.addListener(_onScroll);
-    _topicBloc.dispatch(GetTopics(1));
+    _topicBloc.dispatch(GetTopics(categoryId: 1));
   }
 
   @override
@@ -58,7 +58,7 @@ class _TopicsPageState extends State<TopicsPage> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     if (maxScroll - currentScroll <= _scrollThreshold) {
-      _topicBloc.dispatch(GetTopics(2));
+      _topicBloc.dispatch(GetTopics(categoryId: 2));
     }
   }
 }

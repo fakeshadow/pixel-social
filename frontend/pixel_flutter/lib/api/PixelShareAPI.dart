@@ -4,16 +4,48 @@ import 'package:http/http.dart' show Client;
 import 'package:pixel_flutter/models/Category.dart';
 import 'package:pixel_flutter/models/Post.dart';
 import 'package:pixel_flutter/models/Topic.dart';
+import 'package:pixel_flutter/models/User.dart';
+import 'package:pixel_flutter/models/TopicWithPost.dart';
 
 class PixelShareAPI {
   final Client _http = Client();
   static const String _url = 'http://192.168.1.197:3200';
 
-  Future<List<Category>> getCategories() async {
-    final response = await _http.get('$_url/categories/',
-        headers: {"Content-Type": "application/json"});
+  Future<void> register(String username, String password, String email) async {
+    try {
+      await _http.post('$_url/user/register',
+          headers: {"Content-Type": "application/json"},
+          body: json.encode(
+              {'username': username, 'password': password, 'email': email}));
+    } catch (e) {
+      throw e;
+    }
+  }
 
-    if (response.statusCode == 200) {
+  Future<User> login(String username, String password) async {
+    try {
+      final response = await _http.post('$_url/user/login',
+          headers: {"Content-Type": "application/json"},
+          body: json.encode({'username': username, 'password': password}));
+
+      final data = json.decode(response.body);
+      return User(
+          id: data['user_data']['id'],
+          email: data['user_data']['email'],
+          username: data['user_data']['username'],
+          avatarUrl: data['user_data']['avatar_url'],
+          signature: data['user_data']['signature'],
+          token: data['token']);
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  Future<List<Category>> getCategories() async {
+    try {
+      final response = await _http.get('$_url/categories/',
+          headers: {"Content-Type": "application/json"});
+
       final data = json.decode(response.body) as List;
       return data.map((rawCategories) {
         return Category(
@@ -21,18 +53,16 @@ class PixelShareAPI {
             name: rawCategories['name'],
             theme: rawCategories['theme']);
       }).toList();
-    } else {
-      throw Exception('error getting Topics');
+    } catch (e) {
+      throw e;
     }
   }
 
   Future<List<Topic>> getTopics(int categoryId, int page) async {
-    final response = await _http
-        .get('$_url/categories/$categoryId/$page', headers: {
-      "Content-Type": "application/json"
-    });
+    try {
+      final response = await _http.get('$_url/categories/$categoryId/$page',
+          headers: {"Content-Type": "application/json"});
 
-    if (response.statusCode == 200) {
       final data = json.decode(response.body) as List;
       return data.map((rawTopic) {
         return Topic(
@@ -46,43 +76,45 @@ class PixelShareAPI {
             avatarUrl: rawTopic['user']['avatar_url'],
             thumbnail: rawTopic['thumbnail']);
       }).toList();
-    } else {
-      throw Exception('error getting Topics');
+    } catch (e) {
+      throw e;
     }
   }
 
-  Future<List<Post>> getPosts({
-    String topicId = '',
-  }) async {
-    List<Post> posts = [];
+  Future<TopicWithPost> getTopic(int topicId, int page, String token) async {
+    try {
+      final response = await _http.get('$_url/topic/$topicId/$page', headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      });
 
-    await _http
-        .get(Uri.parse(_url + "post/test"))
-        .then((res) => res.body)
-        .then(json.decode)
-        .then((json) => json.forEach((post) {
-              Post po = Post.fromJson(post);
-              posts.add(po);
-            }))
-        .catchError((err) => print(err));
-    return posts;
-  }
+      final data = json.decode(response.body);
+      final topic = Topic(
+          id: data['topic']['id'],
+          categoryId: data['topic']['category_id'],
+          userId: data['topic']['user']['user_id'],
+          username: data['topic']['user']['username'],
+          title: data['topic']['title'],
+          body: data['topic']['body'],
+          lastReplyTime: data['topic']['last_reply_time'],
+          avatarUrl: data['topic']['user']['avatar_url'],
+          thumbnail: data['topic']['thumbnail']);
 
-  Future<String> postPost({
-    String topicId,
-    String titleData,
-    String postData,
-  }) async {
-    await _http
-        .post(Uri.parse(_url + "topic"), headers: {
-          "Content-Type": "application/json"
-        }, body: {
-          "cid": topicId,
-          "titleData": titleData,
-          "postData": postData
-        })
-        .then((res) => print(res))
-        .catchError((err) => print(err));
-    return 'Success';
+      final posts = data['posts'].map((rawPost) {
+        return Post(
+            id: rawPost['id'],
+            userId: rawPost['user']['user_id'],
+            username: rawPost['user']['username'],
+            avatarUrl: rawPost['user']['avatar_url'],
+            topicId: rawPost['topic_id'],
+            postId: rawPost['post_id'],
+            postContent: rawPost['post_content'],
+            lastReplyTime: rawPost['last_reply_time'],
+            replyCount: rawPost['reply_count']);
+      }).toList();
+      return TopicWithPost(topic: topic, posts: posts);
+    } catch (e) {
+      throw e;
+    }
   }
 }

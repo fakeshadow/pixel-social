@@ -1,11 +1,10 @@
 import 'package:bloc/bloc.dart';
-import 'package:flutter/widgets.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryState.dart';
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryEvent.dart';
 
-import 'package:pixel_flutter/blocs/CategoryBloc/CategoryRepo.dart';
+import 'package:pixel_flutter/blocs/Repo/CategoryRepo.dart';
 
 class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
     final CategoryRepo _categoryRepo = CategoryRepo();
@@ -24,8 +23,7 @@ class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
     Stream<CategoryState> _mapGetCategories() async* {
       try {
         final categories = await _categoryRepo.fetchCategories();
-        print(categories);
-        yield CategoryLoaded(categories);
+        yield CategoryLoaded(categories: categories);
       } catch (_) {
         yield CategoryFailed();
       }
