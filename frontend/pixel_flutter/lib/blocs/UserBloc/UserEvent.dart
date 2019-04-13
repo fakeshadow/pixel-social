@@ -5,6 +5,8 @@ abstract class UserEvent extends Equatable {
   UserEvent([List props = const []]) : super(props);
 }
 
+class UserInit extends UserEvent {}
+
 class Registering extends UserEvent {
   final String username;
   final String password;

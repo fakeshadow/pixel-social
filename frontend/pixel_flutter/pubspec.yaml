@@ -7,13 +7,15 @@ environment:
   sdk: ">=2.1.0 <3.0.0"
 
 dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: 0.5.2
   http: ^0.12.0+2
+
   rxdart: ^0.21.0
   flutter_bloc: ^0.9.1
   equatable: ^0.1.6
   cupertino_icons: ^0.1.2
-  flutter:
-    sdk: flutter
 
 dev_dependencies:
   flutter_test:
@@ -22,7 +24,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-  - assets/test2.png
+    - assets/test2.png
   #  - images/a_dot_ham.jpeg
 
   # fonts:

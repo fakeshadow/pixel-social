@@ -34,7 +34,7 @@ class _TopicsPageState extends State<TopicsPage> {
         builder: (BuildContext context, TopicState state) {
           return Scaffold(
             key: _scaffoldKey,
-//            bottomNavigationBar: TabNavBar(1),
+            bottomNavigationBar: TabNavBar(1),
             endDrawer: Container(
               child: Center(child: Text('abcdefg')),
             ),

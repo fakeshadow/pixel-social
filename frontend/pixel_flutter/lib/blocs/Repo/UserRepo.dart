@@ -1,17 +1,26 @@
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:pixel_flutter/api/PixelShareAPI.dart';
 import 'package:pixel_flutter/models/User.dart';
 
 class UserRepo {
   final _api = PixelShareAPI();
 
-  Future<User> register({@required String username, @required String password, @required String email}) async {
+  Future<User> register({
+    @required String username,
+    @required String password,
+    @required String email,
+  }) async {
     await _api.register(username, password, email);
-    return await _api.login(username, password);
+    return await this.login(username: username, password: password);
   }
 
-  Future<User> login({@required String username, @required String password}) async {
-    return await _api.login(username, password);
+  Future<User> login(
+      {@required String username, @required String password}) async {
+    final User _userData = await _api.login(username, password);
+    await this.saveUser(_userData);
+    return _userData;
   }
 
   Future<User> update() async {
@@ -19,33 +28,64 @@ class UserRepo {
     return User(id: 1, username: 'test', avatarUrl: 'test', signature: 'test');
   }
 
-  Future<void> logout() async {
-    /// delete user info and token
-    await Future.delayed(Duration(seconds: 1));
-    return;
-  }
-
   Future<User> getLocalUser() async {
-    /// save user info and token
-    await Future.delayed(Duration(seconds: 1));
-    return User(id: 1, username: 'test', avatarUrl: 'test', signature: 'test');
+    final _username = await getLocal(key: 'username');
+    final _email = await getLocal(key: 'email');
+    final _avatar = await getLocal(key: 'avatar');
+    final _signature = await getLocal(key: 'signature');
+    final _token = await getLocal(key: 'token');
+
+    return User(
+        username: _username,
+        email: _email,
+        avatarUrl: _avatar,
+        signature: _signature,
+        token: _token);
   }
 
   Future<void> saveUser(User user) async {
-    /// save user locally
-    await Future.delayed(Duration(seconds: 1));
-    return;
+    await saveLocal(data: user.username, key: 'username');
+    await saveLocal(data: user.email, key: 'email');
+    await saveLocal(data: user.avatarUrl, key: 'avatar');
+    await saveLocal(data: user.signature, key: 'signature');
+    await saveLocal(data: user.token, key: 'token');
   }
 
   Future<void> deleteToken() async {
-    /// delete token locally
-    await Future.delayed(Duration(seconds: 1));
-    return;
+    await deleteLocal(key: 'token');
   }
 
   Future<bool> hasToken() async {
-    /// check if there is local token
-    await Future.delayed(Duration(seconds: 1));
-    return true;
+    return hasLocal(key: 'token');
+  }
+
+  /// localstorage functions
+  Future<bool> hasLocal({
+    @required String key,
+  }) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.containsKey(key);
+  }
+
+  Future<String> getLocal({
+    @required String key,
+  }) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
+
+  Future<void> deleteLocal({
+    @required String key,
+  }) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(key);
+  }
+
+  Future<void> saveLocal({
+    @required String data,
+    @required String key,
+  }) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, data);
   }
 }

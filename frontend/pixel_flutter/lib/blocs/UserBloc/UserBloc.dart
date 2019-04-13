@@ -30,11 +30,11 @@ class UserBloc extends Bloc<UserEvent, UserState> {
     });
   }
 
-  UserState get initialState => UserNone();
+  UserState get initialState => AppStarted();
 
   @override
   Stream<UserState> mapEventToState(UserEvent event) async* {
-    if (event is AppStarted) {
+    if (event is UserInit) {
       yield Loading();
       final hasToken = await userRepo.hasToken();
       if (hasToken) {
@@ -76,7 +76,7 @@ class UserBloc extends Bloc<UserEvent, UserState> {
     if (event is LoggingOut) {
       yield Loading();
       try {
-        await userRepo.logout();
+        await userRepo.deleteToken();
         yield UserNone();
       } catch (e) {
         yield Failure(error: e.toString());
