@@ -3,7 +3,7 @@ import 'package:rxdart/rxdart.dart';
 
 import 'package:pixel_flutter/blocs/TopicBloc/TopicEvent.dart';
 import 'package:pixel_flutter/blocs/TopicBloc/TopicState.dart';
-import 'package:pixel_flutter/blocs/TopicBloc/TopicRepo.dart';
+import 'package:pixel_flutter/blocs/Repo/TopicRepo.dart';
 
 class TopicBloc extends Bloc<TopicEvent, TopicState> {
   final topicRepo = TopicRepo();

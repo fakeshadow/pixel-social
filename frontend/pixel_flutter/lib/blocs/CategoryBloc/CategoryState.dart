@@ -5,7 +5,7 @@ abstract class CategoryState extends Equatable {
   CategoryState([List props = const []]) : super(props);
 }
 
-class CategoryLoading extends CategoryState {}
+class CategoryInit extends CategoryState {}
 
 class CategoryLoaded extends CategoryState {
   final List<Category> categories;

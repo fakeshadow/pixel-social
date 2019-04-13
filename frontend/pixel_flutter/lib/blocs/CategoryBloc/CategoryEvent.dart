@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
-abstract class CategoryEvent extends Equatable {}
+abstract class CategoryEvent extends Equatable {
+  CategoryEvent([List props = const []]) : super(props);
+}
 
-class GetCategories extends CategoryEvent {}
+class LoadCategories extends CategoryEvent {}

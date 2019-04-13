@@ -1,37 +1,30 @@
 import 'package:flutter/material.dart';
-import '../components/NavigationBar/NavBarCommon.dart';
-import '../components/NavigationBar/TabNavBar.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter/blocs/UserBlocs.dart';
 
-class HomePage extends StatefulWidget {
-  @override
-  _HomePageState createState() => _HomePageState();
-}
+import 'package:pixel_flutter/Views/TopicsPage.dart';
+import 'package:pixel_flutter/Views/AutenticationPage.dart';
 
-class _HomePageState extends State<HomePage> {
-  bool isUnread = true;
-
+class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-        bottomNavigationBar: TabNavBar(0),
-        body: CustomScrollView(
-          slivers: <Widget>[
-            NavBarCommon(title: 'Home', isClose: false),
-            SliverList(
-              delegate: SliverChildListDelegate(buildTextViews(50)),
-            ),
-          ],
-        ));
+    final _userBloc = BlocProvider.of<UserBloc>(context);
+    return BlocBuilder(
+        bloc: _userBloc,
+        builder: (BuildContext context, UserState state) {
+          if (state is AppStarted) {
+            _userBloc.dispatch(UserInit());
+            return Center(child: Container(child: CircularProgressIndicator()));
+          }
+          if (state is UserLoaded) {
+            return TopicsPage();
+          }
+          if (state is Loading) {
+            return Center(child: Container(child: CircularProgressIndicator()));
+          }
+          if (state is UserNone) {
+            return AuthenticationPage();
+          }
+        });
   }
-}
-
-List buildTextViews(int count) {
-  List<Widget> strings = List();
-  for (int i = 0; i < count; i++) {
-    strings.add(new Padding(
-        padding: new EdgeInsets.all(16.0),
-        child: new Text("Item number " + i.toString(),
-            style: new TextStyle(fontSize: 20.0))));
-  }
-  return strings;
 }

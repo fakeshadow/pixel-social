@@ -21,6 +21,7 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
   @override
   void initState() {
     super.initState();
+    inputBloc = BlocProvider.of<InputBloc>(context);
     _usernameController.addListener(_onUsernameChanged);
     _emailController.addListener(_onEmailChanged);
     _passwordController.addListener(_onPasswordChanged);
@@ -28,7 +29,6 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
 
   @override
   Widget build(BuildContext context) {
-    inputBloc = BlocProvider.of<InputBloc>(context);
     return BlocBuilder(
         bloc: inputBloc,
         builder: (BuildContext context, InputState state) {
