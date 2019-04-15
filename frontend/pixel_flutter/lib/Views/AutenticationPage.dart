@@ -3,16 +3,22 @@ import 'package:flutter/widgets.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:pixel_flutter/blocs/InputBlocs.dart';
-
+import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
+import 'package:pixel_flutter/blocs/UserBlocs.dart';
 
 class AuthenticationPage extends StatefulWidget {
+  final String type, username;
+
+  AuthenticationPage({@required this.type, this.username});
+
   @override
   _AuthenticationPageState createState() => _AuthenticationPageState();
 }
 
 class _AuthenticationPageState extends State<AuthenticationPage> {
-  InputBloc inputBloc;
+  RegisterBloc _registerBloc;
+  UserBloc userBloc;
+  String _type;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
@@ -20,63 +26,80 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
 
   @override
   void initState() {
-    super.initState();
-    inputBloc = BlocProvider.of<InputBloc>(context);
+    _type = widget.type;
+    if (_type == 'login') {
+      _usernameController.text = widget.username;
+    }
+    _registerBloc = RegisterBloc();
+    userBloc = BlocProvider.of<UserBloc>(context);
     _usernameController.addListener(_onUsernameChanged);
     _emailController.addListener(_onEmailChanged);
     _passwordController.addListener(_onPasswordChanged);
+    super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder(
-        bloc: inputBloc,
-        builder: (BuildContext context, InputState state) {
+        bloc: _registerBloc,
+        builder: (BuildContext context, RegisterState state) {
           return Scaffold(
               body: Form(
-                child: Column(
-                  children: <Widget>[
-                    TextFormField(
-                      controller: _usernameController,
-                      decoration: InputDecoration(
-                        icon: Icon(Icons.person),
-                        labelText: 'Username',
-                      ),
-                      autovalidate: true,
-                      validator: (_) {
-                        return state.isUsernameValid ? null : 'Invalid Username';
-                      },
-                    ),
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: InputDecoration(
-                        icon: Icon(Icons.email),
-                        labelText: 'Email',
-                      ),
-                      autovalidate: true,
-                      validator: (_) {
-                        return state.isEmailValid ? null : 'Invalid Email';
-                      },
-                    ),
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        icon: Icon(Icons.lock),
-                        labelText: 'Password',
-                      ),
-                      obscureText: true,
-                      autovalidate: true,
-                      validator: (_) {
-                        return state.isPasswordValid ? null : 'Invalid Password';
-                      },
-                    ),
-                    RaisedButton(
-                      onPressed: state.isFormValid ? _onSubmitPressed : null,
-                      child: Text('Submit'),
-                    ),
-                  ],
+            child: Column(
+              children: <Widget>[
+                TextFormField(
+                  controller: _usernameController,
+                  decoration: InputDecoration(
+                    icon: Icon(Icons.person),
+                    labelText: 'Username',
+                  ),
+                  autovalidate: true,
+                  validator: (_) {
+                    return state.isUsernameValid || state.username.length < 1
+                        ? null
+                        : 'Invalid Username';
+                  },
                 ),
-              ));
+                _type == 'register'
+                    ? TextFormField(
+                        controller: _emailController,
+                        decoration: InputDecoration(
+                          icon: Icon(Icons.email),
+                          labelText: 'Email',
+                        ),
+                        autovalidate: true,
+                        validator: (_) {
+                          return state.isEmailValid || state.email.length < 1
+                              ? null
+                              : 'Invalid Email';
+                        },
+                      )
+                    : Container(),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    icon: Icon(Icons.lock),
+                    labelText: 'Password',
+                  ),
+                  obscureText: true,
+                  autovalidate: true,
+                  validator: (_) {
+                    return state.isPasswordValid || state.password.length < 1
+                        ? null
+                        : 'Invalid Password';
+                  },
+                ),
+                RaisedButton(
+                  onPressed: state.isRegisterValid && _type == 'register'
+                      ? () => _submit(state)
+                      : state.isLoginValid && _type == 'login'
+                          ? () => _submit(state)
+                          : null,
+                  child: Text('Submit'),
+                ),
+              ],
+            ),
+          ));
         });
   }
 
@@ -84,23 +107,32 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    inputBloc.dispose();
+    _registerBloc.dispose();
     super.dispose();
   }
 
   void _onUsernameChanged() {
-    inputBloc.dispatch(UsernameChanged(username: _usernameController.text));
+    _registerBloc.dispatch(UsernameChanged(username: _usernameController.text));
   }
 
   void _onEmailChanged() {
-    inputBloc.dispatch(EmailChanged(email: _emailController.text));
+    _registerBloc.dispatch(EmailChanged(email: _emailController.text));
   }
 
   void _onPasswordChanged() {
-    inputBloc.dispatch(PasswordChanged(password: _passwordController.text));
+    _registerBloc.dispatch(PasswordChanged(password: _passwordController.text));
   }
 
-  void _onSubmitPressed() {
-    inputBloc.dispatch(FormSubmitted());
+  void _submit(RegisterState state) {
+    if (_type == 'register') {
+      userBloc.dispatch(Registering(
+          username: state.username,
+          password: state.password,
+          email: state.email));
+      _registerBloc.dispatch(FormReset());
+    } else {
+      userBloc.dispatch(
+          LoggingIn(username: state.username, password: state.password));
+    }
   }
 }

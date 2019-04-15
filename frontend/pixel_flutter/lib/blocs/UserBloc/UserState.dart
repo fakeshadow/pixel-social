@@ -19,6 +19,12 @@ class UserLoaded extends UserState {
 
 class UserNone extends UserState {}
 
+class UserLoggedOut extends UserState {
+  final String username;
+
+  UserLoggedOut({@required this.username}):super([username]);
+}
+
 class Failure extends UserState {
   final String error;
 

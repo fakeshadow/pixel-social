@@ -1,34 +1,11 @@
 import 'dart:async';
 import 'package:bloc/bloc.dart';
-import 'package:flutter/widgets.dart';
 
-import 'package:pixel_flutter/blocs/InputBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import 'package:pixel_flutter/blocs/Repo/UserRepo.dart';
 
 class UserBloc extends Bloc<UserEvent, UserState> {
   final userRepo = UserRepo();
-  final InputBloc inputBloc;
-
-  StreamSubscription inputSubscription;
-
-  @override
-  void dispose() {
-    inputSubscription.cancel();
-    super.dispose();
-  }
-
-  UserBloc({@required this.inputBloc}) {
-    inputSubscription = inputBloc.state.listen((state) {
-      if (state.formSubmittedSuccessfully == true) {
-        dispatch(Registering(
-          username: state.username,
-          password: state.password,
-          email: state.email,
-        ));
-      }
-    });
-  }
 
   UserState get initialState => AppStarted();
 
@@ -37,9 +14,11 @@ class UserBloc extends Bloc<UserEvent, UserState> {
     if (event is UserInit) {
       yield Loading();
       final hasToken = await userRepo.hasToken();
-      if (hasToken) {
-        final user = await userRepo.getLocalUser();
+      final user = await userRepo.getLocalUser();
+      if (hasToken && user != null) {
         yield UserLoaded(user: user);
+      } else if (user != null) {
+        yield UserLoggedOut(username: user.username);
       } else {
         yield UserNone();
       }

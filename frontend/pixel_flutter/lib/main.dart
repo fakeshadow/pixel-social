@@ -5,7 +5,6 @@ import 'package:pixel_flutter/blocs/MyBlocDelegate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:bloc/bloc.dart';
 
-import 'package:pixel_flutter/blocs/InputBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
 
 import './components//History/HistoryLimit.dart';
@@ -18,15 +17,25 @@ void main() {
   runApp(PixelShare());
 }
 
-class PixelShare extends StatelessWidget {
-  final InputBloc _inputBloc = InputBloc();
+class PixelShare extends StatefulWidget {
+  @override
+  _PixelShareState createState() => _PixelShareState();
+}
+
+class _PixelShareState extends State<PixelShare> {
+  UserBloc userBloc;
+
+  @override
+  void initState() {
+    userBloc = UserBloc();
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocProviderTree(
         blocProviders: [
-          BlocProvider<InputBloc>(bloc: _inputBloc),
-          BlocProvider<UserBloc>(bloc: UserBloc(inputBloc: _inputBloc))
+          BlocProvider<UserBloc>(bloc: userBloc)
         ],
         child: MaterialApp(
             routes: {
@@ -39,5 +48,11 @@ class PixelShare extends StatelessWidget {
                 accentColor: Colors.deepPurple),
             navigatorObservers: [HistoryLimit(10)],
             home: HomePage()));
+  }
+
+  @override
+  void dispose() {
+    userBloc.dispose();
+    super.dispose();
   }
 }

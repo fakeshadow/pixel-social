@@ -1,5 +1,5 @@
 //import 'package:flutter/material.dart';
-//import 'package:pixel_flutter/blocs/InputBlocs.dart';
+//import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
 //
 //class LoginScreen extends StatelessWidget {
 //
