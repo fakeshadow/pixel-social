@@ -18,13 +18,9 @@ class UserRepo {
 
   Future<User> login(
       {@required String username, @required String password}) async {
-    try {
-      final User _userData = await _api.login(username, password);
-      await this.saveUser(_userData);
-      return _userData;
-    } catch (e) {
-      throw e;
-    }
+    final User _userData = await _api.login(username, password);
+    await this.saveUser(_userData);
+    return _userData;
   }
 
   Future<User> update() async {

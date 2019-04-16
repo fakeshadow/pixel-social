@@ -10,7 +10,7 @@ class RegisterState extends Equatable {
   final String password;
   final bool isPasswordValid;
 
-  bool get isLoginValid => isUsernameValid && isUsernameValid;
+  bool get isLoginValid => isUsernameValid && isPasswordValid;
   bool get isRegisterValid => isEmailValid && isPasswordValid && isUsernameValid;
 
   RegisterState({
@@ -33,7 +33,7 @@ class RegisterState extends Equatable {
   factory RegisterState.initial() {
     return RegisterState(
       email: '',
-      username: "",
+      username: '',
       password: '',
       isUsernameValid: false,
       isEmailValid: false,

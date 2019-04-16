@@ -23,22 +23,18 @@ class PixelShareAPI {
   }
 
   Future<User> login(String username, String password) async {
-    try {
-      final response = await _http.post('$_url/user/login',
-          headers: {"Content-Type": "application/json"},
-          body: json.encode({'username': username, 'password': password}));
+    final response = await _http.post('$_url/user/login',
+        headers: {"Content-Type": "application/json"},
+        body: json.encode({'username': username, 'password': password}));
 
-      final data = json.decode(response.body);
-      return User(
-          id: data['user_data']['id'],
-          email: data['user_data']['email'],
-          username: data['user_data']['username'],
-          avatarUrl: data['user_data']['avatar_url'],
-          signature: data['user_data']['signature'],
-          token: data['token']);
-    } catch (e) {
-      throw e;
-    }
+    final data = json.decode(response.body);
+    return User(
+        id: data['user_data']['id'],
+        email: data['user_data']['email'],
+        username: data['user_data']['username'],
+        avatarUrl: data['user_data']['avatar_url'],
+        signature: data['user_data']['signature'],
+        token: data['token']);
   }
 
   Future<List<Category>> getCategories() async {

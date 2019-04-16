@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/widgets.dart';
 import 'package:pixel_flutter/models/Category.dart';
 
 abstract class CategoryState extends Equatable {
@@ -18,4 +19,10 @@ class CategoryLoaded extends CategoryState {
 //  }
 }
 
-class CategoryFailed extends CategoryState {}
+class CategoryLoading extends CategoryState {}
+
+class CategoryFailed extends CategoryState {
+  final String error;
+
+  CategoryFailed({@required this.error}) : super([error]);
+}

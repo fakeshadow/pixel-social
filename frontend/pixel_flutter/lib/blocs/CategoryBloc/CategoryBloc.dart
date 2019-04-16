@@ -15,6 +15,7 @@ class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
         CategoryEvent event,
         ) async* {
       if (event is LoadCategories) {
+        yield CategoryLoading();
         yield* _mapLoadCategorise();
       }
     }
@@ -24,8 +25,8 @@ class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
         final _categories = await _categoryRepo.loadCategories();
         _categoryRepo.saveCategories(categories: _categories);
         yield CategoryLoaded(categories: _categories);
-      } catch (_) {
-        yield CategoryFailed();
+      } catch (e) {
+        yield CategoryFailed(error: e);
       }
     }
 

@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
 
+/// pass in type and username for login form and type only for register
 class AuthenticationPage extends StatefulWidget {
   final String type, username;
 
@@ -43,6 +44,8 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
     return BlocBuilder(
         bloc: _registerBloc,
         builder: (BuildContext context, RegisterState state) {
+          // need to find a better way to handle login dispatch
+          _registerBloc.dispatch(UsernameChanged(username: _usernameController.text));
           return Scaffold(
               body: Form(
             child: Column(
