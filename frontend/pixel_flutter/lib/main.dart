@@ -10,8 +10,8 @@ import 'package:pixel_flutter/blocs/UserBlocs.dart';
 
 import './components//History/HistoryLimit.dart';
 import './Views/ProfilePage.dart';
-import './Views/HomePage.dart';
-
+import './Views/CategoryPage.dart';
+import './Views/CategoryPage.dart';
 
 void main() {
   BlocSupervisor().delegate = MyBlocDelegate();
@@ -44,18 +44,18 @@ class _PixelShareState extends State<PixelShare> {
         child: MaterialApp(
             routes: {
               '/profile': (context) => ProfilePage(),
-              '/community': (context) => PixelShare(),
+              '/community': (context) => CategoryPage(),
             },
             theme: ThemeData(
                 brightness: Brightness.light,
                 primarySwatch: Colors.blue,
                 accentColor: Colors.deepPurple),
             navigatorObservers: [HistoryLimit(10)],
-            home: HomePage()));
+            home: CategoryPage()));
   }
 
   @override
-  void dispose() {
+   void dispose() {
     userBloc.dispose();
     super.dispose();
   }

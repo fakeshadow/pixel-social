@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pixel_flutter/models/Category.dart';
 import 'package:pixel_flutter/api/PixelShareAPI.dart';
 
-const TIME_GATE = 3600000;
+const TIME_GATE = 360000;
 
 class CategoryRepo {
   final _api = PixelShareAPI();
@@ -39,8 +39,6 @@ class CategoryRepo {
           final _categoryVec = _categoryData.split(':::');
           _categories.add(
               Category(id: _id, name: _categoryVec[0], theme: _categoryVec[1]));
-        } else {
-          break;
         }
       }
       return _categories;

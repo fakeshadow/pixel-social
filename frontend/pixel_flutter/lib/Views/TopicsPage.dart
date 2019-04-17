@@ -8,7 +8,7 @@ import 'package:pixel_flutter/components/NavigationBar/TabNavBar.dart';
 
 import 'package:pixel_flutter/components/Loader/CenterLoader.dart';
 import 'package:pixel_flutter/components/Loader/BottomLoader.dart';
-import 'package:pixel_flutter/components/Topic/TopicView.dart';
+import 'package:pixel_flutter/components/Topic/TopicList.dart';
 
 class TopicsPage extends StatefulWidget {
   @override

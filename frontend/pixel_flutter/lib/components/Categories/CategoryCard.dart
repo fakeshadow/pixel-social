@@ -3,6 +3,8 @@ import 'package:pixel_flutter/components/Categories/CardName.dart';
 import 'package:pixel_flutter/components/Categories/CardDetail.dart';
 import 'package:pixel_flutter/models/Category.dart';
 
+
+/// push to topics page if from this widget.
 class CategoryCard extends StatelessWidget {
   final Category category;
 
@@ -20,7 +22,12 @@ class CategoryCard extends StatelessWidget {
             borderRadius: BorderRadius.all(Radius.circular(20.0)),
             child: Stack(
               children: <Widget>[
-                Image.asset('assets/test2.png', fit: BoxFit.fitWidth),
+                // ToDo: Future look into fade image loading
+                FadeInImage.assetNetwork(
+                  placeholder: 'assets/test2.png',
+                  image: category.theme,
+                  fit: BoxFit.fitWidth,
+                ),
                 Positioned(
                   left: 0,
                   bottom: 0,
@@ -30,8 +37,11 @@ class CategoryCard extends StatelessWidget {
                 Positioned(
                     left: 0,
                     bottom: 70,
-                    child: CardName(
-                      cardName: 'General',
+                    child: InkWell(
+                      onTap: ()=>{},
+                      child: CardName(
+                        cardName: category.name,
+                      ),
                     )),
               ],
             ),
@@ -39,27 +49,3 @@ class CategoryCard extends StatelessWidget {
         ));
   }
 }
-
-//  Widget build(BuildContext context) {
-//    return InkWell(
-//        onTap: () => Navigator.of(context).pushNamed('/topics'),
-//        child: Card(
-//          elevation: 10,
-//          child: Stack(
-//            alignment: AlignmentDirectional.topCenter,
-//            children: <Widget>[
-//              Positioned(
-//                child: Image.asset('assets/test3.jpg'),
-//              ),
-//              Positioned(
-//                top: 80,
-//                child: Text(categoryName,
-//                    style: TextStyle(
-//                        fontSize: 30,
-//                        color: Colors.white,
-//                        fontWeight: FontWeight.bold)),
-//              ),
-//            ],
-//          ),
-//        ));
-//  }

@@ -62,18 +62,12 @@ class CustomShapeBorder extends ShapeBorder {
     clippedPath.quadraticBezierTo(distanceControlPoint,
         _height - distanceControlPoint, distanceY, _height);
     clippedPath.lineTo(_width - distanceY, _height);
-    clippedPath.quadraticBezierTo(
-        _width - distanceControlPoint,
-        _height - distanceControlPoint,
-        _width,
-        _height - distanceY);
+    clippedPath.quadraticBezierTo(_width - distanceControlPoint,
+        _height - distanceControlPoint, _width, _height - distanceY);
     clippedPath.lineTo(_width, _height * 0.6);
-    clippedPath.quadraticBezierTo(
-        _width - 1,
-        _height * 0.6 - distanceY,
-        _width - distanceY,
-        _height * 0.6 - distanceY - 3 );
-    clippedPath.lineTo(distanceY + 6 , 0);
+    clippedPath.quadraticBezierTo(_width - 1, _height * 0.6 - distanceY,
+        _width - distanceY, _height * 0.6 - distanceY - 3);
+    clippedPath.lineTo(distanceY + 6, 0);
     clippedPath.close();
     return clippedPath;
   }
