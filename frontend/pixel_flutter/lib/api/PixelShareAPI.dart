@@ -58,7 +58,6 @@ class PixelShareAPI {
     try {
       final response = await _http.get('$_url/categories/$categoryId/$page',
           headers: {"Content-Type": "application/json"});
-
       final data = json.decode(response.body) as List;
       return data.map((rawTopic) {
         return Topic(

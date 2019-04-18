@@ -16,7 +16,6 @@ class HistoryLimit extends NavigatorObserver {
   void didPush(Route route, Route previousRoute) {
     history.add(route);
     if (history.length >= limit) {
-      print(history);
       this.navigator.removeRoute(history.first);
     }
   }

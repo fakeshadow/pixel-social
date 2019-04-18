@@ -28,3 +28,21 @@ final TextStyle labelTextStyle = TextStyle(
   fontSize: 16.0,
   color: Colors.grey,
 );
+
+final TextStyle categoryHeaderStyle = TextStyle(
+  fontSize: 30.0,
+  color:  Colors.black,
+  fontWeight: FontWeight.bold
+);
+
+final TextStyle categorySubHeaderStyle = TextStyle(
+    fontSize: 22.0,
+    color:  Colors.blueGrey,
+    fontWeight: FontWeight.bold
+);
+
+final TextStyle postButtonStyle = TextStyle(
+  fontSize: 30.0,
+  color: Colors.white,
+  fontWeight: FontWeight.bold,
+);

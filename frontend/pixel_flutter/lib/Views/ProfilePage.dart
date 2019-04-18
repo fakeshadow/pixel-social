@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../components/NavigationBar/TabNavBar.dart';
-import '../components/NavigationBar/NavBarExpand.dart';
+import '../components/NavigationBar/SliverNavBarExpand.dart';
 import '../components/Profile/Me.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -27,7 +27,7 @@ class _ProfilePageState extends State<ProfilePage> {
   List<Widget> _headerSilverBuilder(
       BuildContext context, bool innerBoxIsScrolled) {
     return <Widget>[
-      NavBarExpand(),
+      SliverNavBarExpand(),
       SliverPersistentHeader(
         delegate: _SliverAppBarDelegate(
           TabBar(

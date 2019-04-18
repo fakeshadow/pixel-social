@@ -25,7 +25,7 @@ class HorizontalTabText extends StatelessWidget {
                   style: state.index == index
                       ? horizontalTabSelectedStyle
                       : horizontalTabStyle,
-                  duration: const Duration(milliseconds: 200),
+                  duration: Duration(milliseconds: 200),
                   child: Text(text),
                 ),
               );

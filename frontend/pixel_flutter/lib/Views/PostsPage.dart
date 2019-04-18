@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../components/NavigationBar/NavBarCommon.dart';
+import '../components/NavigationBar/SliverNavBar.dart';
 import '../components/NavigationBar/TabNavBar.dart';
 
 import 'package:http/http.dart' as http;
@@ -44,7 +44,7 @@ class _PostsPageState extends State<PostsPage> {
         bottomNavigationBar: TabNavBar(1),
         body: CustomScrollView(
           slivers: <Widget>[
-            NavBarCommon(title: widget._title, isClose: true),
+            SliverNavBar(title: widget._title),
             SliverList(
               delegate:
                   SliverChildBuilderDelegate((BuildContext context, int index) {
