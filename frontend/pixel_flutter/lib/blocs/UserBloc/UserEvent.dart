@@ -26,3 +26,5 @@ class LoggingIn extends UserEvent {
 }
 
 class LoggingOut extends UserEvent {}
+
+class Delete extends UserEvent {}

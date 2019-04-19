@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter/Views/AutenticationPage.dart';
 
 import 'package:pixel_flutter/blocs/HorizontalTabBlocs.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
@@ -9,7 +10,7 @@ import 'package:pixel_flutter/components/NavigationBar/HorizontalTab/HorizontalT
 import 'package:pixel_flutter/components/Categories/CategoryHeader.dart';
 import 'package:pixel_flutter/components/Categories/CategoryList.dart';
 import 'package:pixel_flutter/components/Button/AddPostButton.dart';
-import 'package:pixel_flutter/components/NavigationBar/NavBar.dart';
+import 'package:pixel_flutter/components/NavigationBar/CategoryNavBar.dart';
 
 class CategoryPage extends StatefulWidget {
   @override
@@ -69,7 +70,7 @@ class _CategoryPageState extends State<CategoryPage> {
                           Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: <Widget>[
-                                NavBar(),
+                                CatNavBar(),
                                 CategoryHeader(
                                   tabIndex: tabState.index,
                                 ),
@@ -174,28 +175,3 @@ class _CardStackState extends State<CardStack>
     );
   }
 }
-
-//                  if (state is AppStarted) {
-//                    userBloc.dispatch(UserInit());
-//                    return Center(
-//                        child: Container(child: CircularProgressIndicator()));
-//                  }
-//                  if (state is UserLoaded) {
-//                    return TopicsPage();
-//                  }
-//                  if (state is Loading) {
-//                    return Center(
-//                        child: Container(child: CircularProgressIndicator()));
-//                  }
-//                  if (state is UserLoggedOut) {
-//                    return AuthenticationPage(
-//                      type: 'login',
-//                      username: state.username,
-//                    );
-//                  }
-//                  if (state is UserNone) {
-//                    return AuthenticationPage(type: 'register');
-//                  }
-//                  if (state is Failure) {
-//                    errorBloc.dispatch(GetError(error: state.error));
-//                  }

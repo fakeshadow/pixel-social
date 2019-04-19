@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pixel_flutter/style/colors.dart';
 
 final TextStyle horizontalTabStyle = TextStyle(
   fontSize: 20.0,
@@ -44,5 +45,17 @@ final TextStyle categorySubHeaderStyle = TextStyle(
 final TextStyle postButtonStyle = TextStyle(
   fontSize: 30.0,
   color: Colors.white,
+  fontWeight: FontWeight.bold,
+);
+
+final TextStyle submitButtonStyle = TextStyle(
+  fontSize: 20.0,
+  color: Colors.white,
+  fontWeight: FontWeight.bold,
+);
+
+final TextStyle logoStyle = TextStyle(
+  fontSize: 35.0,
+  color: primaryColor,
   fontWeight: FontWeight.bold,
 );

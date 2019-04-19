@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
+import 'package:pixel_flutter/components/Background/GeneralBackground.dart';
+import 'package:pixel_flutter/components/NavigationBar/AuthenticationNavBar.dart';
+import 'package:pixel_flutter/style/colors.dart';
+import 'package:pixel_flutter/style/text.dart';
 
 /// pass in type and username for login form and type only for register
 class AuthenticationPage extends StatefulWidget {
@@ -16,19 +21,27 @@ class AuthenticationPage extends StatefulWidget {
   _AuthenticationPageState createState() => _AuthenticationPageState();
 }
 
-class _AuthenticationPageState extends State<AuthenticationPage> {
+class _AuthenticationPageState extends State<AuthenticationPage>
+    with SingleTickerProviderStateMixin {
   RegisterBloc _registerBloc;
   UserBloc _userBloc;
   String _type;
+
+  AnimationController _animationController;
+  Animation<Offset> _animationOffset;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  initAnimation() {
+    _animationController.forward();
+  }
+
   @override
   void initState() {
     _type = widget.type;
-    if (_type == 'login') {
+    if (_type == 'Login') {
       _usernameController.text = widget.username;
     }
     _registerBloc = RegisterBloc();
@@ -36,91 +49,167 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
     _usernameController.addListener(_onUsernameChanged);
     _emailController.addListener(_onEmailChanged);
     _passwordController.addListener(_onPasswordChanged);
+
+    _animationController =
+        AnimationController(vsync: this, duration: Duration(milliseconds: 500));
+    _animationOffset = Tween<Offset>(begin: Offset(0, -3), end: Offset(0, 0))
+        .animate(_animationController);
     super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener(
-      bloc: _userBloc,
-      listener: (context, state) {
-        if (state is UserLoaded) {
-          Navigator.pop(context);
-        }
-      },
-      child: BlocBuilder(
-          bloc: _registerBloc,
-          builder: (BuildContext context, RegisterState state) {
-            // need to find a better way to handle login dispatch
-            _registerBloc
-                .dispatch(UsernameChanged(username: _usernameController.text));
-            return Scaffold(
-                body: Form(
-              child: Column(
-                children: <Widget>[
-                  TextFormField(
-                    controller: _usernameController,
-                    decoration: InputDecoration(
-                      icon: Icon(Icons.person),
-                      labelText: 'Username',
-                    ),
-                    autovalidate: true,
-                    validator: (_) {
-                      return state.isUsernameValid || state.username.length < 1
-                          ? null
-                          : 'Invalid Username';
-                    },
-                  ),
-                  _type == 'register'
-                      ? TextFormField(
-                          controller: _emailController,
-                          decoration: InputDecoration(
-                            icon: Icon(Icons.email),
-                            labelText: 'Email',
-                          ),
-                          autovalidate: true,
-                          validator: (_) {
-                            return state.isEmailValid || state.email.length < 1
-                                ? null
-                                : 'Invalid Email';
-                          },
-                        )
-                      : Container(),
-                  TextFormField(
-                    controller: _passwordController,
-                    decoration: InputDecoration(
-                      icon: Icon(Icons.lock),
-                      labelText: 'Password',
-                    ),
-                    obscureText: true,
-                    autovalidate: true,
-                    validator: (_) {
-                      return state.isPasswordValid || state.password.length < 1
-                          ? null
-                          : 'Invalid Password';
-                    },
-                  ),
-                  RaisedButton(
-                    onPressed: state.isRegisterValid && _type == 'register'
-                        ? () => _submit(state)
-                        : state.isLoginValid && _type == 'login'
-                            ? () => _submit(state)
-                            : null,
-                    child: Text('Submit'),
-                  ),
-                ],
+    return BlocBuilder(
+        bloc: _registerBloc,
+        builder: (BuildContext context, RegisterState state) {
+          // need to find a better way to handle login dispatch
+          _registerBloc
+              .dispatch(UsernameChanged(username: _usernameController.text));
+          return Hero(
+              tag: 'auth',
+              child: Scaffold(
+                  body: BlocListener(
+                      //ToDo: Change error handling to error bloc
+                      bloc: _userBloc,
+                      listener: (context, userState) {
+                        if (userState is UserLoaded) {
+                          Navigator.pop(context);
+                        }
+                        if (userState is Failure) {
+                          Scaffold.of(context).showSnackBar(SnackBar(
+                            duration: Duration(seconds: 2),
+                            content: Text(userState.error),
+                            backgroundColor: Colors.deepOrange,
+                          ));
+                          _userBloc.dispatch(UserInit());
+                        }
+                      },
+                      child: Stack(children: <Widget>[
+                        GeneralBackground(),
+                        SingleChildScrollView(
+                            child: Column(
+                          children: <Widget>[
+                            AuthNavBar(),
+                            Material(
+                                color: Colors.transparent,
+                                child: FutureBuilder(
+                                  future: initAnimation(),
+                                  builder: (context, snapshot) {
+                                    return SlideTransition(
+                                        position: _animationOffset,
+                                        child: Text('PixelShare',
+                                            style: logoStyle));
+                                  },
+                                )),
+                            Form(
+                                child: ListView(
+                                    shrinkWrap: true,
+                                    children: <Widget>[
+                                  _usernameField(state),
+                                  _type == 'Register'
+                                      ? _emailField(state)
+                                      : Container(),
+                                  _passwordField(state),
+                                  _submitButton(state, _type)
+                                ]))
+                          ],
+                        ))
+                      ]))));
+        });
+  }
+
+  Widget _usernameField(RegisterState state) {
+    return Padding(
+      padding: EdgeInsets.only(left: 30, right: 70, top: 4, bottom: 4),
+      child: Material(
+        borderRadius: BorderRadius.circular(10.0),
+        color: Colors.white.withOpacity(0.1),
+        elevation: 0,
+        child: TextFormField(
+          controller: _usernameController,
+          decoration: InputDecoration(
+            icon: Icon(Icons.person_outline),
+            labelText: 'Username',
+          ),
+          autovalidate: true,
+          validator: (_) {
+            return state.isUsernameValid || state.username.length < 1
+                ? null
+                : 'Invalid Username';
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _emailField(RegisterState state) {
+    return Padding(
+        padding: EdgeInsets.only(left: 30, right: 70, top: 4, bottom: 4),
+        child: Material(
+            borderRadius: BorderRadius.circular(20.0),
+            color: Colors.white.withOpacity(0.1),
+            elevation: 0,
+            child: TextFormField(
+              controller: _emailController,
+              decoration: InputDecoration(
+                icon: Icon(Icons.email),
+                labelText: 'Email',
               ),
-            ));
-          }),
+              autovalidate: true,
+              validator: (_) {
+                return state.isEmailValid || state.email.length < 1
+                    ? null
+                    : 'Invalid Email';
+              },
+            )));
+  }
+
+  Widget _passwordField(RegisterState state) {
+    return Padding(
+      padding: EdgeInsets.only(left: 30, right: 70, top: 4, bottom: 4),
+      child: Material(
+        borderRadius: BorderRadius.circular(10.0),
+        color: Colors.white.withOpacity(0.1),
+        elevation: 0,
+        child: TextFormField(
+          controller: _passwordController,
+          decoration: InputDecoration(
+            icon: Icon(Icons.lock_outline),
+            labelText: 'Password',
+          ),
+          obscureText: true,
+          autovalidate: true,
+          validator: (_) {
+            return state.isPasswordValid || state.password.length < 1
+                ? null
+                : 'Invalid Password';
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _submitButton(RegisterState state, String _type) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 70, vertical: 16),
+      child: RaisedButton(
+          color: primaryColor,
+          onPressed: state.isRegisterValid && _type == 'Register'
+              ? () => _submit(state)
+              : state.isLoginValid && _type == 'Login'
+                  ? () => _submit(state)
+                  : null,
+          child: Text(_type, style: submitButtonStyle)),
     );
   }
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _registerBloc.dispose();
-    _userBloc.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -137,7 +226,7 @@ class _AuthenticationPageState extends State<AuthenticationPage> {
   }
 
   void _submit(RegisterState state) {
-    if (_type == 'register') {
+    if (_type == 'Register') {
       _userBloc.dispatch(Registering(
           username: state.username,
           password: state.password,

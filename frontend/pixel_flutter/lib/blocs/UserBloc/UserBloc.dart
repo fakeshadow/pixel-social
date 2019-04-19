@@ -56,10 +56,16 @@ class UserBloc extends Bloc<UserEvent, UserState> {
       yield Loading();
       try {
         await userRepo.deleteToken();
-        yield UserNone();
+        final user = await userRepo.getLocalUser();
+        yield UserLoggedOut(username: user.username);
       } catch (e) {
         yield Failure(error: e.toString());
       }
+    }
+
+    if (event is Delete) {
+      yield Loading();
+      await userRepo.deleteUser();
     }
   }
 }

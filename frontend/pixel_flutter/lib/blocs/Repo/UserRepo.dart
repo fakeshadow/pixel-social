@@ -51,6 +51,14 @@ class UserRepo {
     await saveLocal(data: user.token, key: 'token');
   }
 
+  Future<void> deleteUser() async {
+    await deleteLocal(key: 'username');
+    await deleteLocal(key: 'email');
+    await deleteLocal(key: 'avatar');
+    await deleteLocal(key: 'signature');
+    await deleteLocal(key: 'token');
+  }
+
   Future<void> deleteToken() async {
     await deleteLocal(key: 'token');
   }

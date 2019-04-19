@@ -8,6 +8,7 @@ import 'package:pixel_flutter/Views/AutenticationPage.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import 'package:pixel_flutter/style/colors.dart';
 
+/// authentication page logic here
 class AvatarIcon extends StatelessWidget {
   final String _url = 'http://192.168.1.197:3200';
 
@@ -16,32 +17,37 @@ class AvatarIcon extends StatelessWidget {
     final _userBloc = BlocProvider.of<UserBloc>(context);
     return BlocBuilder(
         bloc: _userBloc,
-        builder: (BuildContext context,UserState state) {
-          print(state);
-          return SelfIconButton(
-            color: primaryColor,
-            padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 10),
-            onPressed: () => state is UserLoaded
-                ? print('show profile page')
-                : State is UserLoggedOut
-                    ? Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => AuthenticationPage(
-                                  type: 'login',
-                                )))
-                    : Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => AuthenticationPage(
-                                  type: 'register',
-                                ))),
-            icon: state is UserLoaded
-                ? CircleAvatar(
-                    backgroundImage:
-                        NetworkImage('$_url${state.user.avatarUrl}'))
-                : Icon(Icons.apps),
-            iconSize: state is UserLoaded ? 40 : 30,
+        builder: (BuildContext context, UserState state) {
+          print('state is $state');
+          return Hero(
+            tag: State is UserLoaded ? 'profile' : 'auth',
+            child: Material(
+              child: SelfIconButton(
+                color: primaryColor,
+                padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 10),
+                onPressed: () => state is UserLoaded
+                    ? _userBloc.dispatch(LoggingOut())
+                    : state is UserLoggedOut
+                        ? Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => AuthenticationPage(
+                                      type: 'Login', username: state.username,
+                                    )))
+                        : Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => AuthenticationPage(
+                                      type: 'Register',
+                                    ))),
+                icon: state is UserLoaded
+                    ? CircleAvatar(
+                        backgroundImage:
+                            NetworkImage('$_url${state.user.avatarUrl}'))
+                    : Icon(Icons.apps),
+                iconSize: state is UserLoaded ? 40 : 30,
+              ),
+            ),
           );
         });
   }

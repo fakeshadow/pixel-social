@@ -27,7 +27,6 @@ class _CategoryHeaderState extends State<CategoryHeader>
 
   @override
   void initState() {
-    print(widget.tabIndex);
     _animationController = AnimationController(
         vsync: this, duration: Duration(milliseconds: 300));
     _animationOffset =
