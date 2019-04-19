@@ -7,8 +7,6 @@ abstract class UserState extends Equatable {
   UserState([List props = const []]) : super(props);
 }
 
-class AppStarted extends UserState {}
-
 class Loading extends UserState {}
 
 class UserLoaded extends UserState {

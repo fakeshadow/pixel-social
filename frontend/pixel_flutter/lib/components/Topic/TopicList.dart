@@ -26,7 +26,7 @@ class TopicView extends StatelessWidget {
         ),
       ),
       title: InkWell(
-        onTap: () => print('pressed'),
+        onTap: () => print('${topic.id} pressed'),
         child: Text(
           '${topic.title}',
           style: TextStyle(

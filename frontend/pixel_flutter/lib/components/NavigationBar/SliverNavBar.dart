@@ -16,13 +16,15 @@ class SliverNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverAppBar(
         leading: IconButton(
+          color: primaryColor,
           icon: Icon(Icons.arrow_back),
           tooltip: 'Go back',
           onPressed: Navigator.of(context).pop,
         ),
         floating: true,
+        elevation: 0,
         snap: true,
-        backgroundColor: primaryColor,
+        backgroundColor: Colors.transparent,
         title: FadeInImage.assetNetwork(
             placeholder: 'assets/test2.png',
             image: theme,

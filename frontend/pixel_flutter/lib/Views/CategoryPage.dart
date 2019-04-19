@@ -18,10 +18,12 @@ class CategoryPage extends StatefulWidget {
 
 class _CategoryPageState extends State<CategoryPage> {
   HorizontalTabBloc _tabBloc;
+  ErrorBloc _errorBloc;
 
   @override
   void initState() {
     _tabBloc = HorizontalTabBloc();
+    _errorBloc = BlocProvider.of<ErrorBloc>(context);
     super.initState();
   }
 
@@ -33,48 +35,58 @@ class _CategoryPageState extends State<CategoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final errorBloc = BlocProvider.of<ErrorBloc>(context);
-    return BlocListener(
-        bloc: errorBloc,
-        listener: (BuildContext context, ErrorState state) {
-          if (state is ShowError) {
-            Scaffold.of(context).showSnackBar(SnackBar(
-              backgroundColor: Colors.deepOrangeAccent,
-              content: Text(state.error),
-            ));
-          }
-        },
-        child: Scaffold(
-            body: BlocProvider(
-          bloc: _tabBloc,
-          child: BlocBuilder(
-              bloc: _tabBloc,
-              builder: (BuildContext context, HorizontalTabState tabState) {
-                if (tabState is Selected) {
-                  return Stack(
-                    children: <Widget>[
-                      GeneralBackground(),
-                      Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            NavBar(),
-                            CategoryHeader(
-                              tabIndex: tabState.index,
-                            ),
-                            Spacer(),
-                            AddPostButton(text: 'New Topic')
-                          ]),
-                      Center(
-                          child: Container(
-                              height: 470,
-                              child: CardStack(
-                                selectedTabIndex: tabState.index,
-                              )))
-                    ],
-                  );
+    return Scaffold(
+        body: BlocProvider(
+            bloc: _tabBloc,
+            child: BlocListener(
+              bloc: _errorBloc,
+              listener: (BuildContext context, ErrorState state) {
+                if (state is NoSnack) {
+                  Scaffold.of(context).hideCurrentSnackBar();
                 }
-              }),
-        )));
+                if (state is ShowSuccess) {
+                  Scaffold.of(context).showSnackBar(SnackBar(
+                    duration: Duration(seconds: 2),
+                    backgroundColor: Colors.green,
+                    content: Text(state.success),
+                  ));
+                }
+                if (state is ShowError) {
+                  Scaffold.of(context).showSnackBar(SnackBar(
+                    duration: Duration(seconds: 2),
+                    backgroundColor: Colors.deepOrangeAccent,
+                    content: Text(state.error),
+                  ));
+                }
+              },
+              child: BlocBuilder(
+                  bloc: _tabBloc,
+                  builder: (BuildContext context, HorizontalTabState tabState) {
+                    if (tabState is Selected) {
+                      return Stack(
+                        children: <Widget>[
+                          GeneralBackground(),
+                          Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                NavBar(),
+                                CategoryHeader(
+                                  tabIndex: tabState.index,
+                                ),
+                                Spacer(),
+                                AddPostButton(text: 'New Topic')
+                              ]),
+                          Center(
+                              child: Container(
+                                  height: 470,
+                                  child: CardStack(
+                                    selectedTabIndex: tabState.index,
+                                  )))
+                        ],
+                      );
+                    }
+                  }),
+            )));
   }
 }
 

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:pixel_flutter/style/colors.dart';
 
 class SearchIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
         onPressed: (){},
-        padding: const EdgeInsets.only(top: 13, right: 9, left: 9, bottom: 13),
+        color: primaryColor,
+        padding: const EdgeInsets.only(right: 9),
+        iconSize: 30,
         icon: Icon(Icons.search));
   }
 }

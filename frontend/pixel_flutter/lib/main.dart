@@ -11,7 +11,6 @@ import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import './components//History/HistoryLimit.dart';
 import './Views/ProfilePage.dart';
 import './Views/CategoryPage.dart';
-import './Views/CategoryPage.dart';
 
 void main() {
   BlocSupervisor().delegate = MyBlocDelegate();
@@ -31,6 +30,7 @@ class _PixelShareState extends State<PixelShare> {
   void initState() {
     userBloc = UserBloc();
     errorBloc = ErrorBloc();
+    userBloc.dispatch(UserInit());
     super.initState();
   }
 
@@ -44,7 +44,6 @@ class _PixelShareState extends State<PixelShare> {
         child: MaterialApp(
             routes: {
               '/profile': (context) => ProfilePage(),
-              '/community': (context) => CategoryPage(),
             },
             theme: ThemeData(
                 brightness: Brightness.light,

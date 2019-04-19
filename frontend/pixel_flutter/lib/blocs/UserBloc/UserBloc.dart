@@ -7,7 +7,7 @@ import 'package:pixel_flutter/blocs/Repo/UserRepo.dart';
 class UserBloc extends Bloc<UserEvent, UserState> {
   final userRepo = UserRepo();
 
-  UserState get initialState => AppStarted();
+  UserState get initialState => UserNone();
 
   @override
   Stream<UserState> mapEventToState(UserEvent event) async* {

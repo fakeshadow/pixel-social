@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart' show BlocBuilder;
-
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter/blocs/TopicBlocs.dart';
 
+import 'package:pixel_flutter/components/Background/GeneralBackground.dart';
 import 'package:pixel_flutter/components/NavigationBar/SliverNavBar.dart';
-
 import 'package:pixel_flutter/components/Loader/CenterLoader.dart';
 import 'package:pixel_flutter/components/Loader/BottomLoader.dart';
 import 'package:pixel_flutter/components/Topic/TopicList.dart';
@@ -24,8 +24,9 @@ class _TopicsPageState extends State<TopicsPage> {
   int _categoryId;
   String _categoryName;
   String _categoryTheme;
+  TopicBloc _topicBloc;
+  ErrorBloc _errorBloc;
   final _scrollController = ScrollController();
-  final TopicBloc _topicBloc = TopicBloc();
   final _scrollThreshold = 200.0;
 
   @override
@@ -34,6 +35,8 @@ class _TopicsPageState extends State<TopicsPage> {
     _categoryName =
         widget.category.name != null ? widget.category.name : 'PixelShare';
     _categoryTheme = widget.category.theme;
+    _topicBloc = TopicBloc();
+    _errorBloc = BlocProvider.of<ErrorBloc>(context);
     _topicBloc.dispatch(GetTopics(categoryId: _categoryId));
     _scrollController.addListener(_onScroll);
     super.initState();
@@ -47,12 +50,37 @@ class _TopicsPageState extends State<TopicsPage> {
           return Hero(
             tag: _categoryName,
             child: Scaffold(
-              body: CustomScrollView(
-                  controller: _scrollController,
-                  slivers: <Widget>[
-                    SliverNavBar(title: _categoryName, theme:_categoryTheme),
-                    TopicList(state)
-                  ]),
+              body: BlocListener(
+                bloc: _errorBloc,
+                listener: (BuildContext context, ErrorState state) {
+                  if (state is ShowError) {
+                    Scaffold.of(context).showSnackBar(SnackBar(
+                      duration: Duration(seconds: 2),
+                      backgroundColor: Colors.deepOrangeAccent,
+                      content: Text(state.error),
+                    ));
+                  }
+                  if (state is ShowSuccess) {
+                    Scaffold.of(context).showSnackBar(SnackBar(
+                      duration: Duration(seconds: 2),
+                      backgroundColor: Colors.green,
+                      content: Text(state.success),
+                    ));
+                  }
+                },
+                child: Stack(
+                  children: <Widget>[
+                    GeneralBackground(),
+                    CustomScrollView(
+                        controller: _scrollController,
+                        slivers: <Widget>[
+                          SliverNavBar(
+                              title: _categoryName, theme: _categoryTheme),
+                          TopicList(state)
+                        ])
+                  ],
+                ),
+              ),
             ),
           );
         });
@@ -60,6 +88,7 @@ class _TopicsPageState extends State<TopicsPage> {
 
   @override
   void dispose() {
+    _errorBloc.dispatch(HideSnack());
     _topicBloc.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -81,11 +110,14 @@ class TopicList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final _errorBloc = BlocProvider.of<ErrorBloc>(context);
     if (state is TopicError) {
+      _errorBloc.dispatch(GetError(error: 'No topics found'));
       return CenterLoader();
     }
     if (state is TopicLoaded) {
       if (state.topics.isEmpty) {
+        _errorBloc.dispatch(GetSuccess(success: 'No more topics'));
         return CenterLoader();
       }
       return SliverList(
