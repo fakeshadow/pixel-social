@@ -42,14 +42,11 @@ class _PixelShareState extends State<PixelShare> {
           BlocProvider<UserBloc>(bloc: userBloc)
         ],
         child: MaterialApp(
-            routes: {
-              '/profile': (context) => ProfilePage(),
-            },
             theme: ThemeData(
                 brightness: Brightness.light,
                 primarySwatch: Colors.blue,
                 accentColor: Colors.deepPurple),
-            navigatorObservers: [HistoryLimit(10)],
+//            navigatorObservers: [HistoryLimit(10)],
             home: CategoryPage()));
   }
 

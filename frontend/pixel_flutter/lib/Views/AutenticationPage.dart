@@ -7,8 +7,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import 'package:pixel_flutter/components/Background/GeneralBackground.dart';
+import 'package:pixel_flutter/components/Button/AnimatedSubmitButton.dart';
 import 'package:pixel_flutter/components/NavigationBar/AuthenticationNavBar.dart';
-import 'package:pixel_flutter/style/colors.dart';
 import 'package:pixel_flutter/style/text.dart';
 
 /// pass in type and username for login form and type only for register
@@ -28,7 +28,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
   String _type;
 
   AnimationController _animationController;
-  Animation<Offset> _animationOffset;
+  Animation<double> _animationDouble;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
@@ -51,9 +51,9 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     _passwordController.addListener(_onPasswordChanged);
 
     _animationController =
-        AnimationController(vsync: this, duration: Duration(milliseconds: 500));
-    _animationOffset = Tween<Offset>(begin: Offset(0, -3), end: Offset(0, 0))
-        .animate(_animationController);
+        AnimationController(vsync: this, duration: Duration(milliseconds: 700));
+    _animationDouble =
+        Tween<double>(begin: 0.0, end: 1.0).animate(_animationController);
     super.initState();
   }
 
@@ -84,37 +84,45 @@ class _AuthenticationPageState extends State<AuthenticationPage>
                           _userBloc.dispatch(UserInit());
                         }
                       },
-                      child: Stack(children: <Widget>[
-                        GeneralBackground(),
-                        SingleChildScrollView(
-                            child: Column(
-                          children: <Widget>[
-                            AuthNavBar(),
-                            Material(
-                                color: Colors.transparent,
-                                child: FutureBuilder(
-                                  future: initAnimation(),
-                                  builder: (context, snapshot) {
-                                    return SlideTransition(
-                                        position: _animationOffset,
+                      child: FutureBuilder(
+                        future: initAnimation(),
+                        builder: (context, snapshot) => FadeTransition(
+                              opacity: _animationDouble,
+                              child: Stack(children: <Widget>[
+                                GeneralBackground(),
+                                SingleChildScrollView(
+                                    child: Column(
+                                  children: <Widget>[
+                                    AuthNavBar(),
+                                    Material(
+                                        color: Colors.transparent,
                                         child: Text('PixelShare',
-                                            style: logoStyle));
-                                  },
-                                )),
-                            Form(
-                                child: ListView(
-                                    shrinkWrap: true,
-                                    children: <Widget>[
-                                  _usernameField(state),
-                                  _type == 'Register'
-                                      ? _emailField(state)
-                                      : Container(),
-                                  _passwordField(state),
-                                  _submitButton(state, _type)
-                                ]))
-                          ],
-                        ))
-                      ]))));
+                                            style: logoStyle)),
+                                    Form(
+                                        child: ListView(
+                                            shrinkWrap: true,
+                                            children: <Widget>[
+                                          _usernameField(state),
+                                          _type == 'Register'
+                                              ? _emailField(state)
+                                              : Container(),
+                                          _passwordField(state),
+                                        ])),
+                                    SizedBox(
+                                      height: 20,
+                                    ),
+                                    SubmitAnimatedButton(
+                                        state: state,
+                                        type: _type,
+                                        submit: () => _submit(state)),
+                                    _type == 'Login'
+                                        ? _forgetPassButton()
+                                        : Container()
+                                  ],
+                                ))
+                              ]),
+                            ),
+                      ))));
         });
   }
 
@@ -189,18 +197,18 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     );
   }
 
-  Widget _submitButton(RegisterState state, String _type) {
+  Widget _forgetPassButton() {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 70, vertical: 16),
-      child: RaisedButton(
-          color: primaryColor,
-          onPressed: state.isRegisterValid && _type == 'Register'
-              ? () => _submit(state)
-              : state.isLoginValid && _type == 'Login'
-                  ? () => _submit(state)
-                  : null,
-          child: Text(_type, style: submitButtonStyle)),
+      padding: EdgeInsets.symmetric(horizontal: 70, vertical: 0),
+      child: FlatButton(
+          color: Colors.transparent,
+          onPressed: () => _showRecoverPass(),
+          child: Text('Forgot Password?', style: recoverButtonStyle)),
     );
+  }
+
+  void _showRecoverPass() {
+    print('test recover pass');
   }
 
   @override
@@ -231,10 +239,11 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           username: state.username,
           password: state.password,
           email: state.email));
-      _registerBloc.dispatch(FormReset());
     } else {
       _userBloc.dispatch(
           LoggingIn(username: state.username, password: state.password));
     }
   }
 }
+
+

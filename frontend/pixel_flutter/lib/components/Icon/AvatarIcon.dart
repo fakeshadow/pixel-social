@@ -18,7 +18,6 @@ class AvatarIcon extends StatelessWidget {
     return BlocBuilder(
         bloc: _userBloc,
         builder: (BuildContext context, UserState state) {
-          print('state is $state');
           return Hero(
             tag: State is UserLoaded ? 'profile' : 'auth',
             child: Material(

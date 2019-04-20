@@ -54,6 +54,12 @@ final TextStyle submitButtonStyle = TextStyle(
   fontWeight: FontWeight.bold,
 );
 
+final TextStyle recoverButtonStyle = TextStyle(
+  fontSize: 16.0,
+  color: primaryColor,
+  fontWeight: FontWeight.bold,
+);
+
 final TextStyle logoStyle = TextStyle(
   fontSize: 35.0,
   color: primaryColor,

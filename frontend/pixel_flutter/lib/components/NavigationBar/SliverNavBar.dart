@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:pixel_flutter/style/colors.dart';
-import './NavBarIcon/SearchIcon.dart';
+import 'package:pixel_flutter/components/Icon/SearchIcon.dart';
 import 'package:pixel_flutter/components/Icon/AvatarIcon.dart';
 
+// ToDo: SliverNavBar rebuild multiple times with unknown reason
 class SliverNavBar extends StatelessWidget {
   final String title;
   final String theme;
