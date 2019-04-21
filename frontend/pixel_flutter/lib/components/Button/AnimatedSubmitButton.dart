@@ -21,15 +21,19 @@ class SubmitAnimatedButton extends StatefulWidget {
 
 class _SubmitAnimatedButtonState extends State<SubmitAnimatedButton> {
   ButtonState _buttonState;
+  Key _key;
 
   @override
   void initState() {
     _buttonState = ButtonState.Reset;
+    _key = GlobalKey();
     super.initState();
   }
 
   void submitted() {
-    setState(() => _buttonState = ButtonState.Loading);
+    setState(() {
+      _buttonState = ButtonState.Loading;
+    });
     widget.submit();
   }
 
@@ -37,47 +41,54 @@ class _SubmitAnimatedButtonState extends State<SubmitAnimatedButton> {
   Widget build(BuildContext context) {
     // ToDo: use error bloc to handle this reset state;
     return BlocListener(
-      bloc: BlocProvider.of<UserBloc>(context),
-      listener: (BuildContext context, UserState state) {
-        if (state is Failure) {
-          setState(() => _buttonState = ButtonState.Reset);
-        }
-        if (state is UserLoaded) {
-          setState(() => _buttonState = ButtonState.Success);
-        }
-      },
-      child: AnimatedContainer(
-          duration: Duration(milliseconds: 350),
-          width: _buttonState == ButtonState.Reset ? 275 : 30,
-          height: 30,
-          child: RaisedButton(
-              clipBehavior: Clip.antiAlias,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(25.0)),
-              disabledColor: Colors.black12,
-              color: primaryColor,
-              onPressed:
-                  widget.state.isRegisterValid && widget.type == 'Register'
-                      ? submitted
-                      : widget.state.isLoginValid && widget.type == 'Login'
-                          ? submitted
-                          : null,
-              child: _buttonState == ButtonState.Reset
-                  ? Text(widget.type, style: submitButtonStyle)
-                  : _buttonState == ButtonState.Loading
-                      ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            strokeWidth: 2,
-                          ))
-                      : SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: Icon(Icons.check,color: Colors.white,),
-                        ))),
-    );
+        bloc: BlocProvider.of<UserBloc>(context),
+        listener: (BuildContext context, UserState state) {
+          if (state is Failure) {
+            setState(() => _buttonState = ButtonState.Reset);
+          }
+          if (state is UserLoaded) {
+            setState(() => _buttonState = ButtonState.Success);
+          }
+        },
+        child: Container(
+            width: 200,
+            height: 30,
+            child: RaisedButton(
+                clipBehavior: Clip.antiAlias,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(25.0)),
+                disabledColor: Colors.black12,
+                color: primaryColor,
+                onPressed:
+                    widget.state.isRegisterValid && widget.type == 'Register'
+                        ? submitted
+                        : widget.state.isLoginValid && widget.type == 'Login'
+                            ? submitted
+                            : widget.state.isRecoverValid &&
+                                    widget.type == 'Recover'
+                                ? submitted
+                                : null,
+                child: _buttonState == ButtonState.Reset
+                    ? Text(widget.type, style: submitButtonStyle)
+                    : _buttonState == ButtonState.Loading
+                        ? SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              key: _key,
+                              value: null,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                              strokeWidth: 2,
+                            ))
+                        : SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: Icon(
+                              Icons.check,
+                              color: Colors.white,
+                            ),
+                          ))));
   }
 }
 

@@ -45,7 +45,7 @@ class SliverNavBarExpand extends StatelessWidget {
                                     top: 100,
                                     child: CircleAvatar(
                                       backgroundImage:
-                                          AssetImage('assets/test2.png'),
+                                          AssetImage('assets/category_default_cover.png'),
                                     ),
                                   ),
                                   Positioned(

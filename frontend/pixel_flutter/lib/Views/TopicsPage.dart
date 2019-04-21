@@ -37,6 +37,7 @@ class _TopicsPageState extends State<TopicsPage> {
     _categoryTheme = widget.category.theme;
     _topicBloc = TopicBloc();
     _errorBloc = BlocProvider.of<ErrorBloc>(context);
+    _errorBloc.dispatch(HideSnack());
     _topicBloc.dispatch(GetTopics(categoryId: _categoryId));
     _scrollController.addListener(_onScroll);
     super.initState();
@@ -47,38 +48,42 @@ class _TopicsPageState extends State<TopicsPage> {
     return BlocBuilder(
         bloc: _topicBloc,
         builder: (BuildContext context, TopicState state) {
-          return Hero(
-            tag: _categoryName,
-            child: Scaffold(
-              body: BlocListener(
-                bloc: _errorBloc,
-                listener: (BuildContext context, ErrorState state) {
-                  if (state is ShowError) {
-                    Scaffold.of(context).showSnackBar(SnackBar(
-                      duration: Duration(seconds: 2),
-                      backgroundColor: Colors.deepOrangeAccent,
-                      content: Text(state.error),
-                    ));
-                  }
-                  if (state is ShowSuccess) {
-                    Scaffold.of(context).showSnackBar(SnackBar(
-                      duration: Duration(seconds: 2),
-                      backgroundColor: Colors.green,
-                      content: Text(state.success),
-                    ));
-                  }
-                },
-                child: Stack(
-                  children: <Widget>[
-                    GeneralBackground(),
-                    CustomScrollView(
-                        controller: _scrollController,
-                        slivers: <Widget>[
-                          SliverNavBar(
-                              title: _categoryName, theme: _categoryTheme),
-                          TopicList(state)
-                        ])
-                  ],
+          return WillPopScope(
+            onWillPop: _hideSnack,
+            child: Hero(
+              tag: _categoryName,
+              child: Scaffold(
+                body: BlocListener(
+                  bloc: _errorBloc,
+                  listener: (BuildContext context, ErrorState state) {
+                    if (state is NoSnack) {
+                      Scaffold.of(context).hideCurrentSnackBar();
+                    } else if (state is ShowError) {
+                      Scaffold.of(context).showSnackBar(SnackBar(
+                        duration: Duration(seconds: 2),
+                        backgroundColor: Colors.deepOrangeAccent,
+                        content: Text(state.error),
+                      ));
+                    } else if (state is ShowSuccess) {
+                      Scaffold.of(context).showSnackBar(SnackBar(
+                        duration: Duration(seconds: 2),
+                        backgroundColor: Colors.green,
+                        content: Text(state.success),
+                      ));
+                    }
+                  },
+                  child: Stack(
+                    children: <Widget>[
+                      GeneralBackground(),
+                      CustomScrollView(
+                          controller: _scrollController,
+                          slivers: <Widget>[
+                            SliverNavBar(
+                                title: _categoryName, theme: _categoryTheme),
+                            TopicList(state)
+                          ])
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -92,6 +97,11 @@ class _TopicsPageState extends State<TopicsPage> {
     _topicBloc.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<bool> _hideSnack() async {
+   _errorBloc.dispatch(HideSnack());
+   return true;
   }
 
   void _onScroll() {

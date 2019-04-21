@@ -35,7 +35,7 @@ class CategoryCard extends StatelessWidget {
                     children: <Widget>[
                       // ToDo: Future look into fade image loading
                       FadeInImage.assetNetwork(
-                        placeholder: 'assets/test2.png',
+                        placeholder: 'assets/category_default_cover.png',
                         image: category.theme,
                         fit: BoxFit.fitWidth,
                       ),

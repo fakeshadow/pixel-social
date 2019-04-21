@@ -61,7 +61,7 @@ class _PostsPageState extends State<PostsPage> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.start,
                             children: <Widget>[
-                              Image.asset('assets/test2.png',
+                              Image.asset('assets/category_default_cover.png',
                                   width: 40, fit: BoxFit.contain),
                               SizedBox(
                                 width: 10,

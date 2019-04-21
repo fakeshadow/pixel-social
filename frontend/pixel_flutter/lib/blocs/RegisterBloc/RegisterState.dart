@@ -3,32 +3,31 @@ import 'package:meta/meta.dart';
 
 @immutable
 class RegisterState extends Equatable {
-  final String email;
-  final bool isEmailValid;
-  final bool isUsernameValid;
-  final String username;
-  final String password;
-  final bool isPasswordValid;
+  final String email, username, password;
+  final bool isEmailValid, isUsernameValid, isPasswordValid;
 
   bool get isLoginValid => isUsernameValid && isPasswordValid;
-  bool get isRegisterValid => isEmailValid && isPasswordValid && isUsernameValid;
+
+  bool get isRegisterValid =>
+      isEmailValid && isPasswordValid && isUsernameValid;
+
+  bool get isRecoverValid => isUsernameValid && isEmailValid;
 
   RegisterState({
     @required this.email,
     @required this.username,
     @required this.password,
-
     @required this.isEmailValid,
     @required this.isUsernameValid,
     @required this.isPasswordValid,
   }) : super([
-    email,
-    username,
-    isEmailValid,
-    isUsernameValid,
-    password,
-    isPasswordValid,
-  ]);
+          email,
+          username,
+          isEmailValid,
+          isUsernameValid,
+          password,
+          isPasswordValid,
+        ]);
 
   factory RegisterState.initial() {
     return RegisterState(
@@ -52,10 +51,10 @@ class RegisterState extends Equatable {
   }) {
     return RegisterState(
       email: email ?? this.email,
-      username: username?? this.username,
+      username: username ?? this.username,
       password: password ?? this.password,
       isEmailValid: isEmailValid ?? this.isEmailValid,
-      isUsernameValid: isUsernameValid?? this. isUsernameValid,
+      isUsernameValid: isUsernameValid ?? this.isUsernameValid,
       isPasswordValid: isPasswordValid ?? this.isPasswordValid,
     );
   }

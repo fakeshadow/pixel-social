@@ -3,6 +3,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/widgets.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 
 import 'package:pixel_flutter/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
@@ -51,9 +52,10 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     _passwordController.addListener(_onPasswordChanged);
 
     _animationController =
-        AnimationController(vsync: this, duration: Duration(milliseconds: 700));
+        AnimationController(vsync: this, duration: Duration(milliseconds: 250));
     _animationDouble =
         Tween<double>(begin: 0.0, end: 1.0).animate(_animationController);
+
     super.initState();
   }
 
@@ -68,61 +70,74 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           return Hero(
               tag: 'auth',
               child: Scaffold(
-                  body: BlocListener(
-                      //ToDo: Change error handling to error bloc
-                      bloc: _userBloc,
-                      listener: (context, userState) {
-                        if (userState is UserLoaded) {
-                          Navigator.pop(context);
-                        }
-                        if (userState is Failure) {
-                          Scaffold.of(context).showSnackBar(SnackBar(
-                            duration: Duration(seconds: 2),
-                            content: Text(userState.error),
-                            backgroundColor: Colors.deepOrange,
-                          ));
-                          _userBloc.dispatch(UserInit());
-                        }
-                      },
-                      child: FutureBuilder(
+                body: BlocListener(
+                  //ToDo: Change error handling to error bloc
+                  bloc: _userBloc,
+                  listener: (context, userState) {
+                    if (userState is UserLoaded) {
+                      BlocProvider.of<ErrorBloc>(context)
+                          .dispatch(GetSuccess(success: 'Login Success'));
+                      Navigator.pop(context);
+                    }
+                    if (userState is Failure) {
+                      Scaffold.of(context).showSnackBar(SnackBar(
+                        duration: Duration(seconds: 2),
+                        content: Text(userState.error),
+                        backgroundColor: Colors.deepOrange,
+                      ));
+                      _userBloc.dispatch(UserInit());
+                    }
+                  },
+                  child: Stack(children: <Widget>[
+                    GeneralBackground(),
+                    FutureBuilder(
                         future: initAnimation(),
-                        builder: (context, snapshot) => FadeTransition(
-                              opacity: _animationDouble,
-                              child: Stack(children: <Widget>[
-                                GeneralBackground(),
-                                SingleChildScrollView(
-                                    child: Column(
-                                  children: <Widget>[
-                                    AuthNavBar(),
-                                    Material(
-                                        color: Colors.transparent,
-                                        child: Text('PixelShare',
-                                            style: logoStyle)),
-                                    Form(
-                                        child: ListView(
-                                            shrinkWrap: true,
-                                            children: <Widget>[
-                                          _usernameField(state),
-                                          _type == 'Register'
-                                              ? _emailField(state)
-                                              : Container(),
-                                          _passwordField(state),
-                                        ])),
-                                    SizedBox(
-                                      height: 20,
-                                    ),
-                                    SubmitAnimatedButton(
-                                        state: state,
-                                        type: _type,
-                                        submit: () => _submit(state)),
-                                    _type == 'Login'
-                                        ? _forgetPassButton()
-                                        : Container()
-                                  ],
-                                ))
-                              ]),
-                            ),
-                      ))));
+                        builder: (context, snapshot) => ScaleTransition(
+                            scale: _animationDouble,
+                            child: SingleChildScrollView(
+                                child: Column(
+                              children: <Widget>[
+                                AuthNavBar(),
+                                Material(
+                                    color: Colors.transparent,
+                                    child:
+                                        Text('PixelShare', style: logoStyle)),
+                                Form(
+                                    child: ListView(
+                                        shrinkWrap: true,
+                                        children: <Widget>[
+                                      _usernameField(state),
+                                      _type == 'Register' || _type == 'Recover'
+                                          ? _emailField(state)
+                                          : Container(),
+                                      _type != 'Recover'
+                                          ? _passwordField(state)
+                                          : Container(),
+                                    ])),
+                                SizedBox(
+                                  height: 20,
+                                ),
+                                SubmitAnimatedButton(
+                                    state: state,
+                                    type: _type,
+                                    submit: () => _submit(state)),
+                                _type == 'Register'
+                                    ? _flatButton(
+                                        text: 'Already have account?',
+                                        function: () =>
+                                            _changeAuthType(type: 'Login'))
+                                    : Container(),
+                                _type == 'Login'
+                                    ? _flatButton(
+                                        text: 'Forgot Password?',
+                                        function: () =>
+                                            _changeAuthType(type: 'Recover'))
+                                    : Container()
+                              ],
+                            ))))
+                  ]),
+                ),
+              ));
         });
   }
 
@@ -197,18 +212,22 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     );
   }
 
-  Widget _forgetPassButton() {
+  Widget _flatButton({String text, Function function}) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 70, vertical: 0),
       child: FlatButton(
           color: Colors.transparent,
-          onPressed: () => _showRecoverPass(),
-          child: Text('Forgot Password?', style: recoverButtonStyle)),
+          onPressed: function,
+          child: Text(text, style: recoverButtonStyle)),
     );
   }
 
-  void _showRecoverPass() {
-    print('test recover pass');
+  void _changeAuthType({String type}) {
+    setState(() {
+      _type = type;
+      _animationController.reset();
+      _animationController.forward();
+    });
   }
 
   @override
@@ -239,11 +258,11 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           username: state.username,
           password: state.password,
           email: state.email));
-    } else {
+    } else if (_type == 'Login') {
       _userBloc.dispatch(
           LoggingIn(username: state.username, password: state.password));
+    } else if (_type == 'Recover') {
+      print('recover');
     }
   }
 }
-
-

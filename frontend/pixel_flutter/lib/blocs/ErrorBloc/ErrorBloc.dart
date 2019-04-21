@@ -15,12 +15,10 @@ class ErrorBloc extends Bloc<ErrorEvent, ErrorState> {
 
     if (event is GetSuccess) {
       yield ShowSuccess(success: event.success);
-      yield NoSnack();
     }
 
     if (event is GetError) {
       yield ShowError(error: event.error);
-      yield NoSnack();
     }
   }
 }

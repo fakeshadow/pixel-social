@@ -22,4 +22,6 @@
 2. `yarn build`
 3. setup up http server and change the `.env` file to match your backend server.
 
-
+`Mobile Frontend:`<br>
+1. `flutter create .` to generate dep files.
+2. `flutter run` to test on simulator or `flutter run --profile` for physic debug.
