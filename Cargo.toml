@@ -7,8 +7,8 @@ edition = "2018"
 [dependencies]
 actix = { version = "0.8.0-alpha.2", features = ["http"] }
 actix-rt = "0.2.2"
-actix-web = "1.0.0-alpha.4"
-actix-files = "0.1.0-alpha.4"
+actix-web = "1.0.0-beta.1"
+actix-files = "0.1.0-betsa.1"
 actix-multipart = { git = "https://github.com/actix/actix-web.git" }
 bcrypt = "0.2.1"
 chrono = { version = "0.4.6", features = ["serde"] }

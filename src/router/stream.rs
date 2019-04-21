@@ -97,16 +97,9 @@ pub fn save_file(field: multipart::Field) -> Box<Future<Item = UploadResponse, E
 }
 
 pub fn handle_multipart_item(
-    item: multipart::Item,
+    item: multipart::Field,
 ) -> Box<Stream<Item = UploadResponse, Error = Error>> {
-    match item {
-        multipart::Item::Field(field) => Box::new(save_file(field).into_stream()),
-        multipart::Item::Nested(mp) => Box::new(
-            mp.map_err(error::ErrorInternalServerError)
-                .map(handle_multipart_item)
-                .flatten(),
-        ),
-    }
+    Box::new(save_file(item).into_stream())
 }
 
 pub fn upload_file(

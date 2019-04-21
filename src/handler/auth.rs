@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, dev::{ServiceRequest, Payload}, web, FromRequest};
+use actix_web::{HttpRequest, dev, FromRequest};
 use chrono::Local;
 
 use crate::model::errors::ServiceError;
@@ -6,11 +6,12 @@ use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;
 
-impl<S> FromRequest<S> for UserJwt {
+impl FromRequest for UserJwt {
     type Error = ServiceError;
     type Future = Result<UserJwt, ServiceError>;
+    type Config = ();
 
-    fn from_request(req: &HttpRequest, _: &mut Payload<S>) -> Self::Future {
+    fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
         match req.headers().get("Authorization") {
             Some(token) => {
                 let vec: Vec<&str> = token
