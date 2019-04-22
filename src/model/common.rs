@@ -26,6 +26,21 @@ pub struct QueryOption<'a> {
     pub global_var: Option<&'a web::Data<GlobalGuard>>,
 }
 
+impl<'a> QueryOption<'a> {
+    pub fn new(
+        db_pool: Option<&'a web::Data<PostgresPool>>,
+        cache_pool: Option<&'a web::Data<RedisPool>>,
+        global_var: Option<&'a web::Data<GlobalGuard>>,
+    ) -> QueryOption<'a> {
+        QueryOption {
+            db_pool,
+            cache_pool,
+            global_var,
+        }
+    }
+}
+
+
 #[derive(Serialize)]
 pub struct ResponseMessage<'a> {
     message: &'a str,

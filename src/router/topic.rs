@@ -86,26 +86,12 @@ pub fn get_topic(
 
 pub fn update_topic(
     user_jwt: UserJwt,
-    topic_update_request: web::Json<TopicUpdateJson>,
+    json: web::Json<TopicUpdateJson>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let topic_query = TopicQuery::UpdateTopic(TopicUpdateRequest {
-        id: &topic_update_request.id,
-        user_id: Some(&user_jwt.user_id),
-        category_id: None,
-        title: topic_update_request.title.as_ref().map(String::as_str),
-        body: topic_update_request.body.as_ref().map(String::as_str),
-        thumbnail: topic_update_request.thumbnail.as_ref().map(String::as_str),
-        is_locked: None,
-    });
-
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
-
+    let topic_query = TopicQuery::UpdateTopic(json.get_request(Some(&user_jwt.user_id)));
+    let opt = QueryOption::new(Some(&db_pool), None, None);
     match_query_result(topic_handler(topic_query, opt), &cache_pool)
 }
 

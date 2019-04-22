@@ -41,9 +41,9 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
     //     clear cache on start up for test purpose
-        let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
-        let clear_cache = redis_client.get_connection().unwrap();
-        let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
+    let clear_cache = redis_client.get_connection().unwrap();
+    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
 
     let global_arc = GlobalVar::init(&database_url);
 
@@ -172,7 +172,7 @@ fn main() -> std::io::Result<()> {
                         web::resource("/").route(web::post().to_async(router::stream::upload_file))
                     )
             )
-            .service(fs::Files::new("/public","."))
+            .service(fs::Files::new("/public", "."))
     })
         .bind(format!("{}:{}", &server_ip, &server_port))?
         .start();

@@ -54,6 +54,16 @@ pub struct CategoryUpdateRequest<'a> {
     pub category_theme: Option<&'a str>,
 }
 
+impl CategoryUpdateJson {
+    pub fn get_request(&self) -> CategoryUpdateRequest {
+        CategoryUpdateRequest {
+            category_id: self.category_id.as_ref(),
+            category_name: self.category_name.as_ref().map(String::as_str),
+            category_theme: self.category_theme.as_ref().map(String::as_str),
+        }
+    }
+}
+
 #[derive(AsChangeset)]
 #[table_name="categories"]
 pub struct CategoryUpdateRequestInsert<'a> {
