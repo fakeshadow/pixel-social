@@ -34,11 +34,7 @@ pub fn add_topic(
         body,
     });
 
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: Some(&global_var),
-    };
+    let opt = QueryOption::new(Some(&db_pool), None,Some(&global_var));
 
     match_query_result(topic_handler(topic_query, opt), &cache_pool)
 }
@@ -62,13 +58,7 @@ pub fn get_topic(
         Ok(cache) => Ok(cache),
         Err(_) => {
             let topic_query = TopicQuery::GetTopic(&topic_id, &page);
-
-            let opt = QueryOption {
-                db_pool: Some(&db_pool),
-                cache_pool: None,
-                global_var: None,
-            };
-
+            let opt = QueryOption::new(Some(&db_pool), None,None);
             match_query_result(topic_handler(topic_query, opt), &cache_pool)
         }
     }

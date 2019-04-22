@@ -20,12 +20,8 @@ pub fn get_all_categories(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
 //    let cache_query = CacheQuery::GetAllCategories;
     let category_query = CategoryQuery::GetAllCategories;
+    let opt = QueryOption::new(Some(&db_pool), None,None);
 
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
 
     match_query_result(category_handler(category_query, opt), &cache_pool)
 }
@@ -38,12 +34,8 @@ pub fn get_popular(
     let page = category_path.as_ref();
 //    let cache_query = CacheQuery::GetPopular(page as i64);
     let category_query = CategoryQuery::GetPopular(*page as i64);
+    let opt = QueryOption::new(Some(&db_pool), None,None);
 
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
 
     match_query_result(category_handler(category_query, opt), &cache_pool)
 }
@@ -62,12 +54,7 @@ pub fn get_category(
         page: &cache_page,
     };
 
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
-
+    let opt = QueryOption::new(Some(&db_pool), None,None);
     let cache_query = CacheQuery::GetCategory(category_request);
 
     match match_cache_query_result(cache_handler(cache_query, &cache_pool)) {
@@ -94,12 +81,7 @@ pub fn get_categories(
         page: &category_json.page,
     };
 
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
-
+    let opt = QueryOption::new(Some(&db_pool), None,None);
     let category_query = CategoryQuery::GetCategory(category_request);
 
     match_query_result(category_handler(category_query, opt), &cache_pool)

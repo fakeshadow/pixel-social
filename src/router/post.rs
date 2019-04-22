@@ -23,12 +23,7 @@ pub fn add_post(
         topic_id: &post_json.topic_id,
         post_content: &post_json.post_content,
     });
-
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: Some(&global_var),
-    };
+    let opt = QueryOption::new(Some(&db_pool), None,Some(&global_var));
 
     match_query_result(post_handler(post_query, opt))
 }
@@ -40,12 +35,7 @@ pub fn get_post(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let post_id = post_path.as_ref();
     let post_query = PostQuery::GetPost(post_id);
-
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
+    let opt = QueryOption::new(Some(&db_pool), None,None);
 
     match_query_result(post_handler(post_query, opt))
 }
@@ -63,14 +53,8 @@ pub fn update_post(
         post_content: update_json.post_content.as_ref().map(String::as_str),
         is_locked: None,
     };
-
     let post_query = PostQuery::UpdatePost(post_request);
-
-    let opt = QueryOption {
-        db_pool: Some(&db_pool),
-        cache_pool: None,
-        global_var: None,
-    };
+    let opt = QueryOption::new(Some(&db_pool), None,None);
 
     match_query_result(post_handler(post_query, opt))
 }

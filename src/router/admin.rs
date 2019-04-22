@@ -11,8 +11,8 @@ use crate::model::{
     common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
 };
 
+
 use crate::router::{
-    user::match_query_result as match_user_query_result,
     topic::match_query_result as match_topic_query_result,
     category::match_query_result as match_category_query_result,
 };
@@ -21,7 +21,6 @@ use crate::handler::{
     cache::cache_handler,
     category::category_handler,
     admin::admin_handler,
-    user::user_handler,
     post::post_handler,
     topic::topic_handler,
     auth::UserJwt,
@@ -92,9 +91,7 @@ pub fn admin_update_user(
     let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request);
     admin_handler(admin_query, &opt)?;
 
-    let user_query = UserQuery::UpdateUser(update_request);
-
-    match_user_query_result(user_handler(user_query, opt))
+    Ok(UserQuery::UpdateUser(update_request).handle_query(&opt)?.to_response())
 }
 
 pub fn admin_update_topic(

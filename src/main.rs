@@ -154,18 +154,18 @@ fn main() -> std::io::Result<()> {
                             .route(web::get().to_async(router::category::get_category)),
                     ),
             )
-            .service(
-                web::scope("/test")
-                    .service(
-                        web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
-                    )
-                    .service(
-                        web::resource("/async_db").route(web::get().to_async(router::test::get_category_async)),
-                    )
-                    .service(
-                        web::resource("/generate_admin/{username}/{password}/{email}").route(web::get().to_async(router::test::generate_admin)),
-                    )
-            )
+//            .service(
+//                web::scope("/test")
+//                    .service(
+//                        web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
+//                    )
+//                    .service(
+//                        web::resource("/async_db").route(web::get().to_async(router::test::get_category_async)),
+//                    )
+//                    .service(
+//                        web::resource("/generate_admin/{username}/{password}/{email}").route(web::get().to_async(router::test::generate_admin)),
+//                    )
+//            )
             .service(
                 web::scope("/upload")
                     .service(
