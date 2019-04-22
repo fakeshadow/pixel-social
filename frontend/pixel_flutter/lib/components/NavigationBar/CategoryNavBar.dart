@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
-import 'package:pixel_flutter/components/Icon/AvatarIcon.dart';
+import 'package:pixel_flutter/components/Button/UserButton.dart';
 
 class CatNavBar extends StatelessWidget {
   final String title;
@@ -17,7 +17,7 @@ class CatNavBar extends StatelessWidget {
         toolbarOpacity: 1,
         bottomOpacity: 0,
         backgroundColor: Colors.transparent,
-        actions: <Widget>[TestIcon(), AvatarIcon()]);
+        actions: <Widget>[TestIcon(), UserButton()]);
   }
 }
 

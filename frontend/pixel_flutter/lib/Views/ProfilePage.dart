@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../components/NavigationBar/TabNavBar.dart';
 import '../components/NavigationBar/SliverNavBarExpand.dart';
 import '../components/Profile/Me.dart';
 
@@ -20,7 +19,6 @@ class _ProfilePageState extends State<ProfilePage> {
               children: <Widget>[Me(), Collection()],
             )),
       ),
-      bottomNavigationBar: TabNavBar(2),
     );
   }
 

@@ -1,21 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:bloc/bloc.dart';
 
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
-import 'package:pixel_flutter/blocs/MyBlocDelegate.dart';
-
-
 import 'package:pixel_flutter/blocs/UserBlocs.dart';
-
-import './components//History/HistoryLimit.dart';
-import './Views/ProfilePage.dart';
-import './Views/HomePage.dart';
+import 'package:pixel_flutter/Views/HomePage.dart';
+import 'package:pixel_flutter/Views/ProfilePage.dart';
 
 void main() {
-  BlocSupervisor().delegate = MyBlocDelegate();
   runApp(PixelShare());
 }
 
@@ -44,16 +36,20 @@ class _PixelShareState extends State<PixelShare> {
           BlocProvider<UserBloc>(bloc: userBloc)
         ],
         child: MaterialApp(
-            theme: ThemeData(
-                brightness: Brightness.light,
-                primarySwatch: Colors.blue,
-                accentColor: Colors.deepPurple),
-//            navigatorObservers: [HistoryLimit(10)],
-            home: HomePage()));
+          routes: {
+            'profile': (context) => ProfilePage(),
+            'home': (context) => HomePage(),
+          },
+          initialRoute: 'home',
+          theme: ThemeData(
+              brightness: Brightness.light,
+              primarySwatch: Colors.blue,
+              accentColor: Colors.deepPurple),
+        ));
   }
 
   @override
-   void dispose() {
+  void dispose() {
     userBloc.dispose();
     errorBloc.dispose();
     super.dispose();

@@ -4,6 +4,7 @@ import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter/blocs/TopicBlocs.dart';
 
 import 'package:pixel_flutter/components/Background/GeneralBackground.dart';
+import 'package:pixel_flutter/components/Menu/UserDrawer.dart';
 import 'package:pixel_flutter/components/NavigationBar/SliverNavBar.dart';
 import 'package:pixel_flutter/components/Loader/CenterLoader.dart';
 import 'package:pixel_flutter/components/Loader/BottomLoader.dart';
@@ -53,6 +54,7 @@ class _TopicsPageState extends State<TopicsPage> {
             child: Hero(
               tag: _categoryName,
               child: Scaffold(
+                endDrawer: UserDrawer(),
                 body: BlocListener(
                   bloc: _errorBloc,
                   listener: (BuildContext context, ErrorState state) {

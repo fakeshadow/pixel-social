@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
+import 'package:pixel_flutter/components/Button/UserButton.dart';
 import 'package:pixel_flutter/style/colors.dart';
 import 'package:pixel_flutter/components/Icon/SearchIcon.dart';
-import 'package:pixel_flutter/components/Icon/AvatarIcon.dart';
 
 // ToDo: SliverNavBar rebuild multiple times with unknown reason
 class SliverNavBar extends StatelessWidget {
@@ -37,6 +37,6 @@ class SliverNavBar extends StatelessWidget {
             fit: BoxFit.cover,
           ),
         centerTitle: true,
-        actions: <Widget>[SearchIcon(), AvatarIcon()]);
+        actions: <Widget>[SearchIcon(), UserButton()]);
   }
 }

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pixel_flutter/components/Icon/AvatarIcon.dart';
+import 'package:pixel_flutter/components/Button/UserButton.dart';
 
 const double NAV_BAR_MAX_HEIGHT = 300;
 
@@ -11,7 +11,7 @@ class SliverNavBarExpand extends StatelessWidget {
         leading: Container(),
         floating: false,
         pinned: true,
-        actions: <Widget>[AvatarIcon()],
+        actions: <Widget>[UserButton()],
         flexibleSpace: LayoutBuilder(
             builder: (BuildContext context, BoxConstraints constraints) {
           double scale = (constraints.maxHeight - kToolbarHeight) / 268;

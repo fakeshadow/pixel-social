@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../components/NavigationBar/SliverNavBar.dart';
-import '../components/NavigationBar/TabNavBar.dart';
 
 import 'package:http/http.dart' as http;
 import 'dart:async';
@@ -41,7 +40,6 @@ class _PostsPageState extends State<PostsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        bottomNavigationBar: TabNavBar(1),
         body: CustomScrollView(
           slivers: <Widget>[
             SliverNavBar(title: widget._title),

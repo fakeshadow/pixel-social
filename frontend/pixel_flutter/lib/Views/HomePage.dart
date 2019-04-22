@@ -5,6 +5,7 @@ import 'package:pixel_flutter/blocs/VerticalTabBlocs.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 
 import 'package:pixel_flutter/components/Background/GeneralBackground.dart';
+import 'package:pixel_flutter/components/Menu/UserDrawer.dart';
 import 'package:pixel_flutter/components/NavigationBar/VerticalTab/VerticalTabText.dart';
 import 'package:pixel_flutter/components/Categories/CategoryHeader.dart';
 import 'package:pixel_flutter/components/Categories/CategoryList.dart';
@@ -68,6 +69,7 @@ class _HomePageState extends State<HomePage> {
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
+          endDrawer: UserDrawer(),
           body: BlocProvider(
               bloc: _tabBloc,
               child: BlocListener(

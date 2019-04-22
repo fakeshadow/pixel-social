@@ -60,6 +60,12 @@ final TextStyle recoverButtonStyle = TextStyle(
   fontWeight: FontWeight.bold,
 );
 
+final TextStyle drawerTextStyle = TextStyle(
+  fontSize: 22.0,
+  color: Colors.white,
+  fontWeight: FontWeight.bold,
+);
+
 final TextStyle logoStyle = TextStyle(
   fontSize: 35.0,
   color: primaryColor,
