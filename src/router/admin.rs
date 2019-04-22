@@ -5,16 +5,13 @@ use crate::model::{
     errors::ServiceError,
     admin::AdminQuery,
     post::{PostUpdateJson, PostUpdateRequest, PostQuery},
-    topic::{TopicQuery, TopicUpdateJson, TopicUpdateRequest},
-    category::{CategoryQuery, CategoryUpdateRequest, CategoryUpdateJson},
-    user::{UserQuery, UserQueryResult, UserUpdateJson, UserUpdateRequest},
+    topic::{TopicQuery, TopicUpdateJson},
+    category::{CategoryQuery, CategoryUpdateJson},
+    user::{UserQuery, UserUpdateJson},
     common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
 };
 
-
-use crate::router::{
-    category::match_query_result as match_category_query_result,
-};
+use crate::router::category::match_query_result as match_category_query_result;
 
 use crate::handler::{
     cache::cache_handler,
@@ -65,29 +62,21 @@ pub fn admin_remove_category(
 
 pub fn admin_update_user(
     user_jwt: UserJwt,
-    update_request: web::Json<UserUpdateJson>,
+    json: web::Json<UserUpdateJson>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let id = match update_request.id {
+    let id = match json.id {
         Some(id) => id,
         None => return Err(ServiceError::BadRequestGeneral)
     };
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    let update_request = UserUpdateRequest {
-        id: &id,
-        username: None,
-        avatar_url: None,
-        signature: None,
-        is_admin: update_request.is_admin.as_ref(),
-        blocked: update_request.blocked.as_ref(),
-    };
+    let update_request = json.get_request(&id);
 
-// admin privilege check. need to improve for a complex level system.
-    let admin_query = AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request);
-    admin_handler(admin_query, &opt)?;
+    //ToDo: impl trait for admin handler
+    admin_handler(AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request), &opt)?;
 
     Ok(UserQuery::UpdateUser(update_request).handle_query(&opt)?.to_response())
 }

@@ -13,6 +13,7 @@ use r2d2_redis::{
     RedisConnectionManager,
     r2d2 as redis_r2d2};
 
+use crate::model::errors::ServiceError;
 use crate::schema::{posts, topics, users};
 use crate::util::validation as validate;
 
@@ -130,31 +131,48 @@ pub trait Validator {
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
 
-    fn check_username(&self) -> bool {
+    fn check_username(&self) -> Result<(), ServiceError> {
         let username = self.get_username();
-        validate::validate_username(username)
+        if validate::validate_username(username) {
+            Ok(())
+        } else {
+            Err(ServiceError::InvalidUsername)
+        }
     }
 
-    fn check_password(&self) -> bool {
+    fn check_password(&self) -> Result<(), ServiceError> {
         let password = self.get_password();
-        validate::validate_password(password)
+        if validate::validate_password(password) {
+            Ok(())
+        } else {
+            Err(ServiceError::InvalidPassword)
+        }
     }
 
-    fn check_email(&self) -> bool {
+    fn check_email(&self) -> Result<(), ServiceError> {
         let email = self.get_email();
         if !email.contains("@") {
-            return false;
+            return Err(ServiceError::InvalidEmail);
         }
         let email_str_vec: Vec<&str> = email.rsplitn(2, "@").collect();
-        validate::validate_email(email_str_vec)
+        if validate::validate_email(email_str_vec) {
+            Ok(())
+        } else {
+            Err(ServiceError::InvalidEmail)
+        }
     }
 
-    fn check_register(&self) -> bool {
-        self.check_email() && self.check_password() && self.check_username()
+    fn check_register(&self) -> Result<(), ServiceError> {
+        self.check_email()?;
+        self.check_password()?;
+        self.check_username()?;
+        Ok(())
     }
 
-    fn check_login(&self) -> bool {
-        self.check_password() && self.check_username()
+    fn check_login(&self) -> Result<(), ServiceError> {
+        self.check_password()?;
+        self.check_username()?;
+        Ok(())
     }
 }
 

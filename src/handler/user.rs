@@ -9,20 +9,21 @@ use crate::model::{
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
+type CustomResult = Result<UserQueryResult, ServiceError>;
 impl<'a> UserQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> Result<UserQueryResult, ServiceError> {
+    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             UserQuery::GetMe(my_id) => get_me(&my_id, &conn),
             UserQuery::GetUser(other_username) => get_user(&other_username, &conn),
             UserQuery::Login(login_request) => login_user(&login_request, &conn),
-            UserQuery::UpdateUser(user_update_request) => update_user(user_update_request, &conn),
+            UserQuery::UpdateUser(user_update_request) => update_user(&user_update_request, &conn),
             UserQuery::Register(register_request) => register_user(&register_request, &opt.global_var, &conn)
         }
     }
 }
 
-fn get_me(my_id: &u32, conn: &PgConnection) -> Result<UserQueryResult, ServiceError> {
+fn get_me(my_id: &u32, conn: &PgConnection) -> CustomResult {
     let user: User = users::table
         .find(&my_id)
         .first::<User>(conn)?;
@@ -30,7 +31,7 @@ fn get_me(my_id: &u32, conn: &PgConnection) -> Result<UserQueryResult, ServiceEr
     Ok(UserQueryResult::GotUser(user))
 }
 
-fn get_user(other_username: &str, conn: &PgConnection) -> Result<UserQueryResult, ServiceError> {
+fn get_user(other_username: &str, conn: &PgConnection) -> CustomResult {
     let user = users::table
         .filter(users::username.eq(&other_username))
         .select((users::id,
@@ -45,7 +46,7 @@ fn get_user(other_username: &str, conn: &PgConnection) -> Result<UserQueryResult
     Ok(UserQueryResult::GotSlimUser(user))
 }
 
-fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> Result<UserQueryResult, ServiceError> {
+fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> CustomResult {
     let _username = login_request.username;
     let _password = login_request.password;
 
@@ -55,7 +56,7 @@ fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> Result<UserQu
 
     if exist_user.blocked { return Err(ServiceError::Unauthorized); }
 
-    let _check_password = hash::verify_password(&_password, &exist_user.hashed_password)?;
+    hash::verify_password(&_password, &exist_user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
 
@@ -65,19 +66,19 @@ fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> Result<UserQu
     }))
 }
 
-fn update_user(user_update_request: UserUpdateRequest, conn: &PgConnection) -> Result<UserQueryResult, ServiceError> {
+fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> CustomResult {
     let user_self_id = user_update_request.id;
 
     let user_old_filter = users::table.filter(users::id.eq(&user_self_id));
-    let updated_user = diesel::update(user_old_filter).set(&user_update_request).get_result(conn)?;
+    let updated_user = diesel::update(user_old_filter).set(user_update_request).get_result(conn)?;
 
     Ok(UserQueryResult::GotUser(updated_user))
 }
 
-fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> Result<UserQueryResult, ServiceError> {
+fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
     let _username = register_request.username;
     let _password = register_request.password;
-    let _email = register_request.email;
+    let _email = register_request.email.unwrap();
 
     match users::table
         .select((users::username, users::email))
@@ -103,9 +104,8 @@ fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<
                 })
                 .map_err(|_|ServiceError::InternalServerError)?;
 
-            let user = User::new(id, &_username, &_email, &password_hash);
             diesel::insert_into(users::table)
-                .values(&user)
+                .values(&register_request.make_user(&id, &password_hash))
                 .execute(conn)?;
             Ok(UserQueryResult::Registered)
         }

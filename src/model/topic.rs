@@ -214,7 +214,7 @@ impl TopicQueryResult {
 //                if !topic_with_post.have_post() || !topic_with_post.have_topic() {
 //                    let _ignore = cache_handler(CacheQuery::UpdateTopic(&topic_with_post), &cache_pool);
 //                }
-                HttpResponse::Ok().json(topic_with_post)
+                HttpResponse::Ok().json(&topic_with_post)
             }
         }
     }

@@ -12,8 +12,10 @@ use crate::schema::{categories, posts, topics, users};
 
 const LIMIT: i64 = 20;
 
+type CustomResult = Result<TopicQueryResult, ServiceError>;
+
 impl<'a> TopicQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> Result<TopicQueryResult, ServiceError> {
+    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &conn),
@@ -23,7 +25,7 @@ impl<'a> TopicQuery<'a> {
     }
 }
 
-fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> CustomResult {
     let offset = (page - 1) * 20;
 
     let _topic: Topic = topics::table
@@ -40,7 +42,7 @@ fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> Result<TopicQue
     join_topics_users(_topic, _posts, conn, &page)
 }
 
-fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
     let cid = new_topic_request.category_id;
 
     let category_check: usize = categories::table.find(&cid).execute(conn)?;
@@ -62,7 +64,7 @@ fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data
     Ok(TopicQueryResult::AddedTopic)
 }
 
-fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> CustomResult {
     let topic_self_id = topic_request.id;
 
     match topic_request.user_id {
@@ -89,7 +91,7 @@ fn join_topics_users(
     posts: Vec<Post>,
     conn: &PgConnection,
     page: &i64,
-) -> Result<TopicQueryResult, ServiceError> {
+) -> CustomResult {
     let select_user_columns = (
         users::id,
         users::username,
