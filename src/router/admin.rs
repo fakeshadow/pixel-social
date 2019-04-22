@@ -13,7 +13,6 @@ use crate::model::{
 
 
 use crate::router::{
-    topic::match_query_result as match_topic_query_result,
     category::match_query_result as match_category_query_result,
 };
 
@@ -22,7 +21,6 @@ use crate::handler::{
     category::category_handler,
     admin::admin_handler,
     post::post_handler,
-    topic::topic_handler,
     auth::UserJwt,
 };
 
@@ -106,8 +104,7 @@ pub fn admin_update_topic(
     let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.is_admin, &request);
     admin_handler(admin_query, &opt)?;
 
-    let topic_query = TopicQuery::UpdateTopic(request);
-    match_topic_query_result(topic_handler(topic_query, opt), &cache_pool)
+    Ok(TopicQuery::UpdateTopic(request).handle_query(&opt)?.to_response())
 }
 
 pub fn admin_update_post(

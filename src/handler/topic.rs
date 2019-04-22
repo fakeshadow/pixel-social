@@ -5,89 +5,84 @@ use crate::model::{
     errors::ServiceError,
     post::Post,
     user::SlimUser,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult},
-    common::{PostgresPool, QueryOption},
+    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, NewTopicRequest, TopicUpdateRequest},
+    common::{PostgresPool, QueryOption, GlobalGuard},
 };
 use crate::schema::{categories, posts, topics, users};
 
 const LIMIT: i64 = 20;
 
-pub fn topic_handler(
-    topic_query: TopicQuery,
-    opt: QueryOption,
-) -> Result<TopicQueryResult, ServiceError> {
-    let db_pool = opt.db_pool.unwrap();
-    let conn: &PgConnection = &db_pool.get().unwrap();
-
-    match topic_query {
-        TopicQuery::GetTopic(topic_id, page) => {
-            let offset = (page - 1) * 20;
-
-            let _topic: Topic = topics::table
-                .filter(topics::id.eq(&topic_id))
-                .first::<Topic>(conn)?;
-
-            let _posts: Vec<Post> = posts::table
-                .filter(posts::topic_id.eq(&_topic.id))
-                .order(posts::id.asc())
-                .limit(LIMIT)
-                .offset(offset)
-                .load::<Post>(conn)?;
-
-            join_topics_users(_topic, _posts, conn, &page)
-        }
-
-        TopicQuery::AddTopic(new_topic_request) => {
-            let cid = new_topic_request.category_id;
-
-            let category_check: usize = categories::table.find(&cid).execute(conn)?;
-            if category_check == 0 {
-                return Err(ServiceError::NotFound);
-            };
-
-            let global_var = opt.global_var.unwrap();
-
-            let id: u32 = match global_var.lock() {
-                Ok(mut guarded_global_var) => {
-                    let next_tid = guarded_global_var.next_tid;
-                    guarded_global_var.next_tid += 1;
-                    next_tid
-                }
-                Err(_) => {
-                    return Err(ServiceError::InternalServerError);
-                }
-            };
-
-            let new_topic = Topic::new(id, new_topic_request);
-
-            diesel::insert_into(topics::table)
-                .values(&new_topic)
-                .execute(conn)?;
-            Ok(TopicQueryResult::AddedTopic)
-        }
-
-        TopicQuery::UpdateTopic(topic_request) => {
-            let topic_self_id = topic_request.id;
-
-            match topic_request.user_id {
-                Some(_user_id) => {
-                    let topic_old_filter = topics::table.filter(
-                        topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id)));
-
-                    diesel::update(topic_old_filter).set(&topic_request).execute(conn)?;
-                }
-                None => {
-                    let topic_old_filter = topics::table.filter(
-                        topics::id.eq(&topic_self_id));
-
-                    diesel::update(topic_old_filter).set(&topic_request).execute(conn)?;
-                }
-            };
-
-            Ok(TopicQueryResult::AddedTopic)
+impl<'a> TopicQuery<'a> {
+    pub fn handle_query(self, opt: &QueryOption) -> Result<TopicQueryResult, ServiceError> {
+        let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
+        match self {
+            TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &conn),
+            TopicQuery::AddTopic(new_topic_request) => add_topic(&new_topic_request, &opt.global_var, &conn),
+            TopicQuery::UpdateTopic(topic_request) => update_topic(&topic_request, &conn)
         }
     }
 }
+
+fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+    let offset = (page - 1) * 20;
+
+    let _topic: Topic = topics::table
+        .filter(topics::id.eq(&topic_id))
+        .first::<Topic>(conn)?;
+
+    let _posts: Vec<Post> = posts::table
+        .filter(posts::topic_id.eq(&_topic.id))
+        .order(posts::id.asc())
+        .limit(LIMIT)
+        .offset(offset)
+        .load::<Post>(conn)?;
+
+    join_topics_users(_topic, _posts, conn, &page)
+}
+
+fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+    let cid = new_topic_request.category_id;
+
+    let category_check: usize = categories::table.find(&cid).execute(conn)?;
+    if category_check == 0 { return Err(ServiceError::NotFound); };
+
+    let id: u32 = global_var
+        .unwrap()
+        .lock()
+        .map(|mut guarded_global_var| {
+            let next_tid = guarded_global_var.next_tid;
+            guarded_global_var.next_tid += 1;
+            next_tid
+        })
+        .map_err(|_| ServiceError::InternalServerError)?;
+
+    diesel::insert_into(topics::table)
+        .values(&new_topic_request.attach_id(&id))
+        .execute(conn)?;
+    Ok(TopicQueryResult::AddedTopic)
+}
+
+fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> Result<TopicQueryResult, ServiceError> {
+    let topic_self_id = topic_request.id;
+
+    match topic_request.user_id {
+        Some(_user_id) => {
+            let topic_old_filter = topics::table.filter(
+                topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id)));
+
+            diesel::update(topic_old_filter).set(topic_request).execute(conn)?;
+        }
+        None => {
+            let topic_old_filter = topics::table.filter(
+                topics::id.eq(&topic_self_id));
+
+            diesel::update(topic_old_filter).set(topic_request).execute(conn)?;
+        }
+    };
+
+    Ok(TopicQueryResult::AddedTopic)
+}
+
 
 fn join_topics_users(
     topic: Topic,

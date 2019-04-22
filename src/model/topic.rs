@@ -4,11 +4,12 @@ use chrono::NaiveDateTime;
 use crate::model::{
     user::SlimUser,
     post::PostWithUser,
-    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField}
+    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField},
 };
+use actix_web::HttpResponse;
+use crate::model::common::ResponseMessage;
 
-#[derive(Debug, Identifiable, Queryable, Serialize, Deserialize, Clone)]
-#[table_name = "topics"]
+#[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
     pub id: u32,
     pub user_id: u32,
@@ -26,7 +27,7 @@ pub struct Topic {
 #[derive(Insertable)]
 #[table_name = "topics"]
 pub struct NewTopic<'a> {
-    pub id: u32,
+    pub id: &'a u32,
     pub user_id: &'a u32,
     pub category_id: &'a u32,
     pub thumbnail: &'a str,
@@ -48,6 +49,31 @@ pub struct TopicJson {
     pub thumbnail: String,
     pub title: String,
     pub body: String,
+}
+
+impl<'a> TopicJson {
+    pub fn get_request(&'a self, user_id: &'a u32) -> NewTopicRequest<'a> {
+        NewTopicRequest {
+            user_id,
+            category_id: &self.category_id,
+            thumbnail: &self.thumbnail,
+            title: &self.title,
+            body: &self.body,
+        }
+    }
+}
+
+impl<'a> NewTopicRequest<'a> {
+    pub fn attach_id(&'a self, id: &'a u32) -> NewTopic<'a> {
+        NewTopic {
+            id,
+            user_id: self.user_id,
+            category_id: self.category_id,
+            thumbnail: self.thumbnail,
+            title: self.title,
+            body: self.body,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -121,16 +147,6 @@ impl<T> TopicWithUser<T>
 //}
 
 impl Topic {
-    pub fn new(id: u32, request: NewTopicRequest) -> NewTopic {
-        NewTopic {
-            id,
-            user_id: request.user_id,
-            category_id: request.category_id,
-            thumbnail: request.thumbnail,
-            title: request.title,
-            body: request.body,
-        }
-    }
     pub fn attach_user<T>(self, users: &Vec<T>) -> TopicWithUser<T>
         where
             T: Clone + GetSelfId,
@@ -142,7 +158,7 @@ impl Topic {
     }
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 pub struct TopicUpdateJson {
     pub id: u32,
     pub user_id: Option<u32>,
@@ -154,7 +170,7 @@ pub struct TopicUpdateJson {
 }
 
 #[derive(AsChangeset)]
-#[table_name="topics"]
+#[table_name = "topics"]
 pub struct TopicUpdateRequest<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,
@@ -171,7 +187,7 @@ impl<'a> TopicUpdateJson {
             id: &self.id,
             user_id,
             category_id: self.category_id.as_ref(),
-            title:self.title.as_ref().map(String::as_str),
+            title: self.title.as_ref().map(String::as_str),
             body: self.body.as_ref().map(String::as_str),
             thumbnail: self.thumbnail.as_ref().map(String::as_str),
             is_locked: self.is_locked.as_ref(),
@@ -188,4 +204,18 @@ pub enum TopicQuery<'a> {
 pub enum TopicQueryResult {
     AddedTopic,
     GotTopicSlim(TopicWithPost),
+}
+
+impl TopicQueryResult {
+    pub fn to_response(&self) -> HttpResponse {
+        match self {
+            TopicQueryResult::AddedTopic => HttpResponse::Ok().json(ResponseMessage::new("Add Topic Success")),
+            TopicQueryResult::GotTopicSlim(topic_with_post) => {
+//                if !topic_with_post.have_post() || !topic_with_post.have_topic() {
+//                    let _ignore = cache_handler(CacheQuery::UpdateTopic(&topic_with_post), &cache_pool);
+//                }
+                HttpResponse::Ok().json(topic_with_post)
+            }
+        }
+    }
 }
