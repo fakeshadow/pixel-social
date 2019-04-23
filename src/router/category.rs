@@ -36,7 +36,6 @@ pub fn get_popular(
     let category_query = CategoryQuery::GetPopular(*page as i64);
     let opt = QueryOption::new(Some(&db_pool), None,None);
 
-
     match_query_result(category_handler(category_query, opt), &cache_pool)
 }
 

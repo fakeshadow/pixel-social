@@ -12,36 +12,6 @@ use crate::schema::{categories, topics, users};
 
 const LIMIT: i64 = 20;
 
-// async db test
-use futures::future::{join_all, ok as fut_ok, Future};
-
-pub fn category_handler_test(
-	category_query: CategoryQueryTest,
-	db_pool: web::Data<PostgresPool>,
-) -> impl Future<Item=CategoryQueryResult, Error=ServiceError> {
-	web::block(move || {
-		let conn: &PgConnection = &db_pool.get().unwrap();
-		match category_query {
-			CategoryQueryTest::GetCategory(category_request) => {
-				let page = category_request.page;
-				let offset = (page - 1) * LIMIT;
-				let categories_vec = category_request.categories;
-
-				let _topics: Vec<Topic> = topics::table
-					.filter(topics::category_id.eq_any(categories_vec))
-					.order(topics::last_reply_time.desc())
-					.limit(LIMIT)
-					.offset(offset)
-					.load::<Topic>(conn)?;
-
-				join_topics_users(_topics, conn)
-			}
-		}
-	})
-		.from_err()
-}
-
-// sync db query
 pub fn category_handler(
 	category_query: CategoryQuery,
 	opt: QueryOption,

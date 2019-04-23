@@ -55,7 +55,7 @@ pub struct CategoryUpdateRequest<'a> {
 }
 
 impl CategoryUpdateJson {
-    pub fn get_request(&self) -> CategoryUpdateRequest {
+    pub fn to_request(&self) -> CategoryUpdateRequest {
         CategoryUpdateRequest {
             category_id: self.category_id.as_ref(),
             category_name: self.category_name.as_ref().map(String::as_str),

@@ -3,86 +3,81 @@ use chrono::Utc;
 use diesel::prelude::*;
 
 use crate::model::{
-	errors::ServiceError,
-	post::{Post, PostQuery, PostQueryResult},
-	common::{PostgresPool, QueryOption, RedisPool},
+    errors::ServiceError,
+    post::{Post, PostQuery, PostQueryResult, PostRequest, PostUpdateRequest},
+    common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
 use crate::schema::{posts, topics};
 
-pub fn post_handler(
-	post_query: PostQuery,
-	opt: QueryOption,
-) -> Result<PostQueryResult, ServiceError> {
-	let db_pool = opt.db_pool.unwrap();
-	let conn: &PgConnection = &db_pool.get().unwrap();
+type CustomResult = Result<PostQueryResult, ServiceError>;
 
-	match post_query {
-		PostQuery::GetPost(pid) => {
-			let post = posts::table.find(&pid).first::<Post>(conn)?;
-			Ok(PostQueryResult::GotPost(post))
-		}
+impl<'a> PostQuery<'a> {
+    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
+        let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
+        match self {
+            PostQuery::GetPost(pid) => get_post(&pid, &conn),
+            PostQuery::AddPost(mut post_request) => add_post(&mut post_request, &opt.global_var, &conn),
+            PostQuery::UpdatePost(post_request) => update_post(&post_request, &conn)
+        }
+    }
+}
 
-		PostQuery::AddPost(mut post_request) => {
-			let now = Utc::now().naive_local();
+fn get_post(pid: &u32, conn: &PgConnection) -> CustomResult {
+    let post = posts::table.find(&pid).first::<Post>(conn)?;
+    Ok(PostQueryResult::GotPost(post))
+}
 
-			let to_topic = topics::table.filter(topics::id.eq(&post_request.topic_id));
-			let update_data = (
-				topics::last_reply_time.eq(&now),
-				topics::reply_count.eq(topics::reply_count + 1),
-			);
-			let to_topic_check = diesel::update(to_topic).set(update_data).execute(conn)?;
-			if to_topic_check == 0 { return Err(ServiceError::NotFound); }
+fn update_post(post_request: &PostUpdateRequest, conn: &PgConnection) -> CustomResult {
+    let post_self_id = post_request.id;
 
-			if let Some(pid) = post_request.post_id {
-				let to_post = posts::table.filter(
-					posts::id
-						.eq(&pid)
-						.and(posts::topic_id.eq(&post_request.topic_id)),
-				);
-				let update_data = (
-					posts::last_reply_time.eq(&now),
-					posts::reply_count.eq(posts::reply_count + 1),
-				);
-				let to_post_check = diesel::update(to_post).set(update_data).execute(conn)?;
-				if to_post_check == 0 { post_request.post_id = None }
-			}
+    match post_request.user_id {
+        Some(_user_id) => {
+            let post_old_filter = posts::table.filter(
+                posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id)));
+            diesel::update(post_old_filter).set(post_request).execute(conn)?;
+        }
+        None => {
+            let post_old_filter = posts::table.filter(
+                posts::id.eq(&post_self_id));
+            diesel::update(post_old_filter).set(post_request).execute(conn)?;
+        }
+    };
+    Ok(PostQueryResult::AddedPost)
+}
 
-			let global_var = opt.global_var.unwrap();
-			let id: u32 = match global_var.lock() {
-				Ok(mut guarded_global_var) => {
-					let next_pid = guarded_global_var.next_pid;
-					guarded_global_var.next_pid += 1;
-					next_pid
-				}
-				Err(_) => {
-					return Err(ServiceError::InternalServerError);
-				}
-			};
+fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
+    let now = Utc::now().naive_local();
 
-			let new_post = Post::new(id, post_request);
+    let to_topic = topics::table.filter(topics::id.eq(&post_request.topic_id));
+    let update_data = (
+        topics::last_reply_time.eq(&now),
+        topics::reply_count.eq(topics::reply_count + 1),
+    );
+    let to_topic_check = diesel::update(to_topic).set(update_data).execute(conn)?;
+    if to_topic_check == 0 { return Err(ServiceError::NotFound); }
 
-			diesel::insert_into(posts::table)
-				.values(&new_post)
-				.execute(conn)?;
-			Ok(PostQueryResult::AddedPost)
-		}
+    if let Some(pid) = post_request.post_id {
+        let to_post = posts::table.filter(
+            posts::id
+                .eq(&pid)
+                .and(posts::topic_id.eq(&post_request.topic_id)),
+        );
+        let update_data = (
+            posts::last_reply_time.eq(&now),
+            posts::reply_count.eq(posts::reply_count + 1),
+        );
+        let to_post_check = diesel::update(to_post).set(update_data).execute(conn)?;
+        if to_post_check == 0 { post_request.post_id = None }
+    }
 
-		PostQuery::UpdatePost(post_request) => {
-			let post_self_id = post_request.id;
+    let id: u32 = global_var.unwrap().lock()
+        .map(|mut guarded_global_var| {
+            let next_pid = guarded_global_var.next_pid;
+            guarded_global_var.next_pid += 1;
+            next_pid
+        })
+        .map_err(|_| ServiceError::InternalServerError)?;
 
-			match post_request.user_id {
-				Some(_user_id) => {
-					let post_old_filter = posts::table.filter(
-						posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id)));
-					diesel::update(post_old_filter).set(&post_request).execute(conn)?;
-				}
-				None => {
-					let post_old_filter = posts::table.filter(
-						posts::id.eq(&post_self_id));
-					diesel::update(post_old_filter).set(&post_request).execute(conn)?;
-				}
-			};
-			Ok(PostQueryResult::AddedPost)
-		}
-	}
+    diesel::insert_into(posts::table).values(&post_request.make_post(&id)).execute(conn)?;
+    Ok(PostQueryResult::AddedPost)
 }

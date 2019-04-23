@@ -20,10 +20,7 @@ pub fn add_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(TopicQuery::AddTopic(json
-        .get_request(&user_jwt.user_id))
-        .handle_query(&opt)?
-        .to_response())
+    Ok(TopicQuery::AddTopic(json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
 }
 
 pub fn get_topic(
@@ -36,23 +33,7 @@ pub fn get_topic(
     let cache_page = *page as isize;
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(TopicQuery::GetTopic(&topic_id, &page)
-        .handle_query(&opt)?
-        .to_response())
-
-//    let cache_query = CacheQuery::GetTopic(TopicCacheRequest {
-//        topic: &topic_id,
-//        page: &cache_page,
-//    });
-//
-//    match match_cache_query_result(cache_handler(cache_query, &cache_pool)) {
-//        Ok(cache) => Ok(cache),
-//        Err(_) => {
-//            let topic_query = TopicQuery::GetTopic(&topic_id, &page);
-//            let opt = QueryOption::new(Some(&db_pool), None,None);
-//            match_query_result(topic_handler(topic_query, opt), &cache_pool)
-//        }
-//    }
+    Ok(TopicQuery::GetTopic(&topic_id, &page).handle_query(&opt)?.to_response())
 }
 
 pub fn update_topic(
@@ -62,8 +43,5 @@ pub fn update_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(TopicQuery::UpdateTopic(json
-        .get_request(Some(&user_jwt.user_id)))
-        .handle_query(&opt)?
-        .to_response())
+    Ok(TopicQuery::UpdateTopic(json.to_request(Some(&user_jwt.user_id))).handle_query(&opt)?.to_response())
 }

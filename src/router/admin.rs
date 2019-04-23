@@ -17,7 +17,6 @@ use crate::handler::{
     cache::cache_handler,
     category::category_handler,
     admin::admin_handler,
-    post::post_handler,
     auth::UserJwt,
 };
 
@@ -28,7 +27,7 @@ pub fn admin_modify_category(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let request = json.get_request();
+    let request = json.to_request();
 
     // admin privilege check. need to improve for a complex level system.
     let admin_query = AdminQuery::UpdateCategoryCheck(&user_jwt.is_admin, &request);
@@ -73,7 +72,7 @@ pub fn admin_update_user(
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    let update_request = json.get_request(&id);
+    let update_request = json.to_request_admin(&id);
 
     //ToDo: impl trait for admin handler
     admin_handler(AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request), &opt)?;
@@ -88,7 +87,7 @@ pub fn admin_update_topic(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let request = json.get_request(None);
+    let request = json.to_request(None);
 
     let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.is_admin, &request);
     admin_handler(admin_query, &opt)?;
@@ -98,20 +97,13 @@ pub fn admin_update_topic(
 
 pub fn admin_update_post(
     user_jwt: UserJwt,
-    update_request: web::Json<PostUpdateJson>,
+    json: web::Json<PostUpdateJson>,
 //	cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    let post_request = PostUpdateRequest {
-        id: &update_request.id,
-        user_id: None,
-        topic_id: update_request.topic_id.as_ref(),
-        post_id: update_request.post_id.as_ref(),
-        post_content: update_request.post_content.as_ref().map(String::as_str),
-        is_locked: update_request.is_locked.as_ref(),
-    };
+    let post_request = json.to_request(None);
 
     let admin_query = AdminQuery::UpdatePostCheck(&user_jwt.is_admin, &post_request);
     admin_handler(admin_query, &opt)?;

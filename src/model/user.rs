@@ -62,7 +62,7 @@ pub struct AuthJson {
 }
 
 impl AuthJson {
-    pub fn get_request(&self) -> AuthRequest {
+    pub fn to_request(&self) -> AuthRequest {
         AuthRequest {
             username: &self.username,
             password: &self.password,
@@ -134,7 +134,7 @@ pub struct UserUpdateRequest<'a> {
 }
 
 impl<'a> UserUpdateJson {
-    pub fn get_request(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
+    pub fn to_request(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
         UserUpdateRequest {
             id,
             username: self.username.as_ref().map(String::as_str),
@@ -144,7 +144,7 @@ impl<'a> UserUpdateJson {
             blocked: None,
         }
     }
-    pub fn get_request_admin(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
+    pub fn to_request_admin(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
         UserUpdateRequest {
             id,
             username: None,

@@ -52,7 +52,7 @@ pub struct TopicJson {
 }
 
 impl<'a> TopicJson {
-    pub fn get_request(&'a self, user_id: &'a u32) -> NewTopicRequest<'a> {
+    pub fn to_request(&'a self, user_id: &'a u32) -> NewTopicRequest<'a> {
         NewTopicRequest {
             user_id,
             category_id: &self.category_id,
@@ -182,15 +182,26 @@ pub struct TopicUpdateRequest<'a> {
 }
 
 impl<'a> TopicUpdateJson {
-    pub fn get_request(&'a self, user_id: Option<&'a u32>) -> TopicUpdateRequest<'a> {
-        TopicUpdateRequest {
-            id: &self.id,
-            user_id,
-            category_id: self.category_id.as_ref(),
-            title: self.title.as_ref().map(String::as_str),
-            body: self.body.as_ref().map(String::as_str),
-            thumbnail: self.thumbnail.as_ref().map(String::as_str),
-            is_locked: self.is_locked.as_ref(),
+    pub fn to_request(&'a self, user_id: Option<&'a u32>) -> TopicUpdateRequest<'a> {
+        match user_id {
+            Some(id) => TopicUpdateRequest {
+                id: &self.id,
+                user_id,
+                category_id: None,
+                title: self.title.as_ref().map(String::as_str),
+                body: self.body.as_ref().map(String::as_str),
+                thumbnail: self.thumbnail.as_ref().map(String::as_str),
+                is_locked: None,
+            },
+            None => TopicUpdateRequest {
+                id: &self.id,
+                user_id: None,
+                category_id: self.category_id.as_ref(),
+                title: self.title.as_ref().map(String::as_str),
+                body: self.body.as_ref().map(String::as_str),
+                thumbnail: self.thumbnail.as_ref().map(String::as_str),
+                is_locked: self.is_locked.as_ref(),
+            }
         }
     }
 }
