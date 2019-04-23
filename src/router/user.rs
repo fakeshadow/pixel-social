@@ -1,5 +1,5 @@
-use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
+use actix_web::{web, HttpResponse};
 
 use crate::handler::auth::UserJwt;
 use crate::model::{
@@ -35,7 +35,7 @@ pub fn login_user(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     json.check_login()?;
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(UserQuery::Login(json.to_request()).handle_query(&opt)?.to_response())
+    Ok(UserQuery::Login(&json.to_request()).handle_query(&opt)?.to_response())
 }
 
 pub fn update_user(
@@ -45,7 +45,7 @@ pub fn update_user(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     if let Some(_) = json.username { json.check_username()? }
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(UserQuery::UpdateUser(json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
+    Ok(UserQuery::UpdateUser(&json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
 }
 
 pub fn register_user(
@@ -55,5 +55,5 @@ pub fn register_user(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     json.check_register()?;
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(UserQuery::Register(json.to_request()).handle_query(&opt)?.to_response())
+    Ok(UserQuery::Register(&json.to_request()).handle_query(&opt)?.to_response())
 }

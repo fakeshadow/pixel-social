@@ -12,7 +12,10 @@ table! {
     categories (id) {
         id -> Oid,
         name -> Varchar,
-        theme -> Varchar,
+        topic_count -> Oid,
+        post_count -> Oid,
+        subscriber_count -> Oid,
+        thumbnail -> Varchar,
     }
 }
 

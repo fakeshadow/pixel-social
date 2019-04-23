@@ -1,21 +1,17 @@
-use actix_web::{web, HttpResponse};
 use futures::IntoFuture;
+use actix_web::{web, HttpResponse};
 
 use crate::model::{
     errors::ServiceError,
     admin::AdminQuery,
-    post::{PostUpdateJson, PostUpdateRequest, PostQuery},
+    post::{PostUpdateJson, PostQuery},
     topic::{TopicQuery, TopicUpdateJson},
     category::{CategoryQuery, CategoryUpdateJson},
     user::{UserQuery, UserUpdateJson},
     common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
 };
 
-use crate::router::category::match_query_result as match_category_query_result;
-
 use crate::handler::{
-    cache::cache_handler,
-    category::category_handler,
     admin::admin_handler,
     auth::UserJwt,
 };
@@ -34,10 +30,10 @@ pub fn admin_modify_category(
     admin_handler(admin_query, &opt)?;
 
     let category_query = match request.category_id {
-        Some(_category_id) => CategoryQuery::UpdateCategory(request),
-        None => CategoryQuery::AddCategory(request)
+        Some(_category_id) => CategoryQuery::UpdateCategory(&request),
+        None => CategoryQuery::AddCategory(&request)
     };
-    match_category_query_result(category_handler(category_query, opt), &cache_pool)
+    Ok(category_query.handle_query(&opt)?.to_response())
 }
 
 pub fn admin_remove_category(
@@ -56,7 +52,7 @@ pub fn admin_remove_category(
 
     let category_query = CategoryQuery::DeleteCategory(&category_id);
 
-    match_category_query_result(category_handler(category_query, opt), &cache_pool)
+    Ok(category_query.handle_query(&opt)?.to_response())
 }
 
 pub fn admin_update_user(
@@ -77,7 +73,7 @@ pub fn admin_update_user(
     //ToDo: impl trait for admin handler
     admin_handler(AdminQuery::UpdateUserCheck(&user_jwt.is_admin, &update_request), &opt)?;
 
-    Ok(UserQuery::UpdateUser(update_request).handle_query(&opt)?.to_response())
+    Ok(UserQuery::UpdateUser(&update_request).handle_query(&opt)?.to_response())
 }
 
 pub fn admin_update_topic(
@@ -92,7 +88,7 @@ pub fn admin_update_topic(
     let admin_query = AdminQuery::UpdateTopicCheck(&user_jwt.is_admin, &request);
     admin_handler(admin_query, &opt)?;
 
-    Ok(TopicQuery::UpdateTopic(request).handle_query(&opt)?.to_response())
+    Ok(TopicQuery::UpdateTopic(&request).handle_query(&opt)?.to_response())
 }
 
 pub fn admin_update_post(

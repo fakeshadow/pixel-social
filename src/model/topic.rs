@@ -1,13 +1,12 @@
-use crate::schema::topics;
+use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
     user::SlimUser,
     post::PostWithUser,
-    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField},
+    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField, ResponseMessage},
 };
-use actix_web::HttpResponse;
-use crate::model::common::ResponseMessage;
+use crate::schema::topics;
 
 #[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
@@ -207,9 +206,9 @@ impl<'a> TopicUpdateJson {
 }
 
 pub enum TopicQuery<'a> {
-    AddTopic(NewTopicRequest<'a>),
+    AddTopic(&'a NewTopicRequest<'a>),
     GetTopic(&'a u32, &'a i64),
-    UpdateTopic(TopicUpdateRequest<'a>),
+    UpdateTopic(&'a TopicUpdateRequest<'a>),
 }
 
 pub enum TopicQueryResult {
@@ -221,12 +220,7 @@ impl TopicQueryResult {
     pub fn to_response(&self) -> HttpResponse {
         match self {
             TopicQueryResult::AddedTopic => HttpResponse::Ok().json(ResponseMessage::new("Add Topic Success")),
-            TopicQueryResult::GotTopicSlim(topic_with_post) => {
-//                if !topic_with_post.have_post() || !topic_with_post.have_topic() {
-//                    let _ignore = cache_handler(CacheQuery::UpdateTopic(&topic_with_post), &cache_pool);
-//                }
-                HttpResponse::Ok().json(&topic_with_post)
-            }
+            TopicQueryResult::GotTopicSlim(topic_with_post) => HttpResponse::Ok().json(&topic_with_post)
         }
     }
 }

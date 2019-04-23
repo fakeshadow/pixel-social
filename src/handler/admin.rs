@@ -30,7 +30,7 @@ pub fn admin_handler(
 		}
 		AdminQuery::UpdateCategoryCheck(self_admin_level, _update_category_request) => {
 			if !check_admin_level(_update_category_request.category_name, &self_admin_level, 3) ||
-				!check_admin_level(_update_category_request.category_theme, &self_admin_level, 3) {
+				!check_admin_level(_update_category_request.category_thumbnail, &self_admin_level, 3) {
 				return Err(ServiceError::Unauthorized);
 			}
 

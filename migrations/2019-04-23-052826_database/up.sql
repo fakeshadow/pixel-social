@@ -16,7 +16,10 @@ CREATE TABLE categories
 (
     id    OID           NOT NULL UNIQUE PRIMARY KEY,
     name  VARCHAR(128)  NOT NULL,
-    theme VARCHAR(1024) NOT NULL
+    topic_count OID NOT NULL DEFAULT 0,
+    post_count OID NOT NULL DEFAULT 0,
+    subscriber_count OID NOT NULL DEFAULT 0,
+    thumbnail VARCHAR(256) NOT NULL
 );
 
 CREATE TABLE topics
@@ -62,3 +65,21 @@ CREATE UNIQUE INDEX users_email ON users (email);
 CREATE UNIQUE INDEX categories_name ON categories (name);
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
+
+
+
+--Placeholder data below.Safe to delete
+INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)
+VALUES (1,'admin', 'admin@pixelshare', 'put hash here', 'AdminUser', 'avatar_url', 9);
+
+INSERT INTO categories (id, name, thumbnail)
+VALUES (1, 'General', ''),
+(2, 'Announcement', '');
+
+INSERT INTO categories (id, name, thumbnail)
+VALUES (3, 'Armored Core', 'AC.jpg'),
+(4, 'Ace Combat', 'ACE.jpg'),
+(5, 'Persona', 'persona.jpeg');
+
+INSERT INTO topics ( id, user_id, category_id, title, body, thumbnail)
+VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');

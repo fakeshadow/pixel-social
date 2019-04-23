@@ -20,7 +20,7 @@ pub fn add_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(TopicQuery::AddTopic(json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
+    Ok(TopicQuery::AddTopic(&json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
 }
 
 pub fn get_topic(
@@ -43,5 +43,5 @@ pub fn update_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(TopicQuery::UpdateTopic(json.to_request(Some(&user_jwt.user_id))).handle_query(&opt)?.to_response())
+    Ok(TopicQuery::UpdateTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt)?.to_response())
 }

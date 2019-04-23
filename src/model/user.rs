@@ -182,11 +182,11 @@ impl GetSelfId for SlimUser {
 
 /// impl for query enum is in handler
 pub enum UserQuery<'a> {
-    Register(AuthRequest<'a>),
-    Login(AuthRequest<'a>),
+    Register(&'a AuthRequest<'a>),
+    Login(&'a AuthRequest<'a>),
     GetMe(&'a u32),
     GetUser(&'a str),
-    UpdateUser(UserUpdateRequest<'a>),
+    UpdateUser(&'a UserUpdateRequest<'a>),
 }
 
 pub enum UserQueryResult {

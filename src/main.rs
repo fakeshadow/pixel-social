@@ -1,6 +1,5 @@
 #![allow(unused_imports)]
 
-
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -153,23 +152,23 @@ fn main() -> std::io::Result<()> {
                         web::resource("/{category_id}/{page}")
                             .route(web::get().to_async(router::category::get_category)),
                     ),
-            ) .service(
-            web::scope("/test")
-                .service(
-                    web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
-                )
-                .service(
-                    web::resource("/generate_admin/{username}/{password}/{email}").route(web::get().to_async(router::test::generate_admin)),
-                )
-        )
-
+            )
+            .service(
+                web::scope("/test")
+                    .service(
+                        web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
+                    )
+                    .service(
+                        web::resource("/generate_admin/{username}/{password}/{email}").route(web::get().to_async(router::test::generate_admin)),
+                    )
+            )
             .service(
                 web::scope("/upload")
                     .service(
                         web::resource("/").route(web::post().to_async(router::stream::upload_file))
                     )
             )
-            .service(fs::Files::new("/public", "."))
+            .service(fs::Files::new("/public", "./public"))
     })
         .bind(format!("{}:{}", &server_ip, &server_port))?
         .start();
