@@ -19,22 +19,12 @@ pub struct Category {
     pub thumbnail: String,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, Debug)]
 #[table_name = "categories"]
 pub struct NewCategory<'a> {
-    pub id: u32,
-    pub name: Option<&'a str>,
-    pub thumbnail: Option<&'a str>,
-}
-
-impl<'a> Category {
-    pub fn new(id: u32, name: &'a str, thumbnail: &'a str) -> NewCategory<'a> {
-        NewCategory {
-            id,
-            name: Some(name),
-            thumbnail: Some(thumbnail),
-        }
-    }
+    pub id: &'a u32,
+    pub name: &'a str,
+    pub thumbnail: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -55,12 +45,6 @@ pub struct CategoryUpdateJson {
     pub category_thumbnail: Option<String>,
 }
 
-pub struct CategoryUpdateRequest<'a> {
-    pub category_id: Option<&'a u32>,
-    pub category_name: Option<&'a str>,
-    pub category_thumbnail: Option<&'a str>,
-}
-
 impl CategoryUpdateJson {
     pub fn to_request(&self) -> CategoryUpdateRequest {
         CategoryUpdateRequest {
@@ -68,6 +52,22 @@ impl CategoryUpdateJson {
             category_name: self.category_name.as_ref().map(String::as_str),
             category_thumbnail: self.category_thumbnail.as_ref().map(String::as_str),
         }
+    }
+}
+
+pub struct CategoryUpdateRequest<'a> {
+    pub category_id: Option<&'a u32>,
+    pub category_name: Option<&'a str>,
+    pub category_thumbnail: Option<&'a str>,
+}
+
+impl<'a> CategoryUpdateRequest<'a> {
+    pub fn make_category(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
+        Ok(NewCategory {
+            id,
+            name: self.category_name.ok_or(ServiceError::BadRequestGeneral)?,
+            thumbnail: self.category_thumbnail.ok_or(ServiceError::BadRequestGeneral)?
+        })
     }
 }
 

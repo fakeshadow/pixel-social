@@ -66,11 +66,11 @@ impl<'a> NewTopicRequest<'a> {
     pub fn attach_id(&'a self, id: &'a u32) -> NewTopic<'a> {
         NewTopic {
             id,
-            user_id: self.user_id,
-            category_id: self.category_id,
-            thumbnail: self.thumbnail,
-            title: self.title,
-            body: self.body,
+            user_id: &self.user_id,
+            category_id: &self.category_id,
+            thumbnail: &self.thumbnail,
+            title: &self.title,
+            body: &self.body,
         }
     }
 }

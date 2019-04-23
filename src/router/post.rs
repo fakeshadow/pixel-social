@@ -3,7 +3,7 @@ use futures::IntoFuture;
 
 use crate::model::{
     errors::ServiceError,
-    post::{PostQuery, PostJson, PostUpdateJson},
+    post::{PostQuery, PostJson},
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
 use crate::handler::auth::UserJwt;
@@ -15,7 +15,7 @@ pub fn add_post(
     global_var: web::Data<GlobalGuard>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(PostQuery::AddPost(&mut json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
+    Ok(PostQuery::AddPost(&mut json.to_request(Some(&user_jwt.user_id))).handle_query(&opt)?.to_response())
 }
 
 pub fn get_post(
@@ -29,7 +29,7 @@ pub fn get_post(
 
 pub fn update_post(
     user_jwt: UserJwt,
-    json: web::Json<PostUpdateJson>,
+    json: web::Json<PostJson>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);

@@ -1,42 +1,42 @@
 use actix::MailboxError as future_err;
 use actix_web::{error, error::ResponseError, Error, HttpResponse};
+use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 use serde_json::Error as json_err;
-
 use r2d2::Error as r2d2_err;
 use r2d2_redis::redis::RedisError as redis_err;
 
-#[derive(Fail, Debug)]
+#[derive(Debug, Display)]
 pub enum ServiceError {
-    #[fail(display = "Internal Server Error")]
+    #[display(fmt = "Internal Server Error")]
     InternalServerError,
-    #[fail(display = "BadRequest: {}", _0)]
+    #[display(fmt = "BadRequest: {}", _0)]
     BadRequest(String),
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     BadRequestGeneral,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     FutureError,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     UsernameTaken,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     EmailTaken,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     InvalidUsername,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     InvalidPassword,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     InvalidEmail,
-    #[fail(display = "BadRequest")]
+    #[display(fmt = "BadRequest")]
     NotFound,
-    #[fail(display = "Forbidden")]
+    #[display(fmt = "Forbidden")]
     WrongPwd,
-    #[fail(display = "Forbidden")]
+    #[display(fmt = "Forbidden")]
     Unauthorized,
-    #[fail(display = "Forbidden")]
+    #[display(fmt = "Forbidden")]
     AuthTimeout,
-    #[fail(display = "Forbidden")]
+    #[display(fmt = "Forbidden")]
     NoCacheFound,
-    #[fail(display = "Internal Server Error")]
+    #[display(fmt = "Internal Server Error")]
     RedisOffline,
 }
 
@@ -58,19 +58,6 @@ impl ResponseError for ServiceError {
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::RedisOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
             ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected"))
-        }
-    }
-}
-
-// convert async blocking error. only for test use ands safe to remove
-use actix_web::error::BlockingError;
-use std::fmt::Debug;
-
-impl<T> From<BlockingError<T>> for ServiceError
-    where T: Debug {
-    fn from(err: BlockingError<T>) -> ServiceError {
-        match err {
-            _ => ServiceError::InternalServerError
         }
     }
 }
@@ -102,7 +89,6 @@ impl From<json_err> for ServiceError {
         ServiceError::InternalServerError
     }
 }
-
 
 impl From<diesel_err> for ServiceError {
     fn from(error: diesel_err) -> ServiceError {

@@ -12,10 +12,10 @@ use crate::schema::{categories, posts, topics, users};
 
 const LIMIT: i64 = 20;
 
-type CustomResult = Result<TopicQueryResult, ServiceError>;
+type QueryResult = Result<TopicQueryResult, ServiceError>;
 
 impl<'a> TopicQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
+    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &conn),
@@ -25,32 +25,26 @@ impl<'a> TopicQuery<'a> {
     }
 }
 
-fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> CustomResult {
+fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * 20;
 
-    let _topic: Topic = topics::table
-        .filter(topics::id.eq(&topic_id))
-        .first::<Topic>(conn)?;
+    let _topic: Topic = topics::table.filter(topics::id.eq(&topic_id)).first::<Topic>(conn)?;
 
     let _posts: Vec<Post> = posts::table
         .filter(posts::topic_id.eq(&_topic.id))
         .order(posts::id.asc())
-        .limit(LIMIT)
-        .offset(offset)
-        .load::<Post>(conn)?;
+        .limit(LIMIT).offset(offset).load::<Post>(conn)?;
 
     join_topics_users(_topic, _posts, conn, &page)
 }
 
-fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
+fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
     let cid = new_topic_request.category_id;
 
     let category_check: usize = categories::table.find(&cid).execute(conn)?;
     if category_check == 0 { return Err(ServiceError::NotFound); };
 
-    let id: u32 = global_var
-        .unwrap()
-        .lock()
+    let id: u32 = global_var.unwrap().lock()
         .map(|mut guarded_global_var| {
             let next_tid = guarded_global_var.next_tid;
             guarded_global_var.next_tid += 1;
@@ -58,13 +52,11 @@ fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data
         })
         .map_err(|_| ServiceError::InternalServerError)?;
 
-    diesel::insert_into(topics::table)
-        .values(&new_topic_request.attach_id(&id))
-        .execute(conn)?;
+    diesel::insert_into(topics::table).values(&new_topic_request.attach_id(&id)).execute(conn)?;
     Ok(TopicQueryResult::AddedTopic)
 }
 
-fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> CustomResult {
+fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> QueryResult {
     let topic_self_id = topic_request.id;
 
     match topic_request.user_id {
@@ -91,7 +83,7 @@ fn join_topics_users(
     posts: Vec<Post>,
     conn: &PgConnection,
     page: &i64,
-) -> CustomResult {
+) -> QueryResult {
     let select_user_columns = (
         users::id,
         users::username,
@@ -106,10 +98,7 @@ fn join_topics_users(
     use crate::model::common::MatchUser;
     let result = Post::get_unique_id(&posts, Some(topic.get_user_id()));
 
-    let users: Vec<SlimUser> = users::table
-        .filter(users::id.eq_any(&result))
-        .select(&select_user_columns)
-        .load::<SlimUser>(conn)?;
+    let users: Vec<SlimUser> = users::table.filter(users::id.eq_any(&result)).select(&select_user_columns).load::<SlimUser>(conn)?;
 
     let posts = posts
         .into_iter()

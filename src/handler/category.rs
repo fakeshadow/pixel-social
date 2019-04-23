@@ -33,9 +33,7 @@ fn get_popular(page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * LIMIT;
     let _topics: Vec<Topic> = topics::table
         .order(topics::last_reply_time.desc())
-        .limit(LIMIT)
-        .offset(offset)
-        .load::<Topic>(conn)?;
+        .limit(LIMIT).offset(offset).load::<Topic>(conn)?;
 
     join_topics_users(_topics, conn)
 }
@@ -48,9 +46,7 @@ fn get_category(category_request: &CategoryRequest, conn: &PgConnection) -> Quer
     let _topics: Vec<Topic> = topics::table
         .filter(topics::category_id.eq_any(categories_vec))
         .order(topics::last_reply_time.desc())
-        .limit(LIMIT)
-        .offset(offset)
-        .load::<Topic>(conn)?;
+        .limit(LIMIT).offset(offset).load::<Topic>(conn)?;
 
     join_topics_users(_topics, conn)
 }
@@ -61,26 +57,12 @@ fn get_all_categories(conn: &PgConnection) -> QueryResult {
 }
 
 fn add_category(category_request: &CategoryUpdateRequest, conn: &PgConnection) -> QueryResult {
-    let category_name = match category_request.category_name {
-        Some(name) => name,
-        None => return { Err(ServiceError::BadRequestGeneral) }
-    };
-    let category_thumbnail = match category_request.category_thumbnail {
-        Some(thumbnail) => thumbnail,
-        None => return { Err(ServiceError::BadRequestGeneral) }
-    };
-
     let last_cid = categories::table.select(categories::id)
-        .order(categories::id.desc())
-        .limit(1)
-        .load(conn);
+        .order(categories::id.desc()).limit(1).load(conn);
     let next_cid = match_id(last_cid);
+    let new_category = category_request.make_category(&next_cid)?;
 
-    let category_data = Category::new(next_cid, &category_name, &category_thumbnail);
-
-    diesel::insert_into(categories::table)
-        .values(&category_data)
-        .execute(conn)?;
+    diesel::insert_into(categories::table).values(&new_category).execute(conn)?;
 
     Ok(CategoryQueryResult::UpdatedCategory)
 }
@@ -90,9 +72,7 @@ fn update_category(category_request: &CategoryUpdateRequest, conn: &PgConnection
         Some(id) => id,
         None => return Err(ServiceError::BadRequestGeneral)
     };
-
-    let category_old_filter = categories::table
-        .filter(categories::id.eq(&target_category_id));
+    let category_old_filter = categories::table.filter(categories::id.eq(&target_category_id));
 
     diesel::update(category_old_filter).set(&category_request.insert()).execute(conn)?;
 
@@ -100,9 +80,7 @@ fn update_category(category_request: &CategoryUpdateRequest, conn: &PgConnection
 }
 
 fn delete_category(category_id: &u32, conn: &PgConnection) -> QueryResult {
-
-    diesel::delete(categories::table.find(category_id))
-        .execute(conn)?;
+    diesel::delete(categories::table.find(category_id)).execute(conn)?;
     Ok(CategoryQueryResult::UpdatedCategory)
 }
 

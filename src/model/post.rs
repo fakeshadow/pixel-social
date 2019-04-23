@@ -32,46 +32,20 @@ pub struct NewPost<'a> {
     pub post_content: &'a str,
 }
 
+#[derive(AsChangeset)]
+#[table_name = "posts"]
+pub struct UpdatePost<'a> {
+    pub id: &'a u32,
+    pub user_id: Option<&'a u32>,
+    pub topic_id: Option<&'a u32>,
+    pub post_id: Option<&'a u32>,
+    pub post_content: Option<&'a str>,
+    pub is_locked: Option<&'a bool>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PostJson {
-    pub post_id: Option<u32>,
-    pub topic_id: u32,
-    pub post_content: String,
-}
-
-impl<'a> PostJson {
-    pub fn to_request(&'a self, id: &'a u32) -> PostRequest<'a> {
-        PostRequest {
-            user_id: id,
-            post_id: self.post_id.as_ref(),
-            topic_id: &self.topic_id,
-            post_content: &self.post_content,
-        }
-    }
-}
-
-pub struct PostRequest<'a> {
-    pub user_id: &'a u32,
-    pub topic_id: &'a u32,
-    pub post_id: Option<&'a u32>,
-    pub post_content: &'a str,
-}
-
-impl<'a> PostRequest<'a> {
-    pub fn make_post(&self, id: &'a u32) -> NewPost<'a> {
-        NewPost {
-            id,
-            user_id: self.user_id,
-            topic_id: self.topic_id,
-            post_id: self.post_id,
-            post_content: self.post_content,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct PostUpdateJson {
-    pub id: u32,
+    pub id: Option<u32>,
     pub user_id: Option<u32>,
     pub topic_id: Option<u32>,
     pub post_id: Option<u32>,
@@ -79,39 +53,68 @@ pub struct PostUpdateJson {
     pub is_locked: Option<bool>,
 }
 
-/// pass user_id from jwt token as option for regular user updating post. pass none for admin user
-impl<'a> PostUpdateJson {
-    pub fn to_request(&'a self, user_id: Option<&'a u32>) -> PostUpdateRequest<'a> {
-        match user_id {
-            Some(id) => PostUpdateRequest {
-                id: &self.id,
-                user_id,
-                topic_id: None,
-                post_id: None,
-                post_content: self.post_content.as_ref().map(String::as_str),
-                is_locked: None,
-            },
-            None => PostUpdateRequest {
-                id: &self.id,
-                user_id: None,
-                topic_id: self.topic_id.as_ref(),
-                post_id: self.post_id.as_ref(),
-                post_content: self.post_content.as_ref().map(String::as_str),
-                is_locked: self.is_locked.as_ref(),
-            }
+impl<'a> PostJson {
+    /// pass user_id from jwt token as option for regular user updating post. pass none for admin user
+    pub fn to_request(&'a self, id: Option<&'a u32>) -> PostRequest<'a> {
+        PostRequest {
+            id: self.id.as_ref(),
+            user_id: id,
+            topic_id: self.topic_id.as_ref(),
+            post_id: self.post_id.as_ref(),
+            post_content: self.post_content.as_ref().map(String::as_str),
+            is_locked: self.is_locked.as_ref(),
         }
     }
 }
 
-#[derive(AsChangeset)]
-#[table_name = "posts"]
-pub struct PostUpdateRequest<'a> {
-    pub id: &'a u32,
+pub struct PostRequest<'a> {
+    pub id: Option<&'a u32>,
     pub user_id: Option<&'a u32>,
     pub topic_id: Option<&'a u32>,
     pub post_id: Option<&'a u32>,
     pub post_content: Option<&'a str>,
     pub is_locked: Option<&'a bool>,
+}
+
+impl<'a> PostRequest<'a> {
+    pub fn extract_self_id(&self) -> Result<&'a u32, ServiceError> {
+        Ok(self.id.ok_or(ServiceError::BadRequestGeneral)?)
+    }
+
+    pub fn extract_topic_id(&self) -> Result<&'a u32, ServiceError> {
+        Ok(self.topic_id.ok_or(ServiceError::BadRequestGeneral)?)
+    }
+
+    pub fn make_post(&self, id: &'a u32) -> Result<NewPost<'a>, ServiceError> {
+        Ok(NewPost {
+            id,
+            user_id: self.user_id.ok_or(ServiceError::BadRequestGeneral)?,
+            topic_id: self.extract_topic_id()?,
+            post_id: self.post_id,
+            post_content: self.post_content.ok_or(ServiceError::BadRequestGeneral)?,
+        })
+    }
+
+    pub fn make_update(&self) -> Result<UpdatePost, ServiceError> {
+        match self.user_id {
+            Some(id) => Ok(UpdatePost {
+                id: self.extract_self_id()?,
+                user_id: self.user_id,
+                topic_id: None,
+                post_id: None,
+                post_content: self.post_content,
+                is_locked: None,
+            }),
+            None => Ok(UpdatePost {
+                id: self.extract_self_id()?,
+                user_id: None,
+                topic_id: self.topic_id,
+                post_id: self.post_id,
+                post_content: self.post_content,
+                is_locked: self.is_locked,
+            })
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -152,7 +155,7 @@ impl Post {
 
 pub enum PostQuery<'a> {
     AddPost(&'a mut PostRequest<'a>),
-    UpdatePost(&'a PostUpdateRequest<'a>),
+    UpdatePost(&'a PostRequest<'a>),
     GetPost(&'a u32),
 }
 

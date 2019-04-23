@@ -4,15 +4,15 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    post::{Post, PostQuery, PostQueryResult, PostRequest, PostUpdateRequest},
+    post::{Post, PostQuery, PostQueryResult, PostRequest},
     common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
 use crate::schema::{posts, topics};
 
-type CustomResult = Result<PostQueryResult, ServiceError>;
+type QueryResult = Result<PostQueryResult, ServiceError>;
 
 impl<'a> PostQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
+    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             PostQuery::GetPost(pid) => get_post(&pid, &conn),
@@ -22,33 +22,32 @@ impl<'a> PostQuery<'a> {
     }
 }
 
-fn get_post(pid: &u32, conn: &PgConnection) -> CustomResult {
+fn get_post(pid: &u32, conn: &PgConnection) -> QueryResult {
     let post = posts::table.find(&pid).first::<Post>(conn)?;
     Ok(PostQueryResult::GotPost(post))
 }
 
-fn update_post(post_request: &PostUpdateRequest, conn: &PgConnection) -> CustomResult {
-    let post_self_id = post_request.id;
+fn update_post(post_request: &PostRequest, conn: &PgConnection) -> QueryResult {
+    let post_self_id = post_request.extract_self_id()?;
 
     match post_request.user_id {
         Some(_user_id) => {
-            let post_old_filter = posts::table.filter(
-                posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id)));
-            diesel::update(post_old_filter).set(post_request).execute(conn)?;
+            let post_old_filter = posts::table.filter(posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id)));
+            diesel::update(post_old_filter).set(post_request.make_update()?).execute(conn)?;
         }
         None => {
-            let post_old_filter = posts::table.filter(
-                posts::id.eq(&post_self_id));
-            diesel::update(post_old_filter).set(post_request).execute(conn)?;
+            let post_old_filter = posts::table.filter(posts::id.eq(&post_self_id));
+            diesel::update(post_old_filter).set(post_request.make_update()?).execute(conn)?;
         }
     };
     Ok(PostQueryResult::AddedPost)
 }
 
-fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
+fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
     let now = Utc::now().naive_local();
+    let target_topic_id = post_request.extract_topic_id()?;
 
-    let to_topic = topics::table.filter(topics::id.eq(&post_request.topic_id));
+    let to_topic = topics::table.filter(topics::id.eq(&target_topic_id));
     let update_data = (
         topics::last_reply_time.eq(&now),
         topics::reply_count.eq(topics::reply_count + 1),
@@ -60,7 +59,7 @@ fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<Globa
         let to_post = posts::table.filter(
             posts::id
                 .eq(&pid)
-                .and(posts::topic_id.eq(&post_request.topic_id)),
+                .and(posts::topic_id.eq(&target_topic_id)),
         );
         let update_data = (
             posts::last_reply_time.eq(&now),
@@ -78,6 +77,6 @@ fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<Globa
         })
         .map_err(|_| ServiceError::InternalServerError)?;
 
-    diesel::insert_into(posts::table).values(&post_request.make_post(&id)).execute(conn)?;
+    diesel::insert_into(posts::table).values(&post_request.make_post(&id)?).execute(conn)?;
     Ok(PostQueryResult::AddedPost)
 }

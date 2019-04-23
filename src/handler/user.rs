@@ -94,9 +94,8 @@ fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<
         }
         None => {
             let password_hash: String = hash::hash_password(_password)?;
-            let id: u32 = global_var
-                .unwrap()
-                .lock()
+            println!("{}", password_hash);
+            let id: u32 = global_var.unwrap().lock()
                 .map(|mut guarded_global_var| {
                     let next_uid = guarded_global_var.next_uid;
                     guarded_global_var.next_uid += 1;

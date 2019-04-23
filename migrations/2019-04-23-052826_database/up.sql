@@ -69,8 +69,9 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 
 
 --Placeholder data below.Safe to delete
+--admin password is 1234asdf
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)
-VALUES (1,'admin', 'admin@pixelshare', 'put hash here', 'AdminUser', 'avatar_url', 9);
+VALUES (1,'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'avatar_url', 9);
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', ''),

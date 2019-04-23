@@ -4,7 +4,7 @@ use actix_web::{web, HttpResponse};
 use crate::model::{
     errors::ServiceError,
     admin::AdminQuery,
-    post::{PostUpdateJson, PostQuery},
+    post::{PostJson, PostQuery},
     topic::{TopicQuery, TopicUpdateJson},
     category::{CategoryQuery, CategoryUpdateJson},
     user::{UserQuery, UserUpdateJson},
@@ -93,7 +93,7 @@ pub fn admin_update_topic(
 
 pub fn admin_update_post(
     user_jwt: UserJwt,
-    json: web::Json<PostUpdateJson>,
+    json: web::Json<PostJson>,
 //	cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
