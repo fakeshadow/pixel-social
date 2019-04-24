@@ -24,10 +24,7 @@ impl<'a> UserQuery<'a> {
 }
 
 fn get_me(my_id: &u32, conn: &PgConnection) -> CustomResult {
-    let user: User = users::table
-        .find(&my_id)
-        .first::<User>(conn)?;
-
+    let user: User = users::table.find(&my_id).first::<User>(conn)?;
     Ok(UserQueryResult::GotUser(user))
 }
 
@@ -42,7 +39,6 @@ fn get_user(other_username: &str, conn: &PgConnection) -> CustomResult {
                  users::created_at,
                  users::updated_at))
         .first::<SlimUser>(conn)?;
-
     Ok(UserQueryResult::GotSlimUser(user))
 }
 
@@ -55,11 +51,9 @@ fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> CustomResult 
         .first::<User>(conn)?;
 
     if exist_user.blocked { return Err(ServiceError::Unauthorized); }
-
     hash::verify_password(&_password, &exist_user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
-
     Ok(UserQueryResult::LoggedIn(AuthResponse {
         token,
         user_data: exist_user.slim(),
@@ -78,7 +72,7 @@ fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> 
 fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
     let _username = register_request.username;
     let _password = register_request.password;
-    let _email = register_request.email.unwrap();
+    let _email = register_request.email.ok_or(ServiceError::BadRequestGeneral)?;
 
     match users::table
         .select((users::username, users::email))
@@ -94,7 +88,6 @@ fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<
         }
         None => {
             let password_hash: String = hash::hash_password(_password)?;
-            println!("{}", password_hash);
             let id: u32 = global_var.unwrap().lock()
                 .map(|mut guarded_global_var| {
                     let next_uid = guarded_global_var.next_uid;

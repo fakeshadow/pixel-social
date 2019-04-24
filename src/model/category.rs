@@ -8,7 +8,6 @@ use crate::model::{
 };
 use crate::schema::categories;
 
-
 #[derive(Queryable, Serialize)]
 pub struct Category {
     pub id: u32,
@@ -89,7 +88,7 @@ impl<'a> CategoryUpdateRequest<'a> {
 
 pub enum CategoryQuery<'a> {
     GetAllCategories,
-    GetPopular(i64),
+    GetPopular(&'a i64),
     GetCategory(&'a CategoryRequest<'a>),
     AddCategory(&'a CategoryUpdateRequest<'a>),
     UpdateCategory(&'a CategoryUpdateRequest<'a>),

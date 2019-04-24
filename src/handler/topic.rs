@@ -5,8 +5,8 @@ use crate::model::{
     errors::ServiceError,
     post::Post,
     user::SlimUser,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, NewTopicRequest, TopicUpdateRequest},
-    common::{PostgresPool, QueryOption, GlobalGuard},
+    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
+    common::{PostgresPool, QueryOption, GlobalGuard, MatchUser,get_unique_id},
 };
 use crate::schema::{categories, posts, topics, users};
 
@@ -32,14 +32,13 @@ fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> QueryResult {
 
     let _posts: Vec<Post> = posts::table
         .filter(posts::topic_id.eq(&_topic.id))
-        .order(posts::id.asc())
-        .limit(LIMIT).offset(offset).load::<Post>(conn)?;
+        .order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
 
     join_topics_users(_topic, _posts, conn, &page)
 }
 
-fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
-    let cid = new_topic_request.category_id;
+fn add_topic(topic_request: &TopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
+    let cid = topic_request.extract_category_id()?;
 
     let category_check: usize = categories::table.find(&cid).execute(conn)?;
     if category_check == 0 { return Err(ServiceError::NotFound); };
@@ -52,29 +51,29 @@ fn add_topic(new_topic_request: &NewTopicRequest, global_var: &Option<&web::Data
         })
         .map_err(|_| ServiceError::InternalServerError)?;
 
-    diesel::insert_into(topics::table).values(&new_topic_request.attach_id(&id)).execute(conn)?;
-    Ok(TopicQueryResult::AddedTopic)
+    diesel::insert_into(topics::table).values(&topic_request.make_topic(&id)?).execute(conn)?;
+    Ok(TopicQueryResult::ModifiedTopic)
 }
 
-fn update_topic(topic_request: &TopicUpdateRequest, conn: &PgConnection) -> QueryResult {
-    let topic_self_id = topic_request.id;
+fn update_topic(topic_request: &TopicRequest, conn: &PgConnection) -> QueryResult {
+    let topic_self_id = topic_request.extract_self_id()?;
 
     match topic_request.user_id {
         Some(_user_id) => {
             let topic_old_filter = topics::table.filter(
                 topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id)));
 
-            diesel::update(topic_old_filter).set(topic_request).execute(conn)?;
+            diesel::update(topic_old_filter).set(topic_request.make_update()?).execute(conn)?;
         }
         None => {
             let topic_old_filter = topics::table.filter(
                 topics::id.eq(&topic_self_id));
 
-            diesel::update(topic_old_filter).set(topic_request).execute(conn)?;
+            diesel::update(topic_old_filter).set(topic_request.make_update()?).execute(conn)?;
         }
     };
 
-    Ok(TopicQueryResult::AddedTopic)
+    Ok(TopicQueryResult::ModifiedTopic)
 }
 
 
@@ -94,9 +93,7 @@ fn join_topics_users(
         users::updated_at,
     );
 
-    // use to bring the trait to scope
-    use crate::model::common::MatchUser;
-    let result = Post::get_unique_id(&posts, Some(topic.get_user_id()));
+    let result = get_unique_id(&posts, Some(topic.get_user_id()));
 
     let users: Vec<SlimUser> = users::table.filter(users::id.eq_any(&result)).select(&select_user_columns).load::<SlimUser>(conn)?;
 
@@ -116,5 +113,5 @@ fn join_topics_users(
         }
     };
 
-    Ok(TopicQueryResult::GotTopicSlim(result))
+    Ok(TopicQueryResult::GotTopic(result))
 }

@@ -15,7 +15,7 @@ impl<'a> PostQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
-            PostQuery::GetPost(pid) => get_post(&pid, &conn),
+            PostQuery::GetPost(post_id) => get_post(&post_id, &conn),
             PostQuery::AddPost(mut post_request) => add_post(&mut post_request, &opt.global_var, &conn),
             PostQuery::UpdatePost(post_request) => update_post(&post_request, &conn)
         }
@@ -44,6 +44,7 @@ fn update_post(post_request: &PostRequest, conn: &PgConnection) -> QueryResult {
 }
 
 fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
+    // ToDo: in case possible time region problem.
     let now = Utc::now().naive_local();
     let target_topic_id = post_request.extract_topic_id()?;
 
@@ -55,16 +56,10 @@ fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<Globa
     let to_topic_check = diesel::update(to_topic).set(update_data).execute(conn)?;
     if to_topic_check == 0 { return Err(ServiceError::NotFound); }
 
-    if let Some(pid) = post_request.post_id {
-        let to_post = posts::table.filter(
-            posts::id
-                .eq(&pid)
-                .and(posts::topic_id.eq(&target_topic_id)),
-        );
-        let update_data = (
-            posts::last_reply_time.eq(&now),
-            posts::reply_count.eq(posts::reply_count + 1),
-        );
+    if let Some(_post_id) = post_request.post_id {
+        let to_post = posts::table.filter(posts::id.eq(&_post_id).and(posts::topic_id.eq(&target_topic_id)));
+        let update_data = (posts::last_reply_time.eq(&now), posts::reply_count.eq(posts::reply_count + 1));
+
         let to_post_check = diesel::update(to_post).set(update_data).execute(conn)?;
         if to_post_check == 0 { post_request.post_id = None }
     }

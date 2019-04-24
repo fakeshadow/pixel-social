@@ -11,16 +11,17 @@ use diesel::{
 use r2d2_redis::{
     redis,
     RedisConnectionManager,
-    r2d2 as redis_r2d2};
+    r2d2 as redis_r2d2,
+};
 
 use crate::model::errors::ServiceError;
 use crate::schema::{posts, topics, users};
 use crate::util::validation as validate;
+use crate::model::user::SlimUser;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_r2d2::Pool<RedisConnectionManager>;
 
-// query option for handlers
 pub struct QueryOption<'a> {
     pub db_pool: Option<&'a web::Data<PostgresPool>>,
     pub cache_pool: Option<&'a web::Data<RedisPool>>,
@@ -40,7 +41,6 @@ impl<'a> QueryOption<'a> {
         }
     }
 }
-
 
 #[derive(Serialize)]
 pub struct ResponseMessage<'a> {
@@ -63,6 +63,20 @@ pub trait GetSelfId {
     fn get_self_id_copy(&self) -> u32;
 }
 
+/// trait for extract self user , self topic/post and self user_id from struct(Mainly topic/post with user).
+pub trait CheckUserId<T, R>
+    where T: GetSelfId {
+    fn get_self_user(&self) -> Option<&T>;
+    fn get_self_post_topic(&self) -> &R;
+
+    fn check_user_id(&self) -> Option<u32> {
+        match self.get_self_user() {
+            Some(user) => Some(user.get_self_id_copy()),
+            None => None
+        }
+    }
+}
+
 pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
 }
@@ -74,54 +88,34 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
+// only add topic user_id when query for the first page of a topic. Other case just pass None in
+// capacity has to be changed along side with the limit constant in handlers.
+pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
+    where T: MatchUser {
+    let mut result: Vec<&u32> = Vec::with_capacity(21);
+
+    if let Some(user_id) = topic_user_id { result.push(user_id); }
+
+    for item in items.iter() {
+        let item_id = item.get_user_id();
+        if !result.contains(&item_id) {
+            result.push(item_id);
+        }
+    }
+    result
+}
+
 pub trait MatchUser {
     fn get_user_id(&self) -> &u32;
 
-    // only add topic user_id when query for the first page of a topic. Other case just pass None in
-    // capacity has to be changed along side with the limit constant in handlers.
-    fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
-        where T: MatchUser {
-        let mut result: Vec<&u32> = Vec::with_capacity(21);
-
-        if let Some(user_id) = topic_user_id {
-            result.push(user_id);
-        }
-
-        for item in items.iter() {
-            let item_id = item.get_user_id();
-            if !result.contains(&item_id) {
-                result.push(item_id);
-            }
-        }
-        result
-    }
-
-    fn match_user_index<T>(&self, users: &Vec<T>) -> Option<usize>
-        where
-            T: GetSelfId,
-    {
-        let mut _index: Vec<usize> = Vec::with_capacity(1);
-        for (index, user) in users.iter().enumerate() {
-            if &self.get_user_id() == &user.get_self_id() {
-                _index.push(index);
-                break;
-            }
-        }
-        if _index.len() == 0 {
-            return None;
-        }
-        Some(_index[0])
-    }
-
-    // add user privacy filter here
+    // ToDo: add user privacy filter here
+    // ToDo: same user can have multiple posts in the same vec so the data can't be moved. Need to find a way not cloning the userdata.
     fn make_user_field<T>(&self, users: &Vec<T>) -> Option<T>
-        where
-            T: Clone + GetSelfId,
-    {
-        match self.match_user_index(users) {
-            Some(index) => Some(users[index].clone()),
-            None => None,
-        }
+        where T: GetSelfId + Clone, {
+        users.iter().enumerate()
+            .filter(|(index, user)|
+                self.get_user_id() == user.get_self_id())
+            .map(|(_, user)| user).cloned().collect::<Vec<T>>().pop()
     }
 }
 
@@ -223,11 +217,7 @@ impl GlobalVar {
 pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
     match last_id {
         Ok(id) => {
-            if id.len() > 0 {
-                id[0] + 1
-            } else {
-                1
-            }
+            if id.len() > 0 { id[0] + 1 } else { 1 }
         }
         Err(_) => panic!("Database error.Failed to get ids"),
     }

@@ -1,234 +1,185 @@
 use actix_web::{web, HttpResponse};
-use r2d2_redis::redis;
+use r2d2_redis::{redis, RedisConnectionManager};
 use r2d2_redis::redis::{Commands, RedisError};
+use serde::{Deserialize, Serialize};
 use serde_json as json;
+use lazy_static::__Deref;
 
 use crate::model::{
-    cache::{CacheQuery, CacheQueryResult},
-    common::*,
     errors::ServiceError,
-    post::*,
-    topic::*,
-    user::*,
+    user::SlimUser,
+    post::Post,
+    topic::{TopicWithPost, TopicWithUser, Topic},
+    cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
+    common::{RedisPool, MatchUser, GetSelfId, CheckUserId, get_unique_id},
 };
-
-use lazy_static::__Deref;
 
 const LIMIT: isize = 20;
 
-pub fn cache_handler(
-    query: CacheQuery,
-    pool: &web::Data<RedisPool>,
-) -> Result<CacheQueryResult, ServiceError> {
-    match &pool.try_get() {
-        None => Err(ServiceError::RedisOffline),
-        Some(conn) => {
-            match query {
-                CacheQuery::GetTopic(cache_request) => {
-                    // get topic from redis
-                    let topic_id = cache_request.topic;
-                    let page = cache_request.page;
+type QueryResult = Result<CacheQueryResult, ServiceError>;
+type Conn = redis::Connection;
 
-                    // get Option<Topic> if the page is 1. return None if it's not
-                    let topic = if page == &1isize {
-                        let category_key = format!("category:{}", 1);
-                        let topics_string_vec: Vec<String> = redis::cmd("zrangebyscore")
-                            .arg(&category_key)
-                            .arg(topic_id.clone())
-                            .arg(topic_id.clone())
-                            .query(conn.deref())?;
-
-                        if topics_string_vec.is_empty() { return Err(ServiceError::NotFound); };
-
-                        let mut topic_vec: Vec<Topic> =
-                            topics_string_vec
-                                .into_iter()
-                                .map(|topic_string| json::from_str(&topic_string))
-                                .collect::<Result<Vec<Topic>, serde_json::Error>>()?;
-
-                        let topic_user_vec = get_users(&topic_vec, &conn)?;
-
-                        let topic = match topic_vec.pop() {
-                            Some(topic) => topic,
-                            None => return Err(ServiceError::NotFound)
-                        };
-                        Some(topic.attach_user(&topic_user_vec))
-                    } else { None };
-
-                    //get posts from redis. need to improve the code to be parallel with topic query
-                    let offset = (page - 1) * 20;
-                    let topic_key = format!("topic:{}", &topic_id);
-
-                    let post_string_vec: Vec<String> = redis::cmd("zrange")
-                        .arg(&topic_key)
-                        .arg(offset)
-                        .arg(offset + LIMIT)
-                        .query(conn.deref())?;
-
-                    let post_vec: Vec<Post> = post_string_vec
-                        .into_iter()
-                        .map(|post_string| json::from_str(&post_string))
-                        .collect::<Result<Vec<Post>, serde_json::Error>>()?;
-
-                    let post_user_vec = get_users(&post_vec, &conn)?;
-
-                    let posts = Some(post_vec.into_iter().map(|post| post.attach_user(&post_user_vec)).collect());
-                    Ok(CacheQueryResult::GotTopic(
-                        TopicWithPost {
-                            topic,
-                            posts,
-                        }))
-                }
-
-                CacheQuery::GetCategory(cache_request) => {
-                    let page = cache_request.page;
-                    let categories = cache_request.categories;
-
-                    let offset = (page - 1) * 20;
-                    let category_key = format!("category:{}", categories[0]);
-                    let topics_string_vec: Vec<String> = redis::cmd("zrevrange")
-                        .arg(category_key)
-                        .arg(offset)
-                        .arg(offset + LIMIT)
-                        .query(conn.deref())?;
-
-                    if topics_string_vec.len() == 0 { return Err(ServiceError::NotFound); }
-
-                    let topics_vec: Vec<Topic> =
-                        topics_string_vec
-                            .into_iter()
-                            .map(|topic_string| json::from_str(&topic_string))
-                            .collect::<Result<Vec<Topic>, serde_json::Error>>()?;
-
-                    let users = get_users(&topics_vec, &conn)?;
-
-                    let topics_with_user: Vec<TopicWithUser<SlimUser>> =
-                        topics_vec
-                            .into_iter()
-                            .map(|topic| topic.attach_user(&users))
-                            .collect();
-
-                    Ok(CacheQueryResult::GotCategory(topics_with_user))
-                }
-
-                CacheQuery::UpdateCategory(topics) => {
-                    let category_id = topics[0].topic.category_id;
-                    let category_key = format!("category:{}", &category_id);
-
-                    let mut topic_rank_vec: Vec<(u32, String)> = Vec::with_capacity(20);
-                    let mut user_rank_vec: Vec<(u32, String)> = Vec::with_capacity(20);
-                    for topic in topics.iter() {
-                        if let Some(user_id) = topic.check_user_id() {
-                            let tuple = (user_id, json::to_string(&topic.user).unwrap());
-                            if !user_rank_vec.contains(&tuple) {
-                                user_rank_vec.push(tuple)
-                            }
-                        }
-                        topic_rank_vec
-                            .push((topic.get_self_id_copy(), json::to_string(&topic).unwrap()));
-                    }
-
-                    conn.zadd_multiple("users", &user_rank_vec)?;
-                    conn.zadd_multiple(category_key, &topic_rank_vec)?;
-
-                    Ok(CacheQueryResult::Updated)
-                }
-
-                CacheQuery::UpdateTopic(topic_with_post) => {
-                    let mut topic_rank_vec: Vec<(u32, String)> = Vec::with_capacity(1);
-                    let mut post_rank_vec: Vec<(u32, String)> = Vec::with_capacity(21);
-                    let mut user_rank_vec: Vec<(u32, String)> = Vec::with_capacity(21);
-
-                    if let Some(topic) = &topic_with_post.topic {
-                        let topic_string = json::to_string(&topic.topic)?;
-                        topic_rank_vec.push((
-                            topic.get_self_id().clone(),
-                            topic_string,
-                        ));
-                        if let Some(user_id) = topic.check_user_id() {
-                            let user_string = json::to_string(&topic.user)?;
-                            user_rank_vec.push((user_id, user_string));
-                        }
-                    }
-                    if let Some(posts_with_user) = &topic_with_post.posts {
-                        for post_with_user in posts_with_user.iter() {
-                            if let Some(user_id) = post_with_user.check_user_id() {
-                                let user_string = json::to_string(&post_with_user.user)?;
-                                let tuple = (user_id, user_string);
-                                if !user_rank_vec.contains(&tuple) {
-                                    user_rank_vec.push(tuple)
-                                }
-                            }
-                            let post_string = json::to_string(&post_with_user.post)?;
-                            post_rank_vec.push((
-                                post_with_user.get_self_id().clone(),
-                                post_string,
-                            ));
-                        }
-                    }
-                    if !topic_rank_vec.is_empty() {
-                        let category_key =
-                            format!("category:{}", topic_with_post.get_category_id().unwrap());
-                        conn.zadd_multiple(category_key,&topic_rank_vec)?;
-                    }
-                    if !user_rank_vec.is_empty() {
-                        conn.zadd_multiple("users", &user_rank_vec)?;
-                    }
-                    if !post_rank_vec.is_empty() {
-                        let topic_key =
-                            format!("topic:{}", topic_with_post.get_topic_id().unwrap());
-                        conn.zadd_multiple(topic_key, &post_rank_vec)?;
-                    }
-                    Ok(CacheQueryResult::Updated)
-                }
-
-//				CacheQuery::GetAllCategories => Ok(CacheQueryResult::GotAllCategories),
-//
-//				CacheQuery::GetPopular(_page) => Ok(CacheQueryResult::GotPopular),
-            }
+impl<'a> CacheQuery<'a> {
+    pub fn handle_query(self, cache_pool: &web::Data<RedisPool>) -> QueryResult {
+        let conn = &cache_pool.try_get().ok_or(ServiceError::RedisOffline)?;
+        match self {
+            CacheQuery::GetTopic(cache_request) => get_topic_cache(&cache_request, &conn),
+            CacheQuery::GetCategory(cache_request) => get_category_cache(&cache_request, &conn),
+            CacheQuery::UpdateCategory(topics) => update_category_cache(&topics, &conn),
+            CacheQuery::UpdateTopic(topic_with_post) => update_topic_cache(&topic_with_post, &conn),
         }
     }
 }
 
-fn get_users<T>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>, ServiceError>
-    where T: MatchUser {
-    let mut user_id_vec = Vec::with_capacity(20);
+fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResult {
+    // get topic from redis
+    let topic_id = cache_request.topic.clone();
+    let page = cache_request.page;
 
-    for item in vec.iter() {
-        if !user_id_vec.contains(&item.get_user_id()) {
-            user_id_vec.push(item.get_user_id())
+    // get Option<Topic> if the page is 1. return None if it's not
+    let topic = if page == &1isize {
+        let category_key = format!("category:{}", 1);
+        // ToDo: in case vec len is 0 and cause panic
+        let topics_string = from_score_range(&category_key, topic_id, topic_id, &conn)?;
+        let mut topic_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
+        let topic_user_vec = get_users(&topic_vec, &conn)?;
+        let topic = topic_vec.pop().ok_or(ServiceError::NoCacheFound)?;
+        Some(topic.attach_user(&topic_user_vec))
+    } else { None };
+
+    let offset = (page - 1) * 20;
+    let topic_key = format!("topic:{}", &topic_id);
+
+    let posts_string = from_range(&topic_key, "zrange", offset, &conn)?;
+    let post_vec: Vec<Post> = deserialize_string_vec(&posts_string)?;
+    let post_user_vec = get_users(&post_vec, &conn)?;
+    let posts = Some(post_vec.into_iter().map(|post| post.attach_user(&post_user_vec)).collect());
+
+    Ok(CacheQueryResult::GotTopic(TopicWithPost { topic, posts }))
+}
+
+fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> QueryResult {
+    let page = cache_request.page;
+    let categories = cache_request.categories;
+    let offset = (page - 1) * 20;
+    // ToDo: For now only query the first category from request.
+    let category_key = format!("category:{}", categories[0]);
+    let topics_string = from_range(&category_key, "zrevrange", offset, &conn)?;
+    if topics_string.len() == 0 { return Err(ServiceError::NotFound); }
+
+    let topics_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
+    let users = get_users(&topics_vec, &conn)?;
+
+    let topics_with_user: Vec<TopicWithUser<SlimUser>> = topics_vec.into_iter().map(|topic| topic.attach_user(&users)).collect();
+
+    Ok(CacheQueryResult::GotCategory(topics_with_user))
+}
+
+fn update_category_cache(topics: &Vec<TopicWithUser<SlimUser>>, conn: &Conn) -> QueryResult {
+    let category_id = topics[0].topic.category_id;
+    let category_key = format!("category:{}", &category_id);
+    let (topic_rank_vec, user_rank_vec) = stringify_topics_posts(&topics)?;
+    conn.zadd_multiple("users", &user_rank_vec)?;
+    conn.zadd_multiple(category_key, &topic_rank_vec)?;
+    Ok(CacheQueryResult::Updated)
+}
+
+fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResult {
+    let mut topic_rank_vec: Vec<(u32, String)> = Vec::with_capacity(1);
+    let mut post_rank_vec: Vec<(u32, String)> = Vec::with_capacity(20);
+    let mut user_rank_vec: Vec<(u32, String)> = Vec::with_capacity(21);
+
+    if let Some(topic) = &topic_with_post.topic {
+        topic_rank_vec.push((
+            topic.get_self_id_copy(),
+            json::to_string(&topic.topic)?,
+        ));
+        if let Some(user_id) = topic.check_user_id() {
+            user_rank_vec.push((user_id, json::to_string(&topic.user)?));
         }
     }
-    if user_id_vec.is_empty() { return Ok(vec![])}
+    if let Some(posts_with_user) = &topic_with_post.posts {
+        let (post_rank_vec, mut user_rank) = stringify_topics_posts(&posts_with_user)?;
+        user_rank_vec.append(&mut user_rank);
+    }
+    if !topic_rank_vec.is_empty() {
+        let category_key =
+            format!("category:{}", topic_with_post.get_category_id().unwrap());
+        conn.zadd_multiple(category_key, &topic_rank_vec)?;
+    }
+    if !user_rank_vec.is_empty() {
+        conn.zadd_multiple("users", &user_rank_vec)?;
+    }
+    if !post_rank_vec.is_empty() {
+        let topic_key =
+            format!("topic:{}", topic_with_post.get_topic_id().unwrap());
+        conn.zadd_multiple(topic_key, &post_rank_vec)?;
+    }
+    Ok(CacheQueryResult::Updated)
+}
 
-    user_id_vec.sort();
+fn stringify_topics_posts<T, R>(topics_or_posts: &Vec<T>) -> Result<(Vec<(u32, String)>, Vec<(u32, String)>), ServiceError>
+    where T: CheckUserId<SlimUser, R> + GetSelfId, R:Serialize {
+    let mut topics_or_posts_rank: Vec<(u32, String)> = Vec::with_capacity(20);
+    let mut users_rank: Vec<(u32, String)> = Vec::with_capacity(20);
 
-    let range_index = user_id_vec.len() - 1;
-    let range_start = user_id_vec[0].clone();
-    let range_end = user_id_vec[range_index].clone();
+    for item in topics_or_posts.iter() {
+        if let Some(user_id) = item.check_user_id() {
+            let tuple = (user_id, json::to_string(&item.get_self_user().ok_or(ServiceError::NoCacheFound)?)?);
+            if !users_rank.contains(&tuple) {
+                users_rank.push(tuple)
+            }
+        }
+        topics_or_posts_rank.push((
+            item.get_self_id().clone(),
+            json::to_string(&item.get_self_post_topic())?,
+        ));
+    }
+    Ok((topics_or_posts_rank, users_rank))
+}
+
+fn get_users<T>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>, ServiceError>
+    where T: MatchUser {
+    let mut users_id = get_unique_id(&vec, None);
+    if users_id.is_empty() { return Ok(vec![]); }
+    users_id.sort();
+
+    let range_index = users_id.len() - 1;
+    let range_start = users_id[0].clone();
+    let range_end = users_id[range_index].clone();
 
     let users_vec: Vec<(String, u32)> = conn.zrangebyscore_withscores("users", range_start, range_end)?;
 
     let mut users: Vec<SlimUser> = Vec::with_capacity(20);
     for _user in users_vec.iter() {
         let (_user_string, _user_id) = _user;
-        if user_id_vec.contains(&_user_id) {
-            let usr = json::from_str(_user_string)?;
-            users.push(usr)
+        if users_id.contains(&_user_id) {
+            users.push(json::from_str(_user_string)?)
         }
     };
     Ok(users)
 }
 
-pub fn match_cache_query_result(
-    result: Result<CacheQueryResult, ServiceError>,
-) -> Result<HttpResponse, ServiceError> {
-    match result {
-        Ok(query_result) => match query_result {
-            CacheQueryResult::GotTopic(topic) => Ok(HttpResponse::Ok().json(topic)),
-            CacheQueryResult::GotCategory(category_data) => Ok(HttpResponse::Ok().json(category_data)),
-            _ => Ok(HttpResponse::Ok().finish()),
-        },
-        Err(e) => Err(e),
-    }
+fn from_score_range(key: &str, start_range: u32, end_range: u32, conn: &Conn) -> Result<Vec<String>, ServiceError> {
+    let vec = redis::cmd("zrangebyscore")
+        .arg(key)
+        .arg(start_range)
+        .arg(end_range)
+        .query(conn.deref())?;
+    Ok(vec)
+}
+
+fn from_range(key: &str, cmd: &str, offset: isize, conn: &Conn) -> Result<Vec<String>, ServiceError> {
+    let vec = redis::cmd(cmd)
+        .arg(key)
+        .arg(offset)
+        .arg(offset + LIMIT)
+        .query(conn.deref())?;
+    Ok(vec)
+}
+
+fn deserialize_string_vec<'a, T>(vec: &'a Vec<String>) -> Result<Vec<T>, serde_json::Error>
+    where T: Deserialize<'a> {
+    vec.iter().map(|topic_string| json::from_str(&topic_string))
+        .collect::<Result<Vec<T>, serde_json::Error>>()
 }

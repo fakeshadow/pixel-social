@@ -6,7 +6,7 @@ use crate::model::{
     topic::Topic,
     errors::ServiceError,
     category::{Category, CategoryQuery, CategoryQueryResult},
-    common::{PostgresPool, RedisPool, QueryOption, match_id},
+    common::{PostgresPool, RedisPool, QueryOption,MatchUser,get_unique_id, match_id},
 };
 use crate::schema::{categories, topics, users};
 use crate::model::category::{CategoryRequest, CategoryUpdateRequest};
@@ -31,9 +31,7 @@ impl<'a> CategoryQuery<'a> {
 
 fn get_popular(page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * LIMIT;
-    let _topics: Vec<Topic> = topics::table
-        .order(topics::last_reply_time.desc())
-        .limit(LIMIT).offset(offset).load::<Topic>(conn)?;
+    let _topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
 
     join_topics_users(_topics, conn)
 }
@@ -63,19 +61,14 @@ fn add_category(category_request: &CategoryUpdateRequest, conn: &PgConnection) -
     let new_category = category_request.make_category(&next_cid)?;
 
     diesel::insert_into(categories::table).values(&new_category).execute(conn)?;
-
     Ok(CategoryQueryResult::UpdatedCategory)
 }
 
 fn update_category(category_request: &CategoryUpdateRequest, conn: &PgConnection) -> QueryResult {
-    let target_category_id = match category_request.category_id {
-        Some(id) => id,
-        None => return Err(ServiceError::BadRequestGeneral)
-    };
+    let target_category_id = category_request.category_id.ok_or(ServiceError::BadRequestGeneral)?;
     let category_old_filter = categories::table.filter(categories::id.eq(&target_category_id));
 
     diesel::update(category_old_filter).set(&category_request.insert()).execute(conn)?;
-
     Ok(CategoryQueryResult::UpdatedCategory)
 }
 
@@ -88,9 +81,7 @@ fn join_topics_users(
     topics: Vec<Topic>,
     conn: &PgConnection,
 ) -> Result<CategoryQueryResult, ServiceError> {
-    if topics.len() == 0 {
-        return Ok(CategoryQueryResult::GotTopics(vec![]));
-    };
+    if topics.len() == 0 { return Ok(CategoryQueryResult::GotTopics(vec![])); };
 
     let select_user_columns = (
         users::id,
@@ -101,20 +92,13 @@ fn join_topics_users(
         users::created_at,
         users::updated_at,
     );
-
-    // use to bring the trait to scope
-    use crate::model::common::MatchUser;
-    let result = Topic::get_unique_id(&topics, None);
+    let result = get_unique_id(&topics, None);
 
     let users: Vec<SlimUser> = users::table
         .filter(users::id.eq_any(&result))
-        .select(&select_user_columns)
-        .load::<SlimUser>(conn)?;
+        .select(&select_user_columns).load::<SlimUser>(conn)?;
 
     Ok(CategoryQueryResult::GotTopics(
-        topics
-            .into_iter()
-            .map(|topic| topic.attach_user(&users))
-            .collect(),
+        topics.into_iter().map(|topic| topic.attach_user(&users)).collect(),
     ))
 }

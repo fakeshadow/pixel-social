@@ -3,14 +3,11 @@ use futures::IntoFuture;
 
 use crate::model::{
     errors::ServiceError,
-    cache::{CacheQuery, TopicCacheRequest},
-    topic::{TopicJson, TopicUpdateJson, TopicQuery},
+//    cache::{CacheQuery, TopicCacheRequest},
+    topic::{TopicJson, TopicQuery},
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, SelfHaveField},
 };
-use crate::handler::{
-    auth::UserJwt,
-    cache::{match_cache_query_result, cache_handler},
-};
+use crate::handler::auth::UserJwt;
 
 pub fn add_topic(
     user_jwt: UserJwt,
@@ -20,7 +17,7 @@ pub fn add_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(TopicQuery::AddTopic(&json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
+    Ok(TopicQuery::AddTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt)?.to_response())
 }
 
 pub fn get_topic(
@@ -38,7 +35,7 @@ pub fn get_topic(
 
 pub fn update_topic(
     user_jwt: UserJwt,
-    json: web::Json<TopicUpdateJson>,
+    json: web::Json<TopicJson>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {

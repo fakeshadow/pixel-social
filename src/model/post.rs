@@ -7,6 +7,7 @@ use crate::model::{
     common::{MatchUser, GetSelfId, ResponseMessage},
 };
 use crate::schema::posts;
+use crate::model::common::CheckUserId;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -124,14 +125,16 @@ pub struct PostWithUser {
     pub user: Option<SlimUser>,
 }
 
-impl PostWithUser {
-    pub fn check_user_id(&self) -> Option<u32> {
-        match &self.user {
-            Some(user) => Some(user.get_self_id_copy()),
-            None => None
-        }
+/// extract self user and self post from post with user
+impl CheckUserId<SlimUser, Post> for PostWithUser {
+    fn get_self_user(&self) -> Option<&SlimUser> {
+        self.user.as_ref()
+    }
+    fn get_self_post_topic(&self) -> &Post {
+        &self.post
     }
 }
+
 
 impl GetSelfId for PostWithUser {
     fn get_self_id(&self) -> &u32 { &self.post.id }

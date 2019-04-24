@@ -4,7 +4,7 @@ use futures::{IntoFuture, Future};
 use crate::handler::auth::UserJwt;
 use crate::model::{
     user::*,
-    cache::*,
+//    cache::*,
     category::*,
     topic::*,
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
@@ -15,12 +15,14 @@ pub fn test_global_var(
     global_var: web::Data<GlobalGuard>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let topic_query = TopicQuery::AddTopic(&NewTopicRequest {
-        user_id: &1,
-        category_id: &1,
-        thumbnail: "test thumbnail",
-        title: "test title",
-        body: "test body",
+    let topic_query = TopicQuery::AddTopic(&TopicRequest {
+        id: None,
+        user_id: Some(&1),
+        category_id: Some(&1),
+        thumbnail: Some("test thumbnail"),
+        title: Some("test title"),
+        body: Some("test body"),
+        is_locked: None
     });
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
     Ok(topic_query.handle_query(&opt)?.to_response())

@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
     admin::AdminQuery,
     post::{PostJson, PostQuery},
-    topic::{TopicQuery, TopicUpdateJson},
+    topic::{TopicQuery, TopicJson},
     category::{CategoryQuery, CategoryUpdateJson},
     user::{UserQuery, UserUpdateJson},
     common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
@@ -43,7 +43,7 @@ pub fn admin_remove_category(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     // need to add posts and topics migration along side the remove.
-    let category_id = remove_request.into_inner();
+    let category_id = remove_request.as_ref();
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
@@ -78,7 +78,7 @@ pub fn admin_update_user(
 
 pub fn admin_update_topic(
     user_jwt: UserJwt,
-    json: web::Json<TopicUpdateJson>,
+    json: web::Json<TopicJson>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {

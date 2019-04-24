@@ -4,14 +4,11 @@ use actix_web::{web, HttpResponse};
 
 use crate::model::{
     errors::ServiceError,
-    cache::{CacheQuery, CategoryCacheRequest},
+//    cache::{CacheQuery, CategoryCacheRequest},
     category::{CategoryJson, CategoryRequest, CategoryQuery},
     common::{PostgresPool, RedisPool, QueryOption, ResponseMessage},
 };
-use crate::handler::{
-    auth::UserJwt,
-    cache::{match_cache_query_result, cache_handler},
-};
+use crate::handler::auth::UserJwt;
 
 pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
@@ -22,15 +19,14 @@ pub fn get_all_categories(
 }
 
 pub fn get_popular(
-    category_path: web::Path<(u32)>,
+    category_path: web::Path<(i64)>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let page = category_path.as_ref();
-//    let cache_query = CacheQuery::GetPopular(page as i64);
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    Ok(CategoryQuery::GetPopular(*page as i64).handle_query(&opt)?.to_response())
+    Ok(CategoryQuery::GetPopular(&page).handle_query(&opt)?.to_response())
 }
 
 pub fn get_category(
