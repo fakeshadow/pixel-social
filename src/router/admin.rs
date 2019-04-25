@@ -28,7 +28,7 @@ pub fn admin_modify_category(
         Some(_category_id) => CategoryQuery::UpdateCategory(&req),
         None => CategoryQuery::AddCategory(&req)
     };
-    Ok(query.handle_query(&opt)?.to_response())
+    query.handle_query(&opt)
 }
 
 pub fn admin_remove_category(
@@ -42,7 +42,7 @@ pub fn admin_remove_category(
     let category_id = remove_request.as_ref();
 
     AdminQuery::DeleteCategoryCheck(&jwt.is_admin).handle_query(&opt)?;
-    Ok(CategoryQuery::DeleteCategory(&category_id).handle_query(&opt)?.to_response())
+    CategoryQuery::DeleteCategory(&category_id).handle_query(&opt)
 }
 
 pub fn admin_update_user(
@@ -56,7 +56,7 @@ pub fn admin_update_user(
     let update_request = json.to_request_admin(&id);
 
     AdminQuery::UpdateUserCheck(&jwt.is_admin, &update_request).handle_query(&opt)?;
-    Ok(UserQuery::UpdateUser(&update_request).handle_query(&opt)?.to_response())
+    UserQuery::UpdateUser(&update_request).handle_query(&opt)
 }
 
 pub fn admin_update_topic(
@@ -69,7 +69,7 @@ pub fn admin_update_topic(
     let request = json.to_request(None);
 
     AdminQuery::UpdateTopicCheck(&jwt.is_admin, &request).handle_query(&opt)?;
-    Ok(TopicQuery::UpdateTopic(&request).handle_query(&opt)?.to_response())
+    TopicQuery::UpdateTopic(&request).handle_query(&opt)
 }
 
 pub fn admin_update_post(

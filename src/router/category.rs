@@ -15,7 +15,7 @@ pub fn get_all_categories(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(CategoryQuery::GetAllCategories.handle_query(&opt)?.to_response())
+    CategoryQuery::GetAllCategories.handle_query(&opt).into_future()
 }
 
 pub fn get_popular(
@@ -26,7 +26,7 @@ pub fn get_popular(
     let page = category_path.as_ref();
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    Ok(CategoryQuery::GetPopular(&page).handle_query(&opt)?.to_response())
+    CategoryQuery::GetPopular(&page).handle_query(&opt).into_future()
 }
 
 pub fn get_category(
@@ -47,7 +47,7 @@ pub fn get_category(
         categories: &categories,
         page: &page,
     };
-    Ok(CategoryQuery::GetCategory(&category_request).handle_query(&opt)?.to_response())
+    CategoryQuery::GetCategory(&category_request).handle_query(&opt).into_future()
 }
 
 pub fn get_categories(
@@ -62,5 +62,5 @@ pub fn get_categories(
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
 
-    Ok(CategoryQuery::GetCategory(&category_request).handle_query(&opt)?.to_response())
+    CategoryQuery::GetCategory(&category_request).handle_query(&opt).into_future()
 }

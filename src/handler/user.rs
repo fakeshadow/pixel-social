@@ -1,4 +1,4 @@
-use actix_web::web;
+use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
 
 use crate::model::{
@@ -9,7 +9,7 @@ use crate::model::{
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
-type QueryResult = Result<UserQueryResult, ServiceError>;
+type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> UserQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
@@ -26,14 +26,14 @@ impl<'a> UserQuery<'a> {
 
 fn get_me(id: &u32, conn: &PgConnection) -> QueryResult {
     let user: User = users::table.find(&id).first::<User>(conn)?;
-    Ok(UserQueryResult::GotUser(user))
+    Ok(UserQueryResult::GotUser(user).to_response())
 }
 
 fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
     let user = users::table
         .filter(users::username.eq(&username))
         .first::<User>(conn)?;
-    Ok(UserQueryResult::GotPublicUser(user.into()))
+    Ok(UserQueryResult::GotPublicUser(user.into()).to_response())
 }
 
 fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
@@ -43,7 +43,7 @@ fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
     hash::verify_password(&req.password, &exist_user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
-    Ok(UserQueryResult::LoggedIn(AuthResponse { token, user_data: exist_user.into() }))
+    Ok(UserQueryResult::LoggedIn(AuthResponse { token, user_data: exist_user.into() }).to_response())
 }
 
 fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
@@ -51,7 +51,7 @@ fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
         .filter(users::id.eq(&req.id)))
         .set(req).get_result(conn)?;
 
-    Ok(UserQueryResult::GotUser(updated_user))
+    Ok(UserQueryResult::GotUser(updated_user).to_response())
 }
 
 fn register_user(req: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
@@ -73,7 +73,7 @@ fn register_user(req: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>
                 .map_err(|_| ServiceError::InternalServerError)?;
 
             diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)).execute(conn)?;
-            Ok(UserQueryResult::Registered)
+            Ok(UserQueryResult::Registered.to_response())
         }
     }
 }

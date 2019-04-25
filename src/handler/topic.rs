@@ -1,4 +1,4 @@
-use actix_web::web;
+use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
 
 use crate::model::{
@@ -12,7 +12,7 @@ use crate::schema::{categories, posts, topics, users};
 
 const LIMIT: i64 = 20;
 
-type QueryResult = Result<TopicQueryResult, ServiceError>;
+type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> TopicQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
@@ -46,7 +46,7 @@ fn add_topic(req: &TopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, c
         .map_err(|_| ServiceError::InternalServerError)?;
 
     diesel::insert_into(topics::table).values(&req.make_topic(&id)?).execute(conn)?;
-    Ok(TopicQueryResult::ModifiedTopic)
+    Ok(TopicQueryResult::ModifiedTopic.to_response())
 }
 
 fn update_topic(req: &TopicRequest, conn: &PgConnection) -> QueryResult {
@@ -60,9 +60,8 @@ fn update_topic(req: &TopicRequest, conn: &PgConnection) -> QueryResult {
             .filter(topics::id.eq(&topic_self_id)))
             .set(req.make_update()?).execute(conn)?
     };
-    Ok(TopicQueryResult::ModifiedTopic)
+    Ok(TopicQueryResult::ModifiedTopic.to_response())
 }
-
 
 fn join_topics_users(
     topic: Topic,
@@ -80,5 +79,5 @@ fn join_topics_users(
         TopicWithPost::new(None, Some(posts))
     };
 
-    Ok(TopicQueryResult::GotTopic(_topic))
+    Ok(TopicQueryResult::GotTopic(_topic).to_response())
 }

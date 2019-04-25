@@ -25,40 +25,5 @@ pub fn test_global_var(
         is_locked: None,
     });
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(topic_query.handle_query(&opt)?.to_response())
-}
-
-pub fn generate_admin(
-    admin_user: web::Path<(String, String, String)>,
-    db_pool: web::Data<PostgresPool>,
-    global_var: web::Data<GlobalGuard>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (username, password, email) = admin_user.as_ref();
-
-    let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    let register_request = AuthRequest {
-        username,
-        password,
-        email: Some(email),
-    };
-    UserQuery::Register(&register_request).handle_query(&opt)?;
-    let user_id = match UserQuery::GetUser(&username).handle_query(&opt) {
-        Ok(query_result) => match query_result {
-            UserQueryResult::GotPublicUser(user) => user.id,
-            _ => 0
-        },
-        Err(e) => return Err(e)
-    };
-    let update_request = UserUpdateRequest {
-        id: &user_id,
-        username: None,
-        avatar_url: None,
-        signature: None,
-        is_admin: Some(&9),
-        blocked: None,
-        show_email: None,
-        show_created_at: None,
-        show_updated_at: None,
-    };
-    Ok(UserQuery::UpdateUser(&update_request).handle_query(&opt)?.to_response())
+    topic_query.handle_query(&opt)
 }

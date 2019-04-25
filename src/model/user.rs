@@ -1,7 +1,10 @@
 use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
-use crate::model::common::{GetSelfId, Validator, ResponseMessage};
+use crate::model::{
+    errors::ServiceError,
+    common::{GetSelfId, Validator, ResponseMessage}
+};
 use crate::schema::users;
 use std::iter::FromIterator;
 
@@ -238,7 +241,7 @@ pub enum UserQueryResult {
 impl UserQueryResult {
     pub fn to_response(&self) -> HttpResponse {
         match self {
-            UserQueryResult::GotPublicUser(public_user) => HttpResponse::Ok().json(&public_user),
+            UserQueryResult::GotPublicUser(public_user) =>HttpResponse::Ok().json(&public_user),
             UserQueryResult::GotUser(user) => HttpResponse::Ok().json(&user),
             UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(&login_data),
             UserQueryResult::Registered => HttpResponse::Ok().json(ResponseMessage::new("Register Success"))

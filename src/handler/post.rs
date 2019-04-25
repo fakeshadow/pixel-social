@@ -1,4 +1,4 @@
-use actix_web::web;
+use actix_web::{web, HttpResponse};
 use chrono::Utc;
 use diesel::prelude::*;
 
@@ -11,7 +11,7 @@ use crate::model::{
 use crate::schema::{posts, topics, users};
 use crate::model::common::AttachUser;
 
-type QueryResult = Result<PostQueryResult, ServiceError>;
+type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> PostQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
@@ -27,7 +27,7 @@ impl<'a> PostQuery<'a> {
 fn get_post(id: &u32, conn: &PgConnection) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
-    Ok(PostQueryResult::GotPost(post.attach_from_raw(&user)))
+    Ok(PostQueryResult::GotPost(post.attach_from_raw(&user)).to_response())
 }
 
 fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {
@@ -41,7 +41,7 @@ fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {
             .filter(posts::id.eq(&post_self_id)))
             .set(req.make_update()?).execute(conn)?
     };
-    Ok(PostQueryResult::AddedPost)
+    Ok(PostQueryResult::AddedPost.to_response())
 }
 
 fn add_post(req: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
@@ -69,5 +69,5 @@ fn add_post(req: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>,
 
     // ToDo: get result from insert and pass it to redis
     diesel::insert_into(posts::table).values(&req.make_post(&id)?).execute(conn)?;
-    Ok(PostQueryResult::AddedPost)
+    Ok(PostQueryResult::AddedPost.to_response())
 }

@@ -15,18 +15,16 @@ pub fn get_user(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let username = username_path.as_str();
-
     if !validate_username(&username) { return Err(ServiceError::InvalidUsername); }
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
-
     let user_query = if username == "me" {
         UserQuery::GetMe(&user_jwt.user_id)
     } else {
         UserQuery::GetUser(&username)
     };
 
-    Ok(user_query.handle_query(&opt)?.to_response())
+    user_query.handle_query(&opt)
 }
 
 pub fn login_user(
@@ -35,7 +33,7 @@ pub fn login_user(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     json.check_login()?;
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(UserQuery::Login(&json.to_request()).handle_query(&opt)?.to_response())
+    UserQuery::Login(&json.to_request()).handle_query(&opt)
 }
 
 pub fn update_user(
@@ -45,7 +43,7 @@ pub fn update_user(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     if let Some(_) = json.username { json.check_username()? }
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    Ok(UserQuery::UpdateUser(&json.to_request(&user_jwt.user_id)).handle_query(&opt)?.to_response())
+    UserQuery::UpdateUser(&json.to_request(&user_jwt.user_id)).handle_query(&opt)
 }
 
 pub fn register_user(
@@ -53,7 +51,8 @@ pub fn register_user(
     json: web::Json<AuthJson>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+    // ToDo: move validation to from request
     json.check_register()?;
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    Ok(UserQuery::Register(&json.to_request()).handle_query(&opt)?.to_response())
+    UserQuery::Register(&json.to_request()).handle_query(&opt)
 }
