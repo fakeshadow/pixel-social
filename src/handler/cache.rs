@@ -7,7 +7,7 @@ use lazy_static::__Deref;
 
 use crate::model::{
     errors::ServiceError,
-    user::SlimUser,
+    user::{PublicUser},
     post::Post,
     topic::{TopicWithPost, TopicWithUser, Topic},
     cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
@@ -44,7 +44,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
         let mut topic_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
         let topic_user_vec = get_users(&topic_vec, &conn)?;
         let topic = topic_vec.pop().ok_or(ServiceError::NoCacheFound)?;
-        Some(topic.attach_user(&topic_user_vec))
+        Some(topic.attach_from_public(&topic_user_vec))
     } else { None };
 
     let offset = (page - 1) * 20;
@@ -53,7 +53,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
     let posts_string = from_range(&topic_key, "zrange", offset, &conn)?;
     let post_vec: Vec<Post> = deserialize_string_vec(&posts_string)?;
     let post_user_vec = get_users(&post_vec, &conn)?;
-    let posts = Some(post_vec.into_iter().map(|post| post.attach_user(&post_user_vec)).collect());
+    let posts = Some(post_vec.into_iter().map(|post| post.attach_from_public(&post_user_vec)).collect());
 
     Ok(CacheQueryResult::GotTopic(TopicWithPost { topic, posts }))
 }
@@ -70,7 +70,7 @@ fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> Quer
     let topics_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
     let users = get_users(&topics_vec, &conn)?;
 
-    let topics_with_user: Vec<TopicWithUser> = topics_vec.into_iter().map(|topic| topic.attach_user(&users)).collect();
+    let topics_with_user: Vec<TopicWithUser> = topics_vec.into_iter().map(|topic| topic.attach_from_public(&users)).collect();
 
     Ok(CacheQueryResult::GotCategory(topics_with_user))
 }
@@ -127,8 +127,7 @@ fn serialize_vec<T, R>(
     topics_or_posts: &Vec<T>,
     topic_user: Option<(u32, String)>,
 ) -> Result<(Vec<(u32, String)>, Vec<(u32, String)>), ServiceError>
-    where T: GetSelfField<SlimUser, R> + GetSelfId, R: Serialize {
-
+    where T: GetSelfField<PublicUser, R> + GetSelfId, R: Serialize {
     let mut topics_or_posts_rank: Vec<(u32, String)> = Vec::with_capacity(20);
     let mut users_rank: Vec<(u32, String)> = Vec::with_capacity(21);
 
@@ -149,8 +148,8 @@ fn serialize_vec<T, R>(
     Ok((topics_or_posts_rank, users_rank))
 }
 
-fn get_users<T, R>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>, ServiceError>
-    where T: AttachUser<R>, R: GetSelfId + Clone {
+fn get_users<T>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<PublicUser>, ServiceError>
+    where T: AttachUser {
     let mut users_id = get_unique_id(&vec, None);
     if users_id.is_empty() { return Ok(vec![]); }
     users_id.sort();
@@ -161,7 +160,7 @@ fn get_users<T, R>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUse
 
     let users_vec: Vec<(String, u32)> = conn.zrangebyscore_withscores("users", range_start, range_end)?;
 
-    let mut users: Vec<SlimUser> = Vec::with_capacity(20);
+    let mut users: Vec<PublicUser> = Vec::with_capacity(20);
     for _user in users_vec.iter() {
         let (_user_string, _user_id) = _user;
         if users_id.contains(&_user_id) {

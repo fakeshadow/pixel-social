@@ -4,23 +4,24 @@ use actix_web::web;
 use chrono::NaiveDateTime;
 use diesel::{
     pg::PgConnection,
-    prelude::*,
     r2d2::{ConnectionManager, Pool as diesel_pool},
     result::Error,
 };
 use r2d2_redis::{
-    redis,
     RedisConnectionManager,
-    r2d2 as redis_r2d2,
+    r2d2::Pool as redis_pool,
 };
 
-use crate::model::errors::ServiceError;
-use crate::schema::{posts, topics, users};
+use crate::model::{
+    errors::ServiceError,
+    user::PublicUser,
+};
 use crate::util::validation as validate;
-use crate::model::user::SlimUser;
+use crate::model::user::User;
+use std::iter::FromIterator;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
-pub type RedisPool = redis_r2d2::Pool<RedisConnectionManager>;
+pub type RedisPool = redis_pool<RedisConnectionManager>;
 
 pub struct QueryOption<'a> {
     pub db_pool: Option<&'a web::Data<PostgresPool>>,
@@ -87,19 +88,24 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
-pub trait AttachUser<R>
-    where R: GetSelfId + Clone {
+pub trait AttachUser {
     type Output;
     fn get_user_id(&self) -> &u32;
-    fn attach_user(self, users: &Vec<R>) -> Self::Output;
+    fn attach_from_raw(self, users: &Vec<User>) -> Self::Output;
+    fn attach_from_public(self, users: &Vec<PublicUser>) -> Self::Output;
 
-    // ToDo: add user privacy filter here
     // ToDo: same user can have multiple posts in the same vec so the data can't be moved. Need to find a way not cloning the userdata.
-    fn make_user_field(&self, users: &Vec<R>) -> Option<R> {
+    fn make_user_from_raw(&self, users: &Vec<User>) -> Option<PublicUser> {
         users.iter().enumerate()
             .filter(|(index, user)|
                 self.get_user_id() == user.get_self_id())
-            .map(|(_, user)| user).cloned().collect::<Vec<R>>().pop()
+            .map(|(_, user)| user.clone().into()).collect::<Vec<PublicUser>>().pop()
+    }
+    fn make_user_from_public(&self, users: &Vec<PublicUser>) -> Option<PublicUser> {
+        users.iter().enumerate()
+            .filter(|(index, user)|
+                self.get_user_id() == user.get_self_id())
+            .map(|(_, user)| user).cloned().collect::<Vec<PublicUser>>().pop()
     }
 }
 
@@ -165,39 +171,31 @@ pub struct GlobalVar {
 }
 
 impl GlobalVar {
-    pub fn init(database_url: &str) -> Arc<Mutex<GlobalVar>> {
-        let connection = PgConnection::establish(database_url)
-            .unwrap_or_else(|_| panic!("Failed to connect to database"));
-
-        let last_uid = users::table
-            .select(users::id)
-            .order(users::id.desc())
-            .limit(1)
-            .load(&connection);
-        let next_uid = match_id(last_uid);
-
-        let last_pid = posts::table
-            .select(posts::id)
-            .order(posts::id.desc())
-            .limit(1)
-            .load(&connection);
-        let next_pid = match_id(last_pid);
-
-        let last_tid = topics::table
-            .select(topics::id)
-            .order(topics::id.desc())
-            .limit(1)
-            .load(&connection);
-        let next_tid = match_id(last_tid);
-
+    pub fn new(next_uid: u32, next_pid: u32, next_tid: u32) -> GlobalGuard {
         Arc::new(Mutex::new(GlobalVar {
             next_uid,
             next_pid,
             next_tid,
         }))
     }
+    pub fn next_uid(&mut self) -> u32 {
+        let id = self.next_uid;
+        self.next_uid += 1;
+        id
+    }
+    pub fn next_pid(&mut self) -> u32 {
+        let id = self.next_pid;
+        self.next_pid += 1;
+        id
+    }
+    pub fn next_tid(&mut self) -> u32 {
+        let id = self.next_tid;
+        self.next_tid += 1;
+        id
+    }
 }
 
+// helper functions
 pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
     match last_id {
         Ok(id) => {
@@ -207,11 +205,10 @@ pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
     }
 }
 
-// helper functions
 /// only add topic user_id when query for the first page of a topic. Other case just pass None in
 /// capacity has to be changed along side with the limit constant in handlers.
-pub fn get_unique_id<'a, T, R>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
-    where T: AttachUser<R>, R: GetSelfId + Clone {
+pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
+    where T: AttachUser {
     let mut result: Vec<&u32> = Vec::with_capacity(21);
 
     if let Some(user_id) = topic_user_id { result.push(user_id); }

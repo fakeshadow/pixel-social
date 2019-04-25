@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::SlimUser,
+    user::PublicUser,
     topic::{TopicWithPost, TopicWithUser},
     common::ResponseMessage,
 };

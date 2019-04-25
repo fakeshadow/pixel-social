@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::SlimUser,
+    user::{User, PublicUser},
     common::{AttachUser, GetSelfId, GetSelfField, ResponseMessage},
 };
 use crate::schema::posts;
@@ -117,14 +117,20 @@ impl<'a> PostRequest<'a> {
     }
 }
 
-impl AttachUser<SlimUser> for Post {
+impl AttachUser for Post {
     type Output = PostWithUser;
     fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
-    fn attach_user(self, users: &Vec<SlimUser>) -> PostWithUser {
+    fn attach_from_raw(self, users: &Vec<User>) -> PostWithUser {
         PostWithUser {
-            user: self.make_user_field(users),
+            user: self.make_user_from_raw(users),
+            post: self,
+        }
+    }
+    fn attach_from_public(self, users: &Vec<PublicUser>) -> PostWithUser {
+        PostWithUser {
+            user: self.make_user_from_public(users),
             post: self,
         }
     }
@@ -134,12 +140,12 @@ impl AttachUser<SlimUser> for Post {
 pub struct PostWithUser {
     #[serde(flatten)]
     pub post: Post,
-    pub user: Option<SlimUser>,
+    pub user: Option<PublicUser>,
 }
 
 /// extract self user and self post from post with user
-impl GetSelfField<SlimUser, Post> for PostWithUser {
-    fn get_self_user(&self) -> Option<&SlimUser> {
+impl GetSelfField<PublicUser, Post> for PostWithUser {
+    fn get_self_user(&self) -> Option<&PublicUser> {
         self.user.as_ref()
     }
     fn get_self_post_topic(&self) -> &Post {

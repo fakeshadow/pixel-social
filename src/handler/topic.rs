@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use crate::model::{
     errors::ServiceError,
     post::Post,
-    user::SlimUser,
+    user::User,
     topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
     common::{PostgresPool, QueryOption, GlobalGuard, AttachUser, get_unique_id},
 };
@@ -29,12 +29,11 @@ fn get_topic(topic_id: &u32, page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * 20;
 
     let _topic: Topic = topics::table.filter(topics::id.eq(&topic_id)).first::<Topic>(conn)?;
-
     let _posts: Vec<Post> = posts::table
-        .filter(posts::topic_id.eq(&_topic.id))
+        .filter(posts::topic_id.eq(&topic_id))
         .order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
 
-    join_topics_users(_topic, _posts, conn, &page)
+    join_topics_users(_topic, _posts, &conn, &page)
 }
 
 fn add_topic(topic_request: &TopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
@@ -44,11 +43,7 @@ fn add_topic(topic_request: &TopicRequest, global_var: &Option<&web::Data<Global
     if category_check == 0 { return Err(ServiceError::NotFound); };
 
     let id: u32 = global_var.unwrap().lock()
-        .map(|mut guarded_global_var| {
-            let next_tid = guarded_global_var.next_tid;
-            guarded_global_var.next_tid += 1;
-            next_tid
-        })
+        .map(|mut guarded_global_var| guarded_global_var.next_tid())
         .map_err(|_| ServiceError::InternalServerError)?;
 
     diesel::insert_into(topics::table).values(&topic_request.make_topic(&id)?).execute(conn)?;
@@ -83,27 +78,18 @@ fn join_topics_users(
     conn: &PgConnection,
     page: &i64,
 ) -> QueryResult {
-    let select_user_columns = (
-        users::id,
-        users::username,
-        users::email,
-        users::avatar_url,
-        users::signature,
-        users::created_at,
-        users::updated_at,
-    );
 
     let result = get_unique_id(&posts, Some(topic.get_user_id()));
 
-    let users: Vec<SlimUser> = users::table.filter(users::id.eq_any(&result)).select(&select_user_columns).load::<SlimUser>(conn)?;
+    let users: Vec<User> = users::table.filter(users::id.eq_any(&result)).load::<User>(conn)?;
 
     let posts = posts
         .into_iter()
-        .map(|post| post.attach_user(&users))
+        .map(|post| post.attach_from_raw(&users))
         .collect();
     let result = if page == &1 {
         TopicWithPost {
-            topic: Some(topic.attach_user(&users)),
+            topic: Some(topic.attach_from_raw(&users)),
             posts: Some(posts),
         }
     } else {

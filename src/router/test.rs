@@ -44,7 +44,7 @@ pub fn generate_admin(
     UserQuery::Register(&register_request).handle_query(&opt)?;
     let user_id = match UserQuery::GetUser(&username).handle_query(&opt) {
         Ok(query_result) => match query_result {
-            UserQueryResult::GotSlimUser(user) => user.id,
+            UserQueryResult::GotPublicUser(user) => user.id,
             _ => 0
         },
         Err(e) => return Err(e)

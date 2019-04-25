@@ -4,7 +4,7 @@ use crate::model::{
     errors::ServiceError,
     topic::TopicWithUser,
     common::ResponseMessage,
-    user::SlimUser,
+    user::PublicUser,
 };
 use crate::schema::categories;
 

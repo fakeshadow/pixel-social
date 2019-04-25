@@ -65,11 +65,7 @@ fn add_post(post_request: &mut PostRequest, global_var: &Option<&web::Data<Globa
     }
 
     let id: u32 = global_var.unwrap().lock()
-        .map(|mut guarded_global_var| {
-            let next_pid = guarded_global_var.next_pid;
-            guarded_global_var.next_pid += 1;
-            next_pid
-        })
+        .map(|mut guarded_global_var| guarded_global_var.next_pid())
         .map_err(|_| ServiceError::InternalServerError)?;
 
     diesel::insert_into(posts::table).values(&post_request.make_post(&id)?).execute(conn)?;

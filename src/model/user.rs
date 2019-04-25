@@ -3,12 +3,14 @@ use chrono::NaiveDateTime;
 
 use crate::model::common::{GetSelfId, Validator, ResponseMessage};
 use crate::schema::users;
+use std::iter::FromIterator;
 
-#[derive(Queryable, Deserialize, Serialize, Debug)]
+#[derive(Queryable, Deserialize, Serialize, Clone, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,
     pub email: String,
+    #[serde(skip_serializing)]
     pub hashed_password: String,
     pub avatar_url: String,
     pub signature: String,
@@ -16,29 +18,36 @@ pub struct User {
     pub updated_at: NaiveDateTime,
     pub is_admin: u32,
     pub blocked: bool,
+    pub show_email: bool,
+    pub show_created_at: bool,
+    pub show_updated_at: bool,
 }
 
-#[derive(Queryable, Deserialize, Serialize, Debug, Clone)]
-pub struct SlimUser {
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PublicUser {
     pub id: u32,
     pub username: String,
-    pub email: String,
+    pub email: Option<String>,
     pub avatar_url: String,
     pub signature: String,
-    pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
-impl<'a> User {
-    pub fn slim(self) -> SlimUser {
-        SlimUser {
+// ToDo: need better impl for not cloning data.
+impl Into<PublicUser> for User {
+    fn into(self) -> PublicUser {
+        let email = if self.show_email { Some(self.email) } else { None };
+        let created_at = if self.show_created_at { Some(self.created_at) } else { None };
+        let updated_at = if self.show_updated_at { Some(self.updated_at) } else { None };
+        PublicUser {
             id: self.id,
             username: self.username,
-            email: self.email,
+            email,
             avatar_url: self.avatar_url,
             signature: self.signature,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            created_at,
+            updated_at,
         }
     }
 }
@@ -94,7 +103,7 @@ impl<'a> AuthRequest<'a> {
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
-    pub user_data: SlimUser,
+    pub user_data: PublicUser,
 }
 
 impl Validator for AuthJson {
@@ -171,7 +180,16 @@ impl Validator for UserUpdateJson {
     }
 }
 
-impl GetSelfId for SlimUser {
+impl GetSelfId for User {
+    fn get_self_id(&self) -> &u32 {
+        &self.id
+    }
+    fn get_self_id_copy(&self) -> u32 {
+        self.id
+    }
+}
+
+impl GetSelfId for PublicUser {
     fn get_self_id(&self) -> &u32 {
         &self.id
     }
@@ -193,13 +211,13 @@ pub enum UserQueryResult {
     Registered,
     LoggedIn(AuthResponse),
     GotUser(User),
-    GotSlimUser(SlimUser),
+    GotPublicUser(PublicUser),
 }
 
 impl UserQueryResult {
     pub fn to_response(&self) -> HttpResponse {
         match self {
-            UserQueryResult::GotSlimUser(slim_user) => HttpResponse::Ok().json(&slim_user),
+            UserQueryResult::GotPublicUser(public_user) => HttpResponse::Ok().json(&public_user),
             UserQueryResult::GotUser(user) => HttpResponse::Ok().json(&user),
             UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(&login_data),
             UserQueryResult::Registered => HttpResponse::Ok().json(ResponseMessage::new("Register Success"))

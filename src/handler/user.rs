@@ -3,15 +3,16 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, SlimUser, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest},
+    user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest},
     common::{GlobalGuard, PostgresPool, QueryOption},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
-type CustomResult = Result<UserQueryResult, ServiceError>;
+type QueryResult = Result<UserQueryResult, ServiceError>;
+
 impl<'a> UserQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> CustomResult {
+    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             UserQuery::GetMe(my_id) => get_me(&my_id, &conn),
@@ -23,26 +24,19 @@ impl<'a> UserQuery<'a> {
     }
 }
 
-fn get_me(my_id: &u32, conn: &PgConnection) -> CustomResult {
+fn get_me(my_id: &u32, conn: &PgConnection) -> QueryResult {
     let user: User = users::table.find(&my_id).first::<User>(conn)?;
     Ok(UserQueryResult::GotUser(user))
 }
 
-fn get_user(other_username: &str, conn: &PgConnection) -> CustomResult {
+fn get_user(other_username: &str, conn: &PgConnection) -> QueryResult {
     let user = users::table
         .filter(users::username.eq(&other_username))
-        .select((users::id,
-                 users::username,
-                 users::email,
-                 users::avatar_url,
-                 users::signature,
-                 users::created_at,
-                 users::updated_at))
-        .first::<SlimUser>(conn)?;
-    Ok(UserQueryResult::GotSlimUser(user))
+        .first::<User>(conn)?;
+    Ok(UserQueryResult::GotPublicUser(user.into()))
 }
 
-fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> CustomResult {
+fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> QueryResult {
     let _username = login_request.username;
     let _password = login_request.password;
 
@@ -56,11 +50,11 @@ fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> CustomResult 
     let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
     Ok(UserQueryResult::LoggedIn(AuthResponse {
         token,
-        user_data: exist_user.slim(),
+        user_data: exist_user.into(),
     }))
 }
 
-fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> CustomResult {
+fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
     let user_self_id = user_update_request.id;
 
     let user_old_filter = users::table.filter(users::id.eq(&user_self_id));
@@ -69,35 +63,28 @@ fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> 
     Ok(UserQueryResult::GotUser(updated_user))
 }
 
-fn register_user(register_request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> CustomResult {
-    let _username = register_request.username;
-    let _password = register_request.password;
-    let _email = register_request.email.ok_or(ServiceError::BadRequestGeneral)?;
-
+fn register_user(request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
     match users::table
         .select((users::username, users::email))
-        .filter(users::username.eq(&_username))
-        .or_filter(users::email.eq(&_email))
+        .filter(users::username.eq(&request.username))
+        .or_filter(users::email.eq(&request.email.ok_or(ServiceError::BadRequestGeneral)?))
         .load::<(String, String)>(conn)?.pop() {
         Some((exist_username, _)) => {
-            if exist_username == _username {
+            if exist_username == request.username {
                 Err(ServiceError::UsernameTaken)
             } else {
                 Err(ServiceError::EmailTaken)
             }
         }
         None => {
-            let password_hash: String = hash::hash_password(_password)?;
+            let password_hash: String = hash::hash_password(request.password)?;
             let id: u32 = global_var.unwrap().lock()
-                .map(|mut guarded_global_var| {
-                    let next_uid = guarded_global_var.next_uid;
-                    guarded_global_var.next_uid += 1;
-                    next_uid
-                })
-                .map_err(|_|ServiceError::InternalServerError)?;
+                // ToDo: In case mutex guard failed change back to increment global vars directly.
+                .map(|mut guarded_global_var| guarded_global_var.next_uid())
+                .map_err(|_| ServiceError::InternalServerError)?;
 
             diesel::insert_into(users::table)
-                .values(&register_request.make_user(&id, &password_hash))
+                .values(&request.make_user(&id, &password_hash))
                 .execute(conn)?;
             Ok(UserQueryResult::Registered)
         }

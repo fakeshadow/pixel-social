@@ -18,7 +18,7 @@ use actix_web::{
 };
 use dotenv::dotenv;
 use diesel::{r2d2::ConnectionManager, PgConnection};
-use r2d2_redis::{r2d2 as redis_r2d2, redis, RedisConnectionManager};
+use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
 
 mod handler;
 mod model;
@@ -26,7 +26,7 @@ mod router;
 mod schema;
 mod util;
 
-use crate::model::common::GlobalVar;
+use crate::util::startup::{init_global_var, clear_cache};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -38,11 +38,9 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
     //     clear cache on start up for test purpose
-    let redis_client = r2d2_redis::redis::Client::open(redis_url.as_str()).unwrap();
-    let clear_cache = redis_client.get_connection().unwrap();
-    let _result: Result<usize, _> = redis::cmd("flushall").query(&clear_cache);
+//    let _result = clear_cache(redis_url.as_str());
 
-    let global_arc = GlobalVar::init(&database_url);
+    let global_arc = init_global_var(&database_url);
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let postgres_pool = r2d2::Pool::builder()
@@ -53,8 +51,6 @@ fn main() -> std::io::Result<()> {
     let redis_pool = redis_r2d2::Pool::builder()
         .build(cache_manager)
         .expect("Failed to create redis pool.");
-
-    let sys = actix_rt::System::new("PixelShare");
 
     HttpServer::new(move || {
         App::new()
@@ -169,7 +165,5 @@ fn main() -> std::io::Result<()> {
             .service(fs::Files::new("/public", "./public"))
     })
         .bind(format!("{}:{}", &server_ip, &server_port))?
-        .start();
-
-    sys.run()
+        .run()
 }

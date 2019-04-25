@@ -9,7 +9,10 @@ CREATE TABLE users
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_admin        OID          NOT NULL DEFAULT 0,
-    blocked         BOOLEAN      NOT NULL DEFAULT false
+    blocked         BOOLEAN      NOT NULL DEFAULT FALSE,
+    show_email      BOOLEAN      NOT NULL DEFAULT TRUE,
+    show_created_at BOOLEAN      NOT NULL DEFAULT TRUE,
+    show_updated_at BOOLEAN      NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE categories

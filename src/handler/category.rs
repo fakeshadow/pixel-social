@@ -2,7 +2,7 @@ use actix_web::web;
 use diesel::prelude::*;
 
 use crate::model::{
-    user::SlimUser,
+    user::User,
     topic::Topic,
     errors::ServiceError,
     category::{Category, CategoryQuery, CategoryQueryResult},
@@ -82,23 +82,11 @@ fn join_topics_users(
     conn: &PgConnection,
 ) -> Result<CategoryQueryResult, ServiceError> {
     if topics.len() == 0 { return Ok(CategoryQueryResult::GotTopics(vec![])); };
-
-    let select_user_columns = (
-        users::id,
-        users::username,
-        users::email,
-        users::avatar_url,
-        users::signature,
-        users::created_at,
-        users::updated_at,
-    );
     let result = get_unique_id(&topics, None);
 
-    let users: Vec<SlimUser> = users::table
-        .filter(users::id.eq_any(&result))
-        .select(&select_user_columns).load::<SlimUser>(conn)?;
+    let users: Vec<User> = users::table.filter(users::id.eq_any(&result)).load::<User>(conn)?;
 
     Ok(CategoryQueryResult::GotTopics(
-        topics.into_iter().map(|topic| topic.attach_user(&users)).collect(),
+        topics.into_iter().map(|topic| topic.attach_from_raw(&users)).collect(),
     ))
 }

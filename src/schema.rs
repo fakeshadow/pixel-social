@@ -62,6 +62,9 @@ table! {
         updated_at -> Timestamp,
         is_admin -> Oid,
         blocked -> Bool,
+        show_email -> Bool,
+        show_created_at -> Bool,
+        show_updated_at -> Bool,
     }
 }
 

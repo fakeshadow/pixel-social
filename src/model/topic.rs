@@ -2,12 +2,13 @@ use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    user::SlimUser,
+    user::PublicUser,
     errors::ServiceError,
     post::PostWithUser,
     common::{GetSelfId, GetSelfField, GetSelfTimeStamp, AttachUser, SelfHaveField, ResponseMessage},
 };
 use crate::schema::topics;
+use crate::model::user::User;
 
 #[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
@@ -126,14 +127,20 @@ impl<'a> TopicRequest<'a> {
     }
 }
 
-impl AttachUser<SlimUser> for Topic {
+impl AttachUser for Topic {
     type Output = TopicWithUser;
     fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
-    fn attach_user(self, users: &Vec<SlimUser>) -> TopicWithUser {
+    fn attach_from_raw(self, users: &Vec<User>) -> TopicWithUser {
         TopicWithUser {
-            user: self.make_user_field(users),
+            user: self.make_user_from_raw(users),
+            topic: self,
+        }
+    }
+    fn attach_from_public(self, users: &Vec<PublicUser>) -> TopicWithUser {
+        TopicWithUser {
+            user: self.make_user_from_public(users),
             topic: self,
         }
     }
@@ -143,7 +150,7 @@ impl AttachUser<SlimUser> for Topic {
 pub struct TopicWithUser {
     #[serde(flatten)]
     pub topic: Topic,
-    pub user: Option<SlimUser>,
+    pub user: Option<PublicUser>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -153,8 +160,8 @@ pub struct TopicWithPost {
 }
 
 /// extract self user and self topic from topic with user
-impl GetSelfField<SlimUser, Topic> for TopicWithUser {
-    fn get_self_user(&self) -> Option<&SlimUser> {
+impl GetSelfField<PublicUser, Topic> for TopicWithUser {
+    fn get_self_user(&self) -> Option<&PublicUser> {
         self.user.as_ref()
     }
     fn get_self_post_topic(&self) -> &Topic {
