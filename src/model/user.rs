@@ -3,10 +3,11 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    common::{GetSelfId, Validator, ResponseMessage}
+    common::{GetSelfId, Validator, ResponseMessage},
 };
 use crate::schema::users;
 use std::iter::FromIterator;
+use serde::Deserialize;
 
 #[derive(Queryable, Deserialize, Serialize, Clone, Debug)]
 pub struct User {
@@ -27,6 +28,7 @@ pub struct User {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+// ToDo: Add more privacy field
 pub struct PublicUser {
     pub id: u32,
     pub username: String,
@@ -40,6 +42,46 @@ pub struct PublicUser {
     pub show_email: bool,
     pub show_created_at: bool,
     pub show_updated_at: bool,
+}
+
+#[derive(Serialize, Debug, Clone)]
+// ToDo: Replace public user
+pub struct PublicUserRef<'a> {
+    pub id: &'a u32,
+    pub username: &'a str,
+    pub email: Option<&'a str>,
+    pub avatar_url: &'a str,
+    pub signature: &'a str,
+    pub created_at: Option<&'a NaiveDateTime>,
+    pub updated_at: Option<&'a NaiveDateTime>,
+    pub is_admin: &'a u32,
+    pub blocked: &'a bool,
+    pub show_email: &'a bool,
+    pub show_created_at: &'a bool,
+    pub show_updated_at: &'a bool,
+}
+
+impl User {
+    pub fn to_public(&self) -> PublicUserRef {
+        let email = if self.show_email { Some(self.email.as_str()) } else { None };
+        let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
+        let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
+        PublicUserRef {
+            id: &self.id,
+            username: self.username.as_str(),
+            email,
+            avatar_url: self.avatar_url.as_str(),
+            signature: self.signature.as_str(),
+            created_at,
+            updated_at,
+            is_admin: &self.is_admin,
+            blocked: &self.blocked,
+            show_email: &self.show_email,
+            show_created_at: &self.show_created_at,
+            show_updated_at: &self.show_updated_at,
+        }
+
+    }
 }
 
 impl Into<PublicUser> for User {
@@ -113,9 +155,9 @@ impl<'a> AuthRequest<'a> {
 }
 
 #[derive(Serialize)]
-pub struct AuthResponse {
-    pub token: String,
-    pub user_data: PublicUser,
+pub struct AuthResponse<'a> {
+    pub token: &'a str,
+    pub user_data: PublicUserRef<'a>,
 }
 
 #[derive(Deserialize)]
@@ -204,7 +246,7 @@ pub enum UserQuery<'a> {
 impl<'a> Validator for UserQuery<'a> {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
-        match self {
+        match &self {
             UserQuery::Login(req) => req.username,
             UserQuery::GetUser(username) => username,
             UserQuery::Register(req) => req.username,
@@ -213,30 +255,30 @@ impl<'a> Validator for UserQuery<'a> {
         }
     }
     fn get_password(&self) -> &str {
-        match self {
+        match &self {
             UserQuery::Register(req) => req.password,
             _ => ""
         }
     }
     fn get_email(&self) -> &str {
-        match self {
+        match &self {
             UserQuery::Register(req) => req.email.unwrap_or(""),
             _ => ""
         }
     }
 }
 
-pub enum UserQueryResult {
+pub enum UserQueryResult<'a> {
     Registered,
-    LoggedIn(AuthResponse),
-    GotUser(User),
-    GotPublicUser(PublicUser),
+    LoggedIn(&'a AuthResponse<'a>),
+    GotUser(&'a User),
+    GotPublicUser(&'a PublicUserRef<'a>),
 }
 
-impl UserQueryResult {
+impl<'a> UserQueryResult<'a> {
     pub fn to_response(&self) -> HttpResponse {
         match self {
-            UserQueryResult::GotPublicUser(public_user) =>HttpResponse::Ok().json(&public_user),
+            UserQueryResult::GotPublicUser(public_user) => HttpResponse::Ok().json(&public_user),
             UserQueryResult::GotUser(user) => HttpResponse::Ok().json(&user),
             UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(&login_data),
             UserQueryResult::Registered => HttpResponse::Ok().json(ResponseMessage::new("Register Success"))

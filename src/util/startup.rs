@@ -6,6 +6,7 @@ use r2d2_redis::redis;
 
 use crate::model::{
     category::Category,
+    errors::ServiceError,
     common::{GlobalVar, GlobalGuard, match_id}
 };
 use crate::handler::cache;
@@ -32,20 +33,20 @@ impl<'a> CategoryHash<'a> {
 }
 
 // ToDo: Build category set, user set, topic rank at system start;
-//pub fn build_cache(redis_url: &str, database_url: &str) -> Result<(),()> {
-//    let connection = PgConnection::establish(database_url)
+//pub fn build_cache(redis_url: &str, database_url: &str) -> Result<(),ServiceError> {
+//    let conn = PgConnection::establish(database_url)
 //        .unwrap_or_else(|_| panic!("Failed to connect to database"));
 //
-//    let categories: Vec<Category> = categories::table.find().load::<Category>(conn)?;
+//    let categories: Vec<Category> = categories::table.find(()).load::<Category>(&conn)?;
 //    for category in categories.iter() {
 //        let id =category.id;
 //        let name = category.name;
-//        let topic_count = category.count;
+//        let topic_count = category.topic_count;
 //        let post_count = category.post_count;
 //        let subscriber_count = category.subscriber_count;
 //        let thumbnail = category.thumbnail;
 //        let hash_set_key = format!("category:{}:set",&id);
-//        let category_range_key = format!("category:{}:rank");
+//        let category_range_key = format!("category:{}:rank", &id);
 //
 //    }
 //

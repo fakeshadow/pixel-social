@@ -164,12 +164,12 @@ pub enum PostQuery<'a> {
     GetPost(&'a u32),
 }
 
-pub enum PostQueryResult {
+pub enum PostQueryResult<'a> {
     AddedPost,
-    GotPost(PostWithUser),
+    GotPost(&'a PostWithUser),
 }
 
-impl PostQueryResult {
+impl<'a> PostQueryResult<'a> {
     pub fn to_response(&self) -> HttpResponse {
         match self {
             PostQueryResult::AddedPost => HttpResponse::Ok().json(ResponseMessage::new("Add Post Success")),

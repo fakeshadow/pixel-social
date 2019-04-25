@@ -17,7 +17,7 @@ use crate::model::{
     user::PublicUser,
 };
 use crate::util::validation as validate;
-use crate::model::user::User;
+use crate::model::user::{User, PublicUserRef};
 use std::iter::FromIterator;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;

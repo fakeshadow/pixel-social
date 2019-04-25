@@ -9,7 +9,7 @@ use crate::model::{
     common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
 use crate::schema::{posts, topics, users};
-use crate::model::common::AttachUser;
+use crate::model::common::{AttachUser};
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
@@ -27,7 +27,7 @@ impl<'a> PostQuery<'a> {
 fn get_post(id: &u32, conn: &PgConnection) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
-    Ok(PostQueryResult::GotPost(post.attach_from_raw(&user)).to_response())
+    Ok(PostQueryResult::GotPost(&post.attach_from_raw(&user)).to_response())
 }
 
 fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {

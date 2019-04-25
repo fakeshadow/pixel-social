@@ -53,6 +53,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
     let posts_string = from_range(&topic_key, "zrange", offset, &conn)?;
     let post_vec: Vec<Post> = deserialize_string_vec(&posts_string)?;
     let post_user_vec = get_users(&post_vec, &conn)?;
+
     let posts = Some(post_vec.into_iter().map(|post| post.attach_from_public(&post_user_vec)).collect());
 
     Ok(CacheQueryResult::GotTopic(TopicWithPost::new(topic, posts)))
