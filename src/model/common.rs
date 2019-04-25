@@ -64,12 +64,11 @@ pub trait GetSelfId {
 }
 
 /// trait for extract self user , self topic/post and self user_id from struct(Mainly topic/post with user).
-pub trait CheckUserId<T, R>
+pub trait GetSelfField<T, R>
     where T: GetSelfId {
     fn get_self_user(&self) -> Option<&T>;
     fn get_self_post_topic(&self) -> &R;
-
-    fn check_user_id(&self) -> Option<u32> {
+    fn get_self_user_id(&self) -> Option<u32> {
         match self.get_self_user() {
             Some(user) => Some(user.get_self_id_copy()),
             None => None
@@ -88,34 +87,19 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
-// only add topic user_id when query for the first page of a topic. Other case just pass None in
-// capacity has to be changed along side with the limit constant in handlers.
-pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
-    where T: MatchUser {
-    let mut result: Vec<&u32> = Vec::with_capacity(21);
-
-    if let Some(user_id) = topic_user_id { result.push(user_id); }
-
-    for item in items.iter() {
-        let item_id = item.get_user_id();
-        if !result.contains(&item_id) {
-            result.push(item_id);
-        }
-    }
-    result
-}
-
-pub trait MatchUser {
+pub trait AttachUser<R>
+    where R: GetSelfId + Clone {
+    type Output;
     fn get_user_id(&self) -> &u32;
+    fn attach_user(self, users: &Vec<R>) -> Self::Output;
 
     // ToDo: add user privacy filter here
     // ToDo: same user can have multiple posts in the same vec so the data can't be moved. Need to find a way not cloning the userdata.
-    fn make_user_field<T>(&self, users: &Vec<T>) -> Option<T>
-        where T: GetSelfId + Clone, {
+    fn make_user_field(&self, users: &Vec<R>) -> Option<R> {
         users.iter().enumerate()
             .filter(|(index, user)|
                 self.get_user_id() == user.get_self_id())
-            .map(|(_, user)| user).cloned().collect::<Vec<T>>().pop()
+            .map(|(_, user)| user).cloned().collect::<Vec<R>>().pop()
     }
 }
 
@@ -221,4 +205,22 @@ pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
         }
         Err(_) => panic!("Database error.Failed to get ids"),
     }
+}
+
+// helper functions
+/// only add topic user_id when query for the first page of a topic. Other case just pass None in
+/// capacity has to be changed along side with the limit constant in handlers.
+pub fn get_unique_id<'a, T, R>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
+    where T: AttachUser<R>, R: GetSelfId + Clone {
+    let mut result: Vec<&u32> = Vec::with_capacity(21);
+
+    if let Some(user_id) = topic_user_id { result.push(user_id); }
+
+    for item in items.iter() {
+        let item_id = item.get_user_id();
+        if !result.contains(&item_id) {
+            result.push(item_id);
+        }
+    }
+    result
 }

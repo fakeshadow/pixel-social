@@ -97,7 +97,7 @@ pub enum CategoryQuery<'a> {
 
 pub enum CategoryQueryResult {
     GotCategories(Vec<Category>),
-    GotTopics(Vec<TopicWithUser<SlimUser>>),
+    GotTopics(Vec<TopicWithUser>),
     UpdatedCategory,
 }
 

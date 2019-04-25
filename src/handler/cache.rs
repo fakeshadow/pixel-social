@@ -11,7 +11,7 @@ use crate::model::{
     post::Post,
     topic::{TopicWithPost, TopicWithUser, Topic},
     cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
-    common::{RedisPool, MatchUser, GetSelfId, CheckUserId, get_unique_id},
+    common::{RedisPool, AttachUser, GetSelfId, GetSelfField, get_unique_id},
 };
 
 const LIMIT: isize = 20;
@@ -40,7 +40,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
     let topic = if page == &1isize {
         let category_key = format!("category:{}", 1);
         // ToDo: in case vec len is 0 and cause panic
-        let topics_string = from_score_range(&category_key, topic_id, topic_id, &conn)?;
+        let topics_string = from_score(&category_key, topic_id, topic_id, &conn)?;
         let mut topic_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
         let topic_user_vec = get_users(&topic_vec, &conn)?;
         let topic = topic_vec.pop().ok_or(ServiceError::NoCacheFound)?;
@@ -70,15 +70,15 @@ fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> Quer
     let topics_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
     let users = get_users(&topics_vec, &conn)?;
 
-    let topics_with_user: Vec<TopicWithUser<SlimUser>> = topics_vec.into_iter().map(|topic| topic.attach_user(&users)).collect();
+    let topics_with_user: Vec<TopicWithUser> = topics_vec.into_iter().map(|topic| topic.attach_user(&users)).collect();
 
     Ok(CacheQueryResult::GotCategory(topics_with_user))
 }
 
-fn update_category_cache(topics: &Vec<TopicWithUser<SlimUser>>, conn: &Conn) -> QueryResult {
+fn update_category_cache(topics: &Vec<TopicWithUser>, conn: &Conn) -> QueryResult {
     let category_id = topics[0].topic.category_id;
     let category_key = format!("category:{}", &category_id);
-    let (topic_rank_vec, user_rank_vec) = stringify_topics_posts(&topics)?;
+    let (topic_rank_vec, user_rank_vec) = serialize_vec(&topics, None)?;
     conn.zadd_multiple("users", &user_rank_vec)?;
     conn.zadd_multiple(category_key, &topic_rank_vec)?;
     Ok(CacheQueryResult::Updated)
@@ -94,17 +94,21 @@ fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResu
             topic.get_self_id_copy(),
             json::to_string(&topic.topic)?,
         ));
-        if let Some(user_id) = topic.check_user_id() {
+        if let Some(user_id) = topic.get_self_user_id() {
             user_rank_vec.push((user_id, json::to_string(&topic.user)?));
         }
     }
     if let Some(posts_with_user) = &topic_with_post.posts {
-        let (post_rank_vec, mut user_rank) = stringify_topics_posts(&posts_with_user)?;
-        user_rank_vec.append(&mut user_rank);
+        // ToDo: In case panic
+        let topic_user = user_rank_vec.pop();
+        let (post_rank, user_rank) =
+            serialize_vec(&posts_with_user, topic_user)?;
+        post_rank_vec = post_rank;
+        user_rank_vec = user_rank;
     }
     if !topic_rank_vec.is_empty() {
         let category_key =
-            format!("category:{}", topic_with_post.get_category_id().unwrap());
+            format!("category:{}", topic_with_post.get_category_id().ok_or(ServiceError::NoCacheFound)?);
         conn.zadd_multiple(category_key, &topic_rank_vec)?;
     }
     if !user_rank_vec.is_empty() {
@@ -112,34 +116,41 @@ fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResu
     }
     if !post_rank_vec.is_empty() {
         let topic_key =
-            format!("topic:{}", topic_with_post.get_topic_id().unwrap());
+            format!("topic:{}", topic_with_post.get_topic_id().ok_or(ServiceError::NoCacheFound)?);
         conn.zadd_multiple(topic_key, &post_rank_vec)?;
     }
     Ok(CacheQueryResult::Updated)
 }
 
-fn stringify_topics_posts<T, R>(topics_or_posts: &Vec<T>) -> Result<(Vec<(u32, String)>, Vec<(u32, String)>), ServiceError>
-    where T: CheckUserId<SlimUser, R> + GetSelfId, R:Serialize {
+/// pass topic user id/string tuple as an option.
+fn serialize_vec<T, R>(
+    topics_or_posts: &Vec<T>,
+    topic_user: Option<(u32, String)>,
+) -> Result<(Vec<(u32, String)>, Vec<(u32, String)>), ServiceError>
+    where T: GetSelfField<SlimUser, R> + GetSelfId, R: Serialize {
+
     let mut topics_or_posts_rank: Vec<(u32, String)> = Vec::with_capacity(20);
-    let mut users_rank: Vec<(u32, String)> = Vec::with_capacity(20);
+    let mut users_rank: Vec<(u32, String)> = Vec::with_capacity(21);
+
+    if let Some(tuple) = topic_user { users_rank.push(tuple) };
 
     for item in topics_or_posts.iter() {
-        if let Some(user_id) = item.check_user_id() {
+        if let Some(user_id) = item.get_self_user_id() {
             let tuple = (user_id, json::to_string(&item.get_self_user().ok_or(ServiceError::NoCacheFound)?)?);
             if !users_rank.contains(&tuple) {
                 users_rank.push(tuple)
             }
         }
         topics_or_posts_rank.push((
-            item.get_self_id().clone(),
+            item.get_self_id_copy(),
             json::to_string(&item.get_self_post_topic())?,
         ));
     }
     Ok((topics_or_posts_rank, users_rank))
 }
 
-fn get_users<T>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>, ServiceError>
-    where T: MatchUser {
+fn get_users<T, R>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>, ServiceError>
+    where T: AttachUser<R>, R: GetSelfId + Clone {
     let mut users_id = get_unique_id(&vec, None);
     if users_id.is_empty() { return Ok(vec![]); }
     users_id.sort();
@@ -160,11 +171,11 @@ fn get_users<T>(vec: &Vec<T>, conn: &redis::Connection) -> Result<Vec<SlimUser>,
     Ok(users)
 }
 
-fn from_score_range(key: &str, start_range: u32, end_range: u32, conn: &Conn) -> Result<Vec<String>, ServiceError> {
+fn from_score(key: &str, start_score: u32, end_score: u32, conn: &Conn) -> Result<Vec<String>, ServiceError> {
     let vec = redis::cmd("zrangebyscore")
         .arg(key)
-        .arg(start_range)
-        .arg(end_range)
+        .arg(start_score)
+        .arg(end_score)
         .query(conn.deref())?;
     Ok(vec)
 }

@@ -6,7 +6,7 @@ use crate::model::{
     post::Post,
     user::SlimUser,
     topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
-    common::{PostgresPool, QueryOption, GlobalGuard, MatchUser,get_unique_id},
+    common::{PostgresPool, QueryOption, GlobalGuard, AttachUser, get_unique_id},
 };
 use crate::schema::{categories, posts, topics, users};
 

@@ -5,10 +5,9 @@ use crate::model::{
     user::SlimUser,
     errors::ServiceError,
     post::PostWithUser,
-    common::{GetSelfId, GetSelfTimeStamp, MatchUser, SelfHaveField, ResponseMessage},
+    common::{GetSelfId, GetSelfField, GetSelfTimeStamp, AttachUser, SelfHaveField, ResponseMessage},
 };
 use crate::schema::topics;
-use crate::model::common::CheckUserId;
 
 #[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
@@ -127,31 +126,47 @@ impl<'a> TopicRequest<'a> {
     }
 }
 
+impl AttachUser<SlimUser> for Topic {
+    type Output = TopicWithUser;
+    fn get_user_id(&self) -> &u32 {
+        &self.user_id
+    }
+    fn attach_user(self, users: &Vec<SlimUser>) -> TopicWithUser {
+        TopicWithUser {
+            user: self.make_user_field(users),
+            topic: self,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TopicWithUser<T> {
+pub struct TopicWithUser {
     #[serde(flatten)]
     pub topic: Topic,
-    pub user: Option<T>,
+    pub user: Option<SlimUser>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TopicWithPost {
-    pub topic: Option<TopicWithUser<SlimUser>>,
+    pub topic: Option<TopicWithUser>,
     pub posts: Option<Vec<PostWithUser>>,
 }
 
-impl MatchUser for Topic {
-    fn get_user_id(&self) -> &u32 {
-        &self.user_id
+/// extract self user and self topic from topic with user
+impl GetSelfField<SlimUser, Topic> for TopicWithUser {
+    fn get_self_user(&self) -> Option<&SlimUser> {
+        self.user.as_ref()
+    }
+    fn get_self_post_topic(&self) -> &Topic {
+        &self.topic
     }
 }
 
-impl<T> GetSelfId for TopicWithUser<T> {
-    fn get_self_id(&self) -> &u32 {
-        &self.topic.id
-    }
+impl GetSelfId for TopicWithUser {
+    fn get_self_id(&self) -> &u32 { &self.topic.id }
     fn get_self_id_copy(&self) -> u32 { self.topic.id }
 }
+
 
 impl TopicWithPost {
     pub fn get_topic_id(&self) -> Option<&u32> {
@@ -183,41 +198,10 @@ impl SelfHaveField for TopicWithPost {
     }
 }
 
-impl<T> TopicWithUser<T>
-    where T: GetSelfId {
-    pub fn check_user_id(&self) -> Option<u32> {
-        match &self.user {
-            Some(user) => Some(user.get_self_id_copy()),
-            None => None
-        }
-    }
-}
-
-/// extract self user and self topic from topic with user
-impl CheckUserId<SlimUser, Topic> for TopicWithUser<SlimUser> {
-    fn get_self_user(&self) -> Option<&SlimUser> {
-        self.user.as_ref()
-    }
-    fn get_self_post_topic(&self) -> &Topic {
-        &self.topic
-    }
-}
 
 //impl<T> GetSelfTimeStamp for TopicWithUser<T> {
 //    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
 //}
-
-impl Topic {
-    pub fn attach_user<T>(self, users: &Vec<T>) -> TopicWithUser<T>
-        where
-            T: Clone + GetSelfId,
-    {
-        TopicWithUser {
-            user: self.make_user_field(users),
-            topic: self,
-        }
-    }
-}
 
 pub enum TopicQuery<'a> {
     GetTopic(&'a u32, &'a i64),

@@ -4,10 +4,9 @@ use chrono::NaiveDateTime;
 use crate::model::{
     errors::ServiceError,
     user::SlimUser,
-    common::{MatchUser, GetSelfId, ResponseMessage},
+    common::{AttachUser, GetSelfId, GetSelfField, ResponseMessage},
 };
 use crate::schema::posts;
-use crate::model::common::CheckUserId;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -118,6 +117,19 @@ impl<'a> PostRequest<'a> {
     }
 }
 
+impl AttachUser<SlimUser> for Post {
+    type Output = PostWithUser;
+    fn get_user_id(&self) -> &u32 {
+        &self.user_id
+    }
+    fn attach_user(self, users: &Vec<SlimUser>) -> PostWithUser {
+        PostWithUser {
+            user: self.make_user_field(users),
+            post: self,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostWithUser {
     #[serde(flatten)]
@@ -126,7 +138,7 @@ pub struct PostWithUser {
 }
 
 /// extract self user and self post from post with user
-impl CheckUserId<SlimUser, Post> for PostWithUser {
+impl GetSelfField<SlimUser, Post> for PostWithUser {
     fn get_self_user(&self) -> Option<&SlimUser> {
         self.user.as_ref()
     }
@@ -135,25 +147,9 @@ impl CheckUserId<SlimUser, Post> for PostWithUser {
     }
 }
 
-
 impl GetSelfId for PostWithUser {
     fn get_self_id(&self) -> &u32 { &self.post.id }
     fn get_self_id_copy(&self) -> u32 { self.post.id }
-}
-
-impl MatchUser for Post {
-    fn get_user_id(&self) -> &u32 {
-        &self.user_id
-    }
-}
-
-impl Post {
-    pub fn attach_user(self, users: &Vec<SlimUser>) -> PostWithUser {
-        PostWithUser {
-            user: self.make_user_field(users),
-            post: self,
-        }
-    }
 }
 
 pub enum PostQuery<'a> {

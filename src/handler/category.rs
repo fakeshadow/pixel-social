@@ -6,7 +6,7 @@ use crate::model::{
     topic::Topic,
     errors::ServiceError,
     category::{Category, CategoryQuery, CategoryQueryResult},
-    common::{PostgresPool, RedisPool, QueryOption,MatchUser,get_unique_id, match_id},
+    common::{PostgresPool, RedisPool, QueryOption, AttachUser, get_unique_id, match_id},
 };
 use crate::schema::{categories, topics, users};
 use crate::model::category::{CategoryRequest, CategoryUpdateRequest};
