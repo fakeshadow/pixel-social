@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use crate::model::{
     errors::ServiceError,
     user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest},
-    common::{GlobalGuard, PostgresPool, QueryOption},
+    common::{GlobalGuard, PostgresPool, QueryOption, Validator},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
@@ -14,12 +14,25 @@ type QueryResult = Result<HttpResponse, ServiceError>;
 impl<'a> UserQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
+        // ToDo: Find a better way to handle auth check.
         match self {
-            UserQuery::GetMe(my_id) => get_me(&my_id, &conn),
-            UserQuery::GetUser(other_username) => get_user(&other_username, &conn),
-            UserQuery::Login(login_request) => login_user(&login_request, &conn),
-            UserQuery::UpdateUser(user_update_request) => update_user(&user_update_request, &conn),
-            UserQuery::Register(register_request) => register_user(&register_request, &opt.global_var, &conn)
+            UserQuery::GetMe(id) => get_me(&id, &conn),
+            UserQuery::GetUser(name) => {
+                let _check = &self.check_username()?;
+                get_user(&name, &conn)
+            }
+            UserQuery::Login(req) => {
+                let _check = &self.check_login()?;
+                login_user(&req, &conn)
+            }
+            UserQuery::UpdateUser(req) => {
+                if let Some(_) = req.username { let _check = &self.check_username()?; }
+                update_user(&req, &conn)
+            }
+            UserQuery::Register(req) => {
+                let _check = &self.check_register()?;
+                register_user(&req, &opt.global_var, &conn)
+            }
         }
     }
 }

@@ -3,7 +3,6 @@ use chrono::Local;
 
 use crate::model::errors::ServiceError;
 use crate::util::jwt::JwtPayLoad;
-use crate::model::{user::AuthJson};
 
 pub type UserJwt = JwtPayLoad;
 

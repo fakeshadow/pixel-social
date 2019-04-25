@@ -25,5 +25,5 @@ pub fn test_global_var(
         is_locked: None,
     });
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    topic_query.handle_query(&opt)
+    topic_query.handle_query(&opt).into_future()
 }

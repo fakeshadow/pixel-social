@@ -146,16 +146,21 @@ pub trait Validator {
         }
     }
 
+    fn check_update(&self) -> Result<(), ServiceError> {
+        &self.check_username()?;
+        Ok(())
+    }
+
     fn check_register(&self) -> Result<(), ServiceError> {
-        self.check_email()?;
-        self.check_password()?;
-        self.check_username()?;
+        &self.check_email()?;
+        &self.check_password()?;
+        &self.check_username()?;
         Ok(())
     }
 
     fn check_login(&self) -> Result<(), ServiceError> {
-        self.check_password()?;
-        self.check_username()?;
+        &self.check_password()?;
+        &self.check_username()?;
         Ok(())
     }
 }

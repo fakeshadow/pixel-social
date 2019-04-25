@@ -118,21 +118,6 @@ pub struct AuthResponse {
     pub user_data: PublicUser,
 }
 
-impl Validator for AuthJson {
-    fn get_username(&self) -> &str {
-        &self.username
-    }
-    fn get_password(&self) -> &str {
-        &self.password
-    }
-    fn get_email(&self) -> &str {
-        match &self.email {
-            Some(email) => email,
-            None => "",
-        }
-    }
-}
-
 #[derive(Deserialize)]
 pub struct UserUpdateJson {
     pub id: Option<u32>,
@@ -189,21 +174,6 @@ impl<'a> UserUpdateJson {
     }
 }
 
-impl Validator for UserUpdateJson {
-    fn get_username(&self) -> &str {
-        match &self.username {
-            Some(username) => username,
-            None => "",
-        }
-    }
-    fn get_password(&self) -> &str {
-        ""
-    }
-    fn get_email(&self) -> &str {
-        ""
-    }
-}
-
 impl GetSelfId for User {
     fn get_self_id(&self) -> &u32 {
         &self.id
@@ -229,6 +199,31 @@ pub enum UserQuery<'a> {
     GetMe(&'a u32),
     GetUser(&'a str),
     UpdateUser(&'a UserUpdateRequest<'a>),
+}
+
+impl<'a> Validator for UserQuery<'a> {
+    // ToDo: handle update validation separately.
+    fn get_username(&self) -> &str {
+        match self {
+            UserQuery::Login(req) => req.username,
+            UserQuery::GetUser(username) => username,
+            UserQuery::Register(req) => req.username,
+            UserQuery::UpdateUser(req) => req.username.unwrap_or(""),
+            _ => ""
+        }
+    }
+    fn get_password(&self) -> &str {
+        match self {
+            UserQuery::Register(req) => req.password,
+            _ => ""
+        }
+    }
+    fn get_email(&self) -> &str {
+        match self {
+            UserQuery::Register(req) => req.email.unwrap_or(""),
+            _ => ""
+        }
+    }
 }
 
 pub enum UserQueryResult {
