@@ -166,7 +166,7 @@ pub enum PostQuery<'a> {
 
 pub enum PostQueryResult {
     AddedPost,
-    GotPost(Post),
+    GotPost(PostWithUser),
 }
 
 impl PostQueryResult {

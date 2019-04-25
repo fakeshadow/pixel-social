@@ -8,12 +8,12 @@ use crate::model::{
 };
 use crate::schema::categories;
 
-#[derive(Queryable, Serialize)]
+#[derive(Queryable, Serialize, Deserialize)]
 pub struct Category {
     pub id: u32,
     pub name: String,
     pub topic_count: u32,
-    pub post_count:u32,
+    pub post_count: u32,
     pub subscriber_count: u32,
     pub thumbnail: String,
 }
@@ -65,7 +65,7 @@ impl<'a> CategoryUpdateRequest<'a> {
         Ok(NewCategory {
             id,
             name: self.category_name.ok_or(ServiceError::BadRequestGeneral)?,
-            thumbnail: self.category_thumbnail.ok_or(ServiceError::BadRequestGeneral)?
+            thumbnail: self.category_thumbnail.ok_or(ServiceError::BadRequestGeneral)?,
         })
     }
 }

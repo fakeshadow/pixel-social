@@ -10,5 +10,5 @@ pub enum AdminQuery<'a> {
 	UpdateCategoryCheck(&'a u32, &'a CategoryUpdateRequest<'a>),
 	UpdateTopicCheck(&'a u32, &'a TopicRequest<'a>),
 	UpdatePostCheck(&'a u32, &'a PostRequest<'a>),
-	DeleteCategoryCheck(&'a u32, &'a u32),
+	DeleteCategoryCheck(&'a u32),
 }

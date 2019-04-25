@@ -159,6 +159,24 @@ pub struct TopicWithPost {
     pub posts: Option<Vec<PostWithUser>>,
 }
 
+impl TopicWithPost {
+    pub fn new(topic: Option<TopicWithUser>, posts: Option<Vec<PostWithUser>>) -> Self {
+        TopicWithPost { topic, posts }
+    }
+    pub fn get_topic_id(&self) -> Option<&u32> {
+        match &self.posts {
+            Some(posts) => Some(&posts[0].post.topic_id),
+            None => None
+        }
+    }
+    pub fn get_category_id(&self) -> Option<&u32> {
+        match &self.topic {
+            Some(topic) => Some(&topic.topic.category_id),
+            None => None
+        }
+    }
+}
+
 /// extract self user and self topic from topic with user
 impl GetSelfField<PublicUser, Topic> for TopicWithUser {
     fn get_self_user(&self) -> Option<&PublicUser> {
@@ -172,22 +190,6 @@ impl GetSelfField<PublicUser, Topic> for TopicWithUser {
 impl GetSelfId for TopicWithUser {
     fn get_self_id(&self) -> &u32 { &self.topic.id }
     fn get_self_id_copy(&self) -> u32 { self.topic.id }
-}
-
-
-impl TopicWithPost {
-    pub fn get_topic_id(&self) -> Option<&u32> {
-        match &self.posts {
-            Some(posts) => Some(&posts[0].post.topic_id),
-            None => None
-        }
-    }
-    pub fn get_category_id(&self) -> Option<&u32> {
-        match &self.topic {
-            Some(topic) => Some(&topic.topic.category_id),
-            None => None
-        }
-    }
 }
 
 impl SelfHaveField for TopicWithPost {
@@ -204,7 +206,6 @@ impl SelfHaveField for TopicWithPost {
         }
     }
 }
-
 
 //impl<T> GetSelfTimeStamp for TopicWithUser<T> {
 //    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }

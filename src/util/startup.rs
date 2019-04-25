@@ -2,16 +2,24 @@ use diesel::{
     pg::PgConnection,
     prelude::*,
 };
-use r2d2_redis::{redis};
+use r2d2_redis::redis;
 
 use crate::model::common::{GlobalVar, GlobalGuard, match_id};
-use crate::schema::{posts, topics, users};
+use crate::schema::{posts, topics, users, categories};
 
-pub fn clear_cache(redis_url: &str) -> Result<usize, ()>{
+pub fn clear_cache(redis_url: &str) -> Result<usize, ()> {
     let redis_client = redis::Client::open(redis_url).unwrap();
     let clear_cache = redis_client.get_connection().unwrap();
-    redis::cmd("flushall").query(&clear_cache).map_err(|_|())
+    redis::cmd("flushall").query(&clear_cache).map_err(|_| ())
 }
+
+// ToDo: Build category set, user set, topic rank at system start;
+//pub fn build_cache(redis_url: &str, database_url: &str) -> Result<(),()> {
+//    let connection = PgConnection::establish(database_url)
+//        .unwrap_or_else(|_| panic!("Failed to connect to database"));
+//
+//    let categories = categories::table.
+//}
 
 pub fn init_global_var(database_url: &str) -> GlobalGuard {
     let connection = PgConnection::establish(database_url)

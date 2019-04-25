@@ -2,70 +2,61 @@ use actix_web::web;
 use diesel::prelude::*;
 
 use crate::model::{
-	user::User,
-	admin::AdminQuery,
-	errors::ServiceError,
-	common::{PostgresPool, RedisPool, QueryOption},
+    user::{User, UserUpdateRequest},
+    category::CategoryUpdateRequest,
+    topic::TopicRequest,
+    post::PostRequest,
+    admin::AdminQuery,
+    errors::ServiceError,
+    common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::schema::users;
 
-pub fn admin_handler(
-	admin_query: AdminQuery,
-	opt: &QueryOption,
-) -> Result<(), ServiceError> {
-	let db_pool = opt.db_pool.unwrap();
-	let conn: &PgConnection = &db_pool.get().unwrap();
+type QueryResult = Result<(), ServiceError>;
 
-	match admin_query {
-		AdminQuery::UpdateUserCheck(self_admin_level, _update_user_request) => {
-			if !check_admin_level(_update_user_request.is_admin, &self_admin_level, 9) {
-				return Err(ServiceError::Unauthorized);
-			}
-
-			let target_id = _update_user_request.id;
-			let target_user: User = users::table.find(&target_id).first::<User>(conn)?;
-			if self_admin_level <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }
-
-			Ok(())
-		}
-		AdminQuery::UpdateCategoryCheck(self_admin_level, _update_category_request) => {
-			if !check_admin_level(_update_category_request.category_name, &self_admin_level, 3) ||
-				!check_admin_level(_update_category_request.category_thumbnail, &self_admin_level, 3) {
-				return Err(ServiceError::Unauthorized);
-			}
-
-			Ok(())
-		}
-		AdminQuery::UpdateTopicCheck(self_admin_level, _update_topic_request) => {
-			if !check_admin_level(_update_topic_request.title, &self_admin_level, 3) ||
-				!check_admin_level(_update_topic_request.category_id, &self_admin_level, 3) ||
-				!check_admin_level(_update_topic_request.body, &self_admin_level, 3) ||
-				!check_admin_level(_update_topic_request.thumbnail, &self_admin_level, 3) ||
-				!check_admin_level(_update_topic_request.is_locked, &self_admin_level, 2) {
-				return Err(ServiceError::Unauthorized);
-			}
-
-			Ok(())
-		}
-		AdminQuery::UpdatePostCheck(self_admin_level, _update_post_request) => {
-			if !check_admin_level(_update_post_request.topic_id, &self_admin_level, 3) ||
-				!check_admin_level(_update_post_request.post_id, &self_admin_level, 3) ||
-				!check_admin_level(_update_post_request.post_content, &self_admin_level, 3) ||
-				!check_admin_level(_update_post_request.is_locked, &self_admin_level, 2) {
-				return Err(ServiceError::Unauthorized);
-			}
-			Ok(())
-		}
-		AdminQuery::DeleteCategoryCheck(self_admin_level, _category_id) => {
-			if self_admin_level < &9 { return Err(ServiceError::Unauthorized); }
-			Ok(())
-		}
-	}
+impl<'a> AdminQuery<'a> {
+    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
+        let conn = &opt.db_pool.unwrap().get().unwrap();
+        match self {
+            AdminQuery::UpdateUserCheck(lv, req) => update_user_check(&lv, &req, &conn),
+            AdminQuery::UpdateCategoryCheck(lv, req) => update_category_check(&lv, &req),
+            AdminQuery::UpdateTopicCheck(lv, req) => update_topic_check(&lv, &req),
+            AdminQuery::UpdatePostCheck(lv, req) => update_post_check(&lv, &req),
+            AdminQuery::DeleteCategoryCheck(lv) => if lv < &9 { Err(ServiceError::Unauthorized) } else { Ok(()) }
+        }
+    }
 }
 
-fn check_admin_level<T: ?Sized>(t: Option<&T>, self_level: &u32, target_level: u32) -> bool {
-	if let Some(_value) = t {
-		if self_level < &target_level { return false; }
-	}
-	true
+fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
+    check_admin_level(req.is_admin, &lv, 9)?;
+    let target_user: User = users::table.find(&req.id).first::<User>(conn)?;
+    if lv <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }
+    Ok(())
+}
+
+fn update_category_check(lv: &u32, req: &CategoryUpdateRequest) -> QueryResult {
+    check_admin_level(req.category_name, &lv, 3)?;
+    check_admin_level(req.category_thumbnail, &lv, 3)
+}
+
+fn update_topic_check(lv: &u32, req: &TopicRequest) -> QueryResult {
+    check_admin_level(req.title, &lv, 3)?;
+    check_admin_level(req.category_id, &lv, 3)?;
+    check_admin_level(req.body, &lv, 3)?;
+    check_admin_level(req.thumbnail, &lv, 3)?;
+    check_admin_level(req.is_locked, &lv, 2)
+}
+
+fn update_post_check(lv: &u32, req: &PostRequest) -> QueryResult {
+    check_admin_level(req.topic_id, &lv, 3)?;
+    check_admin_level(req.post_id, &lv, 3)?;
+    check_admin_level(req.post_content, &lv, 3)?;
+    check_admin_level(req.is_locked, &lv, 2)
+}
+
+fn check_admin_level<T: ?Sized>(t: Option<&T>, self_admin_level: &u32, baseline_admin_level: u32) -> Result<(), ServiceError> {
+    if let Some(_value) = t {
+        if self_admin_level < &baseline_admin_level { return Err(ServiceError::Unauthorized) }
+    }
+    Ok(())
 }

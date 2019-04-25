@@ -32,9 +32,13 @@ pub struct PublicUser {
     pub signature: String,
     pub created_at: Option<NaiveDateTime>,
     pub updated_at: Option<NaiveDateTime>,
+    pub is_admin: u32,
+    pub blocked: bool,
+    pub show_email: bool,
+    pub show_created_at: bool,
+    pub show_updated_at: bool,
 }
 
-// ToDo: need better impl for not cloning data.
 impl Into<PublicUser> for User {
     fn into(self) -> PublicUser {
         let email = if self.show_email { Some(self.email) } else { None };
@@ -48,6 +52,11 @@ impl Into<PublicUser> for User {
             signature: self.signature,
             created_at,
             updated_at,
+            is_admin: self.is_admin,
+            blocked: self.blocked,
+            show_email: self.show_email,
+            show_created_at: self.show_created_at,
+            show_updated_at: self.show_updated_at,
         }
     }
 }
@@ -129,6 +138,9 @@ pub struct UserUpdateJson {
     pub signature: Option<String>,
     pub is_admin: Option<u32>,
     pub blocked: Option<bool>,
+    pub show_email: Option<bool>,
+    pub show_created_at: Option<bool>,
+    pub show_updated_at: Option<bool>,
 }
 
 #[derive(AsChangeset)]
@@ -140,6 +152,9 @@ pub struct UserUpdateRequest<'a> {
     pub signature: Option<&'a str>,
     pub is_admin: Option<&'a u32>,
     pub blocked: Option<&'a bool>,
+    pub show_email: Option<&'a bool>,
+    pub show_created_at: Option<&'a bool>,
+    pub show_updated_at: Option<&'a bool>,
 }
 
 impl<'a> UserUpdateJson {
@@ -151,6 +166,9 @@ impl<'a> UserUpdateJson {
             signature: self.signature.as_ref().map(String::as_str),
             is_admin: None,
             blocked: None,
+            show_email: self.show_email.as_ref(),
+            show_created_at: self.show_created_at.as_ref(),
+            show_updated_at: self.show_updated_at.as_ref(),
         }
     }
     pub fn to_request_admin(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
@@ -161,6 +179,9 @@ impl<'a> UserUpdateJson {
             signature: None,
             is_admin: self.is_admin.as_ref(),
             blocked: self.blocked.as_ref(),
+            show_email: None,
+            show_created_at: None,
+            show_updated_at: None,
         }
     }
 }

@@ -7,7 +7,7 @@ use lazy_static::__Deref;
 
 use crate::model::{
     errors::ServiceError,
-    user::{PublicUser},
+    user::PublicUser,
     post::Post,
     topic::{TopicWithPost, TopicWithUser, Topic},
     cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
@@ -55,7 +55,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
     let post_user_vec = get_users(&post_vec, &conn)?;
     let posts = Some(post_vec.into_iter().map(|post| post.attach_from_public(&post_user_vec)).collect());
 
-    Ok(CacheQueryResult::GotTopic(TopicWithPost { topic, posts }))
+    Ok(CacheQueryResult::GotTopic(TopicWithPost::new(topic, posts)))
 }
 
 fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> QueryResult {

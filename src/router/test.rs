@@ -22,7 +22,7 @@ pub fn test_global_var(
         thumbnail: Some("test thumbnail"),
         title: Some("test title"),
         body: Some("test body"),
-        is_locked: None
+        is_locked: None,
     });
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
     Ok(topic_query.handle_query(&opt)?.to_response())
@@ -56,6 +56,9 @@ pub fn generate_admin(
         signature: None,
         is_admin: Some(&9),
         blocked: None,
+        show_email: None,
+        show_created_at: None,
+        show_updated_at: None,
     };
     Ok(UserQuery::UpdateUser(&update_request).handle_query(&opt)?.to_response())
 }

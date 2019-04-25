@@ -24,68 +24,55 @@ impl<'a> UserQuery<'a> {
     }
 }
 
-fn get_me(my_id: &u32, conn: &PgConnection) -> QueryResult {
-    let user: User = users::table.find(&my_id).first::<User>(conn)?;
+fn get_me(id: &u32, conn: &PgConnection) -> QueryResult {
+    let user: User = users::table.find(&id).first::<User>(conn)?;
     Ok(UserQueryResult::GotUser(user))
 }
 
-fn get_user(other_username: &str, conn: &PgConnection) -> QueryResult {
+fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
     let user = users::table
-        .filter(users::username.eq(&other_username))
+        .filter(users::username.eq(&username))
         .first::<User>(conn)?;
     Ok(UserQueryResult::GotPublicUser(user.into()))
 }
 
-fn login_user(login_request: &AuthRequest, conn: &PgConnection) -> QueryResult {
-    let _username = login_request.username;
-    let _password = login_request.password;
-
-    let exist_user = users::table
-        .filter(users::username.eq(&_username))
-        .first::<User>(conn)?;
-
+fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
+    let exist_user = users::table.filter(users::username.eq(&req.username)).first::<User>(conn)?;
     if exist_user.blocked { return Err(ServiceError::Unauthorized); }
-    hash::verify_password(&_password, &exist_user.hashed_password)?;
+
+    hash::verify_password(&req.password, &exist_user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(exist_user.id, exist_user.is_admin).sign()?;
-    Ok(UserQueryResult::LoggedIn(AuthResponse {
-        token,
-        user_data: exist_user.into(),
-    }))
+    Ok(UserQueryResult::LoggedIn(AuthResponse { token, user_data: exist_user.into() }))
 }
 
-fn update_user(user_update_request: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
-    let user_self_id = user_update_request.id;
-
-    let user_old_filter = users::table.filter(users::id.eq(&user_self_id));
-    let updated_user = diesel::update(user_old_filter).set(user_update_request).get_result(conn)?;
+fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
+    let updated_user = diesel::update(users::table
+        .filter(users::id.eq(&req.id)))
+        .set(req).get_result(conn)?;
 
     Ok(UserQueryResult::GotUser(updated_user))
 }
 
-fn register_user(request: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
+fn register_user(req: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
     match users::table
         .select((users::username, users::email))
-        .filter(users::username.eq(&request.username))
-        .or_filter(users::email.eq(&request.email.ok_or(ServiceError::BadRequestGeneral)?))
+        .filter(users::username.eq(&req.username))
+        .or_filter(users::email.eq(&req.email.ok_or(ServiceError::BadRequestGeneral)?))
         .load::<(String, String)>(conn)?.pop() {
-        Some((exist_username, _)) => {
-            if exist_username == request.username {
-                Err(ServiceError::UsernameTaken)
-            } else {
-                Err(ServiceError::EmailTaken)
-            }
-        }
+        Some((exist_username, _)) => if exist_username == req.username {
+            Err(ServiceError::UsernameTaken)
+        } else {
+            Err(ServiceError::EmailTaken)
+        },
         None => {
-            let password_hash: String = hash::hash_password(request.password)?;
+            let password_hash: String = hash::hash_password(req.password)?;
             let id: u32 = global_var.unwrap().lock()
                 // ToDo: In case mutex guard failed change back to increment global vars directly.
                 .map(|mut guarded_global_var| guarded_global_var.next_uid())
                 .map_err(|_| ServiceError::InternalServerError)?;
 
-            diesel::insert_into(users::table)
-                .values(&request.make_user(&id, &password_hash))
-                .execute(conn)?;
+            diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)).execute(conn)?;
             Ok(UserQueryResult::Registered)
         }
     }
