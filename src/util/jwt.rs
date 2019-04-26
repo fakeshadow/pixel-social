@@ -25,12 +25,12 @@ impl JwtPayLoad {
     pub fn decode(token: &str) -> Result<JwtPayLoad, ServiceError> {
         decode::<JwtPayLoad>(token, get_secret().as_ref(), &Validation::default())
             .map(|data| Ok(data.claims.into()))
-            .map_err(|_err| ServiceError::Unauthorized)?
+            .map_err(|_| ServiceError::Unauthorized)?
     }
 
     pub fn sign(&self) -> Result<String, ServiceError> {
         encode(&Header::default(), &self, get_secret().as_ref())
-            .map_err(|_err| ServiceError::InternalServerError)
+            .map_err(|_| ServiceError::InternalServerError)
     }
 }
 

@@ -17,7 +17,7 @@ use crate::model::{
     user::PublicUser,
 };
 use crate::util::validation as validate;
-use crate::model::user::{User, PublicUserRef};
+use crate::model::user::{User, PublicUserRef, ToPublicUserRef};
 use std::iter::FromIterator;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
@@ -54,29 +54,6 @@ impl<'a> ResponseMessage<'a> {
     }
 }
 
-pub trait SelfHaveField {
-    fn have_topic(&self) -> bool;
-    fn have_post(&self) -> bool;
-}
-
-pub trait GetSelfId {
-    fn get_self_id(&self) -> &u32;
-    fn get_self_id_copy(&self) -> u32;
-}
-
-/// trait for extract self user , self topic/post and self user_id from struct(Mainly topic/post with user).
-pub trait GetSelfField<T, R>
-    where T: GetSelfId {
-    fn get_self_user(&self) -> Option<&T>;
-    fn get_self_post_topic(&self) -> &R;
-    fn get_self_user_id(&self) -> Option<u32> {
-        match self.get_self_user() {
-            Some(user) => Some(user.get_self_id_copy()),
-            None => None
-        }
-    }
-}
-
 pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
 }
@@ -88,24 +65,26 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
-pub trait AttachUser {
+
+pub trait GetSelfId {
+    fn get_self_id(&self) -> &u32;
+}
+
+pub trait AttachPublicUserRef<'u, T>
+    where T: GetSelfId + ToPublicUserRef {
     type Output;
     fn get_user_id(&self) -> &u32;
-    fn attach_from_raw(self, users: &Vec<User>) -> Self::Output;
-    fn attach_from_public(self, users: &Vec<PublicUser>) -> Self::Output;
+    fn attach_user(self, users: &'u Vec<T>) -> Self::Output;
 
-    // ToDo: same user can have multiple posts in the same vec so the data can't be moved. Need to find a way not cloning the userdata.
-    fn make_user_from_raw(&self, users: &Vec<User>) -> Option<PublicUser> {
-        users.iter().enumerate()
-            .filter(|(index, user)|
-                self.get_user_id() == user.get_self_id())
-            .map(|(_, user)| user.clone().into()).collect::<Vec<PublicUser>>().pop()
-    }
-    fn make_user_from_public(&self, users: &Vec<PublicUser>) -> Option<PublicUser> {
-        users.iter().enumerate()
-            .filter(|(index, user)|
-                self.get_user_id() == user.get_self_id())
-            .map(|(_, user)| user).cloned().collect::<Vec<PublicUser>>().pop()
+    fn make_field(&self, users: &'u Vec<T>) -> Option<PublicUserRef<'u>> {
+        let mut result: Vec<PublicUserRef> = Vec::with_capacity(1);
+        for user in users.iter() {
+            if self.get_user_id() == user.get_self_id() {
+                result.push(user.to_public());
+                break;
+            }
+        }
+        result.pop()
     }
 }
 
@@ -212,8 +191,11 @@ pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
 
 /// only add topic user_id when query for the first page of a topic. Other case just pass None in
 /// capacity has to be changed along side with the limit constant in handlers.
+pub trait GetUserId {
+    fn get_user_id(&self) -> &u32;
+}
 pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
-    where T: AttachUser {
+    where T: GetUserId {
     let mut result: Vec<&u32> = Vec::with_capacity(21);
 
     if let Some(user_id) = topic_user_id { result.push(user_id); }

@@ -6,10 +6,13 @@ use crate::model::{
     topic::Topic,
     errors::ServiceError,
     category::{Category, CategoryQuery, CategoryQueryResult},
-    common::{PostgresPool, RedisPool, QueryOption, AttachUser, get_unique_id, match_id},
+    common::{PostgresPool, RedisPool, QueryOption,get_unique_id, match_id},
 };
 use crate::schema::{categories, topics, users};
 use crate::model::category::{CategoryRequest, CategoryUpdateRequest};
+use crate::model::common::AttachPublicUserRef;
+use crate::model::topic::TopicWithUser;
+use crate::model::user::ToPublicUserRef;
 
 const LIMIT: i64 = 20;
 
@@ -33,7 +36,7 @@ fn get_popular(page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * LIMIT;
     let _topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
 
-    join_topics_users(_topics, conn)
+    join_topics_users(&_topics, &conn)
 }
 
 fn get_category(req: &CategoryRequest, conn: &PgConnection) -> QueryResult {
@@ -42,7 +45,7 @@ fn get_category(req: &CategoryRequest, conn: &PgConnection) -> QueryResult {
         .filter(topics::category_id.eq_any(req.categories))
         .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
 
-    join_topics_users(_topics, conn)
+    join_topics_users(&_topics, &conn)
 }
 
 fn get_all_categories(conn: &PgConnection) -> QueryResult {
@@ -72,13 +75,18 @@ fn delete_category(category_id: &u32, conn: &PgConnection) -> QueryResult {
 }
 
 fn join_topics_users(
-    topics: Vec<Topic>,
+    topics: &Vec<Topic>,
     conn: &PgConnection,
 ) -> Result<HttpResponse, ServiceError> {
-    if topics.len() == 0 { return Ok(CategoryQueryResult::GotTopics(vec![]).to_response()); };
+    if topics.len() == 0 { return Ok(CategoryQueryResult::GotTopics(&vec![]).to_response()); };
 
     let user_ids = get_unique_id(&topics, None);
     let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
 
-    Ok(CategoryQueryResult::GotTopics(topics.into_iter().map(|topic| topic.attach_from_raw(&users)).collect()).to_response())
+    let mut _topics : Vec<TopicWithUser> = Vec::with_capacity(20);
+    for topic in topics.iter() {
+        _topics.push(topic.to_ref().attach_user(&users));
+    }
+
+    Ok(CategoryQueryResult::GotTopics(&_topics).to_response())
 }

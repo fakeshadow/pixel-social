@@ -9,7 +9,7 @@ use crate::model::{
     errors::ServiceError,
     common::{GlobalVar, GlobalGuard, match_id}
 };
-use crate::handler::cache;
+//use crate::handler::cache;
 use crate::schema::{posts, topics, users, categories};
 
 pub fn clear_cache(redis_url: &str) -> Result<usize, ()> {

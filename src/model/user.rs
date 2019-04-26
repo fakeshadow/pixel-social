@@ -6,10 +6,8 @@ use crate::model::{
     common::{GetSelfId, Validator, ResponseMessage},
 };
 use crate::schema::users;
-use std::iter::FromIterator;
-use serde::Deserialize;
 
-#[derive(Queryable, Deserialize, Serialize, Clone, Debug)]
+#[derive(Queryable, Serialize, Clone, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,
@@ -27,7 +25,7 @@ pub struct User {
     pub show_updated_at: bool,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 // ToDo: Add more privacy field
 pub struct PublicUser {
     pub id: u32,
@@ -61,8 +59,32 @@ pub struct PublicUserRef<'a> {
     pub show_updated_at: &'a bool,
 }
 
-impl User {
-    pub fn to_public(&self) -> PublicUserRef {
+pub trait ToPublicUserRef {
+    fn to_public(&self) -> PublicUserRef;
+}
+
+// ToDo: remove this impl
+impl ToPublicUserRef for PublicUser {
+    fn to_public(&self) -> PublicUserRef {
+        PublicUserRef {
+            id: &self.id,
+            username: &self.username,
+            email: self.email.as_ref().map(String::as_str),
+            avatar_url: &self.avatar_url,
+            signature: &self.signature,
+            created_at: self.created_at.as_ref(),
+            updated_at: self.updated_at.as_ref(),
+            is_admin: &self.is_admin,
+            blocked: &self.blocked,
+            show_email: &self.show_email,
+            show_created_at: &self.show_created_at,
+            show_updated_at: &self.show_updated_at,
+        }
+    }
+}
+
+impl ToPublicUserRef for User {
+    fn to_public(&self) -> PublicUserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
         let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
         let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
@@ -80,30 +102,11 @@ impl User {
             show_created_at: &self.show_created_at,
             show_updated_at: &self.show_updated_at,
         }
-
     }
 }
 
-impl Into<PublicUser> for User {
-    fn into(self) -> PublicUser {
-        let email = if self.show_email { Some(self.email) } else { None };
-        let created_at = if self.show_created_at { Some(self.created_at) } else { None };
-        let updated_at = if self.show_updated_at { Some(self.updated_at) } else { None };
-        PublicUser {
-            id: self.id,
-            username: self.username,
-            email,
-            avatar_url: self.avatar_url,
-            signature: self.signature,
-            created_at,
-            updated_at,
-            is_admin: self.is_admin,
-            blocked: self.blocked,
-            show_email: self.show_email,
-            show_created_at: self.show_created_at,
-            show_updated_at: self.show_updated_at,
-        }
-    }
+impl GetSelfId for User {
+    fn get_self_id(&self) -> &u32 { &self.id }
 }
 
 #[derive(Insertable)]
@@ -157,7 +160,7 @@ impl<'a> AuthRequest<'a> {
 #[derive(Serialize)]
 pub struct AuthResponse<'a> {
     pub token: &'a str,
-    pub user_data: PublicUserRef<'a>,
+    pub user_data: &'a PublicUserRef<'a>,
 }
 
 #[derive(Deserialize)]
@@ -213,24 +216,6 @@ impl<'a> UserUpdateJson {
             show_created_at: None,
             show_updated_at: None,
         }
-    }
-}
-
-impl GetSelfId for User {
-    fn get_self_id(&self) -> &u32 {
-        &self.id
-    }
-    fn get_self_id_copy(&self) -> u32 {
-        self.id
-    }
-}
-
-impl GetSelfId for PublicUser {
-    fn get_self_id(&self) -> &u32 {
-        &self.id
-    }
-    fn get_self_id_copy(&self) -> u32 {
-        self.id
     }
 }
 

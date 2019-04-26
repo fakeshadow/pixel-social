@@ -4,11 +4,12 @@ use chrono::NaiveDateTime;
 use crate::model::{
     user::PublicUser,
     errors::ServiceError,
-    post::PostWithUser,
-    common::{GetSelfId, GetSelfField, GetSelfTimeStamp, AttachUser, SelfHaveField, ResponseMessage},
+    common::{GetSelfId, ResponseMessage},
 };
 use crate::schema::topics;
-use crate::model::user::User;
+use crate::model::user::{User, PublicUserRef, ToPublicUserRef};
+use crate::model::common::{AttachPublicUserRef, GetUserId};
+use crate::model::post::PostWithUserRef;
 
 #[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
@@ -23,6 +24,39 @@ pub struct Topic {
     pub last_reply_time: NaiveDateTime,
     pub reply_count: i32,
     pub is_locked: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TopicRef<'a> {
+    pub id: &'a u32,
+    pub user_id: &'a u32,
+    pub category_id: &'a u32,
+    pub title: &'a str,
+    pub body: &'a str,
+    pub thumbnail: &'a str,
+    pub created_at: &'a NaiveDateTime,
+    pub updated_at: &'a NaiveDateTime,
+    pub last_reply_time: &'a NaiveDateTime,
+    pub reply_count: &'a i32,
+    pub is_locked: &'a bool,
+}
+
+impl Topic {
+    pub fn to_ref(&self) -> TopicRef {
+        TopicRef {
+            id: &self.id,
+            user_id: &self.user_id,
+            category_id: &self.category_id,
+            title: &self.title,
+            body: &self.body,
+            thumbnail: &self.thumbnail,
+            created_at: &self.created_at,
+            updated_at: &self.updated_at,
+            last_reply_time: &self.last_reply_time,
+            reply_count: &self.reply_count,
+            is_locked: &self.is_locked,
+        }
+    }
 }
 
 #[derive(Insertable)]
@@ -127,40 +161,39 @@ impl<'a> TopicRequest<'a> {
     }
 }
 
-impl AttachUser for Topic {
-    type Output = TopicWithUser;
+impl<'a> GetSelfId for TopicRef<'a> {
+    fn get_self_id(&self) -> &u32 { &self.id }
+}
+
+impl<'u, T> AttachPublicUserRef<'u, T> for TopicRef<'u>
+    where T: GetSelfId + ToPublicUserRef {
+    type Output = TopicWithUser<'u>;
     fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
-    fn attach_from_raw(self, users: &Vec<User>) -> TopicWithUser {
+    fn attach_user(self, users: &'u Vec<T>) -> Self::Output {
         TopicWithUser {
-            user: self.make_user_from_raw(users),
-            topic: self,
-        }
-    }
-    fn attach_from_public(self, users: &Vec<PublicUser>) -> TopicWithUser {
-        TopicWithUser {
-            user: self.make_user_from_public(users),
+            user: self.make_field(&users),
             topic: self,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TopicWithUser {
+#[derive(Serialize, Debug)]
+pub struct TopicWithUser<'a> {
     #[serde(flatten)]
-    pub topic: Topic,
-    pub user: Option<PublicUser>,
+    pub topic: TopicRef<'a>,
+    pub user: Option<PublicUserRef<'a>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TopicWithPost {
-    pub topic: Option<TopicWithUser>,
-    pub posts: Option<Vec<PostWithUser>>,
+#[derive(Debug, Serialize)]
+pub struct TopicWithPost<'a> {
+    pub topic: Option<&'a TopicWithUser<'a>>,
+    pub posts: Option<&'a Vec<PostWithUserRef<'a>>>,
 }
 
-impl TopicWithPost {
-    pub fn new(topic: Option<TopicWithUser>, posts: Option<Vec<PostWithUser>>) -> Self {
+impl<'a> TopicWithPost<'a> {
+    pub fn new(topic: Option<&'a TopicWithUser<'a>>, posts: Option<&'a Vec<PostWithUserRef<'a>>>) -> Self {
         TopicWithPost { topic, posts }
     }
     pub fn get_topic_id(&self) -> Option<&u32> {
@@ -177,34 +210,8 @@ impl TopicWithPost {
     }
 }
 
-/// extract self user and self topic from topic with user
-impl GetSelfField<PublicUser, Topic> for TopicWithUser {
-    fn get_self_user(&self) -> Option<&PublicUser> {
-        self.user.as_ref()
-    }
-    fn get_self_post_topic(&self) -> &Topic {
-        &self.topic
-    }
-}
-
-impl GetSelfId for TopicWithUser {
-    fn get_self_id(&self) -> &u32 { &self.topic.id }
-    fn get_self_id_copy(&self) -> u32 { self.topic.id }
-}
-
-impl SelfHaveField for TopicWithPost {
-    fn have_topic(&self) -> bool {
-        match &self.topic {
-            Some(_topic) => true,
-            None => false
-        }
-    }
-    fn have_post(&self) -> bool {
-        match &self.posts {
-            Some(posts) => if !posts.is_empty() { true } else { false },
-            None => false
-        }
-    }
+impl GetUserId for Topic {
+    fn get_user_id(&self) -> &u32 { &self.user_id }
 }
 
 //impl<T> GetSelfTimeStamp for TopicWithUser<T> {
@@ -217,12 +224,12 @@ pub enum TopicQuery<'a> {
     UpdateTopic(&'a TopicRequest<'a>),
 }
 
-pub enum TopicQueryResult {
+pub enum TopicQueryResult<'a> {
     ModifiedTopic,
-    GotTopic(TopicWithPost),
+    GotTopic(&'a TopicWithPost<'a>),
 }
 
-impl TopicQueryResult {
+impl<'a> TopicQueryResult<'a> {
     pub fn to_response(&self) -> HttpResponse {
         match self {
             TopicQueryResult::ModifiedTopic => HttpResponse::Ok().json(ResponseMessage::new("Add Topic Success")),

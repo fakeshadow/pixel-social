@@ -95,13 +95,13 @@ pub enum CategoryQuery<'a> {
     DeleteCategory(&'a u32),
 }
 
-pub enum CategoryQueryResult {
+pub enum CategoryQueryResult<'a> {
     GotCategories(Vec<Category>),
-    GotTopics(Vec<TopicWithUser>),
+    GotTopics(&'a Vec<TopicWithUser<'a>>),
     UpdatedCategory,
 }
 
-impl CategoryQueryResult {
+impl<'a> CategoryQueryResult<'a> {
     pub fn to_response(&self) -> HttpResponse {
         match self {
             CategoryQueryResult::GotCategories(categories) => HttpResponse::Ok().json(&categories),

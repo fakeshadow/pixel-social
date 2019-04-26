@@ -3,8 +3,8 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, PublicUser},
-    common::{AttachUser, GetSelfId, GetSelfField, ResponseMessage},
+    user::{User, PublicUserRef, ToPublicUserRef},
+    common::{AttachPublicUserRef, GetUserId, ResponseMessage},
 };
 use crate::schema::posts;
 
@@ -20,6 +20,37 @@ pub struct Post {
     pub last_reply_time: NaiveDateTime,
     pub reply_count: i32,
     pub is_locked: bool,
+}
+
+#[derive(Serialize, Debug)]
+pub struct PostRef<'a> {
+    pub id: &'a u32,
+    pub user_id: &'a u32,
+    pub topic_id: &'a u32,
+    pub post_id: Option<&'a u32>,
+    pub post_content: &'a str,
+    pub created_at: &'a NaiveDateTime,
+    pub updated_at: &'a NaiveDateTime,
+    pub last_reply_time: &'a NaiveDateTime,
+    pub reply_count: &'a i32,
+    pub is_locked: &'a bool,
+}
+
+impl Post {
+    pub fn to_ref(&self) -> PostRef {
+        PostRef {
+            id: &self.id,
+            user_id: &self.user_id,
+            topic_id: &self.topic_id,
+            post_id: self.post_id.as_ref(),
+            post_content: &self.post_content,
+            created_at: &self.created_at,
+            updated_at: &self.updated_at,
+            last_reply_time: &self.last_reply_time,
+            reply_count: &self.reply_count,
+            is_locked: &self.is_locked,
+        }
+    }
 }
 
 #[derive(Insertable)]
@@ -117,45 +148,28 @@ impl<'a> PostRequest<'a> {
     }
 }
 
-impl AttachUser for Post {
-    type Output = PostWithUser;
+#[derive(Serialize, Debug)]
+pub struct PostWithUserRef<'a> {
+    #[serde(flatten)]
+    pub post: PostRef<'a>,
+    pub user: Option<PublicUserRef<'a>>,
+}
+
+impl<'u> AttachPublicUserRef<'u, User> for PostRef<'u> {
+    type Output = PostWithUserRef<'u>;
     fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
-    fn attach_from_raw(self, users: &Vec<User>) -> PostWithUser {
-        PostWithUser {
-            user: self.make_user_from_raw(users),
-            post: self,
-        }
-    }
-    fn attach_from_public(self, users: &Vec<PublicUser>) -> PostWithUser {
-        PostWithUser {
-            user: self.make_user_from_public(users),
+    fn attach_user(self, users: &'u Vec<User>) -> Self::Output {
+        PostWithUserRef {
+            user: self.make_field(&users),
             post: self,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PostWithUser {
-    #[serde(flatten)]
-    pub post: Post,
-    pub user: Option<PublicUser>,
-}
-
-/// extract self user and self post from post with user
-impl GetSelfField<PublicUser, Post> for PostWithUser {
-    fn get_self_user(&self) -> Option<&PublicUser> {
-        self.user.as_ref()
-    }
-    fn get_self_post_topic(&self) -> &Post {
-        &self.post
-    }
-}
-
-impl GetSelfId for PostWithUser {
-    fn get_self_id(&self) -> &u32 { &self.post.id }
-    fn get_self_id_copy(&self) -> u32 { self.post.id }
+impl GetUserId for Post {
+    fn get_user_id(&self) -> &u32 { &self.user_id }
 }
 
 pub enum PostQuery<'a> {
@@ -166,7 +180,7 @@ pub enum PostQuery<'a> {
 
 pub enum PostQueryResult<'a> {
     AddedPost,
-    GotPost(&'a PostWithUser),
+    GotPost(&'a PostWithUserRef<'a>),
 }
 
 impl<'a> PostQueryResult<'a> {

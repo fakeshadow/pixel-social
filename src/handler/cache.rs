@@ -13,10 +13,12 @@ use crate::model::{
     cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
     common::{RedisPool, AttachUser, GetSelfId, GetSelfField, get_unique_id},
 };
+use crate::model::topic::TopicWithUserRef;
+use crate::model::common::AttachPublicUserRef;
 
 const LIMIT: isize = 20;
 
-type QueryResult = Result<CacheQueryResult, ServiceError>;
+type QueryResult = Result<HttpResponse, ServiceError>;
 type Conn = redis::Connection;
 
 impl<'a> CacheQuery<'a> {
@@ -56,7 +58,7 @@ fn get_topic_cache(cache_request: &TopicCacheRequest, conn: &Conn) -> QueryResul
 
     let posts = Some(post_vec.into_iter().map(|post| post.attach_from_public(&post_user_vec)).collect());
 
-    Ok(CacheQueryResult::GotTopic(TopicWithPost::new(topic, posts)))
+    Ok(CacheQueryResult::GotTopic(TopicWithPost::new(topic, posts)).to_response())
 }
 
 fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> QueryResult {
@@ -71,9 +73,14 @@ fn get_category_cache(cache_request: &CategoryCacheRequest, conn: &Conn) -> Quer
     let topics_vec: Vec<Topic> = deserialize_string_vec(&topics_string)?;
     let users = get_users(&topics_vec, &conn)?;
 
-    let topics_with_user: Vec<TopicWithUser> = topics_vec.into_iter().map(|topic| topic.attach_from_public(&users)).collect();
+//    let topics_with_user: Vec<TopicWithUser> = topics_vec.into_iter().map(|topic| topic.attach_from_public(&users)).collect();
 
-    Ok(CacheQueryResult::GotCategory(topics_with_user))
+    let mut topics: Vec<TopicWithUserRef> = Vec::with_capacity(20);
+    for topic in topics_vec.iter() {
+        topics.push(topic.to_ref().attach_user(&users))
+    }
+
+    Ok(CacheQueryResult::GotCategory(&topics).to_response())
 }
 
 fn update_category_cache(topics: &Vec<TopicWithUser>, conn: &Conn) -> QueryResult {
@@ -82,7 +89,7 @@ fn update_category_cache(topics: &Vec<TopicWithUser>, conn: &Conn) -> QueryResul
     let (topic_rank_vec, user_rank_vec) = serialize_vec(&topics, None)?;
     conn.zadd_multiple("users", &user_rank_vec)?;
     conn.zadd_multiple(category_key, &topic_rank_vec)?;
-    Ok(CacheQueryResult::Updated)
+    Ok(CacheQueryResult::Updated.to_response())
 }
 
 fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResult {
@@ -120,7 +127,7 @@ fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResu
             format!("topic:{}", topic_with_post.get_topic_id().ok_or(ServiceError::NoCacheFound)?);
         conn.zadd_multiple(topic_key, &post_rank_vec)?;
     }
-    Ok(CacheQueryResult::Updated)
+    Ok(CacheQueryResult::Updated.to_response())
 }
 
 /// pass topic user id/string tuple as an option.

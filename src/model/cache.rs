@@ -7,6 +7,7 @@ use crate::model::{
     topic::{TopicWithPost, TopicWithUser},
     common::ResponseMessage,
 };
+use crate::model::topic::TopicWithUser;
 
 pub struct CategoryCacheRequest<'a> {
     pub categories: &'a Vec<u32>,
@@ -27,15 +28,15 @@ pub enum CacheQuery<'a> {
     UpdateTopic(&'a TopicWithPost),
 }
 
-pub enum CacheQueryResult {
+pub enum CacheQueryResult<'a> {
     //    GotAllCategories,
     GotPopular,
     Updated,
-    GotCategory(Vec<TopicWithUser>),
+    GotCategory(&'a Vec<TopicWithUser<'a>>),
     GotTopic(TopicWithPost),
 }
 
-impl CacheQueryResult {
+impl<'a> CacheQueryResult<'a> {
     pub fn to_response(&self) -> HttpResponse {
         match self {
             CacheQueryResult::GotCategory(categories) => HttpResponse::Ok().json(&categories),

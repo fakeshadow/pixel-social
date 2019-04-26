@@ -7,7 +7,7 @@ use crate::util::jwt::JwtPayLoad;
 pub type UserJwt = JwtPayLoad;
 
 /// jwt token extractor
-impl FromRequest for UserJwt {
+impl FromRequest for JwtPayLoad {
     type Error = ServiceError;
     type Future = Result<UserJwt, ServiceError>;
     type Config = ();

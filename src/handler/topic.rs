@@ -5,8 +5,8 @@ use crate::model::{
     errors::ServiceError,
     post::Post,
     user::User,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
-    common::{PostgresPool, QueryOption, GlobalGuard, AttachUser, get_unique_id},
+    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest, TopicRef},
+    common::{PostgresPool, QueryOption, GlobalGuard, AttachPublicUserRef, get_unique_id},
 };
 use crate::schema::{categories, posts, topics, users};
 
@@ -28,12 +28,12 @@ impl<'a> TopicQuery<'a> {
 fn get_topic(id: &u32, page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * 20;
 
-    let _topic: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
-    let _posts: Vec<Post> = posts::table
+    let topic: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
+    let posts: Vec<Post> = posts::table
         .filter(posts::topic_id.eq(&id))
         .order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
 
-    join_topics_users(_topic, _posts, &conn, &page)
+    join_topics_users(topic.to_ref(), &posts, &conn, &page)
 }
 
 fn add_topic(req: &TopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
@@ -64,20 +64,22 @@ fn update_topic(req: &TopicRequest, conn: &PgConnection) -> QueryResult {
 }
 
 fn join_topics_users(
-    topic: Topic,
-    posts: Vec<Post>,
+    topic: TopicRef,
+    posts: &Vec<Post>,
     conn: &PgConnection,
     page: &i64,
 ) -> QueryResult {
-    let user_ids = get_unique_id(&posts, Some(topic.get_user_id()));
+    let user_ids = get_unique_id(&posts, Some(topic.user_id));
     let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
 
-    let posts = posts.into_iter().map(|post| post.attach_from_raw(&users)).collect();
-    let _topic = if page == &1 {
-        TopicWithPost::new(Some(topic.attach_from_raw(&users)), Some(posts))
+    let _topic = topic.attach_user(&users);
+    let posts = posts.into_iter().map(|post| post.to_ref().attach_user(&users)).collect();
+
+    let result = if page == &1 {
+        TopicWithPost::new(Some(&_topic), Some(&posts))
     } else {
-        TopicWithPost::new(None, Some(posts))
+        TopicWithPost::new(None, Some(&posts))
     };
 
-    Ok(TopicQueryResult::GotTopic(_topic).to_response())
+    Ok(TopicQueryResult::GotTopic(&result).to_response())
 }

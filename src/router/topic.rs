@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
 //    cache::{CacheQuery, TopicCacheRequest},
     topic::{TopicJson, TopicQuery},
-    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool, SelfHaveField},
+    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
 use crate::handler::auth::UserJwt;
 
@@ -40,6 +40,5 @@ pub fn update_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let result = TopicQuery::UpdateTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt).into_future();
-    result
+    TopicQuery::UpdateTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt).into_future()
 }
