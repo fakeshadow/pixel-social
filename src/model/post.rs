@@ -3,10 +3,11 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, PublicUserRef, ToPublicUserRef},
-    common::{AttachPublicUserRef, GetUserId, ResponseMessage},
+    user::{User, PublicUserRef, ToUserRef},
+    common::{AttachUserRef, GetUserId, ResponseMessage},
 };
 use crate::schema::posts;
+use crate::model::common::GetSelfId;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -155,17 +156,19 @@ pub struct PostWithUser<'a> {
     pub user: Option<PublicUserRef<'a>>,
 }
 
-impl<'u> AttachPublicUserRef<'u, User> for PostRef<'u> {
+impl<'u> AttachUserRef<'u, User> for PostRef<'u> {
     type Output = PostWithUser<'u>;
-    fn get_user_id(&self) -> &u32 {
-        &self.user_id
-    }
+    fn self_user_id(&self) -> &u32 { &self.user_id }
     fn attach_user(self, users: &'u Vec<User>) -> Self::Output {
         PostWithUser {
             user: self.make_field(&users),
             post: self,
         }
     }
+}
+
+impl GetSelfId for Post {
+    fn get_self_id(&self) -> &u32 { &self.id }
 }
 
 impl GetUserId for Post {

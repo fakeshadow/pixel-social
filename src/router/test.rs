@@ -27,3 +27,18 @@ pub fn test_global_var(
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
     topic_query.handle_query(&opt).into_future()
 }
+
+pub fn async_test(
+    db_pool: web::Data<PostgresPool>,
+    cache_pool: web::Data<RedisPool>,
+) -> Result<HttpResponse, ServiceError> {
+    let (category_id, page) = (1u32, 1);
+
+    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let categories = vec![category_id];
+    let category_request = CategoryRequest {
+        categories: &categories,
+        page: &page,
+    };
+    CategoryQuery::GetCategory(&category_request).handle_query(&opt)
+}

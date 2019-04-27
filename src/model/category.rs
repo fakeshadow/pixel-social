@@ -3,8 +3,7 @@ use actix_web::HttpResponse;
 use crate::model::{
     errors::ServiceError,
     topic::TopicWithUser,
-    common::ResponseMessage,
-    user::PublicUser,
+    common::ResponseMessage
 };
 use crate::schema::categories;
 

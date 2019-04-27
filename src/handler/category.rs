@@ -3,10 +3,10 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, ToPublicUserRef},
+    user::{User, ToUserRef},
     topic::{Topic, TopicWithUser},
     category::{Category, CategoryQuery, CategoryQueryResult, CategoryRequest, CategoryUpdateRequest},
-    common::{PostgresPool, RedisPool, QueryOption, AttachPublicUserRef, get_unique_id, match_id},
+    common::{PostgresPool, RedisPool, QueryOption, AttachUserRef, get_unique_id, match_id},
 };
 use crate::schema::{categories, topics, users};
 

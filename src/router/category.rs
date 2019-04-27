@@ -38,11 +38,6 @@ pub fn get_category(
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
     let categories = vec![*category_id];
-//    let cache_page = *page as isize;
-//    let category_request = CategoryCacheRequest {
-//        categories: &categories,
-//        page: &cache_page,
-//    };
     let category_request = CategoryRequest {
         categories: &categories,
         page: &page,

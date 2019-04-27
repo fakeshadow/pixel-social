@@ -152,6 +152,9 @@ fn main() -> std::io::Result<()> {
                     .service(
                         web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
                     )
+                    .service(
+                        web::resource("/async").route(web::get().to(router::test::async_test)),
+                    )
             )
             .service(
                 web::scope("/upload")

@@ -3,7 +3,6 @@ use futures::IntoFuture;
 
 use crate::model::{
     errors::ServiceError,
-//    cache::{CacheQuery, TopicCacheRequest},
     topic::{TopicJson, TopicQuery},
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
@@ -27,7 +26,6 @@ pub fn get_topic(
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (topic_id, page) = topic_path.as_ref();
-    let cache_page = *page as isize;
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
     TopicQuery::GetTopic(&topic_id, &page).handle_query(&opt).into_future()

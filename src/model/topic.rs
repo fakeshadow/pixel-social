@@ -2,16 +2,15 @@ use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    user::PublicUser,
     errors::ServiceError,
-    common::{GetSelfId, ResponseMessage},
+    user::{User, PublicUserRef, ToUserRef},
+    post::PostWithUser,
+    cache::{TopicHashSet, TopicRankSet},
+    common::{GetSelfId, AttachUserRef, GetUserId, ResponseMessage},
 };
 use crate::schema::topics;
-use crate::model::user::{User, PublicUserRef, ToPublicUserRef};
-use crate::model::common::{AttachPublicUserRef, GetUserId};
-use crate::model::post::PostWithUser;
 
-#[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
+#[derive(Queryable)]
 pub struct Topic {
     pub id: u32,
     pub user_id: u32,
@@ -55,6 +54,30 @@ impl Topic {
             last_reply_time: &self.last_reply_time,
             reply_count: &self.reply_count,
             is_locked: &self.is_locked,
+        }
+    }
+}
+
+// ToDo: reduce boilerplate types for cache convert
+impl<'a> TopicRef<'a> {
+    pub fn to_hash(&self) -> TopicHashSet {
+        TopicHashSet {
+            id: &self.id,
+            user_id: &self.user_id,
+            category_id: &self.category_id,
+            created_at: &self.created_at,
+            updated_at: &self.updated_at,
+            last_reply_time: &self.last_reply_time,
+            reply_count: &self.reply_count,
+            is_locked: &self.is_locked,
+        }
+    }
+    pub fn to_rank(&self) -> TopicRankSet {
+        TopicRankSet {
+            id: &self.id,
+            title: &self.title,
+            body: &self.body,
+            thumbnail: &self.thumbnail,
         }
     }
 }
@@ -165,25 +188,16 @@ impl<'a> GetSelfId for TopicRef<'a> {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-impl<'u, T> AttachPublicUserRef<'u, T> for TopicRef<'u>
-    where T: GetSelfId + ToPublicUserRef {
+impl<'u, T> AttachUserRef<'u, T> for TopicRef<'u>
+    where T: GetSelfId + ToUserRef {
     type Output = TopicWithUser<'u>;
-    fn get_user_id(&self) -> &u32 {
-        &self.user_id
-    }
+    fn self_user_id(&self) -> &u32 { &self.user_id }
     fn attach_user(self, users: &'u Vec<T>) -> Self::Output {
         TopicWithUser {
             user: self.make_field(&users),
             topic: self,
         }
     }
-}
-
-#[derive(Serialize, Clone)]
-pub struct TopicWithUserTest {
-    #[serde(flatten)]
-    pub topic: Topic,
-    pub user: Option<User>,
 }
 
 #[derive(Serialize)]

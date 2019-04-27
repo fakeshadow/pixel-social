@@ -14,11 +14,9 @@ use r2d2_redis::{
 
 use crate::model::{
     errors::ServiceError,
-    user::PublicUser,
+    user::{User, PublicUserRef, ToUserRef},
 };
 use crate::util::validation as validate;
-use crate::model::user::{User, PublicUserRef, ToPublicUserRef};
-use std::iter::FromIterator;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_pool<RedisConnectionManager>;
@@ -65,38 +63,25 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
-pub trait GetSelfIdTestImpl {
-    fn get_self_id(&self) -> &u32;
-}
 
 pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }
-pub trait AttachPublicUserRef<'u, T>
-    where T: GetSelfId + ToPublicUserRef {
+pub trait AttachUserRef<'u, T>
+    where T: GetSelfId + ToUserRef {
     type Output;
-    fn get_user_id(&self) -> &u32;
+    fn self_user_id(&self) -> &u32;
     fn attach_user(self, users: &'u Vec<T>) -> Self::Output;
-
     fn make_field(&self, users: &'u Vec<T>) -> Option<PublicUserRef<'u>> {
         let mut result: Vec<PublicUserRef> = Vec::with_capacity(1);
         for user in users.iter() {
-            if self.get_user_id() == user.get_self_id() {
+            if self.self_user_id() == user.get_self_id() {
                 result.push(user.to_public());
                 break;
             }
         }
         result.pop()
     }
-}
-
-/// getter function for multiple layers of struct
-pub trait GetSelfUser<T> {
-    fn get_self_user(&self) -> T;
-}
-
-pub trait GetSelfTopicPost<T> {
-    fn get_self_topic_post(&self) -> T;
 }
 
 // need to improve validator with regex

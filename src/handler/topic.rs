@@ -6,7 +6,7 @@ use crate::model::{
     post::Post,
     user::User,
     topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest, TopicRef},
-    common::{PostgresPool, QueryOption, GlobalGuard, AttachPublicUserRef, get_unique_id},
+    common::{PostgresPool, QueryOption, GlobalGuard, AttachUserRef, get_unique_id},
 };
 use crate::schema::{categories, posts, topics, users};
 
@@ -28,12 +28,33 @@ impl<'a> TopicQuery<'a> {
 fn get_topic(id: &u32, page: &i64, conn: &PgConnection) -> QueryResult {
     let offset = (page - 1) * 20;
 
-    let topic: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
-    let posts: Vec<Post> = posts::table
-        .filter(posts::topic_id.eq(&id))
-        .order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
+    let topic_raw: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
+    let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
+    let user_ids = get_unique_id(&posts_raw, Some(&topic_raw.user_id));
+    let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
+    /// update topic cache
+    let _test = update_cache_test(&topic_raw.to_ref());
 
-    join_topics_users(topic.to_ref(), &posts, &conn, &page)
+    let topic = topic_raw.to_ref().attach_user(&users);
+    let posts = posts_raw.iter().map(|post| post.to_ref().attach_user(&users)).collect();
+    let result = if page == &1 {
+        TopicWithPost::new(Some(&topic), Some(&posts))
+    } else {
+        TopicWithPost::new(None, Some(&posts))
+    };
+
+    Ok(TopicQueryResult::GotTopic(&result).to_response())
+}
+
+use crate::handler::cache::*;
+
+fn update_cache_test(topic: &TopicRef) -> Result<(), ServiceError> {
+//    let vec = vec![topic];
+    let hash = topic.to_hash();
+    let rank = topic.to_rank();
+    let vec = vec![rank];
+    let result = serialize_vec(&vec)?;
+    Ok(())
 }
 
 fn add_topic(req: &TopicRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
@@ -61,25 +82,4 @@ fn update_topic(req: &TopicRequest, conn: &PgConnection) -> QueryResult {
             .set(req.make_update()?).execute(conn)?
     };
     Ok(TopicQueryResult::ModifiedTopic.to_response())
-}
-
-fn join_topics_users(
-    topic: TopicRef,
-    posts: &Vec<Post>,
-    conn: &PgConnection,
-    page: &i64,
-) -> QueryResult {
-    let user_ids = get_unique_id(&posts, Some(topic.user_id));
-    let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
-
-    let _topic = topic.attach_user(&users);
-    let posts = posts.iter().map(|post| post.to_ref().attach_user(&users)).collect();
-
-    let result = if page == &1 {
-        TopicWithPost::new(Some(&_topic), Some(&posts))
-    } else {
-        TopicWithPost::new(None, Some(&posts))
-    };
-
-    Ok(TopicQueryResult::GotTopic(&result).to_response())
 }

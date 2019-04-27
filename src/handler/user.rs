@@ -3,7 +3,7 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToPublicUserRef},
+    user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToUserRef},
     common::{GlobalGuard, PostgresPool, QueryOption, Validator},
 };
 use crate::schema::users;

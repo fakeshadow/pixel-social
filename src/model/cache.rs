@@ -1,47 +1,28 @@
 use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
-use crate::model::{
-    errors::ServiceError,
-    user::PublicUser,
-    topic::{TopicWithPost, TopicWithUser},
-    common::ResponseMessage,
-};
+use crate::model::common::GetSelfId;
 
-pub struct CategoryCacheRequest<'a> {
-    pub categories: &'a Vec<u32>,
-    pub page: &'a isize,
+#[derive(Debug)]
+pub struct TopicHashSet<'a> {
+    pub id: &'a u32,
+    pub user_id: &'a u32,
+    pub category_id: &'a u32,
+    pub created_at: &'a NaiveDateTime,
+    pub updated_at: &'a NaiveDateTime,
+    pub last_reply_time: &'a NaiveDateTime,
+    pub reply_count: &'a i32,
+    pub is_locked: &'a bool,
 }
 
-pub struct TopicCacheRequest<'a> {
-    pub topic: &'a u32,
-    pub page: &'a isize,
+#[derive(Serialize, Debug)]
+pub struct TopicRankSet<'a> {
+    pub id: &'a u32,
+    pub title: &'a str,
+    pub body: &'a str,
+    pub thumbnail: &'a str,
 }
 
-pub enum CacheQuery<'a> {
-    //    GetAllCategories,
-//    GetPopular(i64),
-    GetTopic(TopicCacheRequest<'a>),
-    GetCategory(CategoryCacheRequest<'a>),
-    UpdateCategory(&'a Vec<TopicWithUser<'a>>),
-    UpdateTopic(&'a TopicWithPost<'a>),
-}
-
-pub enum CacheQueryResult<'a> {
-    //    GotAllCategories,
-    GotPopular,
-    Updated,
-    GotCategory(&'a Vec<TopicWithUser<'a>>),
-    GotTopic(&'a TopicWithPost<'a>),
-}
-
-impl<'a> CacheQueryResult<'a> {
-    pub fn to_response(&self) -> HttpResponse {
-        match self {
-            CacheQueryResult::GotCategory(categories) => HttpResponse::Ok().json(&categories),
-            CacheQueryResult::GotTopic(topics) => HttpResponse::Ok().json(&topics),
-            CacheQueryResult::Updated => HttpResponse::Ok().json(ResponseMessage::new("Modify Success")),
-            CacheQueryResult::GotPopular => HttpResponse::Ok().json(ResponseMessage::new("Placeholder response")),
-        }
-    }
+impl<'a> GetSelfId for TopicRankSet<'a> {
+    fn get_self_id(&self) -> &u32 { &self.id }
 }

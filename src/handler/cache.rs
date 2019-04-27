@@ -7,31 +7,15 @@ use lazy_static::__Deref;
 
 use crate::model::{
     errors::ServiceError,
-    user::PublicUser,
     post::Post,
     topic::{TopicWithPost, TopicWithUser, Topic},
-    cache::{CacheQuery, CacheQueryResult, TopicCacheRequest, CategoryCacheRequest},
-    common::{RedisPool, GetSelfId, get_unique_id},
+    common::{RedisPool, GetSelfId, AttachUserRef, get_unique_id},
 };
-use crate::model::common::{AttachPublicUserRef, GetSelfUser, GetSelfTopicPost};
 
 const LIMIT: isize = 20;
 
-//type QueryResult = Result<HttpResponse, ServiceError>;
 type QueryResult = Result<(), ServiceError>;
 type Conn = redis::Connection;
-
-//impl<'a> CacheQuery<'a> {
-//    pub fn handle_query(self, cache_pool: &web::Data<RedisPool>) -> QueryResult {
-//        let conn = &cache_pool.try_get().ok_or(ServiceError::RedisOffline)?;
-//        match self {
-//            CacheQuery::GetTopic(cache_request) => get_topic_cache(&cache_request, &conn),
-//            CacheQuery::GetCategory(cache_request) => get_category_cache(&cache_request, &conn),
-//            CacheQuery::UpdateCategory(topics) => update_category_cache(&topics, &conn),
-//            CacheQuery::UpdateTopic(topic_with_post) => update_topic_cache(&topic_with_post, &conn),
-//        }
-//    }
-//}
 
 //pub fn cache_handler(query: &CacheQuery, cache_pool: &) -> impl
 
@@ -88,15 +72,15 @@ type Conn = redis::Connection;
 //    Ok(())
 //}
 
-//fn update_category_cache(topics: &Vec<TopicWithUser>, conn: &Conn) -> QueryResult {
-//    let category_id = topics[0].topic.category_id;
-//    let category_key = format!("category:{}", &category_id);
-//    let (topic_rank_vec, user_rank_vec) = serialize_vec(&topics, None)?;
-////    conn.zadd_multiple("users", &user_rank_vec)?;
-////    conn.zadd_multiple(category_key, &topic_rank_vec)?;
-////    Ok(CacheQueryResult::Updated.to_response())
-//    Ok(())
-//}
+pub fn serialize_vec<T>(items: &Vec<T>) -> Result<Vec<(&u32, String)>, ServiceError>
+    where T: GetSelfId + Serialize {
+    let mut result: Vec<(&u32, String)> = Vec::new();
+    for item in items.iter() {
+        result.push((item.get_self_id(), json::to_string(item)?));
+    }
+    Ok(result)
+}
+
 
 //fn update_topic_cache(topic_with_post: &TopicWithPost, conn: &Conn) -> QueryResult {
 //    let mut topic_rank_vec: Vec<(u32, String)> = Vec::with_capacity(1);
@@ -142,17 +126,15 @@ type Conn = redis::Connection;
 //    vec: &Vec<T>,
 //    topic_user: Option<(u32, String)>,
 //) -> Result<(Vec<(u32, String)>, Vec<(u32, String)>), ServiceError>
-//    where T: GetSelfId + GetSelfUser<R> + GetSelfTopicPost<E> {
+//    where T: GetSelfId + GetSelfUser<R> + GetSelfTopicPost<E>, R: GetSelfId +Clone {
 //    let mut topics_or_posts_rank: Vec<(u32, String)> = Vec::with_capacity(20);
 //    let mut users_rank: Vec<(u32, String)> = Vec::with_capacity(21);
 //
 //    if let Some(tuple) = topic_user { users_rank.push(tuple) };
 //
 //    for item in vec.iter() {
-//
-//
-//        if let Some(user_id) = item.get_self_user_id() {
-//            let tuple = (user_id, json::to_string(&item.get_self_user().ok_or(ServiceError::NoCacheFound)?)?);
+//        if let Some(user) = item.get_self_user() {
+//            let tuple = (user.get_self_id().clone(), json::to_string(&user.ok_or(ServiceError::NoCacheFound)?)?);
 //            if !users_rank.contains(&tuple) {
 //                users_rank.push(tuple)
 //            }

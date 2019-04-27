@@ -9,7 +9,7 @@ use crate::model::{
     common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
 use crate::schema::{posts, topics, users};
-use crate::model::common::{AttachPublicUserRef};
+use crate::model::common::AttachUserRef;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
