@@ -65,11 +65,13 @@ pub trait GetSelfTimeStamp {
 //    }
 }
 
+pub trait GetSelfIdTestImpl {
+    fn get_self_id(&self) -> &u32;
+}
 
 pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }
-
 pub trait AttachPublicUserRef<'u, T>
     where T: GetSelfId + ToPublicUserRef {
     type Output;
@@ -86,6 +88,15 @@ pub trait AttachPublicUserRef<'u, T>
         }
         result.pop()
     }
+}
+
+/// getter function for multiple layers of struct
+pub trait GetSelfUser<T> {
+    fn get_self_user(&self) -> T;
+}
+
+pub trait GetSelfTopicPost<T> {
+    fn get_self_topic_post(&self) -> T;
 }
 
 // need to improve validator with regex

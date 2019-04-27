@@ -148,20 +148,20 @@ impl<'a> PostRequest<'a> {
     }
 }
 
-#[derive(Serialize, Debug)]
-pub struct PostWithUserRef<'a> {
+#[derive(Serialize)]
+pub struct PostWithUser<'a> {
     #[serde(flatten)]
     pub post: PostRef<'a>,
     pub user: Option<PublicUserRef<'a>>,
 }
 
 impl<'u> AttachPublicUserRef<'u, User> for PostRef<'u> {
-    type Output = PostWithUserRef<'u>;
+    type Output = PostWithUser<'u>;
     fn get_user_id(&self) -> &u32 {
         &self.user_id
     }
     fn attach_user(self, users: &'u Vec<User>) -> Self::Output {
-        PostWithUserRef {
+        PostWithUser {
             user: self.make_field(&users),
             post: self,
         }
@@ -180,7 +180,7 @@ pub enum PostQuery<'a> {
 
 pub enum PostQueryResult<'a> {
     AddedPost,
-    GotPost(&'a PostWithUserRef<'a>),
+    GotPost(&'a PostWithUser<'a>),
 }
 
 impl<'a> PostQueryResult<'a> {

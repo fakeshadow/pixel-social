@@ -25,7 +25,7 @@ pub struct User {
     pub show_updated_at: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 // ToDo: Add more privacy field
 pub struct PublicUser {
     pub id: u32,
@@ -42,7 +42,7 @@ pub struct PublicUser {
     pub show_updated_at: bool,
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize)]
 // ToDo: Replace public user
 pub struct PublicUserRef<'a> {
     pub id: &'a u32,

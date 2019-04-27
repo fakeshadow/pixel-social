@@ -73,7 +73,7 @@ fn join_topics_users(
     let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
 
     let _topic = topic.attach_user(&users);
-    let posts = posts.into_iter().map(|post| post.to_ref().attach_user(&users)).collect();
+    let posts = posts.iter().map(|post| post.to_ref().attach_user(&users)).collect();
 
     let result = if page == &1 {
         TopicWithPost::new(Some(&_topic), Some(&posts))

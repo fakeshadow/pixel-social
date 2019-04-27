@@ -1,5 +1,5 @@
 use actix::MailboxError as future_err;
-use actix_web::{error, error::ResponseError, Error, HttpResponse};
+use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 use serde_json::Error as json_err;
@@ -62,14 +62,6 @@ impl ResponseError for ServiceError {
     }
 }
 
-impl From<Error> for ServiceError {
-    fn from(err: Error) -> ServiceError {
-        match err {
-            _ => ServiceError::BadRequest(err.to_string()),
-        }
-    }
-}
-
 impl From<redis_err> for ServiceError {
     fn from(_err: redis_err) -> ServiceError {
         ServiceError::InternalServerError
@@ -77,11 +69,7 @@ impl From<redis_err> for ServiceError {
 }
 
 impl From<r2d2_err> for ServiceError {
-    fn from(err: r2d2_err) -> ServiceError {
-        match err {
-            _ => ServiceError::NoCacheFound,
-        }
-    }
+    fn from(_err: r2d2_err) -> ServiceError { ServiceError::NoCacheFound }
 }
 
 impl From<json_err> for ServiceError {
@@ -105,14 +93,14 @@ impl From<diesel_err> for ServiceError {
     }
 }
 
-impl From<future_err> for ServiceError {
-    fn from(err: future_err) -> ServiceError {
-        match err {
-            future_err::Timeout => ServiceError::FutureError,
-            future_err::Closed => ServiceError::BadRequest(err.to_string()),
-        }
-    }
-}
+//impl From<future_err> for ServiceError {
+//    fn from(err: future_err) -> ServiceError {
+//        match err {
+//            future_err::Timeout => ServiceError::FutureError,
+//            future_err::Closed => ServiceError::BadRequest(err.to_string()),
+//        }
+//    }
+//}
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {

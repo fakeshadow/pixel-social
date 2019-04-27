@@ -9,7 +9,7 @@ use crate::model::{
 use crate::schema::topics;
 use crate::model::user::{User, PublicUserRef, ToPublicUserRef};
 use crate::model::common::{AttachPublicUserRef, GetUserId};
-use crate::model::post::PostWithUserRef;
+use crate::model::post::PostWithUser;
 
 #[derive(Debug, Queryable, Serialize, Deserialize, Clone)]
 pub struct Topic {
@@ -26,7 +26,7 @@ pub struct Topic {
     pub is_locked: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct TopicRef<'a> {
     pub id: &'a u32,
     pub user_id: &'a u32,
@@ -179,21 +179,28 @@ impl<'u, T> AttachPublicUserRef<'u, T> for TopicRef<'u>
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Clone)]
+pub struct TopicWithUserTest {
+    #[serde(flatten)]
+    pub topic: Topic,
+    pub user: Option<User>,
+}
+
+#[derive(Serialize)]
 pub struct TopicWithUser<'a> {
     #[serde(flatten)]
     pub topic: TopicRef<'a>,
     pub user: Option<PublicUserRef<'a>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct TopicWithPost<'a> {
     pub topic: Option<&'a TopicWithUser<'a>>,
-    pub posts: Option<&'a Vec<PostWithUserRef<'a>>>,
+    pub posts: Option<&'a Vec<PostWithUser<'a>>>,
 }
 
 impl<'a> TopicWithPost<'a> {
-    pub fn new(topic: Option<&'a TopicWithUser<'a>>, posts: Option<&'a Vec<PostWithUserRef<'a>>>) -> Self {
+    pub fn new(topic: Option<&'a TopicWithUser<'a>>, posts: Option<&'a Vec<PostWithUser<'a>>>) -> Self {
         TopicWithPost { topic, posts }
     }
     pub fn get_topic_id(&self) -> Option<&u32> {

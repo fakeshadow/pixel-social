@@ -2,17 +2,13 @@ use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
 
 use crate::model::{
-    user::User,
-    topic::Topic,
     errors::ServiceError,
-    category::{Category, CategoryQuery, CategoryQueryResult},
-    common::{PostgresPool, RedisPool, QueryOption,get_unique_id, match_id},
+    user::{User, ToPublicUserRef},
+    topic::{Topic, TopicWithUser},
+    category::{Category, CategoryQuery, CategoryQueryResult, CategoryRequest, CategoryUpdateRequest},
+    common::{PostgresPool, RedisPool, QueryOption, AttachPublicUserRef, get_unique_id, match_id},
 };
 use crate::schema::{categories, topics, users};
-use crate::model::category::{CategoryRequest, CategoryUpdateRequest};
-use crate::model::common::AttachPublicUserRef;
-use crate::model::topic::TopicWithUser;
-use crate::model::user::ToPublicUserRef;
 
 const LIMIT: i64 = 20;
 
@@ -83,10 +79,7 @@ fn join_topics_users(
     let user_ids = get_unique_id(&topics, None);
     let users: Vec<User> = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
 
-    let mut _topics : Vec<TopicWithUser> = Vec::with_capacity(20);
-    for topic in topics.iter() {
-        _topics.push(topic.to_ref().attach_user(&users));
-    }
+    let topics_final = topics.iter().map(|topic| topic.to_ref().attach_user(&users)).collect();
 
-    Ok(CategoryQueryResult::GotTopics(&_topics).to_response())
+    Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
 }
