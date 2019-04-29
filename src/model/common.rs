@@ -4,8 +4,7 @@ use actix_web::web;
 use chrono::NaiveDateTime;
 use diesel::{
     pg::PgConnection,
-    r2d2::{ConnectionManager, Pool as diesel_pool},
-    result::Error,
+    r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection},
 };
 use r2d2_redis::{
     RedisConnectionManager,
@@ -20,18 +19,20 @@ use crate::util::validation as validate;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_pool<RedisConnectionManager>;
+pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnection>>;
+pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 
 pub struct QueryOption<'a> {
-    pub db_pool: Option<&'a web::Data<PostgresPool>>,
-    pub cache_pool: Option<&'a web::Data<RedisPool>>,
-    pub global_var: Option<&'a web::Data<GlobalGuard>>,
+    pub db_pool: Option<&'a PostgresPool>,
+    pub cache_pool: Option<&'a RedisPool>,
+    pub global_var: Option<&'a GlobalGuard>,
 }
 
 impl<'a> QueryOption<'a> {
     pub fn new(
-        db_pool: Option<&'a web::Data<PostgresPool>>,
-        cache_pool: Option<&'a web::Data<RedisPool>>,
-        global_var: Option<&'a web::Data<GlobalGuard>>,
+        db_pool: Option<&'a PostgresPool>,
+        cache_pool: Option<&'a RedisPool>,
+        global_var: Option<&'a GlobalGuard>,
     ) -> QueryOption<'a> {
         QueryOption {
             db_pool,
@@ -56,17 +57,29 @@ pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
 }
 
-pub trait GetSelfTimeStamp {
-    fn get_last_reply_time(&self) -> &NaiveDateTime;
+//pub trait GetSelfTimeStamp {
+//    fn get_last_reply_time(&self) -> &NaiveDateTime;
 //    fn get_timescore(&self) -> i64 {
 //        self.get_last_reply_time().timestamp_nanos() / 1000
 //    }
+//}
+
+pub trait ToHashSet<'a> {
+    type Output;
+    fn to_hash(&'a self) -> Self::Output;
+}
+
+
+pub trait ToRankSet<'a> {
+    type Output;
+    fn to_rank(&'a self) -> Self::Output;
 }
 
 
 pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }
+
 pub trait AttachUserRef<'u, T>
     where T: GetSelfId + ToUserRef {
     type Output;
@@ -76,8 +89,8 @@ pub trait AttachUserRef<'u, T>
         let mut result: Vec<PublicUserRef> = Vec::with_capacity(1);
         for user in users.iter() {
             if self.self_user_id() == user.get_self_id() {
-                result.push(user.to_public());
-                break;
+                result.push(user.to_ref());
+                break ;
             }
         }
         result.pop()
@@ -176,7 +189,7 @@ impl GlobalVar {
 }
 
 // helper functions
-pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
+pub fn match_id(last_id: Result<Vec<u32>, ServiceError>) -> u32 {
     match last_id {
         Ok(id) => {
             if id.len() > 0 { id[0] + 1 } else { 1 }
@@ -190,6 +203,7 @@ pub fn match_id(last_id: Result<Vec<u32>, Error>) -> u32 {
 pub trait GetUserId {
     fn get_user_id(&self) -> &u32;
 }
+
 pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
     where T: GetUserId {
     let mut result: Vec<&u32> = Vec::with_capacity(21);

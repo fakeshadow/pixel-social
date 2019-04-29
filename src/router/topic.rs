@@ -1,4 +1,4 @@
-use actix_web::{web, Error, HttpResponse, ResponseError};
+use actix_web::{web, Error, HttpResponse};
 use futures::IntoFuture;
 
 use crate::model::{

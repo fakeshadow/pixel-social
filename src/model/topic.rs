@@ -6,7 +6,7 @@ use crate::model::{
     user::{User, PublicUserRef, ToUserRef},
     post::PostWithUser,
     cache::{TopicHashSet, TopicRankSet},
-    common::{GetSelfId, AttachUserRef, GetUserId, ResponseMessage},
+    common::{GetSelfId, AttachUserRef, GetUserId, ToRankSet, ToHashSet, ResponseMessage},
 };
 use crate::schema::topics;
 
@@ -58,9 +58,21 @@ impl Topic {
     }
 }
 
-// ToDo: reduce boilerplate types for cache convert
-impl<'a> TopicRef<'a> {
-    pub fn to_hash(&self) -> TopicHashSet {
+impl<'a> ToRankSet<'a> for Topic {
+    type Output = TopicRankSet<'a>;
+    fn to_rank(&'a self) -> TopicRankSet {
+        TopicRankSet {
+            id: &self.id,
+            title: &self.title,
+            body: &self.body,
+            thumbnail: &self.thumbnail,
+        }
+    }
+}
+
+impl<'a> ToHashSet<'a> for Topic {
+    type Output = TopicHashSet<'a>;
+    fn to_hash(&'a self) -> TopicHashSet {
         TopicHashSet {
             id: &self.id,
             user_id: &self.user_id,
@@ -70,14 +82,6 @@ impl<'a> TopicRef<'a> {
             last_reply_time: &self.last_reply_time,
             reply_count: &self.reply_count,
             is_locked: &self.is_locked,
-        }
-    }
-    pub fn to_rank(&self) -> TopicRankSet {
-        TopicRankSet {
-            id: &self.id,
-            title: &self.title,
-            body: &self.body,
-            thumbnail: &self.thumbnail,
         }
     }
 }
@@ -216,18 +220,6 @@ pub struct TopicWithPost<'a> {
 impl<'a> TopicWithPost<'a> {
     pub fn new(topic: Option<&'a TopicWithUser<'a>>, posts: Option<&'a Vec<PostWithUser<'a>>>) -> Self {
         TopicWithPost { topic, posts }
-    }
-    pub fn get_topic_id(&self) -> Option<&u32> {
-        match &self.posts {
-            Some(posts) => Some(&posts[0].post.topic_id),
-            None => None
-        }
-    }
-    pub fn get_category_id(&self) -> Option<&u32> {
-        match &self.topic {
-            Some(topic) => Some(&topic.topic.category_id),
-            None => None
-        }
     }
 }
 

@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use crate::model::{
     errors::ServiceError,
     user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToUserRef},
-    common::{GlobalGuard, PostgresPool, QueryOption, Validator},
+    common::{PoolConnectionPostgres, GlobalGuard, QueryOption, Validator, GetUserId, get_unique_id},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
@@ -44,7 +44,7 @@ fn get_me(id: &u32, conn: &PgConnection) -> QueryResult {
 
 fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
     let user = users::table.filter(users::username.eq(&username)).first::<User>(conn)?;
-    Ok(UserQueryResult::GotPublicUser(&user.to_public()).to_response())
+    Ok(UserQueryResult::GotPublicUser(&user.to_ref()).to_response())
 }
 
 fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
@@ -54,7 +54,7 @@ fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
     hash::verify_password(&req.password, &user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-    Ok(UserQueryResult::LoggedIn(&AuthResponse { token: &token, user_data: &user.to_public() }).to_response())
+    Ok(UserQueryResult::LoggedIn(&AuthResponse { token: &token, user_data: &user.to_ref() }).to_response())
 }
 
 fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
@@ -62,7 +62,7 @@ fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
     Ok(UserQueryResult::GotUser(&user).to_response())
 }
 
-fn register_user(req: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
+fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &PgConnection) -> QueryResult {
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
@@ -84,4 +84,20 @@ fn register_user(req: &AuthRequest, global_var: &Option<&web::Data<GlobalGuard>>
             Ok(UserQueryResult::Registered.to_response())
         }
     }
+}
+
+/// helper query function
+pub fn get_unique_users<T>(
+    vec: &Vec<T>,
+    opt: Option<&u32>,
+    conn: &PoolConnectionPostgres,
+) -> Result<Vec<User>, ServiceError>
+    where T: GetUserId {
+    let user_ids = get_unique_id(&vec, opt);
+    let users = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
+    Ok(users)
+}
+
+pub fn get_last_uid(conn: &PgConnection) -> Result<Vec<u32>, ServiceError> {
+    Ok(users::table.select(users::id).order(users::id.desc()).limit(1).load(conn)?)
 }

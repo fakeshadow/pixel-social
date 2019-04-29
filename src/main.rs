@@ -38,7 +38,7 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
     //     clear cache on start up for test purpose
-//    let _result = clear_cache(redis_url.as_str());
+    let _result = clear_cache(redis_url.as_str());
 
     let global_arc = init_global_var(&database_url);
 

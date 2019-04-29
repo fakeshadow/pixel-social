@@ -6,6 +6,7 @@ use crate::model::{
     common::{GetSelfId, Validator, ResponseMessage},
 };
 use crate::schema::users;
+use crate::model::common::{ToHashSet, ToRankSet};
 
 #[derive(Queryable, Serialize, Debug)]
 pub struct User {
@@ -43,11 +44,11 @@ pub struct PublicUserRef<'a> {
 }
 
 pub trait ToUserRef {
-    fn to_public(&self) -> PublicUserRef;
+    fn to_ref(&self) -> PublicUserRef;
 }
 
 impl ToUserRef for User {
-    fn to_public(&self) -> PublicUserRef {
+    fn to_ref(&self) -> PublicUserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
         let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
         let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
@@ -68,9 +69,29 @@ impl ToUserRef for User {
     }
 }
 
+impl<'a> ToHashSet<'a> for User {
+    type Output = Option<u32>;
+    fn to_hash(&self) -> Self::Output {
+        None
+    }
+}
+
+impl<'a> ToRankSet<'a> for User {
+    type Output = PublicUserRef<'a>;
+    fn to_rank(&'a self) -> Self::Output {
+        self.to_ref()
+    }
+}
+
+
 impl GetSelfId for User {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
+
+impl<'a> GetSelfId for PublicUserRef<'a> {
+    fn get_self_id(&self) -> &u32 { &self.id }
+}
+
 
 #[derive(Insertable)]
 #[table_name = "users"]

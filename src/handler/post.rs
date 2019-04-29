@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse};
 use chrono::Utc;
 use diesel::prelude::*;
 
@@ -6,7 +6,7 @@ use crate::model::{
     errors::ServiceError,
     user::User,
     post::{Post, PostQuery, PostQueryResult, PostRequest},
-    common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
+    common::{QueryOption, GlobalGuard},
 };
 use crate::schema::{posts, topics, users};
 use crate::model::common::AttachUserRef;
@@ -44,7 +44,7 @@ fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {
     Ok(PostQueryResult::AddedPost.to_response())
 }
 
-fn add_post(req: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>, conn: &PgConnection) -> QueryResult {
+fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &PgConnection) -> QueryResult {
     // ToDo: in case possible time region problem.
     let now = Utc::now().naive_local();
     let target_topic_id = req.extract_topic_id()?;
@@ -70,4 +70,9 @@ fn add_post(req: &mut PostRequest, global_var: &Option<&web::Data<GlobalGuard>>,
     // ToDo: get result from insert and pass it to redis
     diesel::insert_into(posts::table).values(&req.make_post(&id)?).execute(conn)?;
     Ok(PostQueryResult::AddedPost.to_response())
+}
+
+
+pub fn get_last_pid(conn: &PgConnection) -> Result<Vec<u32>, ServiceError> {
+    Ok(posts::table.select(posts::id).order(posts::id.desc()).limit(1).load(conn)?)
 }

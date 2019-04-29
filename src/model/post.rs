@@ -129,7 +129,7 @@ impl<'a> PostRequest<'a> {
 
     pub fn make_update(&self) -> Result<UpdatePost, ServiceError> {
         match self.user_id {
-            Some(id) => Ok(UpdatePost {
+            Some(_id) => Ok(UpdatePost {
                 id: self.extract_self_id()?,
                 user_id: self.user_id,
                 topic_id: None,

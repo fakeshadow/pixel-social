@@ -6,7 +6,7 @@ use crate::model::{
     errors::ServiceError,
 //    cache::{CacheQuery, CategoryCacheRequest},
     category::{CategoryJson, CategoryRequest, CategoryQuery},
-    common::{PostgresPool, RedisPool, QueryOption, ResponseMessage},
+    common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
 
@@ -36,7 +36,7 @@ pub fn get_category(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (category_id, page) = category_path.as_ref();
 
-    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
     let categories = vec![*category_id];
     let category_request = CategoryRequest {
         categories: &categories,
@@ -55,7 +55,7 @@ pub fn get_categories(
         page: &category_json.page,
     };
 
-    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
 
     CategoryQuery::GetCategory(&category_request).handle_query(&opt).into_future()
 }

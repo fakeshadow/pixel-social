@@ -5,9 +5,8 @@ use crate::handler::auth::UserJwt;
 use crate::model::{
     errors::ServiceError,
     user::{UserQuery, AuthJson, UserUpdateJson},
-    common::{PostgresPool, QueryOption, RedisPool, ResponseMessage, Validator, GlobalGuard},
+    common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
-use crate::util::validation::validate_username;
 
 pub fn get_user(
     user_jwt: UserJwt,
