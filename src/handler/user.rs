@@ -98,6 +98,6 @@ pub fn get_unique_users<T>(
     Ok(users)
 }
 
-pub fn get_last_uid(conn: &PgConnection) -> Result<Vec<u32>, ServiceError> {
+pub fn get_last_uid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
     Ok(users::table.select(users::id).order(users::id.desc()).limit(1).load(conn)?)
 }

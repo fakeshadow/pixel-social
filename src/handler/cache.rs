@@ -10,8 +10,8 @@ use crate::model::{
     post::Post,
     topic::Topic,
     category::Category,
-    cache::{TopicHashSet, TopicRankSet, SortHash},
-    common::{RedisPool, ToHashSet, ToRankSet, PoolConnectionRedis, GetSelfId, AttachUserRef, get_unique_id},
+    cache::SortHash,
+    common::{RedisPool, PoolConnectionRedis, GetSelfId, AttachUserRef, get_unique_id},
 };
 
 const LIMIT: isize = 20;
@@ -23,90 +23,64 @@ pub enum UpdateCache<'a> {
     Topics(&'a Vec<Topic>),
     Posts(&'a Vec<Post>),
     Users(&'a Vec<User>),
-    Categories(&'a Vec<Category>,),
+    Categories(&'a Vec<Category>),
 }
 
 type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
-    pub fn handle_update(&self, opt: &Option<&RedisPool>) -> UpdateResult{
+    pub fn handle_update(&self, opt: &Option<&RedisPool>) -> UpdateResult {
         let conn = opt.unwrap().get()?;
         match self {
-            UpdateCache::Topics(topics) => update_topics(&topics, &conn),
-            UpdateCache::Posts(posts) => update_posts(&posts, &conn),
+            UpdateCache::Topics(topics) => update_topics(&topics, "topics", &conn),
+            UpdateCache::Posts(posts) => update_posts(&posts, "posts", &conn),
             UpdateCache::Users(users) => update_users(&users, &conn),
-            _=> Ok(())
+            _ => Ok(())
         }
     }
 }
 
-fn update_users(topics: &Vec<User>, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-
-    let (_, rank_set) = to_sets(&topics);
-    let rank = serialize_vec(&rank_set)?;
-
+fn update_users(users: &Vec<User>, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+    let rank = users.iter().map(|user| user.sort_hash())
+        .collect::<Result<Vec<(u32, String)>, ServiceError>>()?;
     // ToDo: check existing score and update existing score;
-    conn.zadd_multiple("posts", &rank)?;
-
+    conn.zadd_multiple("users", &rank)?;
     Ok(())
 }
 
+fn update_posts(posts: &Vec<Post>, key: &str, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+    let _result = posts.iter().map(|post| {
+        let set_key = format!("{}:{}:set", key, post.get_self_id());
+        let hash_set = post.sort_hash()?;
+        conn.hset_multiple(&set_key, &hash_set)?;
+        Ok(())
+    }).collect::<Result<(), ServiceError>>()?;
+    Ok(())
+}
 
-fn update_posts(topics: &Vec<Post>, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+fn update_topics(topics: &Vec<Topic>, key: &str, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+    let _result = topics.iter().map(|topic| {
+        let set_key = format!("{}:{}:set", key, topic.get_self_id());
+        let hash_set = topic.sort_hash()?;
+        conn.hset_multiple(&set_key, &hash_set)?;
+        Ok(())
+    }).collect::<Result<(), ServiceError>>()?;
+    Ok(())
+}
 
-//    let (hash_set, rank_set) = to_sets(&topics);
-//    let rank = serialize_vec(&rank_set)?;
+//fn update_categories(categories: &Vec<Category>, key: &str, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+//    let _result = categories.iter().map(|category| {
+//        let set_key = format!("{}:{}:set", key, category.get_self_id());
+//        let hash_set = category.sort_hash()?;
+//        conn.hset_multiple(&set_key, &hash_set)?;
+//        Ok(())
+//    }).collect::<Result<(), ServiceError>>()?;
 //
-//    for hash in hash_set.iter() {
-//        let key = format!("post:{}:set", hash.get_self_id());
-//        let sorted = hash.sort_hash()?;
-//        conn.hset_multiple(&key, &sorted)?;
-//    }
-//    // ToDo: check existing score and update existing score;
-//    conn.zadd_multiple("posts", &rank)?;
-
-    Ok(())
-}
+//    Ok(())
+//}
 
 
-fn update_topics(topics: &Vec<Topic>, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-
-    let (hash_set, rank_set) = to_sets(&topics);
-    let rank = serialize_vec(&rank_set)?;
-
-    for hash in hash_set.iter() {
-        let key = format!("topic:{}:set", hash.get_self_id());
-        let sorted = hash.sort_hash()?;
-        conn.hset_multiple(&key, &sorted)?;
-    }
-    // ToDo: check existing score and update existing score;
-    conn.zadd_multiple("topics", &rank)?;
-
-    Ok(())
-}
-
-// helper functions
-fn to_sets<'a, T>(vec: &'a Vec<T>) -> (Vec<<T as ToHashSet>::Output>, Vec<<T as ToRankSet<'a>>::Output>)
-    where T: ToHashSet<'a> + ToRankSet<'a> {
-    let mut hash_sets = Vec::with_capacity(20);
-    let mut rank_set = Vec::with_capacity(20);
-    for item in vec.iter() {
-        hash_sets.push(item.to_hash());
-        rank_set.push(item.to_rank());
-    }
-    (hash_sets, rank_set)
-}
-
-fn serialize_vec<T>(items: &Vec<T>) -> Result<Vec<(u32, String)>, ServiceError>
-    where T: GetSelfId + Serialize {
-    let mut result: Vec<(u32, String)> = Vec::new();
-    for item in items.iter() {
-        result.push((item.get_self_id().clone(), json::to_string(item)?));
-    }
-    Ok(result)
-}
-
-
+//helper functions
 fn from_score(key: &str, start_score: u32, end_score: u32, conn: &PoolConnectionRedis) -> Result<Vec<String>, ServiceError> {
     let vec = redis::cmd("zrangebyscore")
         .arg(key)
@@ -127,6 +101,12 @@ fn from_range(key: &str, cmd: &str, offset: isize, conn: &PoolConnectionRedis) -
 
 fn deserialize_string_vec<'a, T>(vec: &'a Vec<String>) -> Result<Vec<T>, serde_json::Error>
     where T: Deserialize<'a> {
-    vec.iter().map(|topic_string| json::from_str(&topic_string))
+    vec.iter().map(|string| json::from_str(&string))
         .collect::<Result<Vec<T>, serde_json::Error>>()
+}
+
+pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
+    let conn = pool.get()?;
+    redis::cmd("flushall").query(&*conn)?;
+    Ok(())
 }

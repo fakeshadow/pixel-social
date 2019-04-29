@@ -5,8 +5,7 @@ use crate::model::{
     errors::ServiceError,
     user::{User, PublicUserRef, ToUserRef},
     post::PostWithUser,
-    cache::{TopicHashSet, TopicRankSet},
-    common::{GetSelfId, AttachUserRef, GetUserId, ToRankSet, ToHashSet, ResponseMessage},
+    common::{GetSelfId, AttachUserRef, GetUserId, ResponseMessage},
 };
 use crate::schema::topics;
 
@@ -49,34 +48,6 @@ impl Topic {
             title: &self.title,
             body: &self.body,
             thumbnail: &self.thumbnail,
-            created_at: &self.created_at,
-            updated_at: &self.updated_at,
-            last_reply_time: &self.last_reply_time,
-            reply_count: &self.reply_count,
-            is_locked: &self.is_locked,
-        }
-    }
-}
-
-impl<'a> ToRankSet<'a> for Topic {
-    type Output = TopicRankSet<'a>;
-    fn to_rank(&'a self) -> TopicRankSet {
-        TopicRankSet {
-            id: &self.id,
-            title: &self.title,
-            body: &self.body,
-            thumbnail: &self.thumbnail,
-        }
-    }
-}
-
-impl<'a> ToHashSet<'a> for Topic {
-    type Output = TopicHashSet<'a>;
-    fn to_hash(&'a self) -> TopicHashSet {
-        TopicHashSet {
-            id: &self.id,
-            user_id: &self.user_id,
-            category_id: &self.category_id,
             created_at: &self.created_at,
             updated_at: &self.updated_at,
             last_reply_time: &self.last_reply_time,
@@ -225,6 +196,10 @@ impl<'a> TopicWithPost<'a> {
 
 impl GetUserId for Topic {
     fn get_user_id(&self) -> &u32 { &self.user_id }
+}
+
+impl GetSelfId for Topic {
+    fn get_self_id(&self) -> &u32 { &self.id }
 }
 
 //impl<T> GetSelfTimeStamp for TopicWithUser<T> {

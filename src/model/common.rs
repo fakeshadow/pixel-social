@@ -64,18 +64,6 @@ pub trait GetSelfCategory {
 //    }
 //}
 
-pub trait ToHashSet<'a> {
-    type Output;
-    fn to_hash(&'a self) -> Self::Output;
-}
-
-
-pub trait ToRankSet<'a> {
-    type Output;
-    fn to_rank(&'a self) -> Self::Output;
-}
-
-
 pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }

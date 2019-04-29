@@ -26,7 +26,8 @@ mod router;
 mod schema;
 mod util;
 
-use crate::util::startup::{init_global_var, clear_cache};
+use crate::handler::cache::clear_cache;
+use crate::util::startup::{init_global_var};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -37,20 +38,19 @@ fn main() -> std::io::Result<()> {
     let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
 
-    //     clear cache on start up for test purpose
-    let _result = clear_cache(redis_url.as_str());
-
-    let global_arc = init_global_var(&database_url);
-
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let postgres_pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create postgres pool.");
-
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
         .build(cache_manager)
         .expect("Failed to create redis pool.");
+
+    //     clear cache on start up for test purpose
+    let _result = clear_cache(&redis_pool);
+
+    let global_arc = init_global_var(&postgres_pool);
 
     HttpServer::new(move || {
         App::new()

@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse};
+use actix_web::HttpResponse;
 use chrono::Utc;
 use diesel::prelude::*;
 
@@ -6,16 +6,15 @@ use crate::model::{
     errors::ServiceError,
     user::User,
     post::{Post, PostQuery, PostQueryResult, PostRequest},
-    common::{QueryOption, GlobalGuard},
+    common::{QueryOption, GlobalGuard, AttachUserRef, PoolConnectionPostgres},
 };
 use crate::schema::{posts, topics, users};
-use crate::model::common::AttachUserRef;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> PostQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
+        let conn = &opt.db_pool.unwrap().get().unwrap();
         match self {
             PostQuery::GetPost(post_id) => get_post(&post_id, &conn),
             PostQuery::AddPost(mut post_request) => add_post(&mut post_request, &opt.global_var, &conn),
@@ -24,13 +23,13 @@ impl<'a> PostQuery<'a> {
     }
 }
 
-fn get_post(id: &u32, conn: &PgConnection) -> QueryResult {
+fn get_post(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
     Ok(PostQueryResult::GotPost(&post.to_ref().attach_user(&user)).to_response())
 }
 
-fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {
+fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     let post_self_id = req.extract_self_id()?;
     // ToDo: get result from insert and pass it to redis
     match req.user_id {
@@ -44,7 +43,7 @@ fn update_post(req: &PostRequest, conn: &PgConnection) -> QueryResult {
     Ok(PostQueryResult::AddedPost.to_response())
 }
 
-fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &PgConnection) -> QueryResult {
+fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &PoolConnectionPostgres) -> QueryResult {
     // ToDo: in case possible time region problem.
     let now = Utc::now().naive_local();
     let target_topic_id = req.extract_topic_id()?;
@@ -73,6 +72,6 @@ fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &PgC
 }
 
 
-pub fn get_last_pid(conn: &PgConnection) -> Result<Vec<u32>, ServiceError> {
+pub fn get_last_pid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
     Ok(posts::table.select(posts::id).order(posts::id.desc()).limit(1).load(conn)?)
 }

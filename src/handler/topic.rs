@@ -5,8 +5,8 @@ use crate::model::{
     errors::ServiceError,
     post::Post,
     user::User,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest, TopicRef},
-    common::{PostgresPool, QueryOption, GlobalGuard, AttachUserRef},
+    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
+    common::{PoolConnectionPostgres, QueryOption, AttachUserRef},
 };
 use crate::handler::user::get_unique_users;
 use crate::schema::{categories, posts, topics};
@@ -17,7 +17,6 @@ type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> TopicQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
         match self {
             TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &opt),
             TopicQuery::AddTopic(new_topic_request) => add_topic(&new_topic_request, &opt),
@@ -75,6 +74,6 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
     Ok(TopicQueryResult::ModifiedTopic.to_response())
 }
 
-pub fn get_last_tid(conn: &PgConnection) -> Result<Vec<u32>, ServiceError> {
+pub fn get_last_tid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
     Ok(topics::table.select(topics::id).order(topics::id.desc()).limit(1).load(conn)?)
 }

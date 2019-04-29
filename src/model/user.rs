@@ -6,7 +6,6 @@ use crate::model::{
     common::{GetSelfId, Validator, ResponseMessage},
 };
 use crate::schema::users;
-use crate::model::common::{ToHashSet, ToRankSet};
 
 #[derive(Queryable, Serialize, Debug)]
 pub struct User {
@@ -68,21 +67,6 @@ impl ToUserRef for User {
         }
     }
 }
-
-impl<'a> ToHashSet<'a> for User {
-    type Output = Option<u32>;
-    fn to_hash(&self) -> Self::Output {
-        None
-    }
-}
-
-impl<'a> ToRankSet<'a> for User {
-    type Output = PublicUserRef<'a>;
-    fn to_rank(&'a self) -> Self::Output {
-        self.to_ref()
-    }
-}
-
 
 impl GetSelfId for User {
     fn get_self_id(&self) -> &u32 { &self.id }
