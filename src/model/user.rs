@@ -26,7 +26,23 @@ pub struct User {
 }
 
 #[derive(Serialize)]
-// ToDo: Replace public user
+pub struct PublicUser {
+    pub id: u32,
+    pub username: String,
+    pub email: Option<String>,
+    pub avatar_url: String,
+    pub signature: String,
+    pub created_at: Option<NaiveDateTime>,
+    pub updated_at: Option<NaiveDateTime>,
+    pub is_admin: u32,
+    pub blocked: bool,
+    pub show_email: bool,
+    pub show_created_at: bool,
+    pub show_updated_at: bool,
+}
+
+
+#[derive(Serialize)]
 pub struct PublicUserRef<'a> {
     pub id: &'a u32,
     pub username: &'a str,
@@ -41,6 +57,30 @@ pub struct PublicUserRef<'a> {
     pub show_created_at: &'a bool,
     pub show_updated_at: &'a bool,
 }
+
+impl User {
+    pub fn to_pub(self) -> PublicUser {
+        let email = if self.show_email { Some(self.email) } else { None };
+        let created_at = if self.show_created_at { Some(self.created_at) } else { None };
+        let updated_at = if self.show_updated_at { Some(self.updated_at) } else { None };
+
+        PublicUser {
+            id: self.id,
+            username: self.username,
+            email,
+            avatar_url: self.avatar_url,
+            signature: self.signature,
+            created_at,
+            updated_at,
+            is_admin: self.is_admin,
+            blocked: self.blocked,
+            show_email: self.show_email,
+            show_created_at: self.show_created_at,
+            show_updated_at: self.show_updated_at,
+        }
+    }
+}
+
 
 pub trait ToUserRef {
     fn to_ref(&self) -> PublicUserRef;
@@ -75,7 +115,6 @@ impl GetSelfId for User {
 impl<'a> GetSelfId for PublicUserRef<'a> {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
-
 
 #[derive(Insertable)]
 #[table_name = "users"]
@@ -187,7 +226,6 @@ impl<'a> UserUpdateJson {
     }
 }
 
-/// impl for query enum is in handler
 pub enum UserQuery<'a> {
     Register(&'a AuthRequest<'a>),
     Login(&'a AuthRequest<'a>),
@@ -218,6 +256,9 @@ impl<'a> Validator for UserQuery<'a> {
             UserQuery::Register(req) => req.email.unwrap_or(""),
             _ => ""
         }
+    }
+    fn validate(&self) -> Result<(), ServiceError> {
+        Ok(())
     }
 }
 

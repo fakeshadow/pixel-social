@@ -1,7 +1,9 @@
 use actix_web::{HttpRequest, dev, FromRequest};
 use chrono::Local;
 
-use crate::model::errors::ServiceError;
+use crate::model::{
+    errors::ServiceError
+};
 use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;

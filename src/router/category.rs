@@ -1,6 +1,6 @@
-use futures::IntoFuture;
+use futures::{IntoFuture, Future, future::result as ftr};
 
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpResponse, Error, Either};
 
 use crate::model::{
     errors::ServiceError,
@@ -9,12 +9,13 @@ use crate::model::{
     common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
+use crate::handler::cache::{get_category_cache};
 
 pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
     CategoryQuery::GetAllCategories.handle_query(&opt).into_future()
 }
 
@@ -33,16 +34,23 @@ pub fn get_category(
     category_path: web::Path<(u32, i64)>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (category_id, page) = category_path.as_ref();
+) -> impl IntoFuture<Item=HttpResponse, Error=Error> {
+    let (category_id, page) = category_path.into_inner();
 
-    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
-    let categories = vec![*category_id];
-    let category_request = CategoryRequest {
-        categories: &categories,
-        page: &page,
-    };
-    CategoryQuery::GetCategory(&category_request).handle_query(&opt).into_future()
+    get_category_cache(&category_id, &page, &cache_pool)
+        .into_future()
+        .then(move |result| match result {
+            Ok(result) => ftr(Ok(HttpResponse::Ok().json(result))),
+            Err(_) => {
+                let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
+                let categories = vec![category_id];
+                let category_request = CategoryRequest {
+                    categories: &categories,
+                    page: &page,
+                };
+                CategoryQuery::GetCategory(&category_request).handle_query(&opt).into_future()
+            }
+        }).from_err()
 }
 
 pub fn get_categories(

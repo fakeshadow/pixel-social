@@ -10,7 +10,7 @@ use crate::model::{
 };
 use crate::handler::{
     user::get_unique_users,
-    cache::{UpdateCache}
+    cache::UpdateCache,
 };
 use crate::schema::{categories, topics};
 
@@ -38,6 +38,7 @@ fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
     let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
+    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
 
     let topics_final = topics.iter().map(|topic| topic.to_ref().attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
@@ -52,8 +53,7 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
         .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
-    let _topic = UpdateCache::Topics(&topics).handle_update(&opt.cache_pool)?;
-    let _post = UpdateCache::Users(&users).handle_update(&opt.cache_pool)?;
+    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
 
     let topics_final = topics.iter().map(|topic| topic.to_ref().attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
@@ -61,9 +61,11 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
 
 fn get_all_categories(opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
+    let categories = categories::table.load::<Category>(conn)?;
 
-    let categories_data = categories::table.load::<Category>(conn)?;
-    Ok(CategoryQueryResult::GotCategories(categories_data).to_response())
+    let _ignore = update_cache(None, None, Some(&categories), &opt.cache_pool);
+
+    Ok(CategoryQueryResult::GotCategories(categories).to_response())
 }
 
 fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
@@ -74,23 +76,45 @@ fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
 
     /// thread will panic if the database failed to get last_cid
     let next_cid = match_id(last_cid);
+    let category: Category = diesel::insert_into(categories::table).values(&req.make_category(&next_cid)?).get_result(conn)?;
 
-    diesel::insert_into(categories::table).values(&req.make_category(&next_cid)?).execute(conn)?;
+    let _ignore = update_cache(None, None, Some(&vec![category]), &opt.cache_pool);
+
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
 }
 
 fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    diesel::update(categories::table
+    let category: Category = diesel::update(categories::table
         .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
-        .set(&req.insert()).execute(conn)?;
+        .set(&req.insert()).get_result(conn)?;
+
+    let _ignore = update_cache(None, None, Some(&vec![category]), &opt.cache_pool);
+
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
 }
 
-fn delete_category(category_id: &u32, opt: &QueryOption) -> QueryResult {
+fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    diesel::delete(categories::table.find(category_id)).execute(conn)?;
+    diesel::delete(categories::table.find(id)).execute(conn)?;
+
+    let _ignore = UpdateCache::DeleteCategory(id).handle_update(&opt.cache_pool);
+
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
+}
+
+fn update_cache(topics: Option<&Vec<Topic>>, users: Option<&Vec<User>>, categories: Option<&Vec<Category>>, pool: &Option<&RedisPool>)
+                -> Result<(), ServiceError> {
+    if let Some(t) = topics {
+        UpdateCache::Topics(&t).handle_update(&pool)?;
+    }
+    if let Some(u) = users {
+        UpdateCache::Users(&u).handle_update(&pool)?;
+    }
+    if let Some(c) = categories {
+        UpdateCache::Categories(&c).handle_update(&pool)?;
+    }
+    Ok(())
 }

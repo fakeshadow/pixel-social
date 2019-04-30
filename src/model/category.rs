@@ -3,10 +3,9 @@ use actix_web::HttpResponse;
 use crate::model::{
     errors::ServiceError,
     topic::TopicWithUser,
-    common::ResponseMessage
+    common::{ResponseMessage,GetSelfId}
 };
 use crate::schema::categories;
-
 #[derive(Queryable, Serialize, Deserialize)]
 pub struct Category {
     pub id: u32,
@@ -15,6 +14,10 @@ pub struct Category {
     pub post_count: u32,
     pub subscriber_count: u32,
     pub thumbnail: String,
+}
+
+impl GetSelfId for Category {
+    fn get_self_id(&self) -> &u32 { &self.id }
 }
 
 #[derive(Insertable, Debug)]

@@ -6,56 +6,67 @@ use crate::model::{
     user::User,
     topic::Topic,
     post::Post,
+    category::Category,
 };
 
-pub trait SortHash<'a> {
-    type Output;
-    fn sort_hash(&'a self) -> Self::Output;
+pub trait SortHash<'a, T> {
+    fn sort_hash(&'a self) -> T;
 }
 
-impl<'a> SortHash<'a> for Topic {
-    type Output = Result<[(&'a str, String); 11], ServiceError>;
-
-    fn sort_hash(&'a self) -> Result<[(&'a str, String); 11], ServiceError>
-    {
-        Ok([("id", serde_json::to_string(&self.id)?),
-            ("user_id", serde_json::to_string(&self.user_id)?),
-            ("category_id", serde_json::to_string(&self.category_id)?),
-            ("title", serde_json::to_string(&self.title)?),
-            ("body", serde_json::to_string(&self.body)?),
-            ("thumbnail", serde_json::to_string(&self.thumbnail)?),
-            ("created_at", serde_json::to_string(&self.created_at)?),
-            ("updated_at", serde_json::to_string(&self.updated_at)?),
-            ("last_reply_time", serde_json::to_string(&self.last_reply_time)?),
-            ("reply_count", serde_json::to_string(&self.reply_count)?),
-            ("is_locked", serde_json::to_string(&self.is_locked)?)])
+impl<'a> SortHash<'a, [(&'a str, String); 11]> for Topic {
+    fn sort_hash(&'a self) -> [(&'a str, String); 11] {
+        [
+            ("id", self.id.to_string()),
+            ("user_id", self.user_id.to_string()),
+            ("category_id", self.category_id.to_string()),
+            ("title", self.title.to_owned()),
+            ("body", self.body.to_owned()),
+            ("thumbnail", self.thumbnail.to_owned()),
+            ("created_at", self.created_at.to_string()),
+            ("updated_at", self.updated_at.to_string()),
+            ("last_reply_time", self.last_reply_time.to_string()),
+            ("reply_count", self.reply_count.to_string()),
+            ("is_locked", self.is_locked.to_string())]
     }
 }
 
-impl<'a> SortHash<'a> for User {
-    type Output = Result<(u32, String), ServiceError>;
+impl<'a> SortHash<'a, Result<(u32, String), ServiceError>> for User {
     fn sort_hash(&self) -> Result<(u32, String), ServiceError> {
         Ok((self.id, serde_json::to_string(&self)?))
     }
 }
 
+impl<'a> SortHash<'a, [(&'a str, String); 10]> for Post {
+    fn sort_hash(&'a self) -> [(&'a str, String); 10] {
+        let pid = match &self.post_id {
+            Some(id) => id,
+            None => &0
+        };
+        [
+            ("id", self.id.to_string()),
+            ("user_id", self.user_id.to_string()),
+            ("topic_id", self.topic_id.to_string()),
+            ("post_id", pid.to_string()),
+            ("post_content", self.post_content.to_owned()),
+            ("created_at", self.created_at.to_string()),
+            ("updated_at", self.updated_at.to_string()),
+            ("last_reply_time", self.last_reply_time.to_string()),
+            ("reply_count", self.reply_count.to_string()),
+            ("is_locked", self.is_locked.to_string())
+        ]
+    }
+}
 
-impl<'a> SortHash<'a> for Post {
-    type Output = Result<[(&'a str, String); 10], ServiceError>;
-
-    fn sort_hash(&'a self) -> Result<[(&'a str, String); 10], ServiceError>
-    {
-        Ok([("id", serde_json::to_string(&self.id)?),
-            ("user_id", serde_json::to_string(&self.user_id)?),
-            ("topic_id", serde_json::to_string(&self.topic_id)?),
-            ("post_id", serde_json::to_string(&self.post_id)?),
-            ("post_content", serde_json::to_string(&self.post_content)?),
-            ("created_at", serde_json::to_string(&self.created_at)?),
-            ("updated_at", serde_json::to_string(&self.updated_at)?),
-            ("last_reply_time", serde_json::to_string(&self.last_reply_time)?),
-            ("reply_count", serde_json::to_string(&self.reply_count)?),
-            ("is_locked", serde_json::to_string(&self.is_locked)?),
-        ])
+impl<'a> SortHash<'a, [(&'a str, String); 6]> for Category {
+    fn sort_hash(&'a self) -> [(&'a str, String); 6] {
+        [
+            ("id", self.id.to_string()),
+            ("name", self.name.to_owned()),
+            ("topic_count", self.topic_count.to_string()),
+            ("post_count", self.post_count.to_string()),
+            ("subscriber_count", self.subscriber_count.to_string()),
+            ("thumbnail", self.thumbnail.to_owned())
+        ]
     }
 }
 

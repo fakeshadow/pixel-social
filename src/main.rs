@@ -153,7 +153,7 @@ fn main() -> std::io::Result<()> {
                         web::resource("/lock").route(web::get().to_async(router::test::test_global_var)),
                     )
                     .service(
-                        web::resource("/async").route(web::get().to(router::test::async_test)),
+                        web::resource("/async").route(web::get().to_async(router::test::async_test)),
                     )
             )
             .service(
@@ -165,5 +165,6 @@ fn main() -> std::io::Result<()> {
             .service(fs::Files::new("/public", "./public"))
     })
         .bind(format!("{}:{}", &server_ip, &server_port))?
+        .workers(12)
         .run()
 }

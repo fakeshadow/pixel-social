@@ -90,6 +90,7 @@ pub trait Validator {
     fn get_username(&self) -> &str;
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
+    fn validate(&self) -> Result<(), ServiceError>;
 
     fn check_username(&self) -> Result<(), ServiceError> {
         let username = self.get_username();
@@ -200,6 +201,21 @@ pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -
 
     for item in items.iter() {
         let item_id = item.get_user_id();
+        if !result.contains(&item_id) {
+            result.push(item_id);
+        }
+    }
+    result
+}
+
+pub fn get_unique_id_copy<T>(items: &Vec<T>, topic_user_id: Option<u32>) -> Vec<u32>
+    where T: GetUserId {
+    let mut result: Vec<u32> = Vec::with_capacity(21);
+
+    if let Some(user_id) = topic_user_id { result.push(user_id); }
+
+    for item in items.iter() {
+        let item_id = item.get_user_id().clone();
         if !result.contains(&item_id) {
             result.push(item_id);
         }

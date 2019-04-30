@@ -33,3 +33,5 @@ lettre_email = "0.9"
 opt-level = 3
 codegen-units = 1
 debug = false
+lto = true
+debug-assertions = false

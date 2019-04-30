@@ -10,6 +10,7 @@ use crate::model::{
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
     errors::ServiceError,
 };
+use crate::handler::user::{AsyncDb, async_query};
 
 pub fn test_global_var(
     global_var: web::Data<GlobalGuard>,
@@ -31,14 +32,18 @@ pub fn test_global_var(
 pub fn async_test(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
-) -> Result<HttpResponse, ServiceError> {
-    let (category_id, page) = (1u32, 1);
-
+) -> impl Future<Item=HttpResponse, Error=Error> {
+//    let (category_id, page) = (1u32, 1);
+//
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let categories = vec![category_id];
-    let category_request = CategoryRequest {
-        categories: &categories,
-        page: &page,
-    };
-    CategoryQuery::GetCategory(&category_request).handle_query(&opt)
+//    let categories = vec![category_id];
+//    let category_request = CategoryRequest {
+//        categories: &categories,
+//        page: &page,
+//    };
+//    CategoryQuery::GetCategory(&category_request).handle_query(&opt)
+
+//    UserQuery::GetMe(&1).handle_query(&opt).into_future()
+
+    async_query(AsyncDb::GetMe(1), &opt).from_err().and_then(|u| HttpResponse::Ok().json(&u))
 }

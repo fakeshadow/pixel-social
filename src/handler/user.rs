@@ -1,4 +1,6 @@
-use actix_web::{web, HttpResponse};
+use futures::Future;
+
+use actix_web::{web, HttpResponse, Error};
 use diesel::prelude::*;
 
 use crate::model::{
@@ -8,12 +10,14 @@ use crate::model::{
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
+use crate::model::common::{RedisPool, PostgresPool};
+use crate::model::user::PublicUser;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> UserQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        let conn: &PgConnection = &opt.db_pool.unwrap().get().unwrap();
+        let conn = &opt.db_pool.unwrap().get().unwrap();
         // ToDo: Find a better way to handle auth check.
         match self {
             UserQuery::GetMe(id) => get_me(&id, &conn),
@@ -37,7 +41,33 @@ impl<'a> UserQuery<'a> {
     }
 }
 
-fn get_me(id: &u32, conn: &PgConnection) -> QueryResult {
+
+pub enum AsyncDb {
+    GetMe(u32),
+    GetUser(String),
+}
+
+pub fn async_query(query: AsyncDb, opt: &QueryOption) -> impl Future<Item=User, Error=Error> {
+    let pool = opt.db_pool.unwrap().clone();
+    web::block(move || {
+        match query {
+            AsyncDb::GetMe(id) => get_me_async(&id, pool.get()?),
+            AsyncDb::GetUser(name) => get_user_async(&name, pool.get()?)
+        }
+    }).from_err()
+}
+
+fn get_me_async(id: &u32, conn: PoolConnectionPostgres) -> Result<User, ServiceError> {
+    Ok(users::table.find(&id).first::<User>(&conn)?)
+}
+
+fn get_user_async(username: &str, conn: PoolConnectionPostgres) -> Result<User, ServiceError> {
+    Ok(users::table.filter(users::username.eq(&username)).first::<User>(&conn)?)
+}
+
+
+
+fn get_me(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let user = users::table.find(&id).first::<User>(conn)?;
     Ok(UserQueryResult::GotUser(&user).to_response())
 }

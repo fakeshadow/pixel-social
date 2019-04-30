@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::schema::topics;
 
-#[derive(Queryable)]
+#[derive(Queryable, Serialize, Debug)]
 pub struct Topic {
     pub id: u32,
     pub user_id: u32,
