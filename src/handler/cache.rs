@@ -3,20 +3,22 @@ use futures::Future;
 
 use actix_web::{web, HttpResponse, Error};
 use chrono::NaiveDateTime;
-use r2d2_redis::{redis, redis::Commands, RedisConnectionManager, redis::RedisError};
+use r2d2_redis::{redis, redis::{Commands, PipelineCommands}, RedisConnectionManager, redis::RedisError};
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 use lazy_static::__Deref;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User,PublicUser},
+    user::{User, PublicUser},
     post::Post,
     topic::Topic,
     category::Category,
     cache::SortHash,
     common::{RedisPool, PoolConnectionRedis, GetSelfId, AttachUser, get_unique_id},
 };
+use std::thread;
+use crate::model::cache::FromHashMap;
 
 const LIMIT: isize = 20;
 
@@ -26,48 +28,17 @@ type QueryResult = Result<(), ServiceError>;
 pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Vec<Topic>, ServiceError> {
     let conn = pool.get()?;
 
-    let key = format!("topic:{}:set", 18324);
-    let hash: HashMap<String, String> = conn.hgetall(&key)?;
-    if hash.is_empty() { return Err(ServiceError::NoCacheFound); }
+    let list_key = format!("category:{}:list", id);
+    let start = (*page as isize - 1) * 20;
 
-    let template_date = NaiveDateTime::from_timestamp(0, 0);
-    let topic = topic_from_hash_map(hash, template_date.clone())?;
+    let ids: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
+    let hash_vec = get_hash_set(&ids, conn)?;
+    if hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
 
-    Ok(vec![topic])
-}
-
-fn topic_from_hash_map(hash: HashMap<String, String>, date: NaiveDateTime) -> Result<Topic, ServiceError> {
-    let mut topic = Topic {
-        id: 0,
-        user_id: 0,
-        category_id: 0,
-        title: "".to_string(),
-        body: "".to_string(),
-        thumbnail: "".to_string(),
-        created_at: date,
-        updated_at: date,
-        last_reply_time: date,
-        reply_count: 0,
-        is_locked: false,
-    };
-
-    for (r, v) in hash.into_iter() {
-        match r.as_str() {
-            "id" => topic.id = v.parse::<u32>().ok().ok_or(ServiceError::InternalServerError)?,
-            "user_id" => topic.user_id = v.parse::<u32>().ok().ok_or(ServiceError::InternalServerError)?,
-            "category_id" => topic.category_id = v.parse::<u32>().unwrap(),
-            "title" => topic.title = v,
-            "body" => topic.body = v,
-            "thumbnail" => topic.thumbnail = v,
-            "created_at" => topic.created_at = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f").ok().ok_or(ServiceError::InternalServerError)?,
-            "updated_at" => topic.updated_at = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f").ok().ok_or(ServiceError::InternalServerError)?,
-            "last_reply_time" => topic.last_reply_time = NaiveDateTime::parse_from_str(&v, "%Y-%m-%d %H:%M:%S%.f").ok().ok_or(ServiceError::InternalServerError)?,
-            "reply_count" => topic.reply_count = v.parse::<i32>().ok().ok_or(ServiceError::InternalServerError)?,
-            "is_locked" => topic.is_locked = v.parse::<bool>().ok().ok_or(ServiceError::InternalServerError)?,
-            _ => return Err(ServiceError::NoCacheFound)
-        }
-    }
-    Ok(topic)
+    hash_vec.iter().map(|hash| {
+        if hash.is_empty() { return Err(ServiceError::NoCacheFound); }
+        hash.map_topic()
+    }).collect::<Result<Vec<Topic>, ServiceError>>()
 }
 
 pub enum UpdateCache<'a> {
@@ -119,7 +90,6 @@ fn delete_hash_set(id: &u32, key: &str, conn: &PoolConnectionRedis) -> UpdateRes
 
 fn get_users(min_id: u32, max_id: u32, conn: &PoolConnectionRedis) -> Result<Vec<PublicUser>, ServiceError> {
     let vec: Vec<String> = conn.zrangebyscore("users", min_id, max_id)?;
-    println!("{:?}",vec);
     Ok(deserialize_string_vec::<PublicUser>(&vec)?)
 }
 
@@ -147,30 +117,7 @@ fn update_topics(topics: &Vec<Topic>, conn: &PoolConnectionRedis) -> UpdateResul
         conn.hset_multiple(&set_key, &hash_set)?;
         Ok(())
     }).collect::<Result<(), ServiceError>>()?;
-
-    let key = format!("topic:18324:set");
-    let test: HashMap<String, String> = conn.hgetall(&key)?;
-
     Ok(())
-}
-
-//helper functions
-fn from_score(key: &str, start_score: u32, end_score: u32, conn: &PoolConnectionRedis) -> UpdateResult {
-    let vec = redis::cmd("zrangebyscore")
-        .arg(key)
-        .arg(start_score)
-        .arg(end_score)
-        .query(conn.deref())?;
-    Ok(vec)
-}
-
-fn from_range(key: &str, cmd: &str, offset: isize, conn: &PoolConnectionRedis) -> UpdateResult {
-    let vec = redis::cmd(cmd)
-        .arg(key)
-        .arg(offset)
-        .arg(offset + LIMIT)
-        .query(conn.deref())?;
-    Ok(vec)
 }
 
 fn deserialize_string_vec<'a, T>(vec: &'a Vec<String>) -> Result<Vec<T>, serde_json::Error>
@@ -183,4 +130,57 @@ pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
     let conn = pool.get()?;
     redis::cmd("flushall").query(&*conn)?;
     Ok(())
+}
+
+// ToDo: make a more compat macro to handle pipeline
+fn get_hash_set(ids: &Vec<u32>, conn: PoolConnectionRedis) -> Result<Vec<HashMap<String, String>>, ServiceError> {
+    macro_rules! pipeline {
+        ($($x: expr),*) => {
+        {
+            redis::pipe()$(.hgetall(format!("topic:{}:set", $x)))*
+        }}
+    }
+    if ids.len() == 1 {
+        Ok(pipeline!(ids[0]).query(&*conn)?)
+    } else if ids.len() == 2 {
+        Ok(pipeline!(ids[0], ids[1]).query(&*conn)?)
+    } else if ids.len() == 3 {
+        Ok(pipeline!(ids[0], ids[1], ids[2]).query(&*conn)?)
+    } else if ids.len() == 4 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3]).query(&*conn)?)
+    } else if ids.len() == 5 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4]).query(&*conn)?)
+    } else if ids.len() == 6 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5]).query(&*conn)?)
+    } else if ids.len() == 7 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6]).query(&*conn)?)
+    } else if ids.len() == 8 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7]).query(&*conn)?)
+    } else if ids.len() == 9 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8]).query(&*conn)?)
+    } else if ids.len() == 10 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9]).query(&*conn)?)
+    } else if ids.len() == 11 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10]).query(&*conn)?)
+    } else if ids.len() == 12 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11]).query(&*conn)?)
+    } else if ids.len() == 13 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12]).query(&*conn)?)
+    } else if ids.len() == 14 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13]).query(&*conn)?)
+    } else if ids.len() == 15 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14]).query(&*conn)?)
+    } else if ids.len() == 16 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15]).query(&*conn)?)
+    } else if ids.len() == 17 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16]).query(&*conn)?)
+    } else if ids.len() == 18 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17]).query(&*conn)?)
+    } else if ids.len() == 19 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18]).query(&*conn)?)
+    } else if ids.len() == 20 {
+        Ok(pipeline!(ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18],ids[19]).query(&*conn)?)
+    } else {
+        Err(ServiceError::NoCacheFound)
+    }
 }

@@ -8,6 +8,8 @@ use crate::model::{
     post::Post,
     category::Category,
 };
+use std::collections::HashMap;
+use crate::handler::cache::UpdateCache::Categories;
 
 pub trait SortHash<'a, T> {
     fn sort_hash(&'a self) -> T;
@@ -70,3 +72,56 @@ impl<'a> SortHash<'a, [(&'a str, String); 6]> for Category {
     }
 }
 
+pub trait FromHashMap<T, P, C> {
+    fn map_topic(&self) -> Result<T, ServiceError>;
+    fn map_post(&self) -> Result<P, ServiceError>;
+    fn map_category(&self) -> Result<C, ServiceError>;
+}
+
+impl FromHashMap<Topic, Post, Category> for HashMap<String, String> {
+    fn map_topic(&self) -> Result<Topic, ServiceError> {
+        Ok(Topic {
+            id: self.get("id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            user_id: self.get("user_id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            category_id: self.get("category_id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            title: self.get("title").ok_or(ServiceError::InternalServerError)?.to_string(),
+            body: self.get("body").ok_or(ServiceError::InternalServerError)?.to_string(),
+            thumbnail: self.get("thumbnail").ok_or(ServiceError::InternalServerError)?.to_string(),
+            created_at: NaiveDateTime::parse_from_str(self.get("created_at").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            updated_at: NaiveDateTime::parse_from_str(self.get("updated_at").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            last_reply_time: NaiveDateTime::parse_from_str(self.get("last_reply_time").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            reply_count: self.get("reply_count").ok_or(ServiceError::InternalServerError)?.parse::<i32>().unwrap(),
+            is_locked: self.get("is_locked").ok_or(ServiceError::InternalServerError)?.parse::<bool>().unwrap(),
+        })
+    }
+
+    fn map_post(&self) -> Result<Post, ServiceError> {
+        let post_id = match self.get("post_id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().ok() {
+            Some(id) => if id == 0 { None } else { Some(id) },
+            None => None,
+        };
+        Ok(Post {
+            id: self.get("id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            user_id: self.get("user_id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            topic_id: self.get("topic_id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            post_id,
+            post_content: self.get("post_content").ok_or(ServiceError::InternalServerError)?.to_string(),
+            created_at: NaiveDateTime::parse_from_str(self.get("created_at").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            updated_at: NaiveDateTime::parse_from_str(self.get("updated_at").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            last_reply_time: NaiveDateTime::parse_from_str(self.get("last_reply_time").ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f").unwrap(),
+            reply_count: self.get("reply_count").ok_or(ServiceError::InternalServerError)?.parse::<i32>().unwrap(),
+            is_locked: self.get("is_locked").ok_or(ServiceError::InternalServerError)?.parse::<bool>().unwrap(),
+        })
+    }
+
+    fn map_category(&self) -> Result<Category, ServiceError> {
+        Ok(Category {
+            id: self.get("id").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            name: self.get("name").ok_or(ServiceError::InternalServerError)?.to_string(),
+            topic_count: self.get("topic_count").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            post_count: self.get("post_count").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            subscriber_count: self.get("subscriber_count").ok_or(ServiceError::InternalServerError)?.parse::<u32>().unwrap(),
+            thumbnail: self.get("thumbnail").ok_or(ServiceError::InternalServerError)?.to_string(),
+        })
+    }
+}

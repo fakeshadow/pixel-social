@@ -167,6 +167,5 @@ fn main() -> std::io::Result<()> {
             .service(fs::Files::new("/public", "./public"))
     })
         .bind(format!("{}:{}", &server_ip, &server_port))?
-        .workers(12)
         .run()
 }

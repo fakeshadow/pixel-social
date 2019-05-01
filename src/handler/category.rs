@@ -53,7 +53,7 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
         .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
-//    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
+    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
     let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
 }
