@@ -25,7 +25,7 @@ pub struct User {
     pub show_updated_at: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Queryable, Deserialize, Debug)]
 pub struct PublicUser {
     pub id: u32,
     pub username: String,
@@ -40,7 +40,6 @@ pub struct PublicUser {
     pub show_created_at: bool,
     pub show_updated_at: bool,
 }
-
 
 #[derive(Serialize)]
 pub struct PublicUserRef<'a> {
@@ -58,30 +57,6 @@ pub struct PublicUserRef<'a> {
     pub show_updated_at: &'a bool,
 }
 
-impl User {
-    pub fn to_pub(self) -> PublicUser {
-        let email = if self.show_email { Some(self.email) } else { None };
-        let created_at = if self.show_created_at { Some(self.created_at) } else { None };
-        let updated_at = if self.show_updated_at { Some(self.updated_at) } else { None };
-
-        PublicUser {
-            id: self.id,
-            username: self.username,
-            email,
-            avatar_url: self.avatar_url,
-            signature: self.signature,
-            created_at,
-            updated_at,
-            is_admin: self.is_admin,
-            blocked: self.blocked,
-            show_email: self.show_email,
-            show_created_at: self.show_created_at,
-            show_updated_at: self.show_updated_at,
-        }
-    }
-}
-
-
 pub trait ToUserRef {
     fn to_ref(&self) -> PublicUserRef;
 }
@@ -91,6 +66,28 @@ impl ToUserRef for User {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
         let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
         let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
+        PublicUserRef {
+            id: &self.id,
+            username: self.username.as_str(),
+            email,
+            avatar_url: self.avatar_url.as_str(),
+            signature: self.signature.as_str(),
+            created_at,
+            updated_at,
+            is_admin: &self.is_admin,
+            blocked: &self.blocked,
+            show_email: &self.show_email,
+            show_created_at: &self.show_created_at,
+            show_updated_at: &self.show_updated_at,
+        }
+    }
+}
+
+impl ToUserRef for PublicUser {
+    fn to_ref(&self) -> PublicUserRef {
+        let email = if self.show_email { self.email.as_ref().map(String::as_str) } else { None };
+        let created_at = if self.show_created_at { self.created_at.as_ref() } else { None };
+        let updated_at = if self.show_updated_at { self.updated_at.as_ref() } else { None };
         PublicUserRef {
             id: &self.id,
             username: self.username.as_str(),
@@ -128,39 +125,27 @@ pub struct NewUser<'a> {
 }
 
 #[derive(Deserialize)]
-pub struct AuthJson {
+pub struct AuthRequest {
     pub username: String,
     pub password: String,
     pub email: Option<String>,
 }
 
-impl AuthJson {
-    pub fn to_request(&self) -> AuthRequest {
-        AuthRequest {
-            username: &self.username,
-            password: &self.password,
-            email: self.email.as_ref().map(String::as_str),
-        }
+impl AuthRequest {
+    pub fn extract_email(&self) -> Result<&str, ServiceError> {
+        self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequestGeneral)
     }
-}
 
-pub struct AuthRequest<'a> {
-    pub username: &'a str,
-    pub password: &'a str,
-    pub email: Option<&'a str>,
-}
-
-impl<'a> AuthRequest<'a> {
-    pub fn make_user(&self, id: &'a u32, hashed_password: &'a str) -> NewUser<'a> {
-        NewUser {
+    pub fn make_user<'a>(&'a self, id: &'a u32, hashed_password: &'a str) -> Result<NewUser<'a>, ServiceError> {
+        Ok(NewUser {
             id,
-            username: self.username,
+            username: &self.username,
             // ToDo: In case validator failed and cause unwrap panic.
-            email: self.email.unwrap(),
+            email: self.extract_email()?,
             hashed_password,
             avatar_url: "",
             signature: "",
-        }
+        })
     }
 }
 
@@ -227,8 +212,8 @@ impl<'a> UserUpdateJson {
 }
 
 pub enum UserQuery<'a> {
-    Register(&'a AuthRequest<'a>),
-    Login(&'a AuthRequest<'a>),
+    Register(&'a AuthRequest),
+    Login(&'a AuthRequest),
     GetMe(&'a u32),
     GetUser(&'a str),
     UpdateUser(&'a UserUpdateRequest<'a>),
@@ -237,23 +222,23 @@ pub enum UserQuery<'a> {
 impl<'a> Validator for UserQuery<'a> {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
-        match &self {
-            UserQuery::Login(req) => req.username,
-            UserQuery::GetUser(username) => username,
-            UserQuery::Register(req) => req.username,
+        match self {
+            UserQuery::Login(req) => &req.username,
+            UserQuery::GetUser(username) => &username,
+            UserQuery::Register(req) => &req.username,
             UserQuery::UpdateUser(req) => req.username.unwrap_or(""),
             _ => ""
         }
     }
     fn get_password(&self) -> &str {
-        match &self {
-            UserQuery::Register(req) => req.password,
+        match self {
+            UserQuery::Register(req) => &req.password,
             _ => ""
         }
     }
     fn get_email(&self) -> &str {
-        match &self {
-            UserQuery::Register(req) => req.email.unwrap_or(""),
+        match self {
+            UserQuery::Register(req) => req.email.as_ref().map(String::as_str).unwrap_or(""),
             _ => ""
         }
     }

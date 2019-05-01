@@ -6,7 +6,7 @@ use crate::model::{
     user::{User, ToUserRef},
     topic::{Topic, TopicWithUser},
     category::{Category, CategoryQuery, CategoryQueryResult, CategoryRequest, CategoryUpdateRequest},
-    common::{PoolConnectionPostgres as DbConnection, PoolConnectionRedis as CacheConnection, RedisPool, QueryOption, GetUserId, AttachUserRef, get_unique_id, match_id},
+    common::{PoolConnectionPostgres as DbConnection, PoolConnectionRedis as CacheConnection, RedisPool, QueryOption, GetUserId, AttachUser, get_unique_id, match_id},
 };
 use crate::handler::{
     user::get_unique_users,
@@ -32,7 +32,7 @@ impl<'a> CategoryQuery<'a> {
 }
 
 fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
+    let conn = &opt.db_pool.unwrap().get()?;
 
     let offset = (page - 1) * LIMIT;
     let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
@@ -40,12 +40,12 @@ fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
 
     let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
 
-    let topics_final = topics.iter().map(|topic| topic.to_ref().attach_user(&users)).collect();
+    let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
 }
 
 fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
+    let conn = &opt.db_pool.unwrap().get()?;
 
     let offset = (req.page - 1) * LIMIT;
     let topics: Vec<Topic> = topics::table
@@ -53,14 +53,13 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
         .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
-    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
-
-    let topics_final = topics.iter().map(|topic| topic.to_ref().attach_user(&users)).collect();
+//    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
+    let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
 }
 
 fn get_all_categories(opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
+    let conn = &opt.db_pool.unwrap().get()?;
     let categories = categories::table.load::<Category>(conn)?;
 
     let _ignore = update_cache(None, None, Some(&categories), &opt.cache_pool);
@@ -84,7 +83,7 @@ fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
 }
 
 fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
+    let conn = &opt.db_pool.unwrap().get()?;
 
     let category: Category = diesel::update(categories::table
         .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
@@ -96,7 +95,7 @@ fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResul
 }
 
 fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
+    let conn = &opt.db_pool.unwrap().get()?;
 
     diesel::delete(categories::table.find(id)).execute(conn)?;
 
@@ -117,4 +116,10 @@ fn update_cache(topics: Option<&Vec<Topic>>, users: Option<&Vec<User>>, categori
         UpdateCache::Categories(&c).handle_update(&pool)?;
     }
     Ok(())
+}
+
+
+//helper functions
+pub fn load_all_categories(conn: &DbConnection) -> Result<Vec<Category>, ServiceError> {
+    Ok(categories::table.load::<Category>(conn)?)
 }

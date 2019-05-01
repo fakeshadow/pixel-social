@@ -3,20 +3,20 @@ use futures::IntoFuture;
 
 use crate::model::{
     errors::ServiceError,
-    topic::{TopicJson, TopicQuery},
+    topic::{TopicRequest, TopicQuery},
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
 use crate::handler::auth::UserJwt;
 
 pub fn add_topic(
     user_jwt: UserJwt,
-    json: web::Json<TopicJson>,
+    json: web::Json<TopicRequest>,
     global_var: web::Data<GlobalGuard>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    TopicQuery::AddTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt).into_future()
+    TopicQuery::AddTopic(json.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
 }
 
 pub fn get_topic(
@@ -25,18 +25,18 @@ pub fn get_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (topic_id, page) = topic_path.as_ref();
+    let (topic_id, page) = topic_path.into_inner();
 
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    TopicQuery::GetTopic(&topic_id, &page).handle_query(&opt).into_future()
+    TopicQuery::GetTopic(topic_id, page).handle_query(&opt).into_future()
 }
 
 pub fn update_topic(
     user_jwt: UserJwt,
-    json: web::Json<TopicJson>,
+    json: web::Json<TopicRequest>,
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    TopicQuery::UpdateTopic(&json.to_request(Some(&user_jwt.user_id))).handle_query(&opt).into_future()
+    TopicQuery::UpdateTopic(json.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
 }

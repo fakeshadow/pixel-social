@@ -6,7 +6,7 @@ use crate::model::{
     errors::ServiceError,
     user::User,
     post::{Post, PostQuery, PostQueryResult, PostRequest},
-    common::{QueryOption, GlobalGuard, AttachUserRef, PoolConnectionPostgres},
+    common::{QueryOption, GlobalGuard, AttachUser, PoolConnectionPostgres},
 };
 use crate::schema::{posts, topics, users};
 
@@ -26,7 +26,7 @@ impl<'a> PostQuery<'a> {
 fn get_post(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
-    Ok(PostQueryResult::GotPost(&post.to_ref().attach_user(&user)).to_response())
+    Ok(PostQueryResult::GotPost(&post.attach_user(&user)).to_response())
 }
 
 fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> QueryResult {

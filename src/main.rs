@@ -27,7 +27,7 @@ mod schema;
 mod util;
 
 use crate::handler::cache::clear_cache;
-use crate::util::startup::{init_global_var};
+use crate::util::startup::{init_global_var, build_cache};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -48,7 +48,9 @@ fn main() -> std::io::Result<()> {
         .expect("Failed to create redis pool.");
 
     //     clear cache on start up for test purpose
-    let _result = clear_cache(&redis_pool);
+    let _clear = clear_cache(&redis_pool);
+
+    let _build = build_cache(&postgres_pool, &redis_pool);
 
     let global_arc = init_global_var(&postgres_pool);
 

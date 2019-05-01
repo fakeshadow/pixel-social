@@ -4,7 +4,7 @@ use actix_web::{web, HttpResponse};
 use crate::handler::auth::UserJwt;
 use crate::model::{
     errors::ServiceError,
-    user::{UserQuery, AuthJson, UserUpdateJson},
+    user::{UserQuery, AuthRequest, UserUpdateJson},
     common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
 
@@ -26,11 +26,11 @@ pub fn get_user(
 }
 
 pub fn login_user(
-    json: web::Json<AuthJson>,
+    req: web::Json<AuthRequest>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    UserQuery::Login(&json.to_request()).handle_query(&opt).into_future()
+    UserQuery::Login(&req.into_inner()).handle_query(&opt).into_future()
 }
 
 pub fn update_user(
@@ -44,9 +44,9 @@ pub fn update_user(
 
 pub fn register_user(
     global_var: web::Data<GlobalGuard>,
-    json: web::Json<AuthJson>,
+    req: web::Json<AuthRequest>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    UserQuery::Register(&json.to_request()).handle_query(&opt).into_future()
+    UserQuery::Register(&req.into_inner()).handle_query(&opt).into_future()
 }

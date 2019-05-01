@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
     user::{User, PublicUserRef, ToUserRef},
     post::PostWithUser,
-    common::{GetSelfId, AttachUserRef, GetUserId, ResponseMessage},
+    common::{GetSelfId, AttachUser, GetUserId, ResponseMessage},
 };
 use crate::schema::topics;
 
@@ -22,39 +22,6 @@ pub struct Topic {
     pub last_reply_time: NaiveDateTime,
     pub reply_count: i32,
     pub is_locked: bool,
-}
-
-#[derive(Serialize)]
-pub struct TopicRef<'a> {
-    pub id: &'a u32,
-    pub user_id: &'a u32,
-    pub category_id: &'a u32,
-    pub title: &'a str,
-    pub body: &'a str,
-    pub thumbnail: &'a str,
-    pub created_at: &'a NaiveDateTime,
-    pub updated_at: &'a NaiveDateTime,
-    pub last_reply_time: &'a NaiveDateTime,
-    pub reply_count: &'a i32,
-    pub is_locked: &'a bool,
-}
-
-impl Topic {
-    pub fn to_ref(&self) -> TopicRef {
-        TopicRef {
-            id: &self.id,
-            user_id: &self.user_id,
-            category_id: &self.category_id,
-            title: &self.title,
-            body: &self.body,
-            thumbnail: &self.thumbnail,
-            created_at: &self.created_at,
-            updated_at: &self.updated_at,
-            last_reply_time: &self.last_reply_time,
-            reply_count: &self.reply_count,
-            is_locked: &self.is_locked,
-        }
-    }
 }
 
 #[derive(Insertable)]
@@ -81,7 +48,7 @@ pub struct UpdateTopic<'a> {
 }
 
 #[derive(Deserialize)]
-pub struct TopicJson {
+pub struct TopicRequest {
     pub id: Option<u32>,
     pub user_id: Option<u32>,
     pub category_id: Option<u32>,
@@ -91,79 +58,60 @@ pub struct TopicJson {
     pub is_locked: Option<bool>,
 }
 
-impl<'a> TopicJson {
-    pub fn to_request(&'a self, user_id: Option<&'a u32>) -> TopicRequest<'a> {
-        TopicRequest {
-            id: self.id.as_ref(),
-            user_id,
-            category_id: self.category_id.as_ref(),
-            title: self.title.as_ref().map(String::as_str),
-            body: self.body.as_ref().map(String::as_str),
-            thumbnail: self.thumbnail.as_ref().map(String::as_str),
-            is_locked: self.is_locked.as_ref(),
-        }
-    }
-}
-
-pub struct TopicRequest<'a> {
-    pub id: Option<&'a u32>,
-    pub user_id: Option<&'a u32>,
-    pub category_id: Option<&'a u32>,
-    pub title: Option<&'a str>,
-    pub body: Option<&'a str>,
-    pub thumbnail: Option<&'a str>,
-    pub is_locked: Option<&'a bool>,
-}
-
-impl<'a> TopicRequest<'a> {
-    pub fn extract_self_id(&self) -> Result<&'a u32, ServiceError> {
-        Ok(self.id.ok_or(ServiceError::BadRequestGeneral)?)
+impl TopicRequest {
+    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
+        self.user_id = id;
+        self
     }
 
-    pub fn extract_category_id(&self) -> Result<&'a u32, ServiceError> {
-        Ok(self.category_id.ok_or(ServiceError::BadRequestGeneral)?)
+    pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
+        Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }
 
-    pub fn make_topic(&'a self, id: &'a u32) -> Result<NewTopic<'a>, ServiceError> {
+    pub fn extract_category_id(&self) -> Result<&u32, ServiceError> {
+        Ok(self.category_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
+    }
+
+    pub fn make_topic<'a>(&'a self, id: &'a u32) -> Result<NewTopic<'a>, ServiceError> {
         Ok(NewTopic {
             id,
-            user_id: self.user_id.ok_or(ServiceError::BadRequestGeneral)?,
+            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
             category_id: self.extract_category_id()?,
-            thumbnail: self.thumbnail.ok_or(ServiceError::BadRequestGeneral)?,
-            title: self.title.ok_or(ServiceError::BadRequestGeneral)?,
-            body: self.body.ok_or(ServiceError::BadRequestGeneral)?,
+            thumbnail: self.thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            title: self.title.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            body: self.body.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
         })
     }
 
-    pub fn make_update(&'a self) -> Result<UpdateTopic, ServiceError> {
+    pub fn make_update(&self) -> Result<UpdateTopic, ServiceError> {
         match self.user_id {
             Some(id) => Ok(UpdateTopic {
                 id: self.extract_self_id()?,
-                user_id: self.user_id,
+                user_id: self.user_id.as_ref(),
                 category_id: None,
-                title: self.title,
-                body: self.body,
-                thumbnail: self.thumbnail,
+                title: self.title.as_ref().map(String::as_str),
+                body: self.body.as_ref().map(String::as_str),
+                thumbnail: self.thumbnail.as_ref().map(String::as_str),
                 is_locked: None,
             }),
             None => Ok(UpdateTopic {
                 id: self.extract_self_id()?,
                 user_id: None,
-                category_id: self.category_id,
-                title: self.title,
-                body: self.body,
-                thumbnail: self.thumbnail,
-                is_locked: self.is_locked,
+                category_id: self.category_id.as_ref(),
+                title: self.title.as_ref().map(String::as_str),
+                body: self.body.as_ref().map(String::as_str),
+                thumbnail: self.thumbnail.as_ref().map(String::as_str),
+                is_locked: self.is_locked.as_ref(),
             })
         }
     }
 }
 
-impl<'a> GetSelfId for TopicRef<'a> {
+impl GetSelfId for Topic {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-impl<'u, T> AttachUserRef<'u, T> for TopicRef<'u>
+impl<'u, T> AttachUser<'u, T> for Topic
     where T: GetSelfId + ToUserRef {
     type Output = TopicWithUser<'u>;
     fn self_user_id(&self) -> &u32 { &self.user_id }
@@ -178,18 +126,18 @@ impl<'u, T> AttachUserRef<'u, T> for TopicRef<'u>
 #[derive(Serialize)]
 pub struct TopicWithUser<'a> {
     #[serde(flatten)]
-    pub topic: TopicRef<'a>,
+    pub topic: Topic,
     pub user: Option<PublicUserRef<'a>>,
 }
 
 #[derive(Serialize)]
 pub struct TopicWithPost<'a> {
-    pub topic: Option<&'a TopicWithUser<'a>>,
-    pub posts: Option<&'a Vec<PostWithUser<'a>>>,
+    pub topic: Option<TopicWithUser<'a>>,
+    pub posts: Option<Vec<PostWithUser<'a>>>,
 }
 
 impl<'a> TopicWithPost<'a> {
-    pub fn new(topic: Option<&'a TopicWithUser<'a>>, posts: Option<&'a Vec<PostWithUser<'a>>>) -> Self {
+    pub fn new(topic: Option<TopicWithUser<'a>>, posts: Option<Vec<PostWithUser<'a>>>) -> Self {
         TopicWithPost { topic, posts }
     }
 }
@@ -198,18 +146,14 @@ impl GetUserId for Topic {
     fn get_user_id(&self) -> &u32 { &self.user_id }
 }
 
-impl GetSelfId for Topic {
-    fn get_self_id(&self) -> &u32 { &self.id }
-}
-
 //impl<T> GetSelfTimeStamp for TopicWithUser<T> {
 //    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
 //}
 
-pub enum TopicQuery<'a> {
-    GetTopic(&'a u32, &'a i64),
-    AddTopic(&'a TopicRequest<'a>),
-    UpdateTopic(&'a TopicRequest<'a>),
+pub enum TopicQuery {
+    GetTopic(u32, i64),
+    AddTopic(TopicRequest),
+    UpdateTopic(TopicRequest),
 }
 
 pub enum TopicQueryResult<'a> {

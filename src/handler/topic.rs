@@ -6,7 +6,7 @@ use crate::model::{
     post::Post,
     user::User,
     topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
-    common::{PoolConnectionPostgres, QueryOption, AttachUserRef},
+    common::{PoolConnectionPostgres, QueryOption, AttachUser},
 };
 use crate::handler::user::get_unique_users;
 use crate::schema::{categories, posts, topics};
@@ -15,7 +15,7 @@ const LIMIT: i64 = 20;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
-impl<'a> TopicQuery<'a> {
+impl TopicQuery {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         match self {
             TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &opt),
@@ -33,12 +33,12 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
     let users: Vec<User> = get_unique_users(&posts_raw, Some(&topic_raw.user_id), &conn)?;
 
-    let topic = topic_raw.to_ref().attach_user(&users);
-    let posts = posts_raw.iter().map(|post| post.to_ref().attach_user(&users)).collect();
+    let topic = topic_raw.attach_user(&users);
+    let posts = posts_raw.into_iter().map(|post| post.attach_user(&users)).collect();
     let result = if page == &1 {
-        TopicWithPost::new(Some(&topic), Some(&posts))
+        TopicWithPost::new(Some(topic), Some(posts))
     } else {
-        TopicWithPost::new(None, Some(&posts))
+        TopicWithPost::new(None, Some(posts))
     };
 
     Ok(TopicQueryResult::GotTopic(&result).to_response())
@@ -72,6 +72,12 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
             .set(req.make_update()?).execute(conn)?
     };
     Ok(TopicQueryResult::ModifiedTopic.to_response())
+}
+
+pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
+    let result = topics::table.select(topics::id)
+        .filter(topics::category_id.eq(&cid)).order(topics::last_reply_time.desc()).load::<u32>(conn)?;
+    Ok(result)
 }
 
 pub fn get_last_tid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

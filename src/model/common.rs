@@ -68,7 +68,7 @@ pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }
 
-pub trait AttachUserRef<'u, T>
+pub trait AttachUser<'u, T>
     where T: GetSelfId + ToUserRef {
     type Output;
     fn self_user_id(&self) -> &u32;

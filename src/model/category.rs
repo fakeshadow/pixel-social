@@ -6,7 +6,9 @@ use crate::model::{
     common::{ResponseMessage,GetSelfId}
 };
 use crate::schema::categories;
-#[derive(Queryable, Serialize, Deserialize)]
+use crate::model::topic::{Topic,};
+
+#[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct Category {
     pub id: u32,
     pub name: String,

@@ -5,13 +5,11 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToUserRef},
+    user::{User, PublicUser, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToUserRef},
     common::{PoolConnectionPostgres, GlobalGuard, QueryOption, Validator, GetUserId, get_unique_id},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
-use crate::model::common::{RedisPool, PostgresPool};
-use crate::model::user::PublicUser;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
@@ -41,7 +39,6 @@ impl<'a> UserQuery<'a> {
     }
 }
 
-
 pub enum AsyncDb {
     GetMe(u32),
     GetUser(String),
@@ -52,7 +49,7 @@ pub fn async_query(query: AsyncDb, opt: &QueryOption) -> impl Future<Item=User, 
     web::block(move || {
         match query {
             AsyncDb::GetMe(id) => get_me_async(&id, pool.get()?),
-            AsyncDb::GetUser(name) => get_user_async(&name, pool.get()?)
+            AsyncDb::GetUser(name) => get_user_async(&name, pool.get()?),
         }
     }).from_err()
 }
@@ -66,10 +63,10 @@ fn get_user_async(username: &str, conn: PoolConnectionPostgres) -> Result<User, 
 }
 
 
-
 fn get_me(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let user = users::table.find(&id).first::<User>(conn)?;
-    Ok(UserQueryResult::GotUser(&user).to_response())
+    Ok(UserQueryResult::GotPublicUser(&user.to_ref()).to_response())
+//    Ok(UserQueryResult::GotUser(&user).to_response())
 }
 
 fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
@@ -96,7 +93,7 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
-        .or_filter(users::email.eq(&req.email.ok_or(ServiceError::BadRequestGeneral)?))
+        .or_filter(users::email.eq(&req.extract_email()?))
         .load::<(String, String)>(conn)?.pop() {
         Some((exist_username, _)) => if exist_username == req.username {
             Err(ServiceError::UsernameTaken)
@@ -104,13 +101,13 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
             Err(ServiceError::EmailTaken)
         },
         None => {
-            let password_hash: String = hash::hash_password(req.password)?;
+            let password_hash: String = hash::hash_password(&req.password)?;
             let id: u32 = global_var.unwrap().lock()
                 // ToDo: In case mutex guard failed change back to increment global vars directly.
                 .map(|mut guarded_global_var| guarded_global_var.next_uid())
                 .map_err(|_| ServiceError::InternalServerError)?;
 
-            diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)).execute(conn)?;
+            diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).execute(conn)?;
             Ok(UserQueryResult::Registered.to_response())
         }
     }
@@ -126,6 +123,10 @@ pub fn get_unique_users<T>(
     let user_ids = get_unique_id(&vec, opt);
     let users = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
     Ok(users)
+}
+
+pub fn load_all_users(conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {
+    Ok(users::table.load::<User>(conn)?)
 }
 
 pub fn get_last_uid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

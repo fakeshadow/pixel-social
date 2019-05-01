@@ -4,8 +4,8 @@ use actix_web::{web, HttpResponse};
 use crate::model::{
     errors::ServiceError,
     admin::AdminQuery,
-    post::{PostJson, PostQuery},
-    topic::{TopicQuery, TopicJson},
+    post::{PostRequest, PostQuery},
+    topic::{TopicQuery, TopicRequest},
     category::{CategoryQuery, CategoryUpdateJson},
     user::{UserQuery, UserUpdateJson},
     common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
@@ -47,13 +47,13 @@ pub fn admin_remove_category(
 
 pub fn admin_update_user(
     jwt: UserJwt,
-    json: web::Json<UserUpdateJson>,
+    req: web::Json<UserUpdateJson>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let id = json.id.ok_or(ServiceError::BadRequestGeneral)?;
+    let id = req.id.ok_or(ServiceError::BadRequestGeneral)?;
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let update_request = json.to_request_admin(&id);
+    let update_request = req.to_request_admin(&id);
 
     AdminQuery::UpdateUserCheck(&jwt.is_admin, &update_request).handle_query(&opt)?;
     UserQuery::UpdateUser(&update_request).handle_query(&opt)
@@ -61,26 +61,25 @@ pub fn admin_update_user(
 
 pub fn admin_update_topic(
     jwt: UserJwt,
-    json: web::Json<TopicJson>,
+    req: web::Json<TopicRequest>,
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let request = json.to_request(None);
+    let request = req.into_inner().attach_user_id(None);
 
     AdminQuery::UpdateTopicCheck(&jwt.is_admin, &request).handle_query(&opt)?;
-    TopicQuery::UpdateTopic(&request).handle_query(&opt)
+    TopicQuery::UpdateTopic(request).handle_query(&opt)
 }
 
 pub fn admin_update_post(
     jwt: UserJwt,
-    json: web::Json<PostJson>,
+    req: web::Json<PostRequest>,
 //	cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let opt = QueryOption::new(Some(&db_pool), None, None);
-    let req = json.to_request(None);
 
-    AdminQuery::UpdatePostCheck(&jwt.is_admin, &req).handle_query(&opt)?;
+    AdminQuery::UpdatePostCheck(&jwt.is_admin, &req.into_inner().attach_user_id(None)).handle_query(&opt)?;
     Ok(HttpResponse::Ok().finish())
 }
