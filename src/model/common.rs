@@ -78,7 +78,7 @@ pub trait AttachUser<'u, T>
         for user in users.iter() {
             if self.self_user_id() == user.get_self_id() {
                 result.push(user.to_ref());
-                break ;
+                break;
             }
         }
         result.pop()
@@ -190,12 +190,11 @@ pub fn match_id(last_id: Result<Vec<u32>, ServiceError>) -> u32 {
 /// only add topic user_id when query for the first page of a topic. Other case just pass None in
 /// capacity has to be changed along side with the limit constant in handlers.
 pub trait GetUserId {
-    fn get_user_id(&self) -> &u32;
+    fn get_user_id(&self) -> u32;
 }
-
-pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -> Vec<&'a u32>
+pub fn get_unique_id<T>(items: &Vec<T>, topic_user_id: Option<u32>) -> Vec<u32>
     where T: GetUserId {
-    let mut result: Vec<&u32> = Vec::with_capacity(21);
+    let mut result: Vec<u32> = Vec::with_capacity(21);
 
     if let Some(user_id) = topic_user_id { result.push(user_id); }
 

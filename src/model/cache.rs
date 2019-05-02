@@ -125,7 +125,7 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
     }
 
     fn parse_post(&self) -> Result<Post, ServiceError> {
-        // ToDo: possibile remove this check
+        // ToDo: remove this check
         let post_id = match self.parse::<u32>("post_id").ok() {
             Some(id) => if id == 0 { None } else { Some(id) },
             None => None,

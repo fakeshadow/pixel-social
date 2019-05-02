@@ -2,7 +2,6 @@
 /migrations/2019-04-21-192740_template
 **/*.rs.bk
 /.idea
-.env
 **/android
 **/ios
 **/test

@@ -143,7 +143,7 @@ impl<'a> TopicWithPost<'a> {
 }
 
 impl GetUserId for Topic {
-    fn get_user_id(&self) -> &u32 { &self.user_id }
+    fn get_user_id(&self) -> u32 { self.user_id }
 }
 
 pub enum TopicQuery {

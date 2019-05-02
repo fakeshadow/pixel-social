@@ -40,7 +40,7 @@ pub fn get_category(
     handle_topics_cache(&category_id, &page, &cache_pool)
         .into_future()
         .then(move |result| match result {
-            Ok(result) => ftr(Ok(result)),
+            Ok(res) => ftr(Ok(res)),
             Err(_) => {
                 let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
                 let categories = vec![category_id];

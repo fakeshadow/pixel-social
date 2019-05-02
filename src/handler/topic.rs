@@ -31,7 +31,7 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let offset = (page - 1) * 20;
     let topic_raw: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
     let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
-    let users: Vec<User> = get_unique_users(&posts_raw, Some(&topic_raw.user_id), &conn)?;
+    let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
 
     let topic = topic_raw.attach_user(&users);
     let posts = posts_raw.into_iter().map(|post| post.attach_user(&users)).collect();

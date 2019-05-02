@@ -116,7 +116,7 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
 /// helper query function
 pub fn get_unique_users<T>(
     vec: &Vec<T>,
-    opt: Option<&u32>,
+    opt: Option<u32>,
     conn: &PoolConnectionPostgres,
 ) -> Result<Vec<User>, ServiceError>
     where T: GetUserId {
