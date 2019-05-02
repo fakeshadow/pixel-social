@@ -4,10 +4,9 @@ use chrono::NaiveDateTime;
 use crate::model::{
     errors::ServiceError,
     user::{User, UserRef, ToUserRef},
-    common::{AttachUser, GetUserId, ResponseMessage},
+    common::{AttachUser, GetUserId, GetSelfId},
 };
 use crate::schema::posts;
-use crate::model::common::GetSelfId;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -130,18 +129,4 @@ pub enum PostQuery<'a> {
     AddPost(&'a mut PostRequest),
     UpdatePost(&'a PostRequest),
     GetPost(&'a u32),
-}
-
-pub enum PostQueryResult<'a> {
-    AddedPost,
-    GotPost(&'a PostWithUser<'a>),
-}
-
-impl<'a> PostQueryResult<'a> {
-    pub fn to_response(&self) -> HttpResponse {
-        match self {
-            PostQueryResult::AddedPost => HttpResponse::Ok().json(ResponseMessage::new("Add Post Success")),
-            PostQueryResult::GotPost(post) => HttpResponse::Ok().json(&post),
-        }
-    }
 }

@@ -10,15 +10,12 @@ use lazy_static::__Deref;
 use crate::model::{
     errors::ServiceError,
     user::User,
-    post::Post,
-    topic::{Topic, TopicWithUser},
+    post::{Post, PostWithUser},
+    topic::{Topic, TopicWithUser, TopicWithPost},
     category::Category,
     cache::{SortHash, FromHashMap},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
-use crate::model::topic::TopicWithPost;
-use crate::model::post::PostWithUser;
-use crate::model::common::PoolConnectionPostgres;
 
 const LIMIT: isize = 20;
 
@@ -169,7 +166,7 @@ type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
     pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
-        let pool = opt.ok_or(ServiceError::NoCacheFound)?;
+        let pool = opt.unwrap();
         match self {
             UpdateCache::TopicPostUser(t, p, u) => match_update(t, p, u, pool),
             UpdateCache::Categories(categories) => update_cache(&categories, "category", pool.get()?),

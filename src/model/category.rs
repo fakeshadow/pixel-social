@@ -2,11 +2,10 @@ use actix_web::HttpResponse;
 
 use crate::model::{
     errors::ServiceError,
-    topic::TopicWithUser,
-    common::{ResponseMessage,GetSelfId}
+    topic::{Topic,TopicWithUser},
+    common::{GetSelfId}
 };
 use crate::schema::categories;
-use crate::model::topic::{Topic,};
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct Category {
@@ -97,20 +96,4 @@ pub enum CategoryQuery<'a> {
     AddCategory(&'a CategoryUpdateRequest<'a>),
     UpdateCategory(&'a CategoryUpdateRequest<'a>),
     DeleteCategory(&'a u32),
-}
-
-pub enum CategoryQueryResult<'a> {
-    GotCategories(Vec<Category>),
-    GotTopics(&'a Vec<TopicWithUser<'a>>),
-    UpdatedCategory,
-}
-
-impl<'a> CategoryQueryResult<'a> {
-    pub fn to_response(&self) -> HttpResponse {
-        match self {
-            CategoryQueryResult::GotCategories(categories) => HttpResponse::Ok().json(&categories),
-            CategoryQueryResult::GotTopics(topics) => HttpResponse::Ok().json(&topics),
-            CategoryQueryResult::UpdatedCategory => HttpResponse::Ok().json(ResponseMessage::new("Modify Success"))
-        }
-    }
 }

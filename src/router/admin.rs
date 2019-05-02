@@ -8,7 +8,7 @@ use crate::model::{
     topic::{TopicQuery, TopicRequest},
     category::{CategoryQuery, CategoryUpdateJson},
     user::{UserQuery, UserUpdateJson},
-    common::{ResponseMessage, PostgresPool, RedisPool, QueryOption},
+    common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
 

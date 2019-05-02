@@ -5,12 +5,14 @@ use crate::model::{
     errors::ServiceError,
     post::Post,
     user::User,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicQueryResult, TopicRequest},
-    common::{PoolConnectionPostgres, QueryOption, AttachUser},
+    topic::{Topic, TopicWithPost, TopicQuery, TopicRequest},
+    common::{PoolConnectionPostgres, QueryOption, AttachUser, Response},
 };
-use crate::handler::user::get_unique_users;
+use crate::handler::{
+    cache::{update_cache, UpdateCache},
+    user::get_unique_users
+};
 use crate::schema::{categories, posts, topics};
-use crate::handler::cache::{update_cache, UpdateCache};
 
 const LIMIT: i64 = 20;
 
@@ -46,7 +48,7 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
         TopicWithPost::new(None, Some(posts))
     };
 
-    Ok(TopicQueryResult::GotTopic(&result).to_response())
+    Ok(HttpResponse::Ok().json(&result))
 }
 
 fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
@@ -61,7 +63,7 @@ fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
         .map_err(|_| ServiceError::InternalServerError)?;
 
     diesel::insert_into(topics::table).values(&req.make_topic(&id)?).execute(conn)?;
-    Ok(TopicQueryResult::ModifiedTopic.to_response())
+    Ok(Response::ModifiedTopic.to_res())
 }
 
 fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
@@ -76,7 +78,7 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
             .filter(topics::id.eq(&topic_self_id)))
             .set(req.make_update()?).execute(conn)?
     };
-    Ok(TopicQueryResult::ModifiedTopic.to_response())
+    Ok(Response::ModifiedTopic.to_res())
 }
 
 pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

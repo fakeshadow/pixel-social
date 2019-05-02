@@ -5,8 +5,8 @@ use crate::model::{
     errors::ServiceError,
     user::{User, ToUserRef},
     topic::{Topic, TopicWithUser},
-    category::{Category, CategoryQuery, CategoryQueryResult, CategoryRequest, CategoryUpdateRequest},
-    common::{PoolConnectionPostgres as DbConnection, PoolConnectionRedis as CacheConnection, RedisPool, QueryOption, GetUserId, AttachUser, get_unique_id, match_id},
+    category::{Category, CategoryQuery, CategoryRequest, CategoryUpdateRequest},
+    common::{Response, PoolConnectionPostgres, RedisPool, QueryOption, GetUserId, AttachUser, get_unique_id, match_id},
 };
 use crate::handler::{
     user::get_unique_users,
@@ -40,8 +40,7 @@ fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
 
     let _ignore = UpdateCache::TopicPostUser(Some(&topics), None, Some(&users)).handle_update(&opt.cache_pool);
 
-    let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
-    Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
+    Ok(HttpResponse::Ok().json(&topics.into_iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
 fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
@@ -54,8 +53,7 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
     let users = get_unique_users(&topics, None, &conn)?;
 
     let _ignore = UpdateCache::TopicPostUser(Some(&topics), None, Some(&users)).handle_update(&opt.cache_pool);
-    let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
-    Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
+    Ok(HttpResponse::Ok().json(&topics.into_iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
 fn get_all_categories(opt: &QueryOption) -> QueryResult {
@@ -64,7 +62,7 @@ fn get_all_categories(opt: &QueryOption) -> QueryResult {
 
     let _ignore = UpdateCache::Categories(&categories).handle_update(&opt.cache_pool);
 
-    Ok(CategoryQueryResult::GotCategories(categories).to_response())
+    Ok(HttpResponse::Ok().json(&categories))
 }
 
 fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
@@ -79,7 +77,7 @@ fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
 
     let _ignore = UpdateCache::Categories(&vec![category]).handle_update(&opt.cache_pool);
 
-    Ok(CategoryQueryResult::UpdatedCategory.to_response())
+    Ok(Response::UpdatedCategory.to_res())
 }
 
 fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
@@ -91,7 +89,7 @@ fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResul
 
     let _ignore = UpdateCache::Categories(&vec![category]).handle_update(&opt.cache_pool);
 
-    Ok(CategoryQueryResult::UpdatedCategory.to_response())
+    Ok(Response::UpdatedCategory.to_res())
 }
 
 fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
@@ -101,11 +99,11 @@ fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
 
     let _ignore = UpdateCache::DeleteCategory(id).handle_update(&opt.cache_pool);
 
-    Ok(CategoryQueryResult::UpdatedCategory.to_response())
+    Ok(Response::UpdatedCategory.to_res())
 }
 
 
 //helper functions
-pub fn load_all_categories(conn: &DbConnection) -> Result<Vec<Category>, ServiceError> {
+pub fn load_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, ServiceError> {
     Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }

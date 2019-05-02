@@ -1,9 +1,8 @@
-use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    common::{GetSelfId, Validator, ResponseMessage},
+    common::{GetSelfId, Validator},
 };
 use crate::schema::users;
 
@@ -211,23 +210,5 @@ impl<'a> Validator for UserQuery<'a> {
     }
     fn validate(&self) -> Result<(), ServiceError> {
         Ok(())
-    }
-}
-
-pub enum UserQueryResult<'a> {
-    Registered,
-    LoggedIn(&'a AuthResponse<'a>),
-    GotUser(&'a User),
-    GotPublicUser(&'a UserRef<'a>),
-}
-
-impl<'a> UserQueryResult<'a> {
-    pub fn to_response(&self) -> HttpResponse {
-        match self {
-            UserQueryResult::GotPublicUser(public_user) => HttpResponse::Ok().json(&public_user),
-            UserQueryResult::GotUser(user) => HttpResponse::Ok().json(&user),
-            UserQueryResult::LoggedIn(login_data) => HttpResponse::Ok().json(&login_data),
-            UserQueryResult::Registered => HttpResponse::Ok().json(ResponseMessage::new("Register Success"))
-        }
     }
 }

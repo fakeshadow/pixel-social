@@ -18,7 +18,7 @@ pub fn add_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), Some(&global_var));
     TopicQuery::AddTopic(json.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
 }
 
@@ -31,7 +31,9 @@ pub fn get_topic(
     handle_topic_cache(&topic_id, &page, &cache_pool).into_future()
         .then(move |res| match res {
             Ok(res) => frt(Ok(res)),
-            Err(_) => TopicQuery::GetTopic(topic_id, page).handle_query(&QueryOption::new(Some(&db_pool), None, None)).into_future()
+            Err(_) => TopicQuery::GetTopic(topic_id, page)
+                .handle_query(&QueryOption::new(Some(&db_pool), Some(&cache_pool), None))
+                .into_future()
         })
         .from_err()
 }
@@ -42,6 +44,6 @@ pub fn update_topic(
     db_pool: web::Data<PostgresPool>,
     cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
     TopicQuery::UpdateTopic(json.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
 }

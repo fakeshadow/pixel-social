@@ -5,8 +5,8 @@ use diesel::prelude::*;
 use crate::model::{
     errors::ServiceError,
     user::User,
-    post::{Post, PostQuery, PostQueryResult, PostRequest},
-    common::{QueryOption, GlobalGuard, AttachUser, PoolConnectionPostgres},
+    post::{Post, PostQuery, PostRequest},
+    common::{Response, QueryOption, GlobalGuard, AttachUser, PoolConnectionPostgres},
 };
 use crate::schema::{posts, topics, users};
 
@@ -26,7 +26,7 @@ impl<'a> PostQuery<'a> {
 fn get_post(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
-    Ok(PostQueryResult::GotPost(&post.attach_user(&user)).to_response())
+    Ok(HttpResponse::Ok().json(&post.attach_user(&user)))
 }
 
 fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> QueryResult {
@@ -40,7 +40,7 @@ fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> QueryResult 
             .filter(posts::id.eq(&post_self_id)))
             .set(req.make_update()?).execute(conn)?
     };
-    Ok(PostQueryResult::AddedPost.to_response())
+    Ok(Response::AddedPost.to_res())
 }
 
 fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &PoolConnectionPostgres) -> QueryResult {
@@ -68,7 +68,7 @@ fn add_post(req: &mut PostRequest, global_var: &Option<&GlobalGuard>, conn: &Poo
 
     // ToDo: get result from insert and pass it to redis
     diesel::insert_into(posts::table).values(&req.make_post(&id)?).execute(conn)?;
-    Ok(PostQueryResult::AddedPost.to_response())
+    Ok(Response::AddedPost.to_res())
 }
 
 pub fn load_all_posts_with_topic_id(conn: &PoolConnectionPostgres) -> Result<Vec<(u32, u32)>, ServiceError> {

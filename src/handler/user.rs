@@ -5,8 +5,8 @@ use diesel::prelude::*;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, AuthRequest, AuthResponse, UserQuery, UserQueryResult, UserUpdateRequest, ToUserRef},
-    common::{PoolConnectionPostgres, GlobalGuard, QueryOption, Validator, GetUserId, get_unique_id},
+    user::{User, AuthRequest, AuthResponse, UserQuery, UserUpdateRequest, ToUserRef},
+    common::{PoolConnectionPostgres, GlobalGuard, Response, QueryOption, Validator, GetUserId, get_unique_id},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
@@ -66,13 +66,12 @@ fn get_user_async(username: &str, conn: PoolConnectionPostgres) -> Result<User, 
 
 fn get_me(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let user = users::table.find(&id).first::<User>(conn)?;
-    Ok(UserQueryResult::GotPublicUser(&user.to_ref()).to_response())
-//    Ok(UserQueryResult::GotUser(&user).to_response())
+    Ok(HttpResponse::Ok().json(&user.to_ref()))
 }
 
 fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
     let user = users::table.filter(users::username.eq(&username)).first::<User>(conn)?;
-    Ok(UserQueryResult::GotPublicUser(&user.to_ref()).to_response())
+    Ok(HttpResponse::Ok().json(&user.to_ref()))
 }
 
 fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
@@ -82,12 +81,12 @@ fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
     hash::verify_password(&req.password, &user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-    Ok(UserQueryResult::LoggedIn(&AuthResponse { token: &token, user_data: &user.to_ref() }).to_response())
+    Ok(HttpResponse::Ok().json(&AuthResponse { token: &token, user_data: &user.to_ref() }))
 }
 
 fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
-    let user = diesel::update(users::table.filter(users::id.eq(&req.id))).set(req).get_result(conn)?;
-    Ok(UserQueryResult::GotUser(&user).to_response())
+    let user: User = diesel::update(users::table.filter(users::id.eq(&req.id))).set(req).get_result(conn)?;
+    Ok(HttpResponse::Ok().json(&user))
 }
 
 fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &PgConnection) -> QueryResult {
@@ -109,7 +108,7 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
                 .map_err(|_| ServiceError::InternalServerError)?;
 
             diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).execute(conn)?;
-            Ok(UserQueryResult::Registered.to_response())
+            Ok(Response::Registered.to_res())
         }
     }
 }

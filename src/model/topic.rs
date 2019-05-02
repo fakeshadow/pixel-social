@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
     user::{User, UserRef, ToUserRef},
     post::PostWithUser,
-    common::{GetSelfId, AttachUser, GetUserId, ResponseMessage},
+    common::{GetSelfId, AttachUser, GetUserId},
 };
 use crate::schema::topics;
 
@@ -150,18 +150,4 @@ pub enum TopicQuery {
     GetTopic(u32, i64),
     AddTopic(TopicRequest),
     UpdateTopic(TopicRequest),
-}
-
-pub enum TopicQueryResult<'a> {
-    ModifiedTopic,
-    GotTopic(&'a TopicWithPost<'a>),
-}
-
-impl<'a> TopicQueryResult<'a> {
-    pub fn to_response(&self) -> HttpResponse {
-        match self {
-            TopicQueryResult::ModifiedTopic => HttpResponse::Ok().json(ResponseMessage::new("Add Topic Success")),
-            TopicQueryResult::GotTopic(topic_with_post) => HttpResponse::Ok().json(&topic_with_post)
-        }
-    }
 }

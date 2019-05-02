@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use actix_web::web;
+use actix_web::{web, HttpResponse};
 use chrono::NaiveDateTime;
 use diesel::{
     pg::PgConnection,
@@ -41,17 +41,35 @@ impl<'a> QueryOption<'a> {
         }
     }
 }
+pub enum Response {
+    Registered,
+    ModifiedTopic,
+    UpdatedCategory,
+    AddedPost,
+}
+
+impl Response {
+    pub fn to_res(&self) -> HttpResponse {
+        match self {
+            Response::Registered => HttpResponse::Ok().json(ResMsg::new("Register Success")),
+            Response::ModifiedTopic => HttpResponse::Ok().json(ResMsg::new("Modify Topic Success")),
+            Response::AddedPost => HttpResponse::Ok().json(ResMsg::new("Modify Post Success")),
+            Response::UpdatedCategory => HttpResponse::Ok().json(ResMsg::new("Modify Category Success"))
+        }
+    }
+}
 
 #[derive(Serialize)]
-pub struct ResponseMessage<'a> {
+struct ResMsg<'a> {
     message: &'a str,
 }
 
-impl<'a> ResponseMessage<'a> {
+impl<'a> ResMsg<'a> {
     pub fn new(msg: &'a str) -> Self {
-        ResponseMessage { message: msg }
+        ResMsg { message: msg }
     }
 }
+
 
 pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
@@ -185,6 +203,7 @@ pub fn match_id(last_id: Result<Vec<u32>, ServiceError>) -> u32 {
 pub trait GetUserId {
     fn get_user_id(&self) -> u32;
 }
+
 pub fn get_unique_id<T>(items: &Vec<T>, topic_user_id: Option<u32>) -> Vec<u32>
     where T: GetUserId {
     let mut result: Vec<u32> = Vec::with_capacity(21);
