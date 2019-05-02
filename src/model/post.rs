@@ -100,7 +100,6 @@ impl PostRequest {
     }
 }
 
-
 #[derive(Serialize)]
 pub struct PostWithUser<'a> {
     #[serde(flatten)]

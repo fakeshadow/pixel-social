@@ -25,6 +25,7 @@ impl<'a> UserQuery<'a> {
             }
             UserQuery::Login(req) => {
                 &self.check_login()?;
+                println!("here");
                 login_user(&req, &conn)
             }
             UserQuery::UpdateUser(req) => {

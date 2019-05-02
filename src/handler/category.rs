@@ -38,7 +38,7 @@ fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
     let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
-    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
+    let _ignore = UpdateCache::TopicPostUser(Some(&topics), None, Some(&users)).handle_update(&opt.cache_pool);
 
     let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
@@ -53,7 +53,7 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
         .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
     let users = get_unique_users(&topics, None, &conn)?;
 
-    let _ignore = update_cache(Some(&topics), Some(&users), None, &opt.cache_pool);
+    let _ignore = UpdateCache::TopicPostUser(Some(&topics), None, Some(&users)).handle_update(&opt.cache_pool);
     let topics_final = topics.into_iter().map(|topic| topic.attach_user(&users)).collect();
     Ok(CategoryQueryResult::GotTopics(&topics_final).to_response())
 }
@@ -62,7 +62,7 @@ fn get_all_categories(opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
     let categories = categories::table.order(categories::id.asc()).load::<Category>(conn)?;
 
-    let _ignore = update_cache(None, None, Some(&categories), &opt.cache_pool);
+    let _ignore = UpdateCache::Categories(&categories).handle_update(&opt.cache_pool);
 
     Ok(CategoryQueryResult::GotCategories(categories).to_response())
 }
@@ -77,7 +77,7 @@ fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
     let next_cid = match_id(last_cid);
     let category: Category = diesel::insert_into(categories::table).values(&req.make_category(&next_cid)?).get_result(conn)?;
 
-    let _ignore = update_cache(None, None, Some(&vec![category]), &opt.cache_pool);
+    let _ignore = UpdateCache::Categories(&vec![category]).handle_update(&opt.cache_pool);
 
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
 }
@@ -89,7 +89,7 @@ fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResul
         .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
         .set(&req.insert()).get_result(conn)?;
 
-    let _ignore = update_cache(None, None, Some(&vec![category]), &opt.cache_pool);
+    let _ignore = UpdateCache::Categories(&vec![category]).handle_update(&opt.cache_pool);
 
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
 }
@@ -102,20 +102,6 @@ fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
     let _ignore = UpdateCache::DeleteCategory(id).handle_update(&opt.cache_pool);
 
     Ok(CategoryQueryResult::UpdatedCategory.to_response())
-}
-
-fn update_cache(topics: Option<&Vec<Topic>>, users: Option<&Vec<User>>, categories: Option<&Vec<Category>>, pool: &Option<&RedisPool>)
-                -> Result<(), ServiceError> {
-    if let Some(t) = topics {
-        UpdateCache::Topics(&t).handle_update(&pool)?;
-    }
-    if let Some(u) = users {
-        UpdateCache::Users(&u).handle_update(&pool)?;
-    }
-    if let Some(c) = categories {
-        UpdateCache::Categories(&c).handle_update(&pool)?;
-    }
-    Ok(())
 }
 
 

@@ -16,41 +16,35 @@ use crate::model::{
     cache::{SortHash, FromHashMap},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
+use crate::model::topic::TopicWithPost;
+use crate::model::post::PostWithUser;
+use crate::model::common::PoolConnectionPostgres;
 
 const LIMIT: isize = 20;
 
-pub enum GetCache {
-    Topics,
-    Topic,
-    Users,
-    Categories,
-}
-
-pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.get()?;
-    let topic = if page == &1 {
-        get_topics(&vec![id.clone()], &conn)?.pop()
-    } else { None };
-
-    Ok(HttpResponse::Ok().finish())
-}
+//pub enum GetCache {
+//    Topics,
+//    Topic,
+//    Users,
+//    Categories,
+//}
+//
 
 pub fn handle_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-
     // ToDo: need further look into the logic
-    let conn = &pool.get()?;
-    let mut categories_total = get_meta::<u32>("category_id", conn)?;
+    let conn = pool.get()?;
+    let mut categories_total = get_meta::<u32>("category_id", &conn)?;
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
     while categories_total.len() > 20 {
         let slice = categories_total.drain(20..).collect();
-        let temp_hash = get_hash_set(&slice, "category", conn)?;
+        let temp_hash = get_hash_set(&slice, "category", &conn)?;
         for t in temp_hash.into_iter() {
             if !t.is_empty() { categories_hash_vec.push(t) }
         }
     }
-    for t in get_hash_set(&categories_total, "category", conn)?.into_iter() {
+    for t in get_hash_set(&categories_total, "category", &conn)?.into_iter() {
         if !t.is_empty() { categories_hash_vec.push(t) }
     }
     if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
@@ -69,23 +63,41 @@ pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Htt
     Ok(HttpResponse::Ok().json(&topics.into_iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
-fn get_posts(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError> {
-    let users_hash_vec = get_hash_set(ids, "post", &conn)?;
+pub fn handle_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+    let conn = pool.get()?;
+    let topic = if page == &1 {
+        get_topics(&vec![id.clone()], &conn)?.pop()
+    } else { None };
 
-    if users_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    users_hash_vec.iter().map(|hash| {
-        if hash.is_empty() { return Err(ServiceError::NoCacheFound); }
-        hash.parse_user()
-    }).collect::<Result<Vec<User>, ServiceError>>()
+    let topic_user_id = match &topic {
+        Some(t) => Some(t.user_id),
+        None => None
+    };
+
+    let list_key = format!("topic:{}:list", id);
+    let start = (*page as isize - 1) * 20;
+    let post_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
+
+    let posts = get_posts(&post_id, &conn)?;
+    let users = get_users(&posts, topic_user_id, &conn)?;
+
+    Ok(HttpResponse::Ok().json(&TopicWithPost::new(
+        topic.map(|t| t.attach_user(&users)),
+        Some(posts.into_iter().map(|p| p.attach_user(&users)).collect()))))
+}
+
+
+fn get_posts(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
+    let posts_hash_vec = get_hash_set(ids, "post", &conn)?;
+
+    if posts_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
+    posts_hash_vec.iter().map(|hash| hash.parse_post()).collect()
 }
 
 fn get_topics(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, ServiceError> {
     let topics_hash_vec = get_hash_set(ids, "topic", &conn)?;
     if topics_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    topics_hash_vec.iter().map(|hash| {
-        if hash.is_empty() { return Err(ServiceError::NoCacheFound); }
-        hash.parse_topic()
-    }).collect::<Result<Vec<Topic>, ServiceError>>()
+    topics_hash_vec.iter().map(|hash| hash.parse_topic()).collect()
 }
 
 fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError>
@@ -94,10 +106,7 @@ fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionR
     let users_hash_vec = get_hash_set(&ids, "user", &conn)?;
 
     if users_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    users_hash_vec.iter().map(|hash| {
-        if hash.is_empty() { return Err(ServiceError::NoCacheFound); }
-        hash.parse_user()
-    }).collect::<Result<Vec<User>, ServiceError>>()
+    users_hash_vec.iter().map(|hash| hash.parse_user()).collect()
 }
 
 // ToDo: make a more compat macro to handle pipeline
@@ -151,9 +160,7 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
 }
 
 pub enum UpdateCache<'a> {
-    Topics(&'a Vec<Topic>),
-    Posts(&'a Vec<Post>),
-    Users(&'a Vec<User>),
+    TopicPostUser(Option<&'a Vec<Topic>>, Option<&'a Vec<Post>>, Option<&'a Vec<User>>),
     Categories(&'a Vec<Category>),
     DeleteCategory(&'a u32),
 }
@@ -161,29 +168,38 @@ pub enum UpdateCache<'a> {
 type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
-    pub fn handle_update(&self, opt: &Option<&RedisPool>) -> UpdateResult {
-        let conn = opt.unwrap().get()?;
+    pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
+        let pool = opt.ok_or(ServiceError::NoCacheFound)?;
         match self {
-            UpdateCache::Topics(topics) => update_cache(&topics, "topic", &conn),
-            UpdateCache::Posts(posts) => update_cache(&posts, "post", &conn),
-            UpdateCache::Users(users) => update_cache(&users, "user", &conn),
-            UpdateCache::Categories(categories) => update_cache(&categories, "category", &conn),
-            UpdateCache::DeleteCategory(id) => Ok(conn.del(format!("{}:{}:set", "category", id))?)
+            UpdateCache::TopicPostUser(t, p, u) => match_update(t, p, u, pool),
+            UpdateCache::Categories(categories) => update_cache(&categories, "category", pool.get()?),
+            UpdateCache::DeleteCategory(id) => Ok(pool.get()?.del(format!("{}:{}:set", "category", id))?)
         }
     }
 }
 
-pub fn update_cache<T>(vec: &Vec<T>, key: &str, conn: &PoolConnectionRedis) -> UpdateResult
+pub fn match_update(topics: Option<&Vec<Topic>>, posts: Option<&Vec<Post>>, users: Option<&Vec<User>>, pool: &RedisPool) -> UpdateResult {
+    if let Some(t) = topics {
+        update_cache(&t, "topic", pool.get()?)?;
+    }
+    if let Some(p) = posts {
+        update_cache(&p, "post", pool.get()?)?;
+    }
+    if let Some(u) = users {
+        update_cache(&u, "user", pool.get()?)?;
+    }
+    Ok(())
+}
+
+pub fn update_cache<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
     where T: SortHash + GetSelfId {
-    vec.iter()
-        .map(|v| Ok(conn.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash())?))
-        .collect::<Result<(), ServiceError>>()
+    vec.iter().map(|v| Ok(conn.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash())?)).collect()
 }
 
 pub fn update_meta<T>(ids: Vec<T>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult
     where T: ToRedisArgs {
     let key = format!("{}:meta", foreign_key);
-    ids.into_iter().map(|id| Ok(conn.rpush(&key, id)?)).collect::<Result<(), ServiceError>>()
+    ids.into_iter().map(|id| Ok(conn.rpush(&key, id)?)).collect()
 }
 
 fn get_meta<T>(key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
@@ -193,10 +209,7 @@ fn get_meta<T>(key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceE
 
 pub fn build_list(ids: Vec<u32>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult {
     let key = format!("{}:list", foreign_key);
-    ids.into_iter().map(|id| {
-        conn.rpush(&key, id)?;
-        Ok(())
-    }).collect::<Result<(), ServiceError>>()
+    ids.into_iter().map(|id| Ok(conn.rpush(&key, id)?)).collect()
 }
 
 pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {

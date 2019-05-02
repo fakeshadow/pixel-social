@@ -199,6 +199,7 @@ impl<'a> Validator for UserQuery<'a> {
     fn get_password(&self) -> &str {
         match self {
             UserQuery::Register(req) => &req.password,
+            UserQuery::Login(req) => &req.password,
             _ => ""
         }
     }

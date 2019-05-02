@@ -10,6 +10,7 @@ use crate::model::{
 };
 use crate::handler::user::get_unique_users;
 use crate::schema::{categories, posts, topics};
+use crate::handler::cache::{update_cache, UpdateCache};
 
 const LIMIT: i64 = 20;
 
@@ -33,7 +34,11 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
     let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
 
-    let topic = topic_raw.attach_user(&users);
+    let topic_midway = vec![topic_raw];
+
+    let _ignore = UpdateCache::TopicPostUser(Some(&topic_midway), Some(&posts_raw), Some(&users)).handle_update(&opt.cache_pool);
+
+    let topic = topic_midway[0].to_owned().attach_user(&users);
     let posts = posts_raw.into_iter().map(|post| post.attach_user(&users)).collect();
     let result = if page == &1 {
         TopicWithPost::new(Some(topic), Some(posts))

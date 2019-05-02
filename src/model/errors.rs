@@ -88,7 +88,7 @@ impl From<diesel_err> for ServiceError {
 }
 
 impl From<ParseNavDateError> for ServiceError {
-    fn from(e: ParseNavDateError) -> ServiceError {
+    fn from(_e: ParseNavDateError) -> ServiceError {
         ServiceError::InternalServerError
     }
 }

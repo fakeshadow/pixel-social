@@ -1,19 +1,22 @@
-use lettre::smtp::authentication::{Credentials, Mechanism};
-use lettre::{SendableEmail, Envelope, EmailAddress, Transport, SmtpClient};
-use lettre::smtp::extension::ClientId;
-use lettre::smtp::ConnectionReuseParameters;
+use std::{env, thread, time::Duration};
 
-use std::env;
-use std::thread;
-use std::time::Duration;
-use crate::model::errors::ServiceError;
+use lettre::{
+    SendableEmail, Envelope, EmailAddress, Transport, SmtpClient,
+    smtp::{authentication::{Credentials, Mechanism}, extension::ClientId, ConnectionReuseParameters},
+};
+
+use crate::model::{
+    errors::ServiceError,
+    common::RedisPool,
+};
 
 // need to add redis cache
-pub fn add_mail(address: String, uuid: &str) -> Result<(), ServiceError> {
+pub fn add_mail(address: String, uuid: &str, pool: &RedisPool) -> Result<(), ServiceError> {
+    let conn = &pool.get()?;
     let to = match EmailAddress::new(address) {
         Ok(address) => address,
         Err(e) => {
-            return Err(ServiceError::InternalServerError)
+            return Err(ServiceError::InternalServerError);
         }
     };
     //mails.zrange.add(email, uuid);
@@ -48,14 +51,13 @@ fn send_mail() {
         );
         match mailer.send(mail) {
             Ok(_) => {
-//                redis.zrange.remove(0,1);
-                return
+                //                redis.zrange.remove(0,1);
+                return;
             }
             Err(_) => {
                 thread::sleep(Duration::from_secs(10));
-                return
+                return;
             }
         }
     }
-
 }

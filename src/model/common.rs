@@ -57,13 +57,6 @@ pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
 }
 
-//pub trait GetSelfTimeStamp {
-//    fn get_last_reply_time(&self) -> &NaiveDateTime;
-//    fn get_timescore(&self) -> i64 {
-//        self.get_last_reply_time().timestamp_nanos() / 1000
-//    }
-//}
-
 pub trait GetSelfId {
     fn get_self_id(&self) -> &u32;
 }

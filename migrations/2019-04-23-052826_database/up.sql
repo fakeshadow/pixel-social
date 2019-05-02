@@ -70,7 +70,6 @@ CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 
 
-
 --Placeholder data below.Safe to delete
 --admin password is 1234asdf
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)

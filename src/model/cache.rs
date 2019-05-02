@@ -1,7 +1,6 @@
 use std::str::FromStr;
 use std::collections::HashMap;
 
-use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
@@ -85,6 +84,7 @@ impl SortHash for Category {
 }
 
 pub trait FromHashMap<T, P, C, U> {
+    fn skip(&self) -> Result<(), ServiceError>;
     fn parse<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
     fn parse_string(&self, key: &str) -> Result<String, ServiceError>;
     fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError>;
@@ -96,6 +96,9 @@ pub trait FromHashMap<T, P, C, U> {
 }
 
 impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
+    fn skip(&self) -> Result<(), ServiceError> {
+        if self.is_empty() { Err(ServiceError::NoCacheFound) } else { Ok(()) }
+    }
     fn parse<K>(&self, key: &str) -> Result<K, ServiceError>
         where K: FromStr {
         Ok(self.get(key).ok_or(ServiceError::InternalServerError)?
@@ -109,6 +112,7 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
     }
 
     fn parse_topic(&self) -> Result<Topic, ServiceError> {
+        self.skip()?;
         Ok(Topic {
             id: self.parse::<u32>("id")?,
             user_id: self.parse::<u32>("user_id")?,
@@ -125,6 +129,7 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
     }
 
     fn parse_post(&self) -> Result<Post, ServiceError> {
+        self.skip()?;
         // ToDo: remove this check
         let post_id = match self.parse::<u32>("post_id").ok() {
             Some(id) => if id == 0 { None } else { Some(id) },
@@ -145,6 +150,7 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
     }
 
     fn parse_category(&self) -> Result<Category, ServiceError> {
+        self.skip()?;
         Ok(Category {
             id: self.parse::<u32>("id")?,
             name: self.parse_string("name")?,
@@ -156,6 +162,7 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
     }
 
     fn parse_user(&self) -> Result<User, ServiceError> {
+        self.skip()?;
         Ok(User {
             id: self.parse::<u32>("id")?,
             username: self.parse_string("username")?,
