@@ -7,12 +7,13 @@ use crate::model::{
 };
 use crate::schema::users;
 
-#[derive(Queryable, Serialize, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
+    #[serde(default = "default_password")]
     pub hashed_password: String,
     pub avatar_url: String,
     pub signature: String,
@@ -24,25 +25,12 @@ pub struct User {
     pub show_created_at: bool,
     pub show_updated_at: bool,
 }
-
-#[derive(Queryable, Deserialize, Debug)]
-pub struct PublicUser {
-    pub id: u32,
-    pub username: String,
-    pub email: Option<String>,
-    pub avatar_url: String,
-    pub signature: String,
-    pub created_at: Option<NaiveDateTime>,
-    pub updated_at: Option<NaiveDateTime>,
-    pub is_admin: u32,
-    pub blocked: bool,
-    pub show_email: bool,
-    pub show_created_at: bool,
-    pub show_updated_at: bool,
+fn default_password() -> String {
+    "1".to_string()
 }
 
 #[derive(Serialize)]
-pub struct PublicUserRef<'a> {
+pub struct UserRef<'a> {
     pub id: &'a u32,
     pub username: &'a str,
     pub email: Option<&'a str>,
@@ -58,37 +46,15 @@ pub struct PublicUserRef<'a> {
 }
 
 pub trait ToUserRef {
-    fn to_ref(&self) -> PublicUserRef;
+    fn to_ref(&self) -> UserRef;
 }
 
 impl ToUserRef for User {
-    fn to_ref(&self) -> PublicUserRef {
+    fn to_ref(&self) -> UserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
         let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
         let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
-        PublicUserRef {
-            id: &self.id,
-            username: self.username.as_str(),
-            email,
-            avatar_url: self.avatar_url.as_str(),
-            signature: self.signature.as_str(),
-            created_at,
-            updated_at,
-            is_admin: &self.is_admin,
-            blocked: &self.blocked,
-            show_email: &self.show_email,
-            show_created_at: &self.show_created_at,
-            show_updated_at: &self.show_updated_at,
-        }
-    }
-}
-
-impl ToUserRef for PublicUser {
-    fn to_ref(&self) -> PublicUserRef {
-        let email = if self.show_email { self.email.as_ref().map(String::as_str) } else { None };
-        let created_at = if self.show_created_at { self.created_at.as_ref() } else { None };
-        let updated_at = if self.show_updated_at { self.updated_at.as_ref() } else { None };
-        PublicUserRef {
+        UserRef {
             id: &self.id,
             username: self.username.as_str(),
             email,
@@ -109,7 +75,7 @@ impl GetSelfId for User {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-impl<'a> GetSelfId for PublicUserRef<'a> {
+impl<'a> GetSelfId for UserRef<'a> {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
@@ -152,7 +118,7 @@ impl AuthRequest {
 #[derive(Serialize)]
 pub struct AuthResponse<'a> {
     pub token: &'a str,
-    pub user_data: &'a PublicUserRef<'a>,
+    pub user_data: &'a UserRef<'a>,
 }
 
 #[derive(Deserialize)]
@@ -251,7 +217,7 @@ pub enum UserQueryResult<'a> {
     Registered,
     LoggedIn(&'a AuthResponse<'a>),
     GotUser(&'a User),
-    GotPublicUser(&'a PublicUserRef<'a>),
+    GotPublicUser(&'a UserRef<'a>),
 }
 
 impl<'a> UserQueryResult<'a> {

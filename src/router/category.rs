@@ -9,7 +9,7 @@ use crate::model::{
     common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
-use crate::handler::cache::{get_topics_cache};
+use crate::handler::cache::{handle_topics_cache};
 
 pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
@@ -25,7 +25,7 @@ pub fn get_popular(
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let page = category_path.as_ref();
-    let opt = QueryOption::new(Some(&db_pool), None, None);
+    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
 
     CategoryQuery::GetPopular(&page).handle_query(&opt).into_future()
 }
@@ -37,10 +37,10 @@ pub fn get_category(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (category_id, page) = category_path.into_inner();
 
-    get_topics_cache(&category_id, &page, &cache_pool)
+    handle_topics_cache(&category_id, &page, &cache_pool)
         .into_future()
         .then(move |result| match result {
-            Ok(result) => ftr(Ok(HttpResponse::Ok().json(result))),
+            Ok(result) => ftr(Ok(result)),
             Err(_) => {
                 let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
                 let categories = vec![category_id];

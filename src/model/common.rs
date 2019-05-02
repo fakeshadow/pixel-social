@@ -13,7 +13,7 @@ use r2d2_redis::{
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, PublicUserRef, ToUserRef},
+    user::{User, UserRef, ToUserRef},
 };
 use crate::util::validation as validate;
 
@@ -73,8 +73,8 @@ pub trait AttachUser<'u, T>
     type Output;
     fn self_user_id(&self) -> &u32;
     fn attach_user(self, users: &'u Vec<T>) -> Self::Output;
-    fn make_field(&self, users: &'u Vec<T>) -> Option<PublicUserRef<'u>> {
-        let mut result: Vec<PublicUserRef> = Vec::with_capacity(1);
+    fn make_field(&self, users: &'u Vec<T>) -> Option<UserRef<'u>> {
+        let mut result: Vec<UserRef> = Vec::with_capacity(1);
         for user in users.iter() {
             if self.self_user_id() == user.get_self_id() {
                 result.push(user.to_ref());
@@ -201,21 +201,6 @@ pub fn get_unique_id<'a, T>(items: &'a Vec<T>, topic_user_id: Option<&'a u32>) -
 
     for item in items.iter() {
         let item_id = item.get_user_id();
-        if !result.contains(&item_id) {
-            result.push(item_id);
-        }
-    }
-    result
-}
-
-pub fn get_unique_id_copy<T>(items: &Vec<T>, topic_user_id: Option<u32>) -> Vec<u32>
-    where T: GetUserId {
-    let mut result: Vec<u32> = Vec::with_capacity(21);
-
-    if let Some(user_id) = topic_user_id { result.push(user_id); }
-
-    for item in items.iter() {
-        let item_id = item.get_user_id().clone();
         if !result.contains(&item_id) {
             result.push(item_id);
         }

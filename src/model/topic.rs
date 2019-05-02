@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, PublicUserRef, ToUserRef},
+    user::{User, UserRef, ToUserRef},
     post::PostWithUser,
     common::{GetSelfId, AttachUser, GetUserId, ResponseMessage},
 };
@@ -85,7 +85,7 @@ impl TopicRequest {
 
     pub fn make_update(&self) -> Result<UpdateTopic, ServiceError> {
         match self.user_id {
-            Some(id) => Ok(UpdateTopic {
+            Some(_) => Ok(UpdateTopic {
                 id: self.extract_self_id()?,
                 user_id: self.user_id.as_ref(),
                 category_id: None,
@@ -127,7 +127,7 @@ impl<'u, T> AttachUser<'u, T> for Topic
 pub struct TopicWithUser<'a> {
     #[serde(flatten)]
     pub topic: Topic,
-    pub user: Option<PublicUserRef<'a>>,
+    pub user: Option<UserRef<'a>>,
 }
 
 #[derive(Serialize)]
@@ -145,10 +145,6 @@ impl<'a> TopicWithPost<'a> {
 impl GetUserId for Topic {
     fn get_user_id(&self) -> &u32 { &self.user_id }
 }
-
-//impl<T> GetSelfTimeStamp for TopicWithUser<T> {
-//    fn get_last_reply_time(&self) -> &NaiveDateTime { &self.topic.last_reply_time }
-//}
 
 pub enum TopicQuery {
     GetTopic(u32, i64),

@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
-    user::{User, PublicUserRef, ToUserRef},
+    user::{User, UserRef, ToUserRef},
     common::{AttachUser, GetUserId, ResponseMessage},
 };
 use crate::schema::posts;
@@ -105,7 +105,7 @@ impl PostRequest {
 pub struct PostWithUser<'a> {
     #[serde(flatten)]
     pub post: Post,
-    pub user: Option<PublicUserRef<'a>>,
+    pub user: Option<UserRef<'a>>,
 }
 
 impl<'u> AttachUser<'u, User> for Post {

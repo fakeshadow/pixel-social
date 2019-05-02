@@ -1,5 +1,5 @@
-use actix::MailboxError as future_err;
 use actix_web::{error::ResponseError, HttpResponse};
+use chrono::format::ParseError as ParseNavDateError;
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
 use serde_json::Error as json_err;
@@ -14,8 +14,6 @@ pub enum ServiceError {
     BadRequest(String),
     #[display(fmt = "BadRequest")]
     BadRequestGeneral,
-    #[display(fmt = "BadRequest")]
-    FutureError,
     #[display(fmt = "BadRequest")]
     UsernameTaken,
     #[display(fmt = "BadRequest")]
@@ -36,8 +34,6 @@ pub enum ServiceError {
     AuthTimeout,
     #[display(fmt = "Forbidden")]
     NoCacheFound,
-    #[display(fmt = "Internal Server Error")]
-    RedisOffline,
 }
 
 impl ResponseError for ServiceError {
@@ -46,7 +42,6 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequest(ref message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
-            ServiceError::FutureError => HttpResponse::BadRequest().json(ErrorMessage::new("Async error need more work")),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
             ServiceError::InvalidPassword => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password")),
@@ -56,7 +51,6 @@ impl ResponseError for ServiceError {
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::RedisOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
             ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected"))
         }
     }
@@ -93,14 +87,12 @@ impl From<diesel_err> for ServiceError {
     }
 }
 
-//impl From<future_err> for ServiceError {
-//    fn from(err: future_err) -> ServiceError {
-//        match err {
-//            future_err::Timeout => ServiceError::FutureError,
-//            future_err::Closed => ServiceError::BadRequest(err.to_string()),
-//        }
-//    }
-//}
+impl From<ParseNavDateError> for ServiceError {
+    fn from(e: ParseNavDateError) -> ServiceError {
+        ServiceError::InternalServerError
+    }
+}
+
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {
