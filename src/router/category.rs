@@ -4,19 +4,25 @@ use actix_web::{web, HttpResponse, Error, Either};
 
 use crate::model::{
     errors::ServiceError,
-//    cache::{CacheQuery, CategoryCacheRequest},
     category::{CategoryJson, CategoryRequest, CategoryQuery},
     common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
-use crate::handler::cache::{handle_topics_cache};
+use crate::handler::cache::{handle_topics_cache, handle_categories_cache};
 
 pub fn get_all_categories(
     cache_pool: web::Data<RedisPool>,
     db_pool: web::Data<PostgresPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
-    CategoryQuery::GetAllCategories.handle_query(&opt).into_future()
+    handle_categories_cache(&cache_pool).into_future()
+        .then(move |res| match res {
+            Ok(res) => ftr(Ok(res)),
+            Err(_) => {
+                let opt = QueryOption::new(Some(&db_pool), Some(&cache_pool), None);
+                CategoryQuery::GetAllCategories.handle_query(&opt).into_future()
+            }
+        })
+        .from_err()
 }
 
 pub fn get_popular(
@@ -37,8 +43,7 @@ pub fn get_category(
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let (category_id, page) = category_path.into_inner();
 
-    handle_topics_cache(&category_id, &page, &cache_pool)
-        .into_future()
+    handle_topics_cache(&category_id, &page, &cache_pool).into_future()
         .then(move |result| match result {
             Ok(res) => ftr(Ok(res)),
             Err(_) => {

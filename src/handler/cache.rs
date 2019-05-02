@@ -3,7 +3,7 @@ use futures::Future;
 
 use actix_web::{web, HttpResponse, Error};
 use chrono::NaiveDateTime;
-use r2d2_redis::{redis, redis::{Commands, PipelineCommands}, RedisConnectionManager, redis::RedisError};
+use r2d2_redis::{redis, redis::{Commands, PipelineCommands, ToRedisArgs, FromRedisValue}, RedisConnectionManager, redis::RedisError};
 use serde::{Deserialize, Serialize};
 use lazy_static::__Deref;
 
@@ -14,7 +14,7 @@ use crate::model::{
     topic::{Topic, TopicWithUser},
     category::Category,
     cache::{SortHash, FromHashMap},
-    common::{RedisPool, PoolConnectionRedis, GetSelfId,GetUserId, AttachUser, get_unique_id},
+    common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
 
 const LIMIT: isize = 20;
@@ -35,6 +35,28 @@ pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRes
     Ok(HttpResponse::Ok().finish())
 }
 
+pub fn handle_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+
+    // ToDo: need further look into the logic
+    let conn = &pool.get()?;
+    let mut categories_total = get_meta::<u32>("category_id", conn)?;
+    let total = categories_total.len();
+
+    let mut categories_hash_vec = Vec::with_capacity(total);
+    while categories_total.len() > 20 {
+        let slice = categories_total.drain(20..).collect();
+        let temp_hash = get_hash_set(&slice, "category", conn)?;
+        for t in temp_hash.into_iter() {
+            if !t.is_empty() { categories_hash_vec.push(t) }
+        }
+    }
+    for t in get_hash_set(&categories_total, "category", conn)?.into_iter() {
+        if !t.is_empty() { categories_hash_vec.push(t) }
+    }
+    if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
+    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parse_category()).collect::<Result<Vec<Category>, ServiceError>>()?))
+}
+
 pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.get()?;
     let list_key = format!("category:{}:list", id);
@@ -42,7 +64,7 @@ pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Htt
 
     let topic_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
     let topics = get_topics(&topic_id, &conn)?;
-    let users = get_users(&topics, None,&conn)?;
+    let users = get_users(&topics, None, &conn)?;
     // ToDo: add trait for attach users hash to topic.
     Ok(HttpResponse::Ok().json(&topics.into_iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
@@ -67,7 +89,7 @@ fn get_topics(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, 
 }
 
 fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError>
-    where T: GetUserId{
+    where T: GetUserId {
     let ids = get_unique_id(&vec, topic_user_id);
     let users_hash_vec = get_hash_set(&ids, "user", &conn)?;
 
@@ -128,7 +150,6 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
     }
 }
 
-
 pub enum UpdateCache<'a> {
     Topics(&'a Vec<Topic>),
     Posts(&'a Vec<Post>),
@@ -157,6 +178,17 @@ pub fn update_cache<T>(vec: &Vec<T>, key: &str, conn: &PoolConnectionRedis) -> U
     vec.iter()
         .map(|v| Ok(conn.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash())?))
         .collect::<Result<(), ServiceError>>()
+}
+
+pub fn update_meta<T>(ids: Vec<T>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult
+    where T: ToRedisArgs {
+    let key = format!("{}:meta", foreign_key);
+    ids.into_iter().map(|id| Ok(conn.rpush(&key, id)?)).collect::<Result<(), ServiceError>>()
+}
+
+fn get_meta<T>(key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
+    where T: FromRedisValue {
+    Ok(conn.lrange(format!("{}:meta", key), 0, -1)?)
 }
 
 pub fn build_list(ids: Vec<u32>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult {

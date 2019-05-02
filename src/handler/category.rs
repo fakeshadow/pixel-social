@@ -60,7 +60,7 @@ fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
 
 fn get_all_categories(opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
-    let categories = categories::table.load::<Category>(conn)?;
+    let categories = categories::table.order(categories::id.asc()).load::<Category>(conn)?;
 
     let _ignore = update_cache(None, None, Some(&categories), &opt.cache_pool);
 
@@ -121,5 +121,5 @@ fn update_cache(topics: Option<&Vec<Topic>>, users: Option<&Vec<User>>, categori
 
 //helper functions
 pub fn load_all_categories(conn: &DbConnection) -> Result<Vec<Category>, ServiceError> {
-    Ok(categories::table.load::<Category>(conn)?)
+    Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }

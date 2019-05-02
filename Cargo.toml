@@ -9,7 +9,7 @@ actix = { version = "0.8.0-alpha.2", features = ["http"] }
 actix-rt = "0.2.2"
 actix-web = "1.0.0-beta.2"
 actix-files = "0.1.0-betsa.1"
-actix-multipart = { git = "https://github.com/actix/actix-web.git" }
+actix-multipart = "0.1.0-beta.1"
 bcrypt = "0.2.1"
 chrono = { version = "0.4.6", features = ["serde"] }
 diesel = { version = "1.4.2", features = ["postgres", "r2d2", "chrono"] }

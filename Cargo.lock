@@ -134,7 +134,7 @@ dependencies = [
 [[package]]
 name = "actix-multipart"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/actix/actix-web.git#70a4c36496c065e95db3d592e469e4b5e85fe997"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "actix-service 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 1.0.0-beta.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1291,7 +1291,7 @@ version = "0.1.2"
 dependencies = [
  "actix 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-files 0.1.0-betsa.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-multipart 0.1.0-beta.1 (git+https://github.com/actix/actix-web.git)",
+ "actix-multipart 0.1.0-beta.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-rt 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "actix-web 1.0.0-beta.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bcrypt 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2208,7 +2208,7 @@ dependencies = [
 "checksum actix-connect 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "0dc9fb88787e5904e5030cae7d395f9908c2118ed655e48905f37febcad9a653"
 "checksum actix-files 0.1.0-betsa.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d2cd0e88f4009725e2a99d88653367d1175d27ba724ed7be23cb21d04f19ad97"
 "checksum actix-http 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "23f726f551edcf2ddfd9d56261aedede5337e5ed1eee17b66304b7c9f62458ca"
-"checksum actix-multipart 0.1.0-beta.1 (git+https://github.com/actix/actix-web.git)" = "<none>"
+"checksum actix-multipart 0.1.0-beta.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ce3e796f42f6de36fa4f05ab01dc34dbee36af21dbcc990b784399ce24037b7e"
 "checksum actix-router 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e0d1617a8ae62ab7e053ac6849e6bc62a59ffd102e0218b7b84cadd87feed52e"
 "checksum actix-rt 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ed0424cdf6542a43b32a8885c7c5099bf4110fad9b50d7fb220ab9c038ecf5ec"
 "checksum actix-server 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "39e2ead8e439b674917c1a1f10f1af5ba90eab903ee6164f5cde6d9504668696"

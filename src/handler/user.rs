@@ -94,8 +94,8 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
         .or_filter(users::email.eq(&req.extract_email()?))
-        .load::<(String, String)>(conn)?.pop() {
-        Some((exist_username, _)) => if exist_username == req.username {
+        .load::<(String, String)>(conn)?.first() {
+        Some((exist_username, _)) => if exist_username == &req.username {
             Err(ServiceError::UsernameTaken)
         } else {
             Err(ServiceError::EmailTaken)
