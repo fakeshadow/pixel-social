@@ -102,14 +102,14 @@ impl PostRequest {
 #[derive(Serialize)]
 pub struct PostWithUser<'a> {
     #[serde(flatten)]
-    pub post: Post,
+    pub post: &'a Post,
     pub user: Option<UserRef<'a>>,
 }
 
-impl<'u> AttachUser<'u, User> for Post {
+impl<'u, > AttachUser<'u, User> for Post {
     type Output = PostWithUser<'u>;
     fn self_user_id(&self) -> &u32 { &self.user_id }
-    fn attach_user(self, users: &'u Vec<User>) -> Self::Output {
+    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output {
         PostWithUser {
             user: self.make_field(&users),
             post: self,

@@ -179,8 +179,8 @@ impl<'a> UserUpdateJson {
 pub enum UserQuery<'a> {
     Register(&'a AuthRequest),
     Login(&'a AuthRequest),
-    GetMe(&'a u32),
-    GetUser(&'a str),
+    GetMe(u32),
+    GetUser(u32),
     UpdateUser(&'a UserUpdateRequest<'a>),
 }
 
@@ -189,7 +189,6 @@ impl<'a> Validator for UserQuery<'a> {
     fn get_username(&self) -> &str {
         match self {
             UserQuery::Login(req) => &req.username,
-            UserQuery::GetUser(username) => &username,
             UserQuery::Register(req) => &req.username,
             UserQuery::UpdateUser(req) => req.username.unwrap_or(""),
             _ => ""

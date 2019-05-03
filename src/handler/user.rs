@@ -8,6 +8,7 @@ use crate::model::{
     user::{User, AuthRequest, AuthResponse, UserQuery, UserUpdateRequest, ToUserRef},
     common::{PoolConnectionPostgres, GlobalGuard, Response, QueryOption, Validator, GetUserId, get_unique_id},
 };
+use crate::handler::cache::UpdateCache;
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
@@ -18,63 +19,39 @@ impl<'a> UserQuery<'a> {
         let conn = &opt.db_pool.unwrap().get().unwrap();
         // ToDo: Find a better way to handle auth check.
         match self {
-            UserQuery::GetMe(id) => get_me(&id, &conn),
-            UserQuery::GetUser(name) => {
-                &self.check_username()?;
-                get_user(&name, &conn)
-            }
+            UserQuery::GetMe(id) => get_user(Some(&id), None, opt),
+            UserQuery::GetUser(id) => get_user(None, Some(&id), opt),
             UserQuery::Login(req) => {
                 &self.check_login()?;
-                println!("here");
-                login_user(&req, &conn)
+                login_user(&req, opt)
             }
             UserQuery::UpdateUser(req) => {
                 if let Some(_) = req.username { &self.check_username()?; }
-                update_user(&req, &conn)
+                update_user(&req, opt)
             }
             UserQuery::Register(req) => {
                 &self.check_register()?;
-                register_user(&req, &opt.global_var, &conn)
+                register_user(&req, opt)
             }
         }
     }
 }
 
-pub enum AsyncDb {
-    GetMe(u32),
-    GetUser(String),
+fn get_user(self_id: Option<&u32>, other_id: Option<&u32>, opt: &QueryOption) -> QueryResult {
+    let conn = &opt.db_pool.unwrap().get()?;
+    let id = self_id.unwrap_or_else(|| other_id.unwrap());
+    let user = users::table.find(&other_id.unwrap()).first::<User>(conn)?;
+
+    let res = match self_id {
+        Some(_) => HttpResponse::Ok().json(&user),
+        None => HttpResponse::Ok().json(&user.to_ref())
+    };
+    let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+    Ok(res)
 }
 
-pub fn async_query(query: AsyncDb, opt: &QueryOption) -> impl Future<Item=User, Error=Error> {
-    let pool = opt.db_pool.unwrap().clone();
-    web::block(move || {
-        match query {
-            AsyncDb::GetMe(id) => get_me_async(&id, pool.get()?),
-            AsyncDb::GetUser(name) => get_user_async(&name, pool.get()?),
-        }
-    }).from_err()
-}
-
-fn get_me_async(id: &u32, conn: PoolConnectionPostgres) -> Result<User, ServiceError> {
-    Ok(users::table.find(&id).first::<User>(&conn)?)
-}
-
-fn get_user_async(username: &str, conn: PoolConnectionPostgres) -> Result<User, ServiceError> {
-    Ok(users::table.filter(users::username.eq(&username)).first::<User>(&conn)?)
-}
-
-
-fn get_me(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
-    let user = users::table.find(&id).first::<User>(conn)?;
-    Ok(HttpResponse::Ok().json(&user.to_ref()))
-}
-
-fn get_user(username: &str, conn: &PgConnection) -> QueryResult {
-    let user = users::table.filter(users::username.eq(&username)).first::<User>(conn)?;
-    Ok(HttpResponse::Ok().json(&user.to_ref()))
-}
-
-fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
+fn login_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
+    let conn = &opt.db_pool.unwrap().get()?;
     let user = users::table.filter(users::username.eq(&req.username)).first::<User>(conn)?;
     if user.blocked { return Err(ServiceError::Unauthorized); }
 
@@ -84,12 +61,18 @@ fn login_user(req: &AuthRequest, conn: &PgConnection) -> QueryResult {
     Ok(HttpResponse::Ok().json(&AuthResponse { token: &token, user_data: &user.to_ref() }))
 }
 
-fn update_user(req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
+fn update_user(req: &UserUpdateRequest, opt: &QueryOption) -> QueryResult {
+    let conn = &opt.db_pool.unwrap().get()?;
+
     let user: User = diesel::update(users::table.filter(users::id.eq(&req.id))).set(req).get_result(conn)?;
-    Ok(HttpResponse::Ok().json(&user))
+    let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+
+    Ok(Response::ModifiedUser.to_res())
 }
 
-fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &PgConnection) -> QueryResult {
+fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
+    let conn = &opt.db_pool.unwrap().get()?;
+
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
@@ -102,12 +85,14 @@ fn register_user(req: &AuthRequest, global_var: &Option<&GlobalGuard>, conn: &Pg
         },
         None => {
             let password_hash: String = hash::hash_password(&req.password)?;
-            let id: u32 = global_var.unwrap().lock()
+            let id: u32 = opt.global_var.unwrap().lock()
                 // ToDo: In case mutex guard failed change back to increment global vars directly.
                 .map(|mut guarded_global_var| guarded_global_var.next_uid())
                 .map_err(|_| ServiceError::InternalServerError)?;
 
-            diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).execute(conn)?;
+            let user: User = diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).get_result(conn)?;
+            let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+
             Ok(Response::Registered.to_res())
         }
     }

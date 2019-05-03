@@ -9,8 +9,8 @@ use crate::model::{
     common::{PoolConnectionPostgres, QueryOption, AttachUser, Response},
 };
 use crate::handler::{
-    cache::{update_cache, UpdateCache},
-    user::get_unique_users
+    cache::UpdateCache,
+    user::get_unique_users,
 };
 use crate::schema::{categories, posts, topics};
 
@@ -28,6 +28,8 @@ impl TopicQuery {
     }
 }
 
+// ToDo: Add category list and meta data cache update in topic handler
+
 fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
@@ -36,14 +38,12 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
     let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
 
-    let topic_midway = vec![topic_raw];
+    let topic_vec = vec![topic_raw];
+    let _ignore = UpdateCache::TopicPostUser(Some(&topic_vec), Some(&posts_raw), None).handle_update(opt.cache_pool);
 
-    let _ignore = UpdateCache::TopicPostUser(Some(&topic_midway), Some(&posts_raw), Some(&users)).handle_update(&opt.cache_pool);
-
-    let topic = topic_midway[0].to_owned().attach_user(&users);
-    let posts = posts_raw.into_iter().map(|post| post.attach_user(&users)).collect();
+    let posts = posts_raw.iter().map(|post| post.attach_user(&users)).collect();
     let result = if page == &1 {
-        TopicWithPost::new(Some(topic), Some(posts))
+        TopicWithPost::new(Some(topic_vec[0].attach_user(&users)), Some(posts))
     } else {
         TopicWithPost::new(None, Some(posts))
     };
@@ -62,7 +62,9 @@ fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
         .map(|mut guarded_global_var| guarded_global_var.next_tid())
         .map_err(|_| ServiceError::InternalServerError)?;
 
-    diesel::insert_into(topics::table).values(&req.make_topic(&id)?).execute(conn)?;
+    let topic: Topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result(conn)?;
+    let _ignore = UpdateCache::TopicPostUser(Some(&vec![topic]), None, None).handle_update(opt.cache_pool);
+
     Ok(Response::ModifiedTopic.to_res())
 }
 
@@ -70,14 +72,16 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
     let topic_self_id = req.extract_self_id()?;
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    match req.user_id {
+    let topic: Topic = match req.user_id {
         Some(_user_id) => diesel::update(topics::table
             .filter(topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id))))
-            .set(req.make_update()?).execute(conn)?,
+            .set(req.make_update()?).get_result(conn)?,
         None => diesel::update(topics::table
             .filter(topics::id.eq(&topic_self_id)))
-            .set(req.make_update()?).execute(conn)?
+            .set(req.make_update()?).get_result(conn)?
     };
+    let _ignore = UpdateCache::TopicPostUser(Some(&vec![topic]), None, None).handle_update(opt.cache_pool);
+
     Ok(Response::ModifiedTopic.to_res())
 }
 

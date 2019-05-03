@@ -1,28 +1,30 @@
-use futures::{IntoFuture};
+use futures::{IntoFuture, Future, future::result as ftr};
 use actix_web::{web, HttpResponse};
 
-use crate::handler::auth::UserJwt;
 use crate::model::{
     errors::ServiceError,
     user::{UserQuery, AuthRequest, UserUpdateJson},
     common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
 };
+use crate::handler::{auth::UserJwt, cache::{handle_cache_query, CacheQuery}};
 
 pub fn get_user(
     user_jwt: UserJwt,
-    username_path: web::Path<String>,
+    id: web::Path<u32>,
     db_pool: web::Data<PostgresPool>,
+    cache_pool: web::Data<RedisPool>,
 ) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let username = username_path.as_str();
-
-    let opt = QueryOption::new(Some(&db_pool), None, None);
-    let user_query = if username == "me" {
-        UserQuery::GetMe(&user_jwt.user_id)
+    let id = id.into_inner();
+    let (cache_query, user_query) = if id == user_jwt.user_id {
+        (CacheQuery::GetMe(user_jwt.user_id), UserQuery::GetMe(user_jwt.user_id))
     } else {
-        UserQuery::GetUser(&username)
+        (CacheQuery::GetUser(id), UserQuery::GetUser(id))
     };
-
-    user_query.handle_query(&opt).into_future()
+    handle_cache_query(cache_query, &cache_pool).into_future()
+        .then(move |res| match res {
+            Ok(res) => ftr(Ok(res)),
+            Err(_) => user_query.handle_query(&QueryOption::new(Some(&db_pool), Some(&cache_pool), None)).into_future()
+        })
 }
 
 pub fn login_user(

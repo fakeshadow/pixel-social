@@ -23,6 +23,7 @@ impl<'a> PostQuery<'a> {
     }
 }
 
+// ToDo: Add cache update in post handler
 fn get_post(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;

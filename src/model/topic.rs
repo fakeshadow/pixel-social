@@ -115,7 +115,7 @@ impl<'u, T> AttachUser<'u, T> for Topic
     where T: GetSelfId + ToUserRef {
     type Output = TopicWithUser<'u>;
     fn self_user_id(&self) -> &u32 { &self.user_id }
-    fn attach_user(self, users: &'u Vec<T>) -> Self::Output {
+    fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output {
         TopicWithUser {
             user: self.make_field(&users),
             topic: self,
@@ -126,7 +126,7 @@ impl<'u, T> AttachUser<'u, T> for Topic
 #[derive(Serialize)]
 pub struct TopicWithUser<'a> {
     #[serde(flatten)]
-    pub topic: Topic,
+    pub topic: &'a Topic,
     pub user: Option<UserRef<'a>>,
 }
 

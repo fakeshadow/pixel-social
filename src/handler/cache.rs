@@ -16,16 +16,32 @@ use crate::model::{
     cache::{SortHash, FromHashMap},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
+use crate::model::user::ToUserRef;
 
 const LIMIT: isize = 20;
 
-//pub enum GetCache {
-//    Topics,
-//    Topic,
-//    Users,
-//    Categories,
-//}
-//
+pub enum CacheQuery {
+    GetMe(u32),
+    GetUser(u32),
+}
+
+pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+    match query {
+        CacheQuery::GetMe(id) => get_user_cache(Some(id), None, pool),
+        CacheQuery::GetUser(id) => get_user_cache(None, Some(id), pool),
+    }
+}
+
+
+pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+    let conn = pool.get()?;
+    let id = self_id.unwrap_or_else(||other_id.unwrap());
+    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
+    Ok(match self_id {
+        Some(_) => HttpResponse::Ok().json(&hash.parse_user()?),
+        None => HttpResponse::Ok().json(&hash.parse_user()?.to_ref())
+    })
+}
 
 pub fn handle_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     // ToDo: need further look into the logic
@@ -57,7 +73,7 @@ pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Htt
     let topics = get_topics(&topic_id, &conn)?;
     let users = get_users(&topics, None, &conn)?;
     // ToDo: add trait for attach users hash to topic.
-    Ok(HttpResponse::Ok().json(&topics.into_iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
+    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
 pub fn handle_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
@@ -79,8 +95,8 @@ pub fn handle_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Http
     let users = get_users(&posts, topic_user_id, &conn)?;
 
     Ok(HttpResponse::Ok().json(&TopicWithPost::new(
-        topic.map(|t| t.attach_user(&users)),
-        Some(posts.into_iter().map(|p| p.attach_user(&users)).collect()))))
+        topic.as_ref().map(|t| t.attach_user(&users)),
+        Some(posts.iter().map(|p| p.attach_user(&users)).collect()))))
 }
 
 
@@ -165,7 +181,7 @@ pub enum UpdateCache<'a> {
 type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
-    pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
+    pub fn handle_update(self, opt: Option<&RedisPool>) -> UpdateResult {
         let pool = opt.unwrap();
         match self {
             UpdateCache::TopicPostUser(t, p, u) => match_update(t, p, u, pool),

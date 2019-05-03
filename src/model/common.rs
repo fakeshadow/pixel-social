@@ -46,6 +46,7 @@ pub enum Response {
     ModifiedTopic,
     UpdatedCategory,
     AddedPost,
+    ModifiedUser,
 }
 
 impl Response {
@@ -54,7 +55,8 @@ impl Response {
             Response::Registered => HttpResponse::Ok().json(ResMsg::new("Register Success")),
             Response::ModifiedTopic => HttpResponse::Ok().json(ResMsg::new("Modify Topic Success")),
             Response::AddedPost => HttpResponse::Ok().json(ResMsg::new("Modify Post Success")),
-            Response::UpdatedCategory => HttpResponse::Ok().json(ResMsg::new("Modify Category Success"))
+            Response::UpdatedCategory => HttpResponse::Ok().json(ResMsg::new("Modify Category Success")),
+            Response::ModifiedUser => HttpResponse::Ok().json(ResMsg::new("Modify User Success")),
         }
     }
 }
@@ -83,7 +85,7 @@ pub trait AttachUser<'u, T>
     where T: GetSelfId + ToUserRef {
     type Output;
     fn self_user_id(&self) -> &u32;
-    fn attach_user(self, users: &'u Vec<T>) -> Self::Output;
+    fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output;
     fn make_field(&self, users: &'u Vec<T>) -> Option<UserRef<'u>> {
         let mut result: Vec<UserRef> = Vec::with_capacity(1);
         for user in users.iter() {
