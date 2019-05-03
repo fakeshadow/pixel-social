@@ -51,7 +51,6 @@ fn main() -> std::io::Result<()> {
     let _clear = clear_cache(&redis_pool);
 
     let _build = build_cache(&postgres_pool, &redis_pool);
-
     let global_arc = init_global_var(&postgres_pool);
 
     HttpServer::new(move || {
@@ -98,7 +97,5 @@ fn main() -> std::io::Result<()> {
             .service(web::scope("/upload")
                 .service(web::resource("/").route(web::post().to_async(router::stream::upload_file))))
             .service(fs::Files::new("/public", "./public"))
-    })
-        .bind(format!("{}:{}", &server_ip, &server_port))?
-        .run()
+    }).bind(format!("{}:{}", &server_ip, &server_port))?.run()
 }

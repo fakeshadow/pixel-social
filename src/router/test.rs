@@ -1,19 +1,16 @@
-use actix_web::{web, Error, HttpResponse, ResponseError};
 use futures::{IntoFuture, Future};
 
-use crate::handler::auth::UserJwt;
+use actix_web::{web::{Data, Json, Path}, HttpResponse};
+
 use crate::model::{
-    user::*,
-    category::*,
     topic::*,
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
     errors::ServiceError,
 };
+use crate::handler::auth::UserJwt;
 
-pub fn test_global_var(
-    global_var: web::Data<GlobalGuard>,
-    db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                       -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let topic_query = TopicQuery::AddTopic(TopicRequest {
         id: None,
         user_id: Some(1),
@@ -23,6 +20,5 @@ pub fn test_global_var(
         body: Some("test body".to_string()),
         is_locked: None,
     });
-    let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    topic_query.handle_query(&opt).into_future()
+    topic_query.handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global))).into_future()
 }

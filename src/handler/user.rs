@@ -40,7 +40,7 @@ impl<'a> UserQuery<'a> {
 fn get_user(self_id: Option<&u32>, other_id: Option<&u32>, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
     let id = self_id.unwrap_or_else(|| other_id.unwrap());
-    let user = users::table.find(&other_id.unwrap()).first::<User>(conn)?;
+    let user = users::table.find(&id).first::<User>(conn)?;
 
     let res = match self_id {
         Some(_) => HttpResponse::Ok().json(&user),

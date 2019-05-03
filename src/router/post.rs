@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web::{Data, Json, Path}, HttpResponse};
 use futures::IntoFuture;
 
 use crate::model::{
@@ -8,30 +8,23 @@ use crate::model::{
 };
 use crate::handler::auth::UserJwt;
 
-pub fn add_post(
-    user_jwt: UserJwt,
-    req: web::Json<PostRequest>,
-    db_pool: web::Data<PostgresPool>,
-    global_var: web::Data<GlobalGuard>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, Some(&global_var));
-    PostQuery::AddPost(&mut req.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
+pub fn add_post(jwt: UserJwt, req: Json<PostRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>, global: Data<GlobalGuard>)
+                -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+    PostQuery::AddPost(&mut req.into_inner().attach_user_id(Some(jwt.user_id)))
+        .handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global)))
+        .into_future()
 }
 
-pub fn get_post(
-    _: UserJwt,
-    post_path: web::Path<u32>,
-    db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, None);
-    PostQuery::GetPost(post_path.as_ref()).handle_query(&opt).into_future()
+pub fn get_post(_: UserJwt, post_path: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+    PostQuery::GetPost(post_path.as_ref())
+        .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+        .into_future()
 }
 
-pub fn update_post(
-    user_jwt: UserJwt,
-    req: web::Json<PostRequest>,
-    db_pool: web::Data<PostgresPool>,
-) -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let opt = QueryOption::new(Some(&db_pool), None, None);
-    PostQuery::UpdatePost(&req.into_inner().attach_user_id(Some(user_jwt.user_id))).handle_query(&opt).into_future()
+pub fn update_post(jwt: UserJwt, req: Json<PostRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                   -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+    PostQuery::UpdatePost(&req.into_inner().attach_user_id(Some(jwt.user_id)))
+        .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+        .into_future()
 }

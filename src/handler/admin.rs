@@ -8,17 +8,17 @@ use crate::model::{
     post::PostRequest,
     admin::AdminQuery,
     errors::ServiceError,
-    common::{PostgresPool, RedisPool, QueryOption},
+    common::{PostgresPool, PoolConnectionPostgres},
 };
 use crate::schema::users;
 
 type QueryResult = Result<(), ServiceError>;
 
 impl<'a> AdminQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        let conn = &opt.db_pool.unwrap().get().unwrap();
+    pub fn handle_query(self, db: &PostgresPool) -> QueryResult {
+        let conn = &db.get().unwrap();
         match self {
-            AdminQuery::UpdateUserCheck(lv, req) => update_user_check(&lv, &req, &conn),
+            AdminQuery::UpdateUserCheck(lv, req) => update_user_check(&lv, &req, conn),
             AdminQuery::UpdateCategoryCheck(lv, req) => update_category_check(&lv, &req),
             AdminQuery::UpdateTopicCheck(lv, req) => update_topic_check(&lv, &req),
             AdminQuery::UpdatePostCheck(lv, req) => update_post_check(&lv, &req),
@@ -27,7 +27,7 @@ impl<'a> AdminQuery<'a> {
     }
 }
 
-fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PgConnection) -> QueryResult {
+fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     check_admin_level(&req.is_admin, &lv, 9)?;
     let target_user: User = users::table.find(&req.id).first::<User>(conn)?;
     if lv <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }

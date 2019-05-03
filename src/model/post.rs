@@ -30,6 +30,9 @@ pub struct NewPost<'a> {
     pub topic_id: &'a u32,
     pub post_id: Option<&'a u32>,
     pub post_content: &'a str,
+    pub created_at: &'a NaiveDateTime,
+    pub updated_at: &'a NaiveDateTime,
+    pub last_reply_time: &'a NaiveDateTime,
 }
 
 #[derive(AsChangeset)]
@@ -67,13 +70,16 @@ impl PostRequest {
         Ok(self.topic_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }
 
-    pub fn make_post<'a>(&'a self, id: &'a u32) -> Result<NewPost<'a>, ServiceError> {
+    pub fn make_post<'a>(&'a self, id: &'a u32 , time: &'a NaiveDateTime) -> Result<NewPost<'a>, ServiceError> {
         Ok(NewPost {
             id,
             user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
             topic_id: self.extract_topic_id()?,
             post_id: self.post_id.as_ref(),
             post_content: self.post_content.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            created_at: time,
+            updated_at: time,
+            last_reply_time: time,
         })
     }
 

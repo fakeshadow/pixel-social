@@ -20,22 +20,27 @@ use crate::model::user::ToUserRef;
 
 const LIMIT: isize = 20;
 
-pub enum CacheQuery {
+pub enum CacheQuery<'a> {
     GetMe(u32),
     GetUser(u32),
+    GetTopic(&'a u32, &'a i64),
+    GetAllCategories,
+    GetCategory(&'a u32, &'a i64),
 }
 
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {
         CacheQuery::GetMe(id) => get_user_cache(Some(id), None, pool),
         CacheQuery::GetUser(id) => get_user_cache(None, Some(id), pool),
+        CacheQuery::GetAllCategories => get_categories_cache(pool),
+        CacheQuery::GetCategory(id, page) => get_topics_cache(id, page, pool),
+        CacheQuery::GetTopic(id, page) => get_topic_cache(id, page, pool)
     }
 }
 
-
 pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.get()?;
-    let id = self_id.unwrap_or_else(||other_id.unwrap());
+    let id = self_id.unwrap_or_else(|| other_id.unwrap());
     let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
     Ok(match self_id {
         Some(_) => HttpResponse::Ok().json(&hash.parse_user()?),
@@ -43,7 +48,7 @@ pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisP
     })
 }
 
-pub fn handle_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     // ToDo: need further look into the logic
     let conn = pool.get()?;
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
@@ -64,7 +69,7 @@ pub fn handle_categories_cache(pool: &RedisPool) -> Result<HttpResponse, Service
     Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parse_category()).collect::<Result<Vec<Category>, ServiceError>>()?))
 }
 
-pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.get()?;
     let list_key = format!("category:{}:list", id);
     let start = (*page as isize - 1) * 20;
@@ -76,7 +81,7 @@ pub fn handle_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Htt
     Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
-pub fn handle_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.get()?;
     let topic = if page == &1 {
         get_topics(&vec![id.clone()], &conn)?.pop()
@@ -98,7 +103,6 @@ pub fn handle_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<Http
         topic.as_ref().map(|t| t.attach_user(&users)),
         Some(posts.iter().map(|p| p.attach_user(&users)).collect()))))
 }
-
 
 fn get_posts(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
     let posts_hash_vec = get_hash_set(ids, "post", &conn)?;
@@ -227,5 +231,5 @@ pub fn build_list(ids: Vec<u32>, foreign_key: &str, conn: &PoolConnectionRedis) 
 
 pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
     let conn = pool.get()?;
-    Ok(redis::cmd("flushall").query(&*conn)?)
+    Ok(redis::cmd("flushall").query(conn.deref())?)
 }
