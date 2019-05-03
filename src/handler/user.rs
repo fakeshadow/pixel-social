@@ -16,7 +16,6 @@ type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> UserQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        let conn = &opt.db_pool.unwrap().get().unwrap();
         // ToDo: Find a better way to handle auth check.
         match self {
             UserQuery::GetMe(id) => get_user(Some(&id), None, opt),
@@ -46,7 +45,7 @@ fn get_user(self_id: Option<&u32>, other_id: Option<&u32>, opt: &QueryOption) ->
         Some(_) => HttpResponse::Ok().json(&user),
         None => HttpResponse::Ok().json(&user.to_ref())
     };
-    let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
     Ok(res)
 }
 
@@ -65,7 +64,7 @@ fn update_user(req: &UserUpdateRequest, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
 
     let user: User = diesel::update(users::table.filter(users::id.eq(&req.id))).set(req).get_result(conn)?;
-    let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedUser.to_res())
 }
@@ -91,7 +90,7 @@ fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
                 .map_err(|_| ServiceError::InternalServerError)?;
 
             let user: User = diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).get_result(conn)?;
-            let _ignore = UpdateCache::TopicPostUser(None, None, Some(&vec![user])).handle_update(opt.cache_pool);
+            let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
 
             Ok(Response::Registered.to_res())
         }

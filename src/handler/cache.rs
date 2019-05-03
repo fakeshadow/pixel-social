@@ -9,14 +9,13 @@ use lazy_static::__Deref;
 
 use crate::model::{
     errors::ServiceError,
-    user::User,
+    user::{User, ToUserRef},
     post::{Post, PostWithUser},
     topic::{Topic, TopicWithUser, TopicWithPost},
     category::Category,
     cache::{SortHash, FromHashMap},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
-use crate::model::user::ToUserRef;
 
 const LIMIT: isize = 20;
 
@@ -178,6 +177,12 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
 
 pub enum UpdateCache<'a> {
     TopicPostUser(Option<&'a Vec<Topic>>, Option<&'a Vec<Post>>, Option<&'a Vec<User>>),
+    GotTopic(&'a Topic, &'a Vec<Post>),
+    AddedTopic(&'a Topic),
+    UpdatedTopic(&'a Topic),
+    GotPost(&'a Post),
+    AddedPost(&'a Topic, &'a Post, &'a Option<Post>),
+    GotUser(&'a User),
     Categories(&'a Vec<Category>),
     DeleteCategory(&'a u32),
 }
@@ -185,32 +190,107 @@ pub enum UpdateCache<'a> {
 type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
-    pub fn handle_update(self, opt: Option<&RedisPool>) -> UpdateResult {
+    pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
         let pool = opt.unwrap();
         match self {
+            UpdateCache::Categories(c) => update_hash_set(&c, "category", pool.get()?),
             UpdateCache::TopicPostUser(t, p, u) => match_update(t, p, u, pool),
-            UpdateCache::Categories(categories) => update_cache(&categories, "category", pool.get()?),
+            UpdateCache::GotTopic(t, p) => got_topic(t, p, pool.get()?),
+            UpdateCache::AddedPost(t, p_new, p_old) => added_post(t, p_new, p_old, pool.get()?),
+            UpdateCache::AddedTopic(t) => added_topic(t, pool.get()?),
+            UpdateCache::UpdatedTopic(t) => Ok(pool.get()?.hset_multiple(&format!("topic:{}:set", t.id), &t.sort_hash())?),
+            UpdateCache::GotPost(p) => Ok(pool.get()?.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
+            UpdateCache::GotUser(u) => Ok(pool.get()?.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
             UpdateCache::DeleteCategory(id) => Ok(pool.get()?.del(format!("{}:{}:set", "category", id))?)
         }
     }
 }
 
+fn got_topic(topic: &Topic, posts: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    conn.hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())?;
+    update_hash_set(&posts, "post", conn)
+}
+
+fn added_topic(topic: &Topic, conn: PoolConnectionRedis) -> UpdateResult {
+    Ok(redis::pipe().atomic()
+        .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash()).query(conn.deref())?)
+}
+
+fn added_post(topic: &Topic, post: &Post, post_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    Ok(match post_old {
+        Some(p) => redis::pipe().atomic()
+            .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
+            .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
+            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
+            .rpush(format!("topic:{}:list", topic.id), post.id).query(conn.deref())?,
+        None => redis::pipe().atomic()
+            .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
+            .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
+            .rpush(format!("topic:{}:list", topic.id), post.id).query(conn.deref())?
+    })
+}
+
 pub fn match_update(topics: Option<&Vec<Topic>>, posts: Option<&Vec<Post>>, users: Option<&Vec<User>>, pool: &RedisPool) -> UpdateResult {
     if let Some(t) = topics {
-        update_cache(&t, "topic", pool.get()?)?;
+        update_hash_set(&t, "topic", pool.get()?)?;
     }
     if let Some(p) = posts {
-        update_cache(&p, "post", pool.get()?)?;
+        update_hash_set(&p, "post", pool.get()?)?;
     }
     if let Some(u) = users {
-        update_cache(&u, "user", pool.get()?)?;
+        update_hash_set(&u, "user", pool.get()?)?;
     }
     Ok(())
 }
 
-pub fn update_cache<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
-    where T: SortHash + GetSelfId {
-    vec.iter().map(|v| Ok(conn.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash())?)).collect()
+pub fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
+    where T: GetSelfId + SortHash {
+    macro_rules! pipeline {
+        ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hset_multiple(&format!("{}:{}:set", $ y, $ x.get_self_id()), &$x.sort_hash()))*);
+    }
+    if vec.len() == 1 {
+        Ok(pipeline![key; vec[0]].query(conn.deref())?)
+    } else if vec.len() == 2 {
+        Ok(pipeline![key; vec[0], vec[1]].query(conn.deref())?)
+    } else if vec.len() == 3 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2]).query(conn.deref())?)
+    } else if vec.len() == 4 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3]).query(conn.deref())?)
+    } else if vec.len() == 5 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4]).query(conn.deref())?)
+    } else if vec.len() == 6 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5]).query(conn.deref())?)
+    } else if vec.len() == 7 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6]).query(conn.deref())?)
+    } else if vec.len() == 8 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7]).query(conn.deref())?)
+    } else if vec.len() == 9 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8]).query(conn.deref())?)
+    } else if vec.len() == 10 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9]).query(conn.deref())?)
+    } else if vec.len() == 11 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10]).query(conn.deref())?)
+    } else if vec.len() == 12 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11]).query(conn.deref())?)
+    } else if vec.len() == 13 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12]).query(conn.deref())?)
+    } else if vec.len() == 14 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13]).query(conn.deref())?)
+    } else if vec.len() == 15 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14]).query(conn.deref())?)
+    } else if vec.len() == 16 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15]).query(conn.deref())?)
+    } else if vec.len() == 17 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16]).query(conn.deref())?)
+    } else if vec.len() == 18 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17]).query(conn.deref())?)
+    } else if vec.len() == 19 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17], vec[18]).query(conn.deref())?)
+    } else if vec.len() == 20 {
+        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17], vec[18], vec[19]).query(conn.deref())?)
+    } else {
+        Err(ServiceError::NoCacheFound)
+    }
 }
 
 pub fn update_meta<T>(ids: Vec<T>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult

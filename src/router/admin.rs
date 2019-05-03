@@ -14,6 +14,8 @@ use crate::model::{
 use crate::handler::auth::UserJwt;
 
 // ToDo: Test update result.
+
+/// Admin query will hit database directly.
 pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                              -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     AdminQuery::UpdateCategoryCheck(&jwt.is_admin, &req.to_request())

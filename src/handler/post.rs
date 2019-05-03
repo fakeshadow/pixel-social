@@ -28,10 +28,9 @@ fn get_post(id: &u32, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
     let post: Post = posts::table.find(&id).first::<Post>(conn)?;
     let user = users::table.find(&post.user_id).load::<User>(conn)?;
-    let posts = vec![post];
 
-    let _ignore = UpdateCache::TopicPostUser(None, Some(&posts), None).handle_update(opt.cache_pool);
-    Ok(HttpResponse::Ok().json(&posts[0].attach_user(&user)))
+    let _ignore = UpdateCache::GotPost(&post).handle_update(&opt.cache_pool);
+    Ok(HttpResponse::Ok().json(&post.attach_user(&user)))
 }
 
 fn update_post(req: &PostRequest, opt: &QueryOption) -> QueryResult {
@@ -47,7 +46,7 @@ fn update_post(req: &PostRequest, opt: &QueryOption) -> QueryResult {
             .set(req.make_update()?).get_result(conn)?
     };
 
-    let _ignore = UpdateCache::TopicPostUser(None, Some(&vec![post]), None).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::GotPost(&post).handle_update(&opt.cache_pool);
     Ok(Response::AddedPost.to_res())
 }
 
@@ -57,7 +56,7 @@ fn add_post(req: &mut PostRequest, opt: &QueryOption) -> QueryResult {
 
     // ToDo: in case possible time region problem.
     let now = Utc::now().naive_local();
-    let post_update: Option<Post> = match req.post_id {
+    let post_old: Option<Post> = match req.post_id {
         Some(pid) => Some(diesel::update(posts::table
             .filter(posts::id.eq(&pid).and(posts::topic_id.eq(&target_topic_id))))
             .set((posts::last_reply_time.eq(&now), posts::reply_count.eq(posts::reply_count + 1)))
@@ -74,12 +73,8 @@ fn add_post(req: &mut PostRequest, opt: &QueryOption) -> QueryResult {
         .map_err(|_| ServiceError::InternalServerError)?;
     let post_new: Post = diesel::insert_into(posts::table).values(&req.make_post(&id, &now)?).get_result(conn)?;
 
-    let posts = match post_update {
-        Some(post) => vec![post_new, post],
-        None => vec![post_new]
-    };
     // ToDo: update category meta data to cache
-    let _ignore = UpdateCache::TopicPostUser(Some(&vec![topic_update]), Some(&posts), None).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::AddedPost(&topic_update, &post_new, &post_old).handle_update(&opt.cache_pool);
     Ok(Response::AddedPost.to_res())
 }
 

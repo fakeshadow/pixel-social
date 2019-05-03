@@ -6,7 +6,7 @@ use crate::handler::{
     user::{get_last_uid, load_all_users},
     post::{get_last_pid, load_all_posts_with_topic_id},
     topic::{get_last_tid, get_topic_list},
-    cache::{update_cache, build_list, update_meta},
+    cache::{update_hash_set, build_list, update_meta},
 };
 use crate::model::errors::ServiceError;
 
@@ -17,7 +17,7 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(),
 
     /// Load all categories and make hash set.
     let categories = load_all_categories(conn).unwrap_or_else(|_| panic!("Failed to load categories"));
-    update_cache(&categories, "category", conn_cache).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    update_hash_set(&categories, "category", conn_cache).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     println!("Categories loaded");
 
@@ -52,7 +52,7 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(),
 
     /// load all users and store the data in a zrange. stringify user data as member, user id as score.
     let users = load_all_users(conn).unwrap_or_else(|_| panic!("Failed to load users"));
-    update_cache(&users, "user", conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
+    update_hash_set(&users, "user", conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
     println!("User cache loaded. Cache built success");
 
     Ok(())

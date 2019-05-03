@@ -39,7 +39,7 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
 
     let topic_vec = vec![topic_raw];
-    let _ignore = UpdateCache::TopicPostUser(Some(&topic_vec), Some(&posts_raw), None).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::TopicPostUser(Some(&topic_vec), Some(&posts_raw), None).handle_update(&opt.cache_pool);
 
     let posts = posts_raw.iter().map(|post| post.attach_user(&users)).collect();
     let result = if page == &1 {
@@ -63,7 +63,8 @@ fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
         .map_err(|_| ServiceError::InternalServerError)?;
 
     let topic: Topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result(conn)?;
-    let _ignore = UpdateCache::TopicPostUser(Some(&vec![topic]), None, None).handle_update(opt.cache_pool);
+    // ToDo: Update Category set to cache
+    let _ignore = UpdateCache::AddedTopic(&topic).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedTopic.to_res())
 }
@@ -80,15 +81,14 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
             .filter(topics::id.eq(&topic_self_id)))
             .set(req.make_update()?).get_result(conn)?
     };
-    let _ignore = UpdateCache::TopicPostUser(Some(&vec![topic]), None, None).handle_update(opt.cache_pool);
+    let _ignore = UpdateCache::UpdatedTopic(&topic).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedTopic.to_res())
 }
 
 pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
-    let result = topics::table.select(topics::id)
-        .filter(topics::category_id.eq(&cid)).order(topics::last_reply_time.desc()).load::<u32>(conn)?;
-    Ok(result)
+    Ok(topics::table.select(topics::id)
+        .filter(topics::category_id.eq(&cid)).order(topics::last_reply_time.desc()).load::<u32>(conn)?)
 }
 
 pub fn get_last_tid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
