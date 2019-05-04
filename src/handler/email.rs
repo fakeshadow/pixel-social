@@ -15,7 +15,7 @@ pub fn add_mail(address: String, uuid: &str, pool: &RedisPool) -> Result<(), Ser
     let conn = &pool.get()?;
     let to = match EmailAddress::new(address) {
         Ok(address) => address,
-        Err(e) => {
+        Err(_) => {
             return Err(ServiceError::InternalServerError);
         }
     };

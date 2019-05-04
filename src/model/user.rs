@@ -24,6 +24,7 @@ pub struct User {
     pub show_created_at: bool,
     pub show_updated_at: bool,
 }
+
 fn default_password() -> String {
     "1".to_string()
 }

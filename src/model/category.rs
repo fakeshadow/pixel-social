@@ -11,9 +11,9 @@ use crate::schema::categories;
 pub struct Category {
     pub id: u32,
     pub name: String,
-    pub topic_count: u32,
-    pub post_count: u32,
-    pub subscriber_count: u32,
+    pub topic_count: i32,
+    pub post_count: i32,
+    pub subscriber_count: i32,
     pub thumbnail: String,
 }
 

@@ -1,5 +1,6 @@
 use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
+use chrono::NaiveDateTime;
 
 use crate::model::{
     errors::ServiceError,
@@ -13,6 +14,7 @@ use crate::handler::{
     user::get_unique_users,
 };
 use crate::schema::{categories, posts, topics};
+use crate::handler::category::update_category_topic_count;
 
 const LIMIT: i64 = 20;
 
@@ -38,52 +40,54 @@ fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
     let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
 
-    let topic_vec = vec![topic_raw];
-    let _ignore = UpdateCache::TopicPostUser(Some(&topic_vec), Some(&posts_raw), None).handle_update(&opt.cache_pool);
+    let _ignore = UpdateCache::GotTopic(&topic_raw, &posts_raw).handle_update(&opt.cache_pool);
 
     let posts = posts_raw.iter().map(|post| post.attach_user(&users)).collect();
     let result = if page == &1 {
-        TopicWithPost::new(Some(topic_vec[0].attach_user(&users)), Some(posts))
+        TopicWithPost::new(Some(topic_raw.attach_user(&users)), Some(posts))
     } else {
         TopicWithPost::new(None, Some(posts))
     };
-
     Ok(HttpResponse::Ok().json(&result))
 }
 
 fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    // ToDo: increment category topic count instead of only checking.
-    let category_check: usize = categories::table.find(&req.extract_category_id()?).execute(conn)?;
-    if category_check == 0 { return Err(ServiceError::NotFound); };
+    // ToDo: Test if category_id can be null or out of range
+    let category = update_category_topic_count(req.extract_category_id()?, conn)?;
 
     let id: u32 = opt.global_var.unwrap().lock()
         .map(|mut guarded_global_var| guarded_global_var.next_tid())
         .map_err(|_| ServiceError::InternalServerError)?;
+    let topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result::<Topic>(conn)?;
 
-    let topic: Topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result(conn)?;
-    // ToDo: Update Category set to cache
-    let _ignore = UpdateCache::AddedTopic(&topic).handle_update(&opt.cache_pool);
-
+    let _ignore = UpdateCache::AddedTopic(&topic, &category).handle_update(&opt.cache_pool);
     Ok(Response::ModifiedTopic.to_res())
 }
 
 fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
-    let topic_self_id = req.extract_self_id()?;
+    let topic_id = req.extract_self_id()?;
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    let topic: Topic = match req.user_id {
+    let topic = match req.user_id {
         Some(_user_id) => diesel::update(topics::table
-            .filter(topics::id.eq(&topic_self_id).and(topics::user_id.eq(_user_id))))
+            .filter(topics::id.eq(&topic_id).and(topics::user_id.eq(_user_id))))
             .set(req.make_update()?).get_result(conn)?,
         None => diesel::update(topics::table
-            .filter(topics::id.eq(&topic_self_id)))
+            .find(&topic_id))
             .set(req.make_update()?).get_result(conn)?
     };
     let _ignore = UpdateCache::UpdatedTopic(&topic).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedTopic.to_res())
+}
+
+pub fn update_topic_reply_count(id: &u32, now: &NaiveDateTime, conn: &PoolConnectionPostgres) -> Result<Topic, ServiceError> {
+    Ok(diesel::update(topics::table
+        .filter(topics::id.eq(&id)))
+        .set((topics::last_reply_time.eq(&now), topics::reply_count.eq(topics::reply_count + 1)))
+        .get_result(conn)?)
 }
 
 pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

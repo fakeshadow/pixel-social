@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use futures::Future;
 
 use actix_web::{web, HttpResponse, Error};
-use chrono::NaiveDateTime;
 use r2d2_redis::{redis, redis::{Commands, PipelineCommands, ToRedisArgs, FromRedisValue}, RedisConnectionManager, redis::RedisError};
-use serde::{Deserialize, Serialize};
 use lazy_static::__Deref;
 
 use crate::model::{
@@ -176,14 +174,14 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
 }
 
 pub enum UpdateCache<'a> {
-    TopicPostUser(Option<&'a Vec<Topic>>, Option<&'a Vec<Post>>, Option<&'a Vec<User>>),
     GotTopic(&'a Topic, &'a Vec<Post>),
-    AddedTopic(&'a Topic),
+    GotTopics(&'a Vec<Topic>),
+    AddedTopic(&'a Topic, &'a Category),
     UpdatedTopic(&'a Topic),
     GotPost(&'a Post),
-    AddedPost(&'a Topic, &'a Post, &'a Option<Post>),
+    AddedPost(&'a Topic, &'a Category, &'a Post, &'a Option<Post>),
     GotUser(&'a User),
-    Categories(&'a Vec<Category>),
+    GotCategories(&'a Vec<Category>),
     DeleteCategory(&'a u32),
 }
 
@@ -191,59 +189,56 @@ type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
     pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
-        let pool = opt.unwrap();
+        let conn = opt.unwrap().get()?;
         match self {
-            UpdateCache::Categories(c) => update_hash_set(&c, "category", pool.get()?),
-            UpdateCache::TopicPostUser(t, p, u) => match_update(t, p, u, pool),
-            UpdateCache::GotTopic(t, p) => got_topic(t, p, pool.get()?),
-            UpdateCache::AddedPost(t, p_new, p_old) => added_post(t, p_new, p_old, pool.get()?),
-            UpdateCache::AddedTopic(t) => added_topic(t, pool.get()?),
-            UpdateCache::UpdatedTopic(t) => Ok(pool.get()?.hset_multiple(&format!("topic:{}:set", t.id), &t.sort_hash())?),
-            UpdateCache::GotPost(p) => Ok(pool.get()?.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
-            UpdateCache::GotUser(u) => Ok(pool.get()?.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
-            UpdateCache::DeleteCategory(id) => Ok(pool.get()?.del(format!("{}:{}:set", "category", id))?)
+            UpdateCache::GotTopics(t) => update_hash_set(t, "topic", conn),
+            UpdateCache::GotCategories(c) => update_hash_set(c, "category", conn),
+            UpdateCache::AddedPost(t, c, p_new, p_old) => added_post(t, c, p_new, p_old, conn),
+            UpdateCache::AddedTopic(t, c) => added_topic(t, c, conn),
+            UpdateCache::UpdatedTopic(t) => Ok(conn.hset_multiple(&format!("topic:{}:set", t.id), &t.sort_hash())?),
+            UpdateCache::GotPost(p) => Ok(conn.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
+            UpdateCache::GotUser(u) => Ok(conn.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
+            UpdateCache::DeleteCategory(id) => Ok(conn.del(format!("{}:{}:set", "category", id))?),
+            UpdateCache::GotTopic(t, p) => {
+                conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?;
+                update_hash_set(&p, "post", conn)
+            }
         }
     }
 }
 
-fn got_topic(topic: &Topic, posts: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-    conn.hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())?;
-    update_hash_set(&posts, "post", conn)
-}
-
-fn added_topic(topic: &Topic, conn: PoolConnectionRedis) -> UpdateResult {
+fn added_topic(topic: &Topic, category: &Category, conn: PoolConnectionRedis) -> UpdateResult {
     Ok(redis::pipe().atomic()
-        .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash()).query(conn.deref())?)
+        .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
+        .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
+        .lpush(format!("category:{}:list", category.id), topic.id)
+        .query(conn.deref())?)
 }
 
-fn added_post(topic: &Topic, post: &Post, post_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+fn added_post(topic: &Topic, category: &Category, post: &Post, post_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    let list_key = format!("category:{}:list", topic.category_id);
+    redis::cmd("lrem").arg(&list_key).arg(1).arg(topic.id).query(conn.deref())?;
+
     Ok(match post_old {
         Some(p) => redis::pipe().atomic()
             .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
             .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
             .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-            .rpush(format!("topic:{}:list", topic.id), post.id).query(conn.deref())?,
+            .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
+            .rpush(format!("topic:{}:list", topic.id), post.id)
+            .lpush(list_key, topic.id)
+            .query(conn.deref())?,
         None => redis::pipe().atomic()
             .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
             .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
-            .rpush(format!("topic:{}:list", topic.id), post.id).query(conn.deref())?
+            .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
+            .rpush(format!("topic:{}:list", topic.id), post.id)
+            .lpush(list_key, topic.id)
+            .query(conn.deref())?
     })
 }
 
-pub fn match_update(topics: Option<&Vec<Topic>>, posts: Option<&Vec<Post>>, users: Option<&Vec<User>>, pool: &RedisPool) -> UpdateResult {
-    if let Some(t) = topics {
-        update_hash_set(&t, "topic", pool.get()?)?;
-    }
-    if let Some(p) = posts {
-        update_hash_set(&p, "post", pool.get()?)?;
-    }
-    if let Some(u) = users {
-        update_hash_set(&u, "user", pool.get()?)?;
-    }
-    Ok(())
-}
-
-pub fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
+fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
     where T: GetSelfId + SortHash {
     macro_rules! pipeline {
         ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hset_multiple(&format!("{}:{}:set", $ y, $ x.get_self_id()), &$x.sort_hash()))*);
@@ -293,6 +288,7 @@ pub fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) ->
     }
 }
 
+/// Category meta store all active category ids.
 pub fn update_meta<T>(ids: Vec<T>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult
     where T: ToRedisArgs {
     let key = format!("{}:meta", foreign_key);
@@ -302,6 +298,11 @@ pub fn update_meta<T>(ids: Vec<T>, foreign_key: &str, conn: &PoolConnectionRedis
 fn get_meta<T>(key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
     where T: FromRedisValue {
     Ok(conn.lrange(format!("{}:meta", key), 0, -1)?)
+}
+
+pub fn build_hash_set<T>(vec: &Vec<T>, key: &str, conn: &PoolConnectionRedis) -> UpdateResult
+    where T: GetSelfId + SortHash {
+    vec.iter().map(|v| Ok(conn.hset_multiple(format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash())?)).collect()
 }
 
 pub fn build_list(ids: Vec<u32>, foreign_key: &str, conn: &PoolConnectionRedis) -> UpdateResult {

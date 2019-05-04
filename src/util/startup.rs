@@ -6,9 +6,8 @@ use crate::handler::{
     user::{get_last_uid, load_all_users},
     post::{get_last_pid, load_all_posts_with_topic_id},
     topic::{get_last_tid, get_topic_list},
-    cache::{update_hash_set, build_list, update_meta},
+    cache::{build_hash_set, build_list, update_meta},
 };
-use crate::model::errors::ServiceError;
 
 // ToDo: build category ranks and topic ranks at startup;
 pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(), ()> {
@@ -17,12 +16,10 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(),
 
     /// Load all categories and make hash set.
     let categories = load_all_categories(conn).unwrap_or_else(|_| panic!("Failed to load categories"));
-    update_hash_set(&categories, "category", conn_cache).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
-
+    build_hash_set(&categories, "category", &conn_cache).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
     println!("Categories loaded");
 
     /// build list by last reply time desc order for each category. build category meta list with all category ids
-    let conn_cache = cache_pool.get().unwrap_or_else(|_| panic!("Cache is offline"));
     let mut meta_ids = Vec::new();
     for cat in categories.iter() {
         meta_ids.push(cat.id);
@@ -52,7 +49,7 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(),
 
     /// load all users and store the data in a zrange. stringify user data as member, user id as score.
     let users = load_all_users(conn).unwrap_or_else(|_| panic!("Failed to load users"));
-    update_hash_set(&users, "user", conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
+    build_hash_set(&users, "user", &conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
     println!("User cache loaded. Cache built success");
 
     Ok(())

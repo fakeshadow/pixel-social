@@ -19,9 +19,9 @@ CREATE TABLE categories
 (
     id    OID           NOT NULL UNIQUE PRIMARY KEY,
     name  VARCHAR(128)  NOT NULL,
-    topic_count OID NOT NULL DEFAULT 0,
-    post_count OID NOT NULL DEFAULT 0,
-    subscriber_count OID NOT NULL DEFAULT 0,
+    topic_count INTEGER NOT NULL DEFAULT 0,
+    post_count INTEGER NOT NULL DEFAULT 0,
+    subscriber_count INTEGER NOT NULL DEFAULT 0,
     thumbnail VARCHAR(256) NOT NULL
 );
 
@@ -86,3 +86,6 @@ VALUES (3, 'Armored Core', 'AC.jpg'),
 
 INSERT INTO topics ( id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
+
+INSERT INTO posts ( id, user_id, topic_id, post_content)
+VALUES (1, 1, 1, 'First Reply Only to stop cache build from complaining');

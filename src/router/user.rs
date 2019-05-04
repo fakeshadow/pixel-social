@@ -26,7 +26,7 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
 
 pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
                   -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    UserQuery::Login(&req.into_inner())
+    UserQuery::Login(&req)
         .handle_query(&QueryOption::new(Some(&db), None, None))
         .into_future()
 }
@@ -40,7 +40,7 @@ pub fn update_user(jwt: UserJwt, req: Json<UserUpdateJson>, db: Data<PostgresPoo
 
 pub fn register_user(global: Data<GlobalGuard>, req: Json<AuthRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                      -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    UserQuery::Register(&req.into_inner())
+    UserQuery::Register(&req)
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global)))
         .into_future()
 }

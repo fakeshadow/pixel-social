@@ -12,9 +12,9 @@ table! {
     categories (id) {
         id -> Oid,
         name -> Varchar,
-        topic_count -> Oid,
-        post_count -> Oid,
-        subscriber_count -> Oid,
+        topic_count -> Int4,
+        post_count -> Int4,
+        subscriber_count -> Int4,
         thumbnail -> Varchar,
     }
 }

@@ -11,6 +11,8 @@ use crate::model::{
     category::Category,
 };
 
+
+// ToDo: add individual field sort
 pub trait SortHash {
     fn sort_hash(&self) -> Vec<(&str, String)>;
 }
@@ -154,9 +156,9 @@ impl FromHashMap<Topic, Post, Category, User> for HashMap<String, String> {
         Ok(Category {
             id: self.parse::<u32>("id")?,
             name: self.parse_string("name")?,
-            topic_count: self.parse::<u32>("topic_count")?,
-            post_count: self.parse::<u32>("post_count")?,
-            subscriber_count: self.parse::<u32>("subscriber_count")?,
+            topic_count: self.parse::<i32>("topic_count")?,
+            post_count: self.parse::<i32>("post_count")?,
+            subscriber_count: self.parse::<i32>("subscriber_count")?,
             thumbnail: self.parse_string("thumbnail")?,
         })
     }
