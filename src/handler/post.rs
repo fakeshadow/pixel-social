@@ -15,6 +15,8 @@ use crate::handler::{
     cache::UpdateCache,
 };
 
+const LIMIT: i64 = 20;
+
 type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> PostQuery<'a> {
@@ -77,6 +79,10 @@ fn add_post(req: &mut PostRequest, opt: &QueryOption) -> QueryResult {
 
     let _ignore = UpdateCache::AddedPost(&topic_update, &category_update, &post_new, &post_old).handle_update(&opt.cache_pool);
     Ok(Response::AddedPost.to_res())
+}
+
+pub fn get_posts_by_topic_id(id: &u32, offset: i64, conn: &PoolConnectionPostgres) -> Result<Vec<Post>, ServiceError> {
+    Ok(posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?)
 }
 
 pub fn load_all_posts_with_topic_id(conn: &PoolConnectionPostgres) -> Result<Vec<(u32, u32)>, ServiceError> {

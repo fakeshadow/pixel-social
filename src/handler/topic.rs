@@ -2,19 +2,18 @@ use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
 use chrono::NaiveDateTime;
 
+use crate::schema::topics;
 use crate::model::{
     errors::ServiceError,
-    post::Post,
-    user::User,
     topic::{Topic, TopicWithPost, TopicQuery, TopicRequest},
     common::{PoolConnectionPostgres, QueryOption, AttachUser, Response},
 };
 use crate::handler::{
     cache::UpdateCache,
     user::get_unique_users,
+    post::get_posts_by_topic_id,
+    category::update_category_topic_count
 };
-use crate::schema::{categories, posts, topics};
-use crate::handler::category::update_category_topic_count;
 
 const LIMIT: i64 = 20;
 
@@ -30,25 +29,24 @@ impl TopicQuery {
     }
 }
 
-// ToDo: Add category list and meta data cache update in topic handler
-
 fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
-    let offset = (page - 1) * 20;
-    let topic_raw: Topic = topics::table.filter(topics::id.eq(&id)).first::<Topic>(conn)?;
-    let posts_raw: Vec<Post> = posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?;
-    let users: Vec<User> = get_unique_users(&posts_raw, Some(topic_raw.user_id), &conn)?;
+    let posts = get_posts_by_topic_id(id, (page - 1) * 20, conn)?;
+    let _ignore = UpdateCache::GotPosts(&posts).handle_update(&opt.cache_pool);
 
-    let _ignore = UpdateCache::GotTopic(&topic_raw, &posts_raw).handle_update(&opt.cache_pool);
-
-    let posts = posts_raw.iter().map(|post| post.attach_user(&users)).collect();
-    let result = if page == &1 {
-        TopicWithPost::new(Some(topic_raw.attach_user(&users)), Some(posts))
+    let (topic, users) = if page == &1 {
+        let topic: Topic = topics::table.find(&id).first::<Topic>(conn)?;
+        let _ignore = UpdateCache::GotTopic(&topic).handle_update(&opt.cache_pool);
+        let users = get_unique_users(&posts, Some(topic.user_id), &conn)?;
+        (Some(topic), users)
     } else {
-        TopicWithPost::new(None, Some(posts))
+        (None, get_unique_users(&posts, None, &conn)?)
     };
-    Ok(HttpResponse::Ok().json(&result))
+
+    Ok(HttpResponse::Ok().json(&TopicWithPost::new(
+        topic.as_ref().map(|t| t.attach_user(&users)),
+        Some(posts.iter().map(|post| post.attach_user(&users)).collect()))))
 }
 
 fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
@@ -61,8 +59,8 @@ fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
         .map(|mut guarded_global_var| guarded_global_var.next_tid())
         .map_err(|_| ServiceError::InternalServerError)?;
     let topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result::<Topic>(conn)?;
-
     let _ignore = UpdateCache::AddedTopic(&topic, &category).handle_update(&opt.cache_pool);
+
     Ok(Response::ModifiedTopic.to_res())
 }
 
@@ -78,7 +76,7 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
             .find(&topic_id))
             .set(req.make_update()?).get_result(conn)?
     };
-    let _ignore = UpdateCache::UpdatedTopic(&topic).handle_update(&opt.cache_pool);
+    let _ignore = UpdateCache::GotTopic(&topic).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedTopic.to_res())
 }

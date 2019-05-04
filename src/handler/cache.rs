@@ -20,6 +20,7 @@ const LIMIT: isize = 20;
 pub enum CacheQuery<'a> {
     GetMe(u32),
     GetUser(u32),
+    GetPost(u32),
     GetTopic(&'a u32, &'a i64),
     GetAllCategories,
     GetCategory(&'a u32, &'a i64),
@@ -29,14 +30,22 @@ pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpRes
     match query {
         CacheQuery::GetMe(id) => get_user_cache(Some(id), None, pool),
         CacheQuery::GetUser(id) => get_user_cache(None, Some(id), pool),
+        CacheQuery::GetPost(id) => get_post_cache(id, pool),
         CacheQuery::GetAllCategories => get_categories_cache(pool),
         CacheQuery::GetCategory(id, page) => get_topics_cache(id, page, pool),
         CacheQuery::GetTopic(id, page) => get_topic_cache(id, page, pool)
     }
 }
 
+pub fn get_post_cache(id: u32, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+    let conn = &pool.try_get().ok_or(ServiceError::CacheOffline)?;
+    let post = get_posts(&vec![id], conn)?;
+    let user = get_users(&post, None, conn)?;
+    Ok(HttpResponse::Ok().json(&post[0].attach_user(&user)))
+}
+
 pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.get()?;
+    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let id = self_id.unwrap_or_else(|| other_id.unwrap());
     let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
     Ok(match self_id {
@@ -47,15 +56,14 @@ pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisP
 
 pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     // ToDo: need further look into the logic
-    let conn = pool.get()?;
+    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
     while categories_total.len() > 20 {
         let slice = categories_total.drain(20..).collect();
-        let temp_hash = get_hash_set(&slice, "category", &conn)?;
-        for t in temp_hash.into_iter() {
+        for t in get_hash_set(&slice, "category", &conn)?.into_iter() {
             if !t.is_empty() { categories_hash_vec.push(t) }
         }
     }
@@ -67,19 +75,19 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
 }
 
 pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.get()?;
+    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let list_key = format!("category:{}:list", id);
     let start = (*page as isize - 1) * 20;
 
     let topic_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
     let topics = get_topics(&topic_id, &conn)?;
     let users = get_users(&topics, None, &conn)?;
-    // ToDo: add trait for attach users hash to topic.
+
     Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
 }
 
 pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.get()?;
+    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let topic = if page == &1 {
         get_topics(&vec![id.clone()], &conn)?.pop()
     } else { None };
@@ -174,11 +182,11 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
 }
 
 pub enum UpdateCache<'a> {
-    GotTopic(&'a Topic, &'a Vec<Post>),
+    GotTopic(&'a Topic),
     GotTopics(&'a Vec<Topic>),
     AddedTopic(&'a Topic, &'a Category),
-    UpdatedTopic(&'a Topic),
     GotPost(&'a Post),
+    GotPosts(&'a Vec<Post>),
     AddedPost(&'a Topic, &'a Category, &'a Post, &'a Option<Post>),
     GotUser(&'a User),
     GotCategories(&'a Vec<Category>),
@@ -189,20 +197,18 @@ type UpdateResult = Result<(), ServiceError>;
 
 impl<'a> UpdateCache<'a> {
     pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
-        let conn = opt.unwrap().get()?;
+        let conn = opt.unwrap().try_get().ok_or(ServiceError::CacheOffline)?;
         match self {
             UpdateCache::GotTopics(t) => update_hash_set(t, "topic", conn),
             UpdateCache::GotCategories(c) => update_hash_set(c, "category", conn),
+            UpdateCache::GotPosts(p) => update_hash_set(&p, "post", conn),
             UpdateCache::AddedPost(t, c, p_new, p_old) => added_post(t, c, p_new, p_old, conn),
             UpdateCache::AddedTopic(t, c) => added_topic(t, c, conn),
-            UpdateCache::UpdatedTopic(t) => Ok(conn.hset_multiple(&format!("topic:{}:set", t.id), &t.sort_hash())?),
             UpdateCache::GotPost(p) => Ok(conn.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
             UpdateCache::GotUser(u) => Ok(conn.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
+            UpdateCache::GotTopic(t) => Ok(conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?),
+            // ToDo: migrate post and topic when deleting category
             UpdateCache::DeleteCategory(id) => Ok(conn.del(format!("{}:{}:set", "category", id))?),
-            UpdateCache::GotTopic(t, p) => {
-                conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?;
-                update_hash_set(&p, "post", conn)
-            }
         }
     }
 }

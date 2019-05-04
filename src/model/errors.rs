@@ -34,6 +34,8 @@ pub enum ServiceError {
     AuthTimeout,
     #[display(fmt = "Forbidden")]
     NoCacheFound,
+    #[display(fmt = "Internal Server Error")]
+    CacheOffline,
 }
 
 impl ResponseError for ServiceError {
@@ -51,7 +53,8 @@ impl ResponseError for ServiceError {
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found and database is not connected"))
+            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found")),
+            ServiceError::CacheOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
         }
     }
 }
