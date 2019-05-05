@@ -80,7 +80,7 @@ pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRe
 pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let topic = if page == &1 {
-        from_hash_set::<Topic>(&vec![id.clone()],"topic", &conn)?.pop()
+        from_hash_set::<Topic>(&vec![id.clone()], "topic", &conn)?.pop()
     } else { None };
 
     let topic_user_id = match &topic {

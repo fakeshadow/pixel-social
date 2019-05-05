@@ -6,6 +6,7 @@ use crate::model::{
     common::{AttachUser, GetUserId, GetSelfId},
 };
 use crate::schema::posts;
+use crate::model::admin::AdminPrivilegeCheck;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {
@@ -45,7 +46,7 @@ pub struct UpdatePost<'a> {
     pub is_locked: Option<&'a bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct PostRequest {
     pub id: Option<u32>,
     pub user_id: Option<u32>,
@@ -56,17 +57,19 @@ pub struct PostRequest {
 }
 
 impl PostRequest {
-    pub fn to_add_query(&mut self, id: Option<u32>) -> PostQuery {
-        PostQuery::AddPost(self.attach_user_id(id))
-    }
-    pub fn to_update_query(&mut self, id: Option<u32>) -> PostQuery {
-        PostQuery::UpdatePost(self.attach_user_id(id))
-    }
     /// pass user_id from jwt token as option for regular user updating post. pass none for admin user
     pub fn attach_user_id(&mut self, id: Option<u32>) -> &mut Self {
         self.user_id = id;
         self
     }
+
+    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
+        AdminPrivilegeCheck::UpdatePostCheck(level, self)
+    }
+
+    pub fn to_add_query(&mut self) -> PostQuery { PostQuery::AddPost(self) }
+    pub fn to_update_query(&self) -> PostQuery { PostQuery::UpdatePost(self) }
+
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }

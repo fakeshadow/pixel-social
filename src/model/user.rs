@@ -154,8 +154,8 @@ pub struct UserUpdateRequest<'a> {
 }
 
 impl<'a> UserUpdateJson {
-    pub fn to_update_query(&'a self, id: &'a u32) -> UserQuery<'a> {
-        UserQuery::UpdateUser(UserUpdateRequest {
+    pub fn to_request(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
+        UserUpdateRequest {
             id,
             username: self.username.as_ref().map(String::as_str),
             avatar_url: self.avatar_url.as_ref().map(String::as_str),
@@ -165,17 +165,12 @@ impl<'a> UserUpdateJson {
             show_email: self.show_email.as_ref(),
             show_created_at: self.show_created_at.as_ref(),
             show_updated_at: self.show_updated_at.as_ref(),
-        })
+        }
     }
-    pub fn to_update_query_admin(&'a self) -> UserQuery<'a> {
-        UserQuery::UpdateUser(self.to_admin_request())
-    }
-    pub fn to_privilege_check(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
-        AdminPrivilegeCheck::UpdateUserCheck(level, self.to_admin_request())
-    }
-    fn to_admin_request(&'a self) -> UserUpdateRequest<'a> {
+
+    pub fn to_request_admin(&'a self) -> UserUpdateRequest<'a> {
         UserUpdateRequest {
-            id: self.id.as_ref().unwrap(),
+            id: self.id.as_ref().unwrap_or(&0),
             username: None,
             avatar_url: None,
             signature: None,
@@ -187,6 +182,14 @@ impl<'a> UserUpdateJson {
         }
     }
 }
+
+impl<'a> UserUpdateRequest<'a> {
+    pub fn to_privilege_check(&self, level: &'a u32) -> AdminPrivilegeCheck {
+        AdminPrivilegeCheck::UpdateUserCheck(level, self)
+    }
+    pub fn to_update_query(self) -> UserQuery<'a> { UserQuery::UpdateUser(self) }
+}
+
 
 pub enum UserQuery<'a> {
     Register(&'a AuthRequest),
@@ -200,6 +203,7 @@ pub enum UserQuery<'a> {
 pub trait IdToQuery {
     fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a>;
 }
+
 impl IdToQuery for u32 {
     fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a> {
         if jwt_id == self {

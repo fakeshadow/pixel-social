@@ -46,35 +46,40 @@ pub fn admin_remove_category(jwt: UserJwt, path: Path<(u32)>, cache: Data<RedisP
 
 pub fn admin_update_user(jwt: UserJwt, req: Json<UserUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    req.to_privilege_check(&jwt.is_admin)
+    req.to_request_admin()
+        .to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_| req.to_update_query_admin()
+        .and_then(move |_| req
+            .to_request_admin()
+            .to_update_query()
             .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
             .into_future())
 }
 
-pub fn admin_update_topic(jwt: UserJwt, req: Json<TopicRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+pub fn admin_update_topic(jwt: UserJwt, mut req: Json<TopicRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                           -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let req = req.into_inner().attach_user_id(None);
-    AdminPrivilegeCheck::UpdateTopicCheck(&jwt.is_admin, &req)
+    req.attach_user_id(None)
+        .to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_| TopicQuery::UpdateTopic(req)
+        .and_then(move |_| req
+            .to_update_query()
             .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
             .into_future())
 }
 
 pub fn admin_update_post(jwt: UserJwt, mut req: Json<PostRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    AdminPrivilegeCheck::UpdatePostCheck(&jwt.is_admin, req.attach_user_id(None))
+    req.attach_user_id(None)
+        .to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_|
-            req.to_update_query(None)
-                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-                .into_future())
+        .and_then(move |_| req
+            .to_update_query()
+            .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+            .into_future())
 }

@@ -19,7 +19,7 @@ const LIMIT: i64 = 20;
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
-impl TopicQuery {
+impl<'a> TopicQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         match self {
             TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &opt),

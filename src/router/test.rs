@@ -11,7 +11,7 @@ use crate::handler::auth::UserJwt;
 
 pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                        -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let topic_query = TopicQuery::AddTopic(TopicRequest {
+    TopicQuery::AddTopic(&TopicRequest {
         id: None,
         user_id: Some(1),
         category_id: Some(1),
@@ -19,6 +19,5 @@ pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>, cache:
         title: Some("test title".to_string()),
         body: Some("test body".to_string()),
         is_locked: None,
-    });
-    topic_query.handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global))).into_future()
+    }).handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global))).into_future()
 }

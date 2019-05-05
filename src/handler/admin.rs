@@ -14,6 +14,7 @@ use crate::handler::user::get_user_by_id;
 
 type QueryResult = Result<(), ServiceError>;
 
+
 impl<'a> AdminPrivilegeCheck<'a> {
     pub fn handle_check(self, db: &PostgresPool) -> QueryResult {
         let conn = &db.get().unwrap();

@@ -30,7 +30,8 @@ pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
 
 pub fn update_user(jwt: UserJwt, req: Json<UserUpdateJson>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                    -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    req.to_update_query(&jwt.user_id)
+    req.to_request(&jwt.user_id)
+        .to_update_query()
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
         .into_future()
 }

@@ -4,6 +4,7 @@ use crate::model::{
     errors::ServiceError,
     user::{User, UserRef, ToUserRef},
     post::PostWithUser,
+    admin::AdminPrivilegeCheck,
     common::{GetSelfId, AttachUser, GetUserId},
 };
 use crate::schema::topics;
@@ -58,15 +59,21 @@ pub struct TopicRequest {
 }
 
 impl TopicRequest {
-    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
+    pub fn attach_user_id(&mut self, id: Option<u32>) -> &Self {
         self.user_id = id;
         self
     }
 
+    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
+        AdminPrivilegeCheck::UpdateTopicCheck(level, self)
+    }
+
+    pub fn to_add_query(&self) -> TopicQuery { TopicQuery::AddTopic(self) }
+    pub fn to_update_query(&self) -> TopicQuery { TopicQuery::UpdateTopic(self) }
+
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }
-
     pub fn extract_category_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.category_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }
@@ -81,7 +88,6 @@ impl TopicRequest {
             body: self.body.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
         })
     }
-
     pub fn make_update(&self) -> Result<UpdateTopic, ServiceError> {
         match self.user_id {
             Some(_) => Ok(UpdateTopic {
@@ -145,8 +151,18 @@ impl GetUserId for Topic {
     fn get_user_id(&self) -> u32 { self.user_id }
 }
 
-pub enum TopicQuery {
+pub enum TopicQuery<'a> {
     GetTopic(u32, i64),
-    AddTopic(TopicRequest),
-    UpdateTopic(TopicRequest),
+    AddTopic(&'a TopicRequest),
+    UpdateTopic(&'a TopicRequest),
+}
+
+pub trait IdToQuery {
+    fn into_query<'a>(self, page: i64) -> TopicQuery<'a>;
+}
+
+impl IdToQuery for u32 {
+    fn into_query<'a>(self, page: i64) -> TopicQuery<'a> {
+        TopicQuery::GetTopic(self, page)
+    }
 }

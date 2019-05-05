@@ -220,3 +220,13 @@ impl IdToPostQuery for u32 {
         CacheQuery::GetPost(self)
     }
 }
+
+pub trait IdToTopicQuery {
+    fn to_query_cache<'a>(&'a self, page: &'a i64) -> CacheQuery<'a>;
+}
+
+impl IdToTopicQuery for u32 {
+    fn to_query_cache<'a>(&'a self, page: &'a i64) -> CacheQuery<'a> {
+        CacheQuery::GetTopic(self, page)
+    }
+}
