@@ -40,12 +40,14 @@ fn main() -> std::io::Result<()> {
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let postgres_pool = r2d2::Pool::builder()
+        .max_size(12)
         .build(manager)
         .expect("Failed to create postgres pool.");
 
     /// remove below if you are not using redis.
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
+        .max_size(12)
         .build(cache_manager)
         .expect("Failed to create redis pool.");
     let _clear = clear_cache(&redis_pool);

@@ -1,20 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use actix_web::{web, HttpResponse};
-use chrono::NaiveDateTime;
-use diesel::{
-    pg::PgConnection,
-    r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection},
-};
-use r2d2_redis::{
-    RedisConnectionManager,
-    r2d2::Pool as redis_pool,
-};
+use actix_web::HttpResponse;
+use diesel::{pg::PgConnection, r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection}};
+use r2d2_redis::{RedisConnectionManager, r2d2::Pool as redis_pool};
 
-use crate::model::{
-    errors::ServiceError,
-    user::{User, UserRef, ToUserRef},
-};
+use crate::model::{errors::ServiceError, user::{UserRef, ToUserRef}};
 use crate::util::validation as validate;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
@@ -41,6 +31,7 @@ impl<'a> QueryOption<'a> {
         }
     }
 }
+
 pub enum Response {
     Registered,
     ModifiedTopic,
@@ -87,14 +78,10 @@ pub trait AttachUser<'u, T>
     fn self_user_id(&self) -> &u32;
     fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output;
     fn make_field(&self, users: &'u Vec<T>) -> Option<UserRef<'u>> {
-        let mut result: Vec<UserRef> = Vec::with_capacity(1);
-        for user in users.iter() {
-            if self.self_user_id() == user.get_self_id() {
-                result.push(user.to_ref());
-                break;
-            }
-        }
-        result.pop()
+        users.iter()
+            .filter(|u| u.get_self_id() == self.self_user_id())
+            .map(|u| u.to_ref())
+            .next()
     }
 }
 
@@ -103,7 +90,6 @@ pub trait Validator {
     fn get_username(&self) -> &str;
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
-    fn validate(&self) -> Result<(), ServiceError>;
 
     fn check_username(&self) -> Result<(), ServiceError> {
         let username = self.get_username();

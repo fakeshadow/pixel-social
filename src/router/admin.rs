@@ -4,7 +4,7 @@ use actix_web::{web::{Data, Json, Path}, HttpResponse};
 
 use crate::model::{
     errors::ServiceError,
-    admin::AdminQuery,
+    admin::AdminPrivilegeCheck,
     post::{PostRequest, PostQuery},
     topic::{TopicQuery, TopicRequest},
     category::{CategoryQuery, CategoryUpdateJson},
@@ -18,8 +18,8 @@ use crate::handler::auth::UserJwt;
 /// Admin query will hit database directly.
 pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                              -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    AdminQuery::UpdateCategoryCheck(&jwt.is_admin, &req.to_request())
-        .handle_query(&db)
+    AdminPrivilegeCheck::UpdateCategoryCheck(&jwt.is_admin, &req.to_request())
+        .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| match req.category_id {
@@ -35,21 +35,22 @@ pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateJson>, cache:
 pub fn admin_remove_category(jwt: UserJwt, path: Path<(u32)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                              -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     // ToDo: need to add posts and topics migration along side the remove.
-    AdminQuery::DeleteCategoryCheck(&jwt.is_admin)
-        .handle_query(&db)
+    AdminPrivilegeCheck::DeleteCategoryCheck(&jwt.is_admin)
+        .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| CategoryQuery::DeleteCategory(&path.as_ref())
-            .handle_query(&QueryOption::new(Some(&db), Some(&cache), None)))
+            .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+            .into_future())
 }
 
 pub fn admin_update_user(jwt: UserJwt, req: Json<UserUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    AdminQuery::UpdateUserCheck(&jwt.is_admin, &req.to_request_admin(&req.id.unwrap()))
-        .handle_query(&db)
+    req.to_privilege_check(&jwt.is_admin)
+        .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_| UserQuery::UpdateUser(&req.to_request_admin(&req.id.unwrap()))
+        .and_then(move |_| req.to_update_query_admin()
             .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
             .into_future())
 }
@@ -57,8 +58,8 @@ pub fn admin_update_user(jwt: UserJwt, req: Json<UserUpdateJson>, cache: Data<Re
 pub fn admin_update_topic(jwt: UserJwt, req: Json<TopicRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                           -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     let req = req.into_inner().attach_user_id(None);
-    AdminQuery::UpdateTopicCheck(&jwt.is_admin, &req)
-        .handle_query(&db)
+    AdminPrivilegeCheck::UpdateTopicCheck(&jwt.is_admin, &req)
+        .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| TopicQuery::UpdateTopic(req)
@@ -66,14 +67,14 @@ pub fn admin_update_topic(jwt: UserJwt, req: Json<TopicRequest>, cache: Data<Red
             .into_future())
 }
 
-pub fn admin_update_post(jwt: UserJwt, req: Json<PostRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+pub fn admin_update_post(jwt: UserJwt, mut req: Json<PostRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let req = req.into_inner().attach_user_id(None);
-    AdminQuery::UpdatePostCheck(&jwt.is_admin, &req)
-        .handle_query(&db)
+    AdminPrivilegeCheck::UpdatePostCheck(&jwt.is_admin, req.attach_user_id(None))
+        .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_| PostQuery::UpdatePost(&req)
-            .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-            .into_future())
+        .and_then(move |_|
+            req.to_update_query(None)
+                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+                .into_future())
 }

@@ -1,4 +1,3 @@
-use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{
@@ -57,8 +56,14 @@ pub struct PostRequest {
 }
 
 impl PostRequest {
+    pub fn to_add_query(&mut self, id: Option<u32>) -> PostQuery {
+        PostQuery::AddPost(self.attach_user_id(id))
+    }
+    pub fn to_update_query(&mut self, id: Option<u32>) -> PostQuery {
+        PostQuery::UpdatePost(self.attach_user_id(id))
+    }
     /// pass user_id from jwt token as option for regular user updating post. pass none for admin user
-    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
+    pub fn attach_user_id(&mut self, id: Option<u32>) -> &mut Self {
         self.user_id = id;
         self
     }
@@ -70,7 +75,7 @@ impl PostRequest {
         Ok(self.topic_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
     }
 
-    pub fn make_post<'a>(&'a self, id: &'a u32 , time: &'a NaiveDateTime) -> Result<NewPost<'a>, ServiceError> {
+    pub fn make_post<'a>(&'a self, id: &'a u32, time: &'a NaiveDateTime) -> Result<NewPost<'a>, ServiceError> {
         Ok(NewPost {
             id,
             user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
@@ -135,4 +140,14 @@ pub enum PostQuery<'a> {
     AddPost(&'a mut PostRequest),
     UpdatePost(&'a PostRequest),
     GetPost(&'a u32),
+}
+
+pub trait IdToQuery {
+    fn to_query(&self) -> PostQuery;
+}
+
+impl IdToQuery for u32 {
+    fn to_query(&self) -> PostQuery {
+        PostQuery::GetPost(self)
+    }
 }

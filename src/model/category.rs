@@ -1,5 +1,3 @@
-use actix_web::HttpResponse;
-
 use crate::model::{
     errors::ServiceError,
     topic::{Topic,TopicWithUser},

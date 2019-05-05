@@ -5,9 +5,10 @@ use actix_web::{web::{Data, Json, Path}, HttpResponse};
 use crate::model::{
     errors::ServiceError,
     topic::{TopicRequest, TopicQuery},
+    cache::CacheQuery,
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
-use crate::handler::{auth::UserJwt, cache::{handle_cache_query, CacheQuery}};
+use crate::handler::{auth::UserJwt, cache::{handle_cache_query}};
 
 pub fn add_topic(jwt: UserJwt, req: Json<TopicRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                  -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {

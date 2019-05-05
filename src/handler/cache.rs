@@ -10,20 +10,11 @@ use crate::model::{
     post::{Post, PostWithUser},
     topic::{Topic, TopicWithUser, TopicWithPost},
     category::Category,
-    cache::{SortHash, FromHashSet, Parser},
+    cache::{SortHash, FromHashSet, Parser, CacheQuery},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
 
 const LIMIT: isize = 20;
-
-pub enum CacheQuery<'a> {
-    GetMe(u32),
-    GetUser(u32),
-    GetPost(u32),
-    GetTopic(&'a u32, &'a i64),
-    GetAllCategories,
-    GetCategory(&'a u32, &'a i64),
-}
 
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {
@@ -48,8 +39,8 @@ pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisP
     let id = self_id.unwrap_or_else(|| other_id.unwrap());
     let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
     Ok(match self_id {
-        Some(_) => HttpResponse::Ok().json(&hash.parser::<User>()?),
-        None => HttpResponse::Ok().json(&hash.parser::<User>()?.to_ref())
+        Some(_) => HttpResponse::Ok().json(&hash.parse::<User>()?),
+        None => HttpResponse::Ok().json(&hash.parse::<User>()?.to_ref())
     })
 }
 
@@ -61,7 +52,8 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
 
     let mut categories_hash_vec = Vec::with_capacity(total);
     while categories_total.len() > 20 {
-        let slice = categories_total.drain(20..).collect();
+        let index = categories_total.len() - 20;
+        let slice = categories_total.drain(index..).collect();
         for t in get_hash_set(&slice, "category", &conn)?.into_iter() {
             if !t.is_empty() { categories_hash_vec.push(t) }
         }
@@ -70,7 +62,7 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
         if !t.is_empty() { categories_hash_vec.push(t) }
     }
     if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
-    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parser()).collect::<Result<Vec<Category>, ServiceError>>()?))
+    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parse()).collect::<Result<Vec<Category>, ServiceError>>()?))
 }
 
 pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
@@ -119,7 +111,7 @@ fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Re
     where T: FromHashSet {
     let vec = get_hash_set(ids, key, &conn)?;
     if vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    vec.iter().map(|hash| hash.parser::<T>()).collect()
+    vec.iter().map(|hash| hash.parse::<T>()).collect()
 }
 
 // ToDo: make a more compat macro to handle pipeline

@@ -6,8 +6,9 @@ use crate::model::{
     errors::ServiceError,
     category::{CategoryJson, CategoryRequest, CategoryQuery},
     common::{PostgresPool, RedisPool, QueryOption},
+    cache::CacheQuery,
 };
-use crate::handler::{auth::UserJwt, cache::{handle_cache_query, CacheQuery}};
+use crate::handler::{auth::UserJwt, cache::handle_cache_query};
 
 pub fn get_all_categories(cache: Data<RedisPool>, db: Data<PostgresPool>)
                           -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
@@ -15,16 +16,15 @@ pub fn get_all_categories(cache: Data<RedisPool>, db: Data<PostgresPool>)
         .into_future()
         .then(move |res| match res {
             Ok(res) => ftr(Ok(res)),
-            Err(_) => {
-                CategoryQuery::GetAllCategories
-                    .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-                    .into_future()
-            }
+            Err(_) => CategoryQuery::GetAllCategories
+                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+                .into_future()
         })
 }
 
 pub fn get_popular(path: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                    -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+    // ToDo: Add get popular cache query
     let page = path.as_ref();
     CategoryQuery::GetPopular(&page)
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))

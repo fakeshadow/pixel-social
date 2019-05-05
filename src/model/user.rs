@@ -1,9 +1,6 @@
 use chrono::NaiveDateTime;
 
-use crate::model::{
-    errors::ServiceError,
-    common::{GetSelfId, Validator},
-};
+use crate::model::{errors::ServiceError, admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}};
 use crate::schema::users;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
@@ -29,6 +26,7 @@ fn default_password() -> String {
     "1".to_string()
 }
 
+/// user ref is attached to post and topic after privacy filter.
 #[derive(Serialize)]
 pub struct UserRef<'a> {
     pub id: &'a u32,
@@ -98,6 +96,13 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
+    pub fn to_register_query(&self) -> UserQuery {
+        UserQuery::Register(self)
+    }
+
+    pub fn to_login_query(&self) -> UserQuery {
+        UserQuery::Login(self)
+    }
     pub fn extract_email(&self) -> Result<&str, ServiceError> {
         self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequestGeneral)
     }
@@ -149,8 +154,8 @@ pub struct UserUpdateRequest<'a> {
 }
 
 impl<'a> UserUpdateJson {
-    pub fn to_request(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
-        UserUpdateRequest {
+    pub fn to_update_query(&'a self, id: &'a u32) -> UserQuery<'a> {
+        UserQuery::UpdateUser(UserUpdateRequest {
             id,
             username: self.username.as_ref().map(String::as_str),
             avatar_url: self.avatar_url.as_ref().map(String::as_str),
@@ -160,11 +165,17 @@ impl<'a> UserUpdateJson {
             show_email: self.show_email.as_ref(),
             show_created_at: self.show_created_at.as_ref(),
             show_updated_at: self.show_updated_at.as_ref(),
-        }
+        })
     }
-    pub fn to_request_admin(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
+    pub fn to_update_query_admin(&'a self) -> UserQuery<'a> {
+        UserQuery::UpdateUser(self.to_admin_request())
+    }
+    pub fn to_privilege_check(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
+        AdminPrivilegeCheck::UpdateUserCheck(level, self.to_admin_request())
+    }
+    fn to_admin_request(&'a self) -> UserUpdateRequest<'a> {
         UserUpdateRequest {
-            id,
+            id: self.id.as_ref().unwrap(),
             username: None,
             avatar_url: None,
             signature: None,
@@ -182,8 +193,23 @@ pub enum UserQuery<'a> {
     Login(&'a AuthRequest),
     GetMe(u32),
     GetUser(u32),
-    UpdateUser(&'a UserUpdateRequest<'a>),
+    UpdateUser(UserUpdateRequest<'a>),
 }
+
+/// meathod is into_query when consume self. to_query when only ref self
+pub trait IdToQuery {
+    fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a>;
+}
+impl IdToQuery for u32 {
+    fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a> {
+        if jwt_id == self {
+            UserQuery::GetMe(jwt_id)
+        } else {
+            UserQuery::GetUser(self)
+        }
+    }
+}
+
 
 impl<'a> Validator for UserQuery<'a> {
     // ToDo: handle update validation separately.
@@ -207,8 +233,5 @@ impl<'a> Validator for UserQuery<'a> {
             UserQuery::Register(req) => req.email.as_ref().map(String::as_str).unwrap_or(""),
             _ => ""
         }
-    }
-    fn validate(&self) -> Result<(), ServiceError> {
-        Ok(())
     }
 }

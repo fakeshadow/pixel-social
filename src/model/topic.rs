@@ -1,4 +1,3 @@
-use actix_web::HttpResponse;
 use chrono::NaiveDateTime;
 
 use crate::model::{

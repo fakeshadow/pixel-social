@@ -2,35 +2,35 @@ use actix_web::web;
 use diesel::prelude::*;
 
 use crate::model::{
-    user::{User, UserUpdateRequest},
+    user::{UserUpdateRequest},
     category::CategoryUpdateRequest,
     topic::TopicRequest,
     post::PostRequest,
-    admin::AdminQuery,
+    admin::AdminPrivilegeCheck,
     errors::ServiceError,
     common::{PostgresPool, PoolConnectionPostgres},
 };
-use crate::schema::users;
+use crate::handler::user::get_user_by_id;
 
 type QueryResult = Result<(), ServiceError>;
 
-impl<'a> AdminQuery<'a> {
-    pub fn handle_query(self, db: &PostgresPool) -> QueryResult {
+impl<'a> AdminPrivilegeCheck<'a> {
+    pub fn handle_check(self, db: &PostgresPool) -> QueryResult {
         let conn = &db.get().unwrap();
         match self {
-            AdminQuery::UpdateUserCheck(lv, req) => update_user_check(&lv, &req, conn),
-            AdminQuery::UpdateCategoryCheck(lv, req) => update_category_check(&lv, &req),
-            AdminQuery::UpdateTopicCheck(lv, req) => update_topic_check(&lv, &req),
-            AdminQuery::UpdatePostCheck(lv, req) => update_post_check(&lv, &req),
-            AdminQuery::DeleteCategoryCheck(lv) => if lv < &9 { Err(ServiceError::Unauthorized) } else { Ok(()) }
+            AdminPrivilegeCheck::UpdateUserCheck(lv, req) => update_user_check(&lv, &req, conn),
+            AdminPrivilegeCheck::UpdateCategoryCheck(lv, req) => update_category_check(&lv, &req),
+            AdminPrivilegeCheck::UpdateTopicCheck(lv, req) => update_topic_check(&lv, &req),
+            AdminPrivilegeCheck::UpdatePostCheck(lv, req) => update_post_check(&lv, &req),
+            AdminPrivilegeCheck::DeleteCategoryCheck(lv) => if lv < &9 { Err(ServiceError::Unauthorized) } else { Ok(()) }
         }
     }
 }
 
 fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     check_admin_level(&req.is_admin, &lv, 9)?;
-    let target_user: User = users::table.find(&req.id).first::<User>(conn)?;
-    if lv <= &target_user.is_admin { return Err(ServiceError::Unauthorized); }
+    let user = get_user_by_id(&req.id, conn)?.pop().ok_or(ServiceError::BadRequestGeneral)?;
+    if lv <= &user.is_admin { return Err(ServiceError::Unauthorized); }
     Ok(())
 }
 
@@ -56,7 +56,7 @@ fn update_post_check(lv: &u32, req: &PostRequest) -> QueryResult {
 
 fn check_admin_level<T: Sized>(t: &Option<T>, self_admin_level: &u32, baseline_admin_level: u32) -> Result<(), ServiceError> {
     if let Some(_value) = t {
-        if self_admin_level < &baseline_admin_level { return Err(ServiceError::Unauthorized) }
+        if self_admin_level < &baseline_admin_level { return Err(ServiceError::Unauthorized); }
     }
     Ok(())
 }

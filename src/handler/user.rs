@@ -15,21 +15,21 @@ use crate::util::{hash, jwt};
 type QueryResult = Result<HttpResponse, ServiceError>;
 
 impl<'a> UserQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
+    pub fn handle_query(&self, opt: &QueryOption) -> QueryResult {
         // ToDo: Find a better way to handle auth check.
         match self {
             UserQuery::GetMe(id) => get_user(Some(&id), None, opt),
             UserQuery::GetUser(id) => get_user(None, Some(&id), opt),
             UserQuery::Login(req) => {
-                &self.check_login()?;
+                self.check_login()?;
                 login_user(&req, opt)
             }
             UserQuery::UpdateUser(req) => {
-                if let Some(_) = req.username { &self.check_username()?; }
+                if let Some(_) = req.username { self.check_username()?; }
                 update_user(&req, opt)
             }
             UserQuery::Register(req) => {
-                &self.check_register()?;
+                self.check_register()?;
                 register_user(&req, opt)
             }
         }
