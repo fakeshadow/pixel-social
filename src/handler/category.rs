@@ -98,9 +98,7 @@ fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
     Ok(Response::UpdatedCategory.to_res())
 }
 
-
 //helper functions
-
 pub fn update_category_post_count(id: &u32, conn: &PoolConnectionPostgres) -> Result<Category, ServiceError> {
     Ok(diesel::update(categories::table.find(id))
         .set(categories::post_count.eq(categories::post_count + 1)).get_result(conn)?)

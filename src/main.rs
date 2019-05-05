@@ -33,7 +33,7 @@ fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
+    let redis_url = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_string());
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
     let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
@@ -42,15 +42,16 @@ fn main() -> std::io::Result<()> {
     let postgres_pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create postgres pool.");
+
+    /// remove below if you are not using redis.
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
         .build(cache_manager)
         .expect("Failed to create redis pool.");
-
-    //     clear cache on start up for test purpose
     let _clear = clear_cache(&redis_pool);
-
     let _build = build_cache(&postgres_pool, &redis_pool);
+    /// remove above if you are not using redis.
+
     let global_arc = init_global_var(&postgres_pool);
 
     HttpServer::new(move || {

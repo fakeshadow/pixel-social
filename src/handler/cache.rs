@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use futures::Future;
 
 use actix_web::{web, HttpResponse, Error};
-use r2d2_redis::{redis, redis::{Commands, PipelineCommands, ToRedisArgs, FromRedisValue}, RedisConnectionManager, redis::RedisError};
+use r2d2_redis::{redis, redis::{Commands, PipelineCommands, ToRedisArgs, FromRedisValue}};
 use lazy_static::__Deref;
 
 use crate::model::{
@@ -11,7 +10,7 @@ use crate::model::{
     post::{Post, PostWithUser},
     topic::{Topic, TopicWithUser, TopicWithPost},
     category::Category,
-    cache::{SortHash, FromHashMap},
+    cache::{SortHash, FromHashSet, Parser},
     common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
 };
 
@@ -39,7 +38,7 @@ pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpRes
 
 pub fn get_post_cache(id: u32, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = &pool.try_get().ok_or(ServiceError::CacheOffline)?;
-    let post = get_posts(&vec![id], conn)?;
+    let post = from_hash_set::<Post>(&vec![id], "post", conn)?;
     let user = get_users(&post, None, conn)?;
     Ok(HttpResponse::Ok().json(&post[0].attach_user(&user)))
 }
@@ -49,8 +48,8 @@ pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisP
     let id = self_id.unwrap_or_else(|| other_id.unwrap());
     let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
     Ok(match self_id {
-        Some(_) => HttpResponse::Ok().json(&hash.parse_user()?),
-        None => HttpResponse::Ok().json(&hash.parse_user()?.to_ref())
+        Some(_) => HttpResponse::Ok().json(&hash.parser::<User>()?),
+        None => HttpResponse::Ok().json(&hash.parser::<User>()?.to_ref())
     })
 }
 
@@ -71,7 +70,7 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
         if !t.is_empty() { categories_hash_vec.push(t) }
     }
     if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
-    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parse_category()).collect::<Result<Vec<Category>, ServiceError>>()?))
+    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parser()).collect::<Result<Vec<Category>, ServiceError>>()?))
 }
 
 pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
@@ -80,7 +79,7 @@ pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRe
     let start = (*page as isize - 1) * 20;
 
     let topic_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
-    let topics = get_topics(&topic_id, &conn)?;
+    let topics = from_hash_set::<Topic>(&topic_id, "topic", &conn)?;
     let users = get_users(&topics, None, &conn)?;
 
     Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
@@ -89,7 +88,7 @@ pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRe
 pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let topic = if page == &1 {
-        get_topics(&vec![id.clone()], &conn)?.pop()
+        from_hash_set::<Topic>(&vec![id.clone()],"topic", &conn)?.pop()
     } else { None };
 
     let topic_user_id = match &topic {
@@ -101,7 +100,7 @@ pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRes
     let start = (*page as isize - 1) * 20;
     let post_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
 
-    let posts = get_posts(&post_id, &conn)?;
+    let posts = from_hash_set::<Post>(&post_id, "post", &conn)?;
     let users = get_users(&posts, topic_user_id, &conn)?;
 
     Ok(HttpResponse::Ok().json(&TopicWithPost::new(
@@ -109,26 +108,18 @@ pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRes
         Some(posts.iter().map(|p| p.attach_user(&users)).collect()))))
 }
 
-fn get_posts(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
-    let posts_hash_vec = get_hash_set(ids, "post", &conn)?;
-
-    if posts_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    posts_hash_vec.iter().map(|hash| hash.parse_post()).collect()
-}
-
-fn get_topics(ids: &Vec<u32>, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, ServiceError> {
-    let topics_hash_vec = get_hash_set(ids, "topic", &conn)?;
-    if topics_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    topics_hash_vec.iter().map(|hash| hash.parse_topic()).collect()
-}
-
 fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError>
     where T: GetUserId {
     let ids = get_unique_id(&vec, topic_user_id);
-    let users_hash_vec = get_hash_set(&ids, "user", &conn)?;
+    from_hash_set::<User>(&ids, "user", conn)
+}
 
-    if users_hash_vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
-    users_hash_vec.iter().map(|hash| hash.parse_user()).collect()
+/// use Parser and FromHashSet traits to convert HashMap into struct.
+fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
+    where T: FromHashSet {
+    let vec = get_hash_set(ids, key, &conn)?;
+    if vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
+    vec.iter().map(|hash| hash.parser::<T>()).collect()
 }
 
 // ToDo: make a more compat macro to handle pipeline
@@ -223,10 +214,9 @@ fn added_topic(topic: &Topic, category: &Category, conn: PoolConnectionRedis) ->
 
 fn added_post(topic: &Topic, category: &Category, post: &Post, post_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
     let list_key = format!("category:{}:list", topic.category_id);
-    redis::cmd("lrem").arg(&list_key).arg(1).arg(topic.id).query(conn.deref())?;
-
     Ok(match post_old {
         Some(p) => redis::pipe().atomic()
+            .lrem(&list_key, 1, topic.id)
             .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
             .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
             .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
@@ -235,6 +225,7 @@ fn added_post(topic: &Topic, category: &Category, post: &Post, post_old: &Option
             .lpush(list_key, topic.id)
             .query(conn.deref())?,
         None => redis::pipe().atomic()
+            .lrem(&list_key, 1, topic.id)
             .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
             .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
             .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
