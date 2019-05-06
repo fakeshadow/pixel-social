@@ -15,6 +15,7 @@ use crate::model::{
 };
 
 const LIMIT: isize = 20;
+const LIMITU: usize = 20;
 
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {
@@ -51,8 +52,8 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
-    while categories_total.len() > 20 {
-        let index = categories_total.len() - 20;
+    while categories_total.len() > LIMITU {
+        let index = categories_total.len() - LIMITU;
         let slice = categories_total.drain(index..).collect();
         for t in get_hash_set(&slice, "category", &conn)?.into_iter() {
             if !t.is_empty() { categories_hash_vec.push(t) }

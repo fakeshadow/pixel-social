@@ -4,42 +4,43 @@ use actix_web::{web::{Data, Json, Path}, HttpResponse};
 
 use crate::model::{
     errors::ServiceError,
-    admin::AdminPrivilegeCheck,
-    post::{PostRequest, PostQuery},
-    topic::{TopicQuery, TopicRequest},
-    category::{CategoryQuery, CategoryUpdateJson},
-    user::{UserQuery, UserUpdateJson},
+    post::PostRequest,
+    topic::TopicRequest,
+    category::CategoryUpdateRequest,
+    user::UserUpdateJson,
     common::{PostgresPool, RedisPool, QueryOption},
 };
 use crate::handler::auth::UserJwt;
 
-// ToDo: Test update result.
-
 /// Admin query will hit database directly.
-pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                              -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    AdminPrivilegeCheck::UpdateCategoryCheck(&jwt.is_admin, &req.to_request())
+    req.to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| match req.category_id {
-            Some(_) => CategoryQuery::UpdateCategory(&req.to_request())
+            Some(_) => req
+                .to_update_query()
                 .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
                 .into_future(),
-            None => CategoryQuery::AddCategory(&req.to_request())
+            None => req
+                .to_add_query()
                 .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
                 .into_future()
         })
 }
 
-pub fn admin_remove_category(jwt: UserJwt, path: Path<(u32)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+pub fn admin_remove_category(jwt: UserJwt, id: Path<(u32)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                              -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
     // ToDo: need to add posts and topics migration along side the remove.
-    AdminPrivilegeCheck::DeleteCategoryCheck(&jwt.is_admin)
+    use crate::model::{admin::IdToQuery as AdminIdToQuery, category::IdToQuery};
+    id.to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
-        .and_then(move |_| CategoryQuery::DeleteCategory(&path.as_ref())
+        .and_then(move |_| id
+            .to_delete_query()
             .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
             .into_future())
 }

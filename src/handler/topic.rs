@@ -12,7 +12,7 @@ use crate::handler::{
     cache::UpdateCache,
     user::get_unique_users,
     post::get_posts_by_topic_id,
-    category::update_category_topic_count
+    category::update_category_topic_count,
 };
 
 const LIMIT: i64 = 20;
@@ -86,6 +86,12 @@ pub fn update_topic_reply_count(id: &u32, now: &NaiveDateTime, conn: &PoolConnec
         .filter(topics::id.eq(&id)))
         .set((topics::last_reply_time.eq(&now), topics::reply_count.eq(topics::reply_count + 1)))
         .get_result(conn)?)
+}
+
+pub fn get_topics_by_category_id(ids: &Vec<u32>, offset: &i64, conn: &PoolConnectionPostgres) -> Result<Vec<Topic>, ServiceError> {
+    Ok(topics::table
+        .filter(topics::category_id.eq_any(ids))
+        .order(topics::last_reply_time.desc()).limit(LIMIT).offset(*offset).load::<Topic>(conn)?)
 }
 
 pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

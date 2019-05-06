@@ -1,18 +1,19 @@
 use actix_web::{web, HttpResponse};
 use diesel::prelude::*;
 
+use crate::schema::categories;
 use crate::model::{
     errors::ServiceError,
     user::{User, ToUserRef},
-    topic::{Topic, TopicWithUser},
-    category::{Category, CategoryQuery, CategoryRequest, CategoryUpdateRequest},
+    topic::TopicWithUser,
+    category::{Category, CategoryQuery, CategoryUpdateRequest},
     common::{Response, PoolConnectionPostgres, RedisPool, QueryOption, GetUserId, AttachUser, get_unique_id, match_id},
 };
 use crate::handler::{
     user::get_unique_users,
+    topic::get_topics_by_category_id,
     cache::UpdateCache,
 };
-use crate::schema::{categories, topics};
 
 const LIMIT: i64 = 20;
 
@@ -22,7 +23,7 @@ impl<'a> CategoryQuery<'a> {
     pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
         match self {
             CategoryQuery::GetPopular(page) => get_popular(&page, &opt),
-            CategoryQuery::GetCategory(category_request) => get_category(&category_request, &opt),
+            CategoryQuery::GetCategory(ids, page) => get_category(ids, page, &opt),
             CategoryQuery::GetAllCategories => get_all_categories(&opt),
             CategoryQuery::AddCategory(category_request) => add_category(&category_request, &opt),
             CategoryQuery::UpdateCategory(category_request) => update_category(&category_request, &opt),
@@ -33,24 +34,20 @@ impl<'a> CategoryQuery<'a> {
 
 fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
-
     let offset = (page - 1) * LIMIT;
-    let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
-    let users = get_unique_users(&topics, None, &conn)?;
-
-    let _ignore = UpdateCache::GotTopics(&topics).handle_update(&opt.cache_pool);
-
-    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
+//    let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
+//    let users = get_unique_users(&topics, None, &conn)?;
+//    let _ignore = UpdateCache::GotTopics(&topics).handle_update(&opt.cache_pool);
+//    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
+    Ok(HttpResponse::Ok().finish())
 }
 
-fn get_category(req: &CategoryRequest, opt: &QueryOption) -> QueryResult {
+fn get_category(ids: &Vec<u32>, page: &i64, opt: &QueryOption) -> QueryResult {
     let conn = &opt.db_pool.unwrap().get()?;
+    let offset = (page - 1) * LIMIT;
 
-    let offset = (req.page - 1) * LIMIT;
-    let topics: Vec<Topic> = topics::table
-        .filter(topics::category_id.eq_any(req.categories))
-        .order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
-    let users = get_unique_users(&topics, None, &conn)?;
+    let topics = get_topics_by_category_id(ids, &offset, conn)?;
+    let users = get_unique_users(&topics, None, conn)?;
 
     let _ignore = UpdateCache::GotTopics(&topics).handle_update(&opt.cache_pool);
     Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
@@ -84,7 +81,7 @@ fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResul
 
     let category: Category = diesel::update(categories::table
         .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
-        .set(&req.insert()).get_result(conn)?;
+        .set(&req.make_update()).get_result(conn)?;
 
     let _ignore = UpdateCache::GotCategories(&vec![category]).handle_update(&opt.cache_pool);
 

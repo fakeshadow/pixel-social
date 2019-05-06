@@ -230,3 +230,13 @@ impl IdToTopicQuery for u32 {
         CacheQuery::GetTopic(self, page)
     }
 }
+
+pub trait PageToCategoryQuery {
+    fn to_query_cache<'a>(&'a self, id: &'a u32) -> CacheQuery<'a>;
+}
+
+impl PageToCategoryQuery for i64 {
+    fn to_query_cache<'a>(&'a self, id: &'a u32) -> CacheQuery<'a> {
+        CacheQuery::GetCategory(id, self)
+    }
+}

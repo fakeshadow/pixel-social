@@ -4,7 +4,7 @@ use actix_web::{web::{Data, Json, Path}, HttpResponse};
 
 use crate::model::{
     errors::ServiceError,
-    category::{CategoryJson, CategoryRequest, CategoryQuery},
+    category::{CategoryRequest, CategoryQuery},
     common::{PostgresPool, RedisPool, QueryOption},
     cache::CacheQuery,
 };
@@ -33,31 +33,22 @@ pub fn get_popular(path: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresP
 
 pub fn get_category(path: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                     -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let (category_id, page) = path.into_inner();
-    handle_cache_query(CacheQuery::GetCategory(&category_id, &page), &cache)
+    use crate::model::{cache::PageToCategoryQuery, category::PageToQuery};
+    let (id, page) = path.into_inner();
+    handle_cache_query(page.to_query_cache(&id), &cache)
         .into_future()
         .then(move |result| match result {
             Ok(res) => ftr(Ok(res)),
-            Err(_) => {
-                let categories = vec![category_id];
-                let category_request = CategoryRequest {
-                    categories: &categories,
-                    page: &page,
-                };
-                CategoryQuery::GetCategory(&category_request)
-                    .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-                    .into_future()
-            }
+            Err(_) => page
+                .to_query(&vec![id])
+                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
+                .into_future()
         })
 }
 
-pub fn get_categories(req: Json<CategoryJson>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+pub fn get_categories(req: Json<CategoryRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                       -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    let category_request = CategoryRequest {
-        categories: &req.categories,
-        page: &req.page,
-    };
-    CategoryQuery::GetCategory(&category_request)
+    req.to_query()
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
         .into_future()
 }

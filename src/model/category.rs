@@ -1,11 +1,12 @@
 use crate::model::{
     errors::ServiceError,
-    topic::{Topic,TopicWithUser},
-    common::{GetSelfId}
+    topic::{Topic, TopicWithUser},
+    common::GetSelfId,
 };
 use crate::schema::categories;
+use crate::model::admin::AdminPrivilegeCheck;
 
-#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[derive(Queryable, Serialize, Deserialize)]
 pub struct Category {
     pub id: u32,
     pub name: String,
@@ -19,7 +20,7 @@ impl GetSelfId for Category {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Insertable)]
 #[table_name = "categories"]
 pub struct NewCategory<'a> {
     pub id: &'a u32,
@@ -27,62 +28,50 @@ pub struct NewCategory<'a> {
     pub thumbnail: &'a str,
 }
 
+#[derive(AsChangeset)]
+#[table_name = "categories"]
+pub struct UpdateCategory<'a> {
+    pub name: Option<&'a str>,
+    pub thumbnail: Option<&'a str>,
+}
+
 #[derive(Deserialize)]
-pub struct CategoryJson {
+pub struct CategoryRequest {
     pub categories: Vec<u32>,
     pub page: i64,
 }
 
-pub struct CategoryRequest<'a> {
-    pub categories: &'a Vec<u32>,
-    pub page: &'a i64,
+impl CategoryRequest {
+    pub fn to_query(&self) -> CategoryQuery {
+        CategoryQuery::GetCategory(&self.categories, &self.page)
+    }
 }
 
 #[derive(Deserialize)]
-pub struct CategoryUpdateJson {
+pub struct CategoryUpdateRequest {
     pub category_id: Option<u32>,
     pub category_name: Option<String>,
     pub category_thumbnail: Option<String>,
 }
 
-impl CategoryUpdateJson {
-    pub fn to_request(&self) -> CategoryUpdateRequest {
-        CategoryUpdateRequest {
-            category_id: self.category_id.as_ref(),
-            category_name: self.category_name.as_ref().map(String::as_str),
-            category_thumbnail: self.category_thumbnail.as_ref().map(String::as_str),
-        }
+impl CategoryUpdateRequest {
+    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
+        AdminPrivilegeCheck::UpdateCategoryCheck(level, self)
     }
-}
+    pub fn to_add_query(&self) -> CategoryQuery { CategoryQuery::AddCategory(self) }
+    pub fn to_update_query(&self) -> CategoryQuery { CategoryQuery::UpdateCategory(self) }
 
-pub struct CategoryUpdateRequest<'a> {
-    pub category_id: Option<&'a u32>,
-    pub category_name: Option<&'a str>,
-    pub category_thumbnail: Option<&'a str>,
-}
-
-impl<'a> CategoryUpdateRequest<'a> {
-    pub fn make_category(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
+    pub fn make_category<'a>(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
         Ok(NewCategory {
             id,
-            name: self.category_name.ok_or(ServiceError::BadRequestGeneral)?,
-            thumbnail: self.category_thumbnail.ok_or(ServiceError::BadRequestGeneral)?,
+            name: self.category_name.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            thumbnail: self.category_thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
         })
     }
-}
-
-#[derive(AsChangeset)]
-#[table_name = "categories"]
-pub struct CategoryUpdateRequestInsert<'a> {
-    pub name: Option<&'a str>,
-    pub thumbnail: Option<&'a str>,
-}
-
-impl<'a> CategoryUpdateRequest<'a> {
-    pub fn insert(&self) -> CategoryUpdateRequestInsert {
-        CategoryUpdateRequestInsert {
-            name: self.category_name,
-            thumbnail: self.category_thumbnail,
+    pub fn make_update(&self) -> UpdateCategory {
+        UpdateCategory {
+            name: self.category_name.as_ref().map(String::as_str),
+            thumbnail: self.category_thumbnail.as_ref().map(String::as_str),
         }
     }
 }
@@ -90,8 +79,28 @@ impl<'a> CategoryUpdateRequest<'a> {
 pub enum CategoryQuery<'a> {
     GetAllCategories,
     GetPopular(&'a i64),
-    GetCategory(&'a CategoryRequest<'a>),
-    AddCategory(&'a CategoryUpdateRequest<'a>),
-    UpdateCategory(&'a CategoryUpdateRequest<'a>),
+    GetCategory(&'a Vec<u32>, &'a i64),
+    AddCategory(&'a CategoryUpdateRequest),
+    UpdateCategory(&'a CategoryUpdateRequest),
     DeleteCategory(&'a u32),
+}
+
+pub trait PageToQuery {
+    fn to_query<'a>(&'a self, ids: &'a Vec<u32>) -> CategoryQuery<'a>;
+}
+
+impl PageToQuery for i64 {
+    fn to_query<'a>(&'a self, ids: &'a Vec<u32>) -> CategoryQuery<'a> {
+        CategoryQuery::GetCategory(ids, self)
+    }
+}
+
+pub trait IdToQuery {
+    fn to_delete_query(&self) -> CategoryQuery;
+}
+
+impl IdToQuery for u32 {
+    fn to_delete_query(&self) -> CategoryQuery {
+        CategoryQuery::DeleteCategory(self)
+    }
 }
