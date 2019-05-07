@@ -98,9 +98,9 @@ fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
             let _ignore = MailCache::AddActivation(user.to_mail()).modify(&opt.cache_pool);
 
             // ToDo: move sending mail to another thread.
-            let mail_string = MailCache::GetActivation(Some(user.id)).get_mail_queue(&opt.cache_pool.unwrap())?;
-            let mail = serde_json::from_str::<Mail>(&mail_string)?;
-            let _ignore = send_mail(mail);
+//            let mail_string = MailCache::GetActivation(Some(user.id)).get_mail_queue(&opt.cache_pool.unwrap())?;
+//            let mail = serde_json::from_str::<Mail>(&mail_string)?;
+//            let _ignore = send_mail(mail);
 
             Ok(Response::Registered.to_res())
         }

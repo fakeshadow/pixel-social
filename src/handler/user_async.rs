@@ -65,7 +65,6 @@ fn login_user(req: &AuthRequest, opt: QueryOptAsync) -> Result<AuthResponseAsync
 
 fn register_user(req: &AuthRequest, opt: QueryOptAsync) -> QueryResult {
     let conn = &opt.db.unwrap().get()?;
-
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
