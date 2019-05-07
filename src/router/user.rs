@@ -1,12 +1,12 @@
-use futures::{IntoFuture, Future, future::result as ftr};
-use actix_web::{web::{Data, Json, Path}, HttpResponse};
+use actix_web::{HttpResponse, web::{Data, Json, Path}};
+use futures::{Future, future::result as ftr, IntoFuture};
 
-use crate::model::{
-    errors::ServiceError,
-    user::{AuthRequest, UserUpdateJson},
-    common::{PostgresPool, QueryOption, RedisPool, GlobalGuard},
-};
 use crate::handler::{auth::UserJwt, cache::handle_cache_query};
+use crate::model::{
+    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
+    errors::ServiceError,
+    user::{AuthRequest, UserUpdateRequest},
+};
 
 pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                 -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
@@ -28,10 +28,10 @@ pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
         .into_future()
 }
 
-pub fn update_user(jwt: UserJwt, req: Json<UserUpdateJson>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+pub fn update_user(jwt: UserJwt, mut req: Json<UserUpdateRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                    -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    req.to_request(&jwt.user_id)
-        .to_update_query()
+    req.attach_id(Some(jwt.user_id))
+        .to_query()
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
         .into_future()
 }

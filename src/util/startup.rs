@@ -1,12 +1,12 @@
-use crate::model::{
-    common::{PostgresPool, RedisPool, GlobalVar, GlobalGuard, match_id}
-};
 use crate::handler::{
+    cache::{build_hash_set, build_list, update_meta},
     category::load_all_categories,
-    user::{get_last_uid, load_all_users},
     post::{get_last_pid, load_all_posts_with_topic_id},
     topic::{get_last_tid, get_topic_list},
-    cache::{build_hash_set, build_list, update_meta},
+    user::{get_last_uid, load_all_users},
+};
+use crate::model::{
+    common::{PostgresPool, RedisPool, GlobalVar, GlobalGuard, match_id}
 };
 
 // ToDo: build category ranks and topic ranks at startup;

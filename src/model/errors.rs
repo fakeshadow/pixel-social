@@ -2,9 +2,9 @@ use actix_web::{error::ResponseError, HttpResponse};
 use chrono::format::ParseError as ParseNavDateError;
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
-use serde_json::Error as json_err;
 use r2d2::Error as r2d2_err;
 use r2d2_redis::redis::RedisError as redis_err;
+use serde_json::Error as json_err;
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -36,6 +36,8 @@ pub enum ServiceError {
     NoCacheFound,
     #[display(fmt = "Internal Server Error")]
     CacheOffline,
+    #[display(fmt = "Internal Server Error")]
+    MailServiceError
 }
 
 impl ResponseError for ServiceError {
@@ -55,6 +57,7 @@ impl ResponseError for ServiceError {
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found")),
             ServiceError::CacheOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
+            _ =>  HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
 }

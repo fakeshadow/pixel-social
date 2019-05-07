@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod cache;
+pub mod mail;
 pub mod category;
 pub mod common;
 pub mod errors;

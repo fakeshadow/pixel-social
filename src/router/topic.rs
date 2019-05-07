@@ -1,13 +1,12 @@
-use futures::{IntoFuture, Future, future::result as ftr};
+use actix_web::{HttpResponse, web::{Data, Json, Path}};
+use futures::{Future, future::result as ftr, IntoFuture};
 
-use actix_web::{web::{Data, Json, Path}, HttpResponse};
-
+use crate::handler::{auth::UserJwt, cache::handle_cache_query};
 use crate::model::{
+    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
     errors::ServiceError,
     topic::TopicRequest,
-    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
 };
-use crate::handler::{auth::UserJwt, cache::handle_cache_query};
 
 pub fn add_topic(jwt: UserJwt, mut req: Json<TopicRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                  -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {

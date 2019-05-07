@@ -2,18 +2,18 @@ use actix_web::HttpResponse;
 use chrono::Utc;
 use diesel::prelude::*;
 
-use crate::schema::posts;
+use crate::handler::{
+    cache::UpdateCache,
+    category::update_category_post_count,
+    topic::update_topic_reply_count,
+    user::get_user_by_id,
+};
 use crate::model::{
+    common::{AttachUser, GlobalGuard, PoolConnectionPostgres, QueryOption, Response},
     errors::ServiceError,
     post::{Post, PostQuery, PostRequest},
-    common::{Response, QueryOption, GlobalGuard, AttachUser, PoolConnectionPostgres},
 };
-use crate::handler::{
-    user::get_user_by_id,
-    topic::update_topic_reply_count,
-    category::update_category_post_count,
-    cache::UpdateCache,
-};
+use crate::schema::posts;
 
 const LIMIT: i64 = 20;
 

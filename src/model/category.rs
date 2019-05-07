@@ -1,10 +1,10 @@
 use crate::model::{
+    common::GetSelfId,
     errors::ServiceError,
     topic::{Topic, TopicWithUser},
-    common::GetSelfId,
 };
-use crate::schema::categories;
 use crate::model::admin::AdminPrivilegeCheck;
+use crate::schema::categories;
 
 #[derive(Queryable, Serialize, Deserialize)]
 pub struct Category {

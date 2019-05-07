@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 
-use crate::model::{errors::ServiceError, admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}};
+use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, errors::ServiceError};
+use crate::model::mail::Mail;
 use crate::schema::users;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
@@ -42,6 +43,13 @@ pub struct UserRef<'a> {
     pub show_created_at: &'a bool,
     pub show_updated_at: &'a bool,
 }
+
+impl User {
+    pub fn to_mail(&self) -> Mail {
+        Mail::from_user(self)
+    }
+}
+
 
 pub trait ToUserRef {
     fn to_ref(&self) -> UserRef;
@@ -127,7 +135,7 @@ pub struct AuthResponse<'a> {
 }
 
 #[derive(Deserialize)]
-pub struct UserUpdateJson {
+pub struct UserUpdateRequest {
     pub id: Option<u32>,
     pub username: Option<String>,
     pub avatar_url: Option<String>,
@@ -141,7 +149,7 @@ pub struct UserUpdateJson {
 
 #[derive(AsChangeset)]
 #[table_name = "users"]
-pub struct UserUpdateRequest<'a> {
+pub struct UpdateUser<'a> {
     pub id: &'a u32,
     pub username: Option<&'a str>,
     pub avatar_url: Option<&'a str>,
@@ -153,53 +161,62 @@ pub struct UserUpdateRequest<'a> {
     pub show_updated_at: Option<&'a bool>,
 }
 
-impl<'a> UserUpdateJson {
-    pub fn to_request(&'a self, id: &'a u32) -> UserUpdateRequest<'a> {
-        UserUpdateRequest {
-            id,
+impl UserUpdateRequest {
+    /// pass user_id from jwt for normal update user. pass none for admin update user.
+    pub fn attach_id(&mut self, id: Option<u32>) -> &Self {
+        match id {
+            Some(_) => {
+                self.id = id;
+                self.is_admin = None;
+                self.blocked = None;
+                self
+            }
+            None => {
+                self.username = None;
+                self.avatar_url = None;
+                self.signature = None;
+                self.show_email = None;
+                self.show_created_at = None;
+                self.show_updated_at = None;
+                self
+            }
+        }
+    }
+    pub fn extract_id(&self) -> Result<&u32, ServiceError> {
+        self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)
+    }
+
+    pub fn make_update(&self) -> Result<UpdateUser, ServiceError> {
+        Ok(UpdateUser {
+            id: self.extract_id()?,
             username: self.username.as_ref().map(String::as_str),
             avatar_url: self.avatar_url.as_ref().map(String::as_str),
             signature: self.signature.as_ref().map(String::as_str),
-            is_admin: None,
-            blocked: None,
+            is_admin: self.is_admin.as_ref(),
+            blocked: self.blocked.as_ref(),
             show_email: self.show_email.as_ref(),
             show_created_at: self.show_created_at.as_ref(),
             show_updated_at: self.show_updated_at.as_ref(),
-        }
-    }
-
-    pub fn to_request_admin(&'a self) -> UserUpdateRequest<'a> {
-        UserUpdateRequest {
-            id: self.id.as_ref().unwrap_or(&0),
-            username: None,
-            avatar_url: None,
-            signature: None,
-            is_admin: self.is_admin.as_ref(),
-            blocked: self.blocked.as_ref(),
-            show_email: None,
-            show_created_at: None,
-            show_updated_at: None,
-        }
+        })
     }
 }
 
-impl<'a> UserUpdateRequest<'a> {
-    pub fn to_privilege_check(&self, level: &'a u32) -> AdminPrivilegeCheck {
+impl UserUpdateRequest {
+    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateUserCheck(level, self)
     }
-    pub fn to_update_query(self) -> UserQuery<'a> { UserQuery::UpdateUser(self) }
+    pub fn to_query(&self) -> UserQuery { UserQuery::UpdateUser(self) }
 }
-
 
 pub enum UserQuery<'a> {
     Register(&'a AuthRequest),
     Login(&'a AuthRequest),
     GetMe(u32),
     GetUser(u32),
-    UpdateUser(UserUpdateRequest<'a>),
+    UpdateUser(&'a UserUpdateRequest),
 }
 
-/// meathod is into_query when consume self. to_query when only ref self
+/// method is into_query when consume self. to_query when only ref self
 pub trait IdToQuery {
     fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a>;
 }
@@ -214,14 +231,13 @@ impl IdToQuery for u32 {
     }
 }
 
-
 impl<'a> Validator for UserQuery<'a> {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
         match self {
             UserQuery::Login(req) => &req.username,
             UserQuery::Register(req) => &req.username,
-            UserQuery::UpdateUser(req) => req.username.unwrap_or(""),
+            UserQuery::UpdateUser(req) => req.username.as_ref().map(String::as_str).unwrap_or(""),
             _ => ""
         }
     }

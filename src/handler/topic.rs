@@ -1,19 +1,19 @@
-use actix_web::{web, HttpResponse};
-use diesel::prelude::*;
+use actix_web::{HttpResponse, web};
 use chrono::NaiveDateTime;
+use diesel::prelude::*;
 
-use crate::schema::topics;
-use crate::model::{
-    errors::ServiceError,
-    topic::{Topic, TopicWithPost, TopicQuery, TopicRequest},
-    common::{PoolConnectionPostgres, QueryOption, AttachUser, Response},
-};
 use crate::handler::{
     cache::UpdateCache,
-    user::get_unique_users,
-    post::get_posts_by_topic_id,
     category::update_category_topic_count,
+    post::get_posts_by_topic_id,
+    user::get_unique_users,
 };
+use crate::model::{
+    common::{AttachUser, PoolConnectionPostgres, QueryOption, Response},
+    errors::ServiceError,
+    topic::{Topic, TopicQuery, TopicRequest, TopicWithPost},
+};
+use crate::schema::topics;
 
 const LIMIT: i64 = 20;
 

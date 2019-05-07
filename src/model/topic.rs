@@ -1,11 +1,11 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    errors::ServiceError,
-    user::{User, UserRef, ToUserRef},
-    post::PostWithUser,
     admin::AdminPrivilegeCheck,
-    common::{GetSelfId, AttachUser, GetUserId},
+    common::{AttachUser, GetSelfId, GetUserId},
+    errors::ServiceError,
+    post::PostWithUser,
+    user::{ToUserRef, User, UserRef},
 };
 use crate::schema::topics;
 

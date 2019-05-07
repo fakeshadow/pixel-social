@@ -1,21 +1,23 @@
 use std::collections::HashMap;
 
-use actix_web::{web, HttpResponse, Error};
-use r2d2_redis::{redis, redis::{Commands, PipelineCommands, ToRedisArgs, FromRedisValue}};
+use actix_web::{Error, HttpResponse, web};
 use lazy_static::__Deref;
+use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 
 use crate::model::{
-    errors::ServiceError,
-    user::{User, ToUserRef},
-    post::{Post, PostWithUser},
-    topic::{Topic, TopicWithUser, TopicWithPost},
+    cache::{CacheQuery, FromHashSet, Parser, SortHash},
     category::Category,
-    cache::{SortHash, FromHashSet, Parser, CacheQuery},
-    common::{RedisPool, PoolConnectionRedis, GetSelfId, GetUserId, AttachUser, get_unique_id},
+    common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
+    errors::ServiceError,
+    mail::Mail,
+    post::{Post, PostWithUser},
+    topic::{Topic, TopicWithPost, TopicWithUser},
+    user::{ToUserRef, User},
 };
 
 const LIMIT: isize = 20;
-const LIMITU: usize = 20;
+const LIMIT_U: usize = 20;
+const MAIL_LIFE: usize = 2592000;
 
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {
@@ -52,8 +54,8 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
-    while categories_total.len() > LIMITU {
-        let index = categories_total.len() - LIMITU;
+    while categories_total.len() > LIMIT_U {
+        let index = categories_total.len() - LIMIT_U;
         let slice = categories_total.drain(index..).collect();
         for t in get_hash_set(&slice, "category", &conn)?.into_iter() {
             if !t.is_empty() { categories_hash_vec.push(t) }
@@ -303,4 +305,62 @@ pub fn build_list(ids: Vec<u32>, foreign_key: &str, conn: &PoolConnectionRedis) 
 pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
     let conn = pool.get()?;
     Ok(redis::cmd("flushall").query(conn.deref())?)
+}
+
+// helper for mail service
+pub enum MailCache<'a> {
+    AddActivation(Mail<'a>),
+    AddRecovery(Mail<'a>),
+    GetActivation(Option<u32>),
+    RemoveActivation(&'a u32),
+    RemoveRecovery(&'a u32),
+}
+
+impl<'a> MailCache<'a> {
+    pub fn modify(&self, pool: &Option<&RedisPool>) -> Result<(), ServiceError> {
+        let pool = pool.unwrap();
+        match self {
+            MailCache::AddActivation(mail) => add_mail_cache(mail, "activation", pool.get()?),
+            MailCache::RemoveActivation(id) => del_mail_queue(id, pool.get()?),
+            _ => Ok(())
+        }
+    }
+    pub fn get_mail_queue(&self, pool: &RedisPool) -> Result<String, ServiceError> {
+        match self {
+            MailCache::GetActivation(opt) => from_mail_queue(opt, pool.get()?),
+            _ => Err(ServiceError::BadRequestGeneral)
+        }
+    }
+    pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
+        match self {
+            MailCache::GetActivation(opt) => from_mail_hash(opt, "activation", pool.get()?),
+            _ => Err(ServiceError::BadRequestGeneral)
+        }
+    }
+}
+
+fn add_mail_cache(mail: &Mail, key: &str, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
+    let stringify = serde_json::to_string(mail)?;
+    let key = format!("{}:{}:set", key, mail.user_id);
+    Ok(redis::pipe().atomic()
+        .zadd("mail_queue", stringify, mail.user_id)
+        .hset_multiple(&key, &mail.sort_hash())
+        .expire(&key, MAIL_LIFE)
+        .query(conn.deref())?)
+}
+
+fn del_mail_queue(id: &u32, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
+    Ok(redis::cmd("zrembyscore").arg("mail_queue").arg(*id).arg(*id).query(conn.deref())?)
+}
+
+fn from_mail_queue(opt: &Option<u32>, conn: PoolConnectionRedis) -> Result<String, ServiceError> {
+    match opt {
+        Some(id) => Ok(redis::cmd("zrange").arg("mail_queue").arg(*id).arg(*id).query(conn.deref())?),
+        None => Ok(redis::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
+    }
+}
+
+fn from_mail_hash(opt: &Option<u32>, key: &str, conn: PoolConnectionRedis) -> Result<HashMap<String, String>, ServiceError> {
+    let test = opt.unwrap();
+    Ok(redis::cmd("hgetall").arg(format!("{}:{}:set", key, test)).query(conn.deref())?)
 }

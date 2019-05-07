@@ -1,16 +1,15 @@
+use actix_web::{HttpResponse, web::{Data, Json, Path}};
 use futures::{Future, IntoFuture};
 
-use actix_web::{web::{Data, Json, Path}, HttpResponse};
-
+use crate::handler::auth::UserJwt;
 use crate::model::{
+    category::CategoryUpdateRequest,
+    common::{PostgresPool, QueryOption, RedisPool},
     errors::ServiceError,
     post::PostRequest,
     topic::TopicRequest,
-    category::CategoryUpdateRequest,
-    user::UserUpdateJson,
-    common::{PostgresPool, RedisPool, QueryOption},
+    user::UserUpdateRequest,
 };
-use crate::handler::auth::UserJwt;
 
 /// Admin query will hit database directly.
 pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
@@ -45,16 +44,15 @@ pub fn admin_remove_category(jwt: UserJwt, id: Path<(u32)>, cache: Data<RedisPoo
             .into_future())
 }
 
-pub fn admin_update_user(jwt: UserJwt, req: Json<UserUpdateJson>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+pub fn admin_update_user(jwt: UserJwt, mut req: Json<UserUpdateRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    req.to_request_admin()
+    req.attach_id(None)
         .to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| req
-            .to_request_admin()
-            .to_update_query()
+            .to_query()
             .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
             .into_future())
 }

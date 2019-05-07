@@ -1,16 +1,16 @@
 use actix_web::web;
 use diesel::prelude::*;
 
-use crate::model::{
-    user::{UserUpdateRequest},
-    category::CategoryUpdateRequest,
-    topic::TopicRequest,
-    post::PostRequest,
-    admin::AdminPrivilegeCheck,
-    errors::ServiceError,
-    common::{PostgresPool, PoolConnectionPostgres},
-};
 use crate::handler::user::get_user_by_id;
+use crate::model::{
+    user::UserUpdateRequest,
+    category::CategoryUpdateRequest,
+    common::{PoolConnectionPostgres, PostgresPool},
+    errors::ServiceError,
+    post::PostRequest,
+    topic::TopicRequest,
+    admin::AdminPrivilegeCheck
+};
 
 type QueryResult = Result<(), ServiceError>;
 
@@ -30,7 +30,7 @@ impl<'a> AdminPrivilegeCheck<'a> {
 
 fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     check_admin_level(&req.is_admin, &lv, 9)?;
-    let user = get_user_by_id(&req.id, conn)?.pop().ok_or(ServiceError::BadRequestGeneral)?;
+    let user = get_user_by_id(req.extract_id()?, conn)?.pop().ok_or(ServiceError::BadRequestGeneral)?;
     if lv <= &user.is_admin { return Err(ServiceError::Unauthorized); }
     Ok(())
 }

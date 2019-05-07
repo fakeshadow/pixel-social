@@ -1,12 +1,12 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
+    common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
-    user::{User, UserRef, ToUserRef},
-    common::{AttachUser, GetUserId, GetSelfId},
+    user::{ToUserRef, User, UserRef},
 };
-use crate::schema::posts;
 use crate::model::admin::AdminPrivilegeCheck;
+use crate::schema::posts;
 
 #[derive(Debug, Queryable, Serialize, Deserialize)]
 pub struct Post {

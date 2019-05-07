@@ -1,16 +1,18 @@
+use actix_web::{Error, HttpResponse, web};
+use diesel::prelude::*;
 use futures::Future;
 
-use actix_web::{web, HttpResponse, Error};
-use diesel::prelude::*;
-
+use crate::handler::cache::{UpdateCache, MailCache};
 use crate::model::{
+    common::{get_unique_id, GetUserId, GlobalGuard, PoolConnectionPostgres, QueryOption, Response, Validator},
     errors::ServiceError,
-    user::{User, AuthRequest, AuthResponse, UserQuery, UserUpdateRequest, ToUserRef},
-    common::{PoolConnectionPostgres, GlobalGuard, Response, QueryOption, Validator, GetUserId, get_unique_id},
+    user::{AuthRequest, AuthResponse, ToUserRef, User, UserQuery, UserUpdateRequest},
 };
-use crate::handler::cache::UpdateCache;
 use crate::schema::users;
 use crate::util::{hash, jwt};
+
+
+use crate::{model::mail::Mail, handler::email::send_mail};
 
 type QueryResult = Result<HttpResponse, ServiceError>;
 
@@ -61,9 +63,11 @@ fn login_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
 }
 
 fn update_user(req: &UserUpdateRequest, opt: &QueryOption) -> QueryResult {
+    let update = req.make_update()?;
     let conn = &opt.db_pool.unwrap().get()?;
 
-    let user: User = diesel::update(users::table.filter(users::id.eq(&req.id))).set(req).get_result(conn)?;
+    let user: User = diesel::update(users::table.filter(users::id.eq(update.id)))
+        .set(update).get_result(conn)?;
     let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
 
     Ok(Response::ModifiedUser.to_res())
@@ -88,8 +92,17 @@ fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
                 .map(|mut guarded_global_var| guarded_global_var.next_uid())
                 .map_err(|_| ServiceError::InternalServerError)?;
 
-            let user = diesel::insert_into(users::table).values(&req.make_user(&id, &password_hash)?).get_result(conn)?;
+            let user = diesel::insert_into(users::table)
+                .values(&req.make_user(&id, &password_hash)?)
+                .get_result(conn)?;
+
             let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
+            let _ignore = MailCache::AddActivation(user.to_mail()).modify(&opt.cache_pool);
+
+            // ToDo: move sending mail to another thread.
+            let mail_string = MailCache::GetActivation(Some(user.id)).get_mail_queue(&opt.cache_pool.unwrap())?;
+            let mail = serde_json::from_str::<Mail>(&mail_string)?;
+            let _ignore = send_mail(mail);
 
             Ok(Response::Registered.to_res())
         }
@@ -97,11 +110,8 @@ fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
 }
 
 /// helper query function
-pub fn get_unique_users<T>(
-    vec: &Vec<T>,
-    opt: Option<u32>,
-    conn: &PoolConnectionPostgres,
-) -> Result<Vec<User>, ServiceError>
+pub fn get_unique_users<T>(vec: &Vec<T>, opt: Option<u32>, conn: &PoolConnectionPostgres)
+                           -> Result<Vec<User>, ServiceError>
     where T: GetUserId {
     let user_ids = get_unique_id(&vec, opt);
     let users = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;

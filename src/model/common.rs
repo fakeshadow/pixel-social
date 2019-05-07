@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use actix_web::HttpResponse;
 use diesel::{pg::PgConnection, r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection}};
-use r2d2_redis::{RedisConnectionManager, r2d2::Pool as redis_pool};
+use r2d2_redis::{r2d2::Pool as redis_pool, RedisConnectionManager};
 
-use crate::model::{errors::ServiceError, user::{UserRef, ToUserRef}};
+use crate::model::{errors::ServiceError, user::{ToUserRef, UserRef}};
 use crate::util::validation as validate;
 
 pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;

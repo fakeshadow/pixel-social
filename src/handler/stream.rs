@@ -1,10 +1,10 @@
 use std::fs;
 use std::io::Write;
-use futures::{future::{Either, err}, Future, Stream};
 
-use rand::Rng;
-use actix_web::{web, error, Error, HttpResponse};
 use actix_multipart::{Field, Multipart, MultipartError};
+use actix_web::{error, Error, HttpResponse, web};
+use futures::{future::{Either, err}, Future, Stream};
+use rand::Rng;
 
 #[derive(Serialize)]
 pub struct UploadResponse {

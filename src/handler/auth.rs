@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, dev, FromRequest};
+use actix_web::{dev, FromRequest, HttpRequest};
 use chrono::Local;
 
 use crate::model::{

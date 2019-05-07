@@ -1,19 +1,19 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse, web};
 use diesel::prelude::*;
 
-use crate::schema::categories;
-use crate::model::{
-    errors::ServiceError,
-    user::{User, ToUserRef},
-    topic::TopicWithUser,
-    category::{Category, CategoryQuery, CategoryUpdateRequest},
-    common::{Response, PoolConnectionPostgres, RedisPool, QueryOption, GetUserId, AttachUser, get_unique_id, match_id},
-};
 use crate::handler::{
-    user::get_unique_users,
-    topic::get_topics_by_category_id,
     cache::UpdateCache,
+    topic::get_topics_by_category_id,
+    user::get_unique_users,
 };
+use crate::model::{
+    category::{Category, CategoryQuery, CategoryUpdateRequest},
+    common::{AttachUser, get_unique_id, GetUserId, match_id, PoolConnectionPostgres, QueryOption, RedisPool, Response},
+    errors::ServiceError,
+    topic::TopicWithUser,
+    user::{ToUserRef, User},
+};
+use crate::schema::categories;
 
 const LIMIT: i64 = 20;
 

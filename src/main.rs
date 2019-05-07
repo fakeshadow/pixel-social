@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
 
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
 
@@ -12,22 +12,22 @@ use std::env;
 use actix::prelude::*;
 use actix_files as fs;
 use actix_web::{
+    App,
     http::header,
-    middleware::{cors::Cors, Logger},
-    web, App, HttpServer,
+    HttpServer, middleware::{cors::Cors, Logger}, web,
 };
+use diesel::{PgConnection, r2d2::ConnectionManager};
 use dotenv::dotenv;
-use diesel::{r2d2::ConnectionManager, PgConnection};
 use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
+
+use crate::handler::cache::clear_cache;
+use crate::util::startup::{build_cache, init_global_var};
 
 mod handler;
 mod model;
 mod router;
 mod schema;
 mod util;
-
-use crate::handler::cache::clear_cache;
-use crate::util::startup::{init_global_var, build_cache};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();

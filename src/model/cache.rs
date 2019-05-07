@@ -1,14 +1,15 @@
-use std::str::FromStr;
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    errors::ServiceError,
-    user::User,
-    topic::Topic,
-    post::Post,
     category::Category,
+    errors::ServiceError,
+    post::Post,
+    topic::Topic,
+    user::User,
+    mail::Mail
 };
 
 // ToDo: add individual field sort
@@ -75,6 +76,14 @@ impl SortHash for Category {
             ("post_count", self.post_count.to_string()),
             ("subscriber_count", self.subscriber_count.to_string()),
             ("thumbnail", self.thumbnail.to_owned())]
+    }
+}
+
+impl<'a> SortHash for Mail<'a> {
+    fn sort_hash(&self) -> Vec<(&str, String)> {
+        vec![
+            ("user_id", self.user_id.to_string()),
+            ("uuid", self.uuid.to_owned())]
     }
 }
 

@@ -1,13 +1,12 @@
-use futures::{IntoFuture, Future};
+use actix_web::{HttpResponse, web::{Data, Json, Path}};
+use futures::{Future, IntoFuture};
 
-use actix_web::{web::{Data, Json, Path}, HttpResponse};
-
+use crate::handler::auth::UserJwt;
 use crate::model::{
-    topic::*,
     common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
     errors::ServiceError,
+    topic::*,
 };
-use crate::handler::auth::UserJwt;
 
 pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                        -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
