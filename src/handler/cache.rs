@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use actix_web::{Error, HttpResponse, web};
+use actix_web::{HttpResponse, web};
 use lazy_static::__Deref;
 use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 

@@ -1,4 +1,4 @@
-use actix_web::{error::ResponseError, HttpResponse};
+use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
 use chrono::format::ParseError as ParseNavDateError;
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as diesel_err};
@@ -61,6 +61,17 @@ impl ResponseError for ServiceError {
         }
     }
 }
+
+
+impl From<BlockingError<ServiceError>> for ServiceError {
+    fn from(err: BlockingError<ServiceError>) -> ServiceError {
+       match err {
+           BlockingError::Error(e) => e,
+           _ => ServiceError::InternalServerError
+       }
+    }
+}
+
 
 impl From<redis_err> for ServiceError {
     fn from(_err: redis_err) -> ServiceError {

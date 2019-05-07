@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use actix_web::HttpResponse;
+use actix_web::{web::Data, HttpResponse};
 use diesel::{pg::PgConnection, r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection}};
 use r2d2_redis::{r2d2::Pool as redis_pool, RedisConnectionManager};
 
@@ -11,6 +11,27 @@ pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_pool<RedisConnectionManager>;
 pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnection>>;
 pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
+
+
+pub struct QueryOptAsync {
+    pub db: Option<Data<PostgresPool>>,
+    pub cache: Option<Data<RedisPool>>,
+    pub global: Option<Data<GlobalGuard>>,
+}
+
+impl QueryOptAsync {
+    pub fn new(
+        db: Option<Data<PostgresPool>>,
+        cache: Option<Data<RedisPool>>,
+        global: Option<Data<GlobalGuard>>,
+    ) -> Self {
+        QueryOptAsync {
+            db,
+            cache,
+            global,
+        }
+    }
+}
 
 pub struct QueryOption<'a> {
     pub db_pool: Option<&'a PostgresPool>,

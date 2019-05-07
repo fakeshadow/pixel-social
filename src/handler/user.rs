@@ -11,7 +11,6 @@ use crate::model::{
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
-
 use crate::{model::mail::Mail, handler::email::send_mail};
 
 type QueryResult = Result<HttpResponse, ServiceError>;
@@ -44,7 +43,6 @@ fn get_user(self_id: Option<&u32>, other_id: Option<&u32>, opt: &QueryOption) ->
     let user = get_user_by_id(&id, conn)?.pop().ok_or(ServiceError::InternalServerError)?;
 
     let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
-
     Ok(match self_id {
         Some(_) => HttpResponse::Ok().json(&user),
         None => HttpResponse::Ok().json(&user.to_ref())
@@ -59,7 +57,7 @@ fn login_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
     hash::verify_password(&req.password, &user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-    Ok(HttpResponse::Ok().json(&AuthResponse { token: &token, user_data: &user.to_ref() }))
+    Ok(HttpResponse::Ok().json(&AuthResponse { token: &token, user_data: user.to_ref() }))
 }
 
 fn update_user(req: &UserUpdateRequest, opt: &QueryOption) -> QueryResult {

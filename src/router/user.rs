@@ -1,12 +1,13 @@
-use actix_web::{HttpResponse, web::{Data, Json, Path}};
+use actix_web::{HttpResponse, web::{Data, Json, Path}, Error};
 use futures::{Future, future::result as ftr, IntoFuture};
 
 use crate::handler::{auth::UserJwt, cache::handle_cache_query};
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, QueryOption, RedisPool},
+    common::{GlobalGuard, PostgresPool, QueryOption, QueryOptAsync, RedisPool},
     errors::ServiceError,
-    user::{AuthRequest, UserUpdateRequest},
+    user::{ToUserRef, AuthRequest, UserUpdateRequest},
 };
+use crate::handler::user_async::UserQueryAsync;
 
 pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                 -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
@@ -41,4 +42,48 @@ pub fn register_user(global: Data<GlobalGuard>, req: Json<AuthRequest>, db: Data
     req.to_register_query()
         .handle_query(&QueryOption::new(Some(&db), Some(&cache), Some(&global)))
         .into_future()
+}
+
+/// asnc query
+pub fn get_user_async(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                      -> impl Future<Item=HttpResponse, Error=Error> {
+    use crate::model::user::IdToQueryAsync;
+    id.into_query()
+        .into_user(QueryOptAsync::new(Some(db), Some(cache), None))
+        .from_err()
+        .and_then(move |u| {
+            if u.id == jwt.user_id {
+                HttpResponse::Ok().json(u)
+            } else {
+                HttpResponse::Ok().json(u.to_ref())
+            }
+        })
+}
+
+pub fn register_user_async(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                           -> impl Future<Item=HttpResponse, Error=Error> {
+    req.into_inner()
+        .into_register_query()
+        .into_user(QueryOptAsync::new(Some(db), Some(cache), Some(global)))
+        .from_err()
+        .and_then(|u| HttpResponse::Ok().json(&u.to_ref()))
+}
+
+pub fn update_user_async(jwt: UserJwt, req: Json<UserUpdateRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                         -> impl Future<Item=HttpResponse, Error=Error> {
+    req.into_inner()
+        .attach_id_async(Some(jwt.user_id))
+        .into_update_query()
+        .into_user(QueryOptAsync::new(Some(db), Some(cache), None))
+        .from_err()
+        .and_then(|u| HttpResponse::Ok().json(&u.to_ref()))
+}
+
+pub fn login_user_async(req: Json<AuthRequest>, db: Data<PostgresPool>)
+                        -> impl Future<Item=HttpResponse, Error=Error> {
+    req.into_inner()
+        .into_login_query()
+        .into_login(QueryOptAsync::new(Some(db), None, None))
+        .from_err()
+        .and_then(|u| HttpResponse::Ok().json(&u))
 }

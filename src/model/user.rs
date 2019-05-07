@@ -3,6 +3,7 @@ use chrono::NaiveDateTime;
 use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, errors::ServiceError};
 use crate::model::mail::Mail;
 use crate::schema::users;
+use crate::handler::user_async::UserQueryAsync;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct User {
@@ -107,10 +108,16 @@ impl AuthRequest {
     pub fn to_register_query(&self) -> UserQuery {
         UserQuery::Register(self)
     }
-
     pub fn to_login_query(&self) -> UserQuery {
         UserQuery::Login(self)
     }
+
+    /// for async query
+    pub fn into_register_query(self) -> UserQueryAsync { UserQueryAsync::Register(self) }
+    pub fn into_login_query(self) -> UserQueryAsync {
+        UserQueryAsync::Login(self)
+    }
+
     pub fn extract_email(&self) -> Result<&str, ServiceError> {
         self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequestGeneral)
     }
@@ -131,7 +138,22 @@ impl AuthRequest {
 #[derive(Serialize)]
 pub struct AuthResponse<'a> {
     pub token: &'a str,
-    pub user_data: &'a UserRef<'a>,
+    pub user_data: UserRef<'a>,
+}
+
+#[derive(Serialize)]
+pub struct AuthResponseAsync {
+    pub token: String,
+    pub user: User,
+}
+
+impl AuthResponseAsync {
+    pub fn to_response(&self) -> AuthResponse {
+        AuthResponse {
+            token: &self.token,
+            user_data: self.user.to_ref(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -182,6 +204,26 @@ impl UserUpdateRequest {
             }
         }
     }
+    pub fn attach_id_async(mut self, id: Option<u32>) -> Self {
+        match id {
+            Some(_) => {
+                self.id = id;
+                self.is_admin = None;
+                self.blocked = None;
+                self
+            }
+            None => {
+                self.username = None;
+                self.avatar_url = None;
+                self.signature = None;
+                self.show_email = None;
+                self.show_created_at = None;
+                self.show_updated_at = None;
+                self
+            }
+        }
+    }
+
     pub fn extract_id(&self) -> Result<&u32, ServiceError> {
         self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)
     }
@@ -205,6 +247,8 @@ impl UserUpdateRequest {
     pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateUserCheck(level, self)
     }
+    pub fn into_update_query(self) -> UserQueryAsync { UserQueryAsync::UpdateUser(self) }
+
     pub fn to_query(&self) -> UserQuery { UserQuery::UpdateUser(self) }
 }
 
@@ -230,6 +274,17 @@ impl IdToQuery for u32 {
         }
     }
 }
+
+pub trait IdToQueryAsync {
+    fn into_query(self) -> UserQueryAsync;
+}
+
+impl IdToQueryAsync for u32 {
+    fn into_query(self) -> UserQueryAsync {
+        UserQueryAsync::GetUser(self)
+    }
+}
+
 
 impl<'a> Validator for UserQuery<'a> {
     // ToDo: handle update validation separately.
