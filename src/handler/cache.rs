@@ -23,26 +23,31 @@ const MAIL_LIFE: usize = 2592000;
 impl CacheQueryAsync {
     pub fn user_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=User, Error=ServiceError> {
         block(move || match self {
-            CacheQueryAsync::GetUser(id) => get_user_async(id, pool.get().unwrap()),
+            CacheQueryAsync::GetUser(id) => get_user_cache(id, pool.get().unwrap()),
             _ => panic!("Only user cache query can use user_from_cache method")
         }).from_err()
     }
     pub fn topic_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
         block(move || match self {
-            CacheQueryAsync::GetTopic(id, page) => get_topic_async(id, page, pool.get().unwrap()),
+            CacheQueryAsync::GetTopic(id, page) => get_topic(id, page, pool.get().unwrap()),
             _ => panic!("Only user cache query can use user_from_cache method")
         }).from_err()
     }
 }
 
-pub fn get_users_cache_async<T>(vec: &Vec<T>, opt: Option<u32>, pool: Data<RedisPool>)
-                                -> impl Future<Item=Vec<User>, Error=ServiceError>
+fn get_user_cache(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
+    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
+    Ok(hash.parse::<User>()?)
+}
+
+pub fn get_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: Data<RedisPool>)
+                          -> impl Future<Item=Vec<User>, Error=ServiceError>
     where T: GetUserId {
     let ids = get_unique_id(vec, opt);
     block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get().unwrap())?)).from_err()
 }
 
-fn get_topic_async(id: u32, page: i64, conn: PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
+fn get_topic(id: u32, page: i64, conn: PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
     let topic: Option<Topic> = if page == 1 {
         from_hash_set::<Topic>(&vec![id.clone()], "topic", &conn)?.pop()
     } else { None };
@@ -50,24 +55,18 @@ fn get_topic_async(id: u32, page: i64, conn: PoolConnectionRedis) -> Result<(Opt
     let list_key = format!("topic:{}:list", id);
     let start = (page as isize - 1) * 20;
     let post_id: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
+
+    // ToDo: Handle case when posts are empty
     let posts = from_hash_set::<Post>(&post_id, "post", &conn)?;
     Ok((topic, posts))
 }
 
-
-fn get_user_async(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
-    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
-    Ok(hash.parse::<User>()?)
-}
-
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {
-        CacheQuery::GetMe(id) => get_user_cache(Some(id), None, pool),
-        CacheQuery::GetUser(id) => get_user_cache(None, Some(id), pool),
         CacheQuery::GetPost(id) => get_post_cache(id, pool),
         CacheQuery::GetAllCategories => get_categories_cache(pool),
         CacheQuery::GetCategory(id, page) => get_topics_cache(id, page, pool),
-        CacheQuery::GetTopic(id, page) => get_topic_cache(id, page, pool)
+        _ => panic!("method not allowed")
     }
 }
 
@@ -76,16 +75,6 @@ pub fn get_post_cache(id: u32, pool: &RedisPool) -> Result<HttpResponse, Service
     let post = from_hash_set::<Post>(&vec![id], "post", conn)?;
     let user = get_users(&post, None, conn)?;
     Ok(HttpResponse::Ok().json(&post[0].attach_user(&user)))
-}
-
-pub fn get_user_cache(self_id: Option<u32>, other_id: Option<u32>, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
-    let id = self_id.unwrap_or_else(|| other_id.unwrap());
-    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
-    Ok(match self_id {
-        Some(_) => HttpResponse::Ok().json(&hash.parse::<User>()?),
-        None => HttpResponse::Ok().json(&hash.parse::<User>()?.to_ref())
-    })
 }
 
 pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
@@ -119,29 +108,6 @@ pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpRe
     let users = get_users(&topics, None, &conn)?;
 
     Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
-}
-
-pub fn get_topic_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
-    let topic = if page == &1 {
-        from_hash_set::<Topic>(&vec![id.clone()], "topic", &conn)?.pop()
-    } else { None };
-
-    let topic_user_id = match &topic {
-        Some(t) => Some(t.user_id),
-        None => None
-    };
-
-    let list_key = format!("topic:{}:list", id);
-    let start = (*page as isize - 1) * 20;
-    let post_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
-
-    let posts = from_hash_set::<Post>(&post_id, "post", &conn)?;
-    let users = get_users(&posts, topic_user_id, &conn)?;
-
-    Ok(HttpResponse::Ok().json(&TopicWithPost::new(
-        topic.as_ref().map(|t| t.attach_user(&users)),
-        Some(posts.iter().map(|p| p.attach_user(&users)).collect()))))
 }
 
 fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError>

@@ -4,7 +4,7 @@ use crate::model::{
     admin::AdminPrivilegeCheck,
     common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
-    post::PostWithUser,
+    post::{Post,PostWithUser},
     user::{ToUserRef, User, UserRef},
 };
 use crate::schema::topics;
@@ -72,11 +72,8 @@ impl TopicRequest {
         AdminPrivilegeCheck::UpdateTopicCheck(level, self)
     }
 
-    pub fn to_add_query(&self) -> TopicQuery { TopicQuery::AddTopic(self) }
-    pub fn to_update_query(&self) -> TopicQuery { TopicQuery::UpdateTopic(self) }
-
-    pub fn into_add_query_async(self) -> TopicQueryAsync { TopicQueryAsync::AddTopic(self) }
-    pub fn into_update_query_async(self) -> TopicQueryAsync { TopicQueryAsync::UpdateTopic(self) }
+    pub fn into_add_query(self) -> TopicQuery { TopicQuery::AddTopic(self) }
+    pub fn into_update_query(self) -> TopicQuery { TopicQuery::UpdateTopic(self) }
 
 
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
@@ -146,12 +143,15 @@ pub struct TopicWithUser<'a> {
 #[derive(Serialize)]
 pub struct TopicWithPost<'a> {
     pub topic: Option<TopicWithUser<'a>>,
-    pub posts: Option<Vec<PostWithUser<'a>>>,
+    pub posts: Vec<PostWithUser<'a>>,
 }
 
 impl<'a> TopicWithPost<'a> {
-    pub fn new(topic: Option<TopicWithUser<'a>>, posts: Option<Vec<PostWithUser<'a>>>) -> Self {
-        TopicWithPost { topic, posts }
+    pub fn new(t: Option<&'a Topic>, p: &'a Vec<Post>, u: &'a Vec<User>) -> Self {
+        TopicWithPost {
+            topic: t.map(|t| t.attach_user(&u)),
+            posts: p.iter().map(|p| p.attach_user(&u)).collect(),
+        }
     }
 }
 
@@ -159,23 +159,7 @@ impl GetUserId for Topic {
     fn get_user_id(&self) -> u32 { self.user_id }
 }
 
-pub enum TopicQuery<'a> {
-    GetTopic(u32, i64),
-    AddTopic(&'a TopicRequest),
-    UpdateTopic(&'a TopicRequest),
-}
-
-pub trait IdToQuery {
-    fn into_query<'a>(self, page: i64) -> TopicQuery<'a>;
-}
-
-impl IdToQuery for u32 {
-    fn into_query<'a>(self, page: i64) -> TopicQuery<'a> {
-        TopicQuery::GetTopic(self, page)
-    }
-}
-
-pub enum TopicQueryAsync {
+pub enum TopicQuery {
     GetTopic(u32, i64),
     AddTopic(TopicRequest),
     UpdateTopic(TopicRequest),
@@ -183,10 +167,11 @@ pub enum TopicQueryAsync {
 
 
 pub trait PathToQueryAsync {
-    fn to_query(&self) -> TopicQueryAsync;
+    fn to_query(&self) -> TopicQuery;
 }
+
 impl PathToQueryAsync for (u32, i64) {
-    fn to_query(&self) -> TopicQueryAsync {
-        TopicQueryAsync::GetTopic(self.0, self.1)
+    fn to_query(&self) -> TopicQuery {
+        TopicQuery::GetTopic(self.0, self.1)
     }
 }

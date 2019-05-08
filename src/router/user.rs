@@ -7,7 +7,7 @@ use crate::handler::{
     user::UserQuery};
 use crate::model::{
     errors::ServiceError,
-    common::{GlobalGuard, PostgresPool, QueryOption, QueryOptAsync, RedisPool},
+    common::{GlobalGuard, PostgresPool, RedisPool},
     user::{ToUserRef, AuthRequest, UserUpdateRequest},
 };
 
@@ -24,7 +24,7 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
             }),
             Err(_) => Either::B(
                 id.into_query()
-                    .into_user(QueryOptAsync::new(Some(db), None))
+                    .into_user(db, None)
                     .from_err()
                     .and_then(move |u| {
                         let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
@@ -42,7 +42,7 @@ pub fn register_user(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data
                            -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_register_query()
-        .into_user(QueryOptAsync::new(Some(db), Some(global)))
+        .into_user(db, Some(global))
         .from_err()
         .and_then(move |u| {
             let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
@@ -55,7 +55,7 @@ pub fn update_user(jwt: UserJwt, req: Json<UserUpdateRequest>, db: Data<Postgres
     req.into_inner()
         .attach_id(Some(jwt.user_id))
         .into_update_query()
-        .into_user(QueryOptAsync::new(Some(db), None))
+        .into_user(db, None)
         .from_err()
         .and_then(move |u| {
             let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
@@ -67,7 +67,7 @@ pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
                         -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_login_query()
-        .into_login(QueryOptAsync::new(Some(db), None))
+        .into_login(db)
         .from_err()
         .and_then(|u| HttpResponse::Ok().json(&u))
 }

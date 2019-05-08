@@ -1,75 +1,63 @@
-use actix_web::{HttpResponse, web};
-use chrono::NaiveDateTime;
+use futures::Future;
+
+use actix_web::web::{Data, block};
 use diesel::prelude::*;
+use chrono::NaiveDateTime;
 
 use crate::handler::{
-    cache::UpdateCache,
     category::update_category_topic_count,
     post::get_posts_by_topic_id,
     user::get_unique_users,
 };
 use crate::model::{
-    common::{AttachUser, PoolConnectionPostgres, QueryOption, Response},
+    common::{PoolConnectionPostgres, PostgresPool, GlobalGuard},
     errors::ServiceError,
-    topic::{Topic, TopicQuery, TopicRequest, TopicWithPost},
+    post::Post,
+    topic::{Topic, TopicQuery, TopicRequest},
 };
 use crate::schema::topics;
 
 const LIMIT: i64 = 20;
 
-type QueryResult = Result<HttpResponse, ServiceError>;
-
-impl<'a> TopicQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        match self {
-            TopicQuery::GetTopic(topic_id, page) => get_topic(&topic_id, &page, &opt),
-            TopicQuery::AddTopic(new_topic_request) => add_topic(&new_topic_request, &opt),
-            TopicQuery::UpdateTopic(topic_request) => update_topic(&topic_request, &opt)
-        }
+impl TopicQuery {
+    pub fn into_topic_with_post(self, db: Data<PostgresPool>) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+        block(move || match self {
+            TopicQuery::GetTopic(id, page) => get_topic(&id, &page, &db.get()?),
+            _ => panic!("Only getting topic query can use into_topic_with_post method")
+        }).from_err()
+    }
+    pub fn into_topic(self, db: Data<PostgresPool>, opt: Option<Data<GlobalGuard>>) -> impl Future<Item=Topic, Error=ServiceError> {
+        block(move || match self {
+            TopicQuery::AddTopic(req) => add_topic(&req, &db.get()?, opt),
+            TopicQuery::UpdateTopic(req) => update_topic(&req, &db.get()?),
+            _ => panic!("Only modify topic query can use into_topic method")
+        }).from_err()
     }
 }
 
-fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
-    use std::{thread::sleep, time::Duration};
-    sleep(Duration::from_millis(10));
-
-    let conn = &opt.db_pool.unwrap().get().unwrap();
-
+fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
     let posts = get_posts_by_topic_id(id, (page - 1) * 20, conn)?;
-    let _ignore = UpdateCache::GotPosts(&posts).handle_update(&opt.cache_pool);
-
-    let (topic, users) = if page == &1 {
-        let topic: Topic = topics::table.find(&id).first::<Topic>(conn)?;
-        let _ignore = UpdateCache::GotTopic(&topic).handle_update(&opt.cache_pool);
-        let users = get_unique_users(&posts, Some(topic.user_id), &conn)?;
-        (Some(topic), users)
-    } else {
-        (None, get_unique_users(&posts, None, &conn)?)
-    };
-
-    Ok(HttpResponse::Ok().json(&TopicWithPost::new(
-        topic.as_ref().map(|t| t.attach_user(&users)),
-        Some(posts.iter().map(|post| post.attach_user(&users)).collect()))))
+    let topic = if page == &1 {
+        Some(topics::table.find(&id).first::<Topic>(conn)?)
+    } else { None };
+    Ok((topic, posts))
 }
 
-fn add_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
-
+fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>) -> Result<Topic, ServiceError> {
     // ToDo: Test if category_id can be null or out of range
     let category = update_category_topic_count(req.extract_category_id()?, conn)?;
 
-    let id: u32 = opt.global_var.unwrap().lock()
-        .map(|mut guarded_global_var| guarded_global_var.next_tid())
+    let id: u32 = global.unwrap().lock()
+        .map(|mut var| var.next_tid())
         .map_err(|_| ServiceError::InternalServerError)?;
-    let topic = diesel::insert_into(topics::table).values(&req.make_topic(&id)?).get_result::<Topic>(conn)?;
-    let _ignore = UpdateCache::AddedTopic(&topic, &category).handle_update(&opt.cache_pool);
-
-    Ok(Response::ModifiedTopic.to_res())
+    let topic = diesel::insert_into(topics::table)
+        .values(&req.make_topic(&id)?)
+        .get_result::<Topic>(conn)?;
+    Ok(topic)
 }
 
-fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
+fn update_topic(req: &TopicRequest, conn: &PoolConnectionPostgres) -> Result<Topic, ServiceError> {
     let topic_id = req.extract_self_id()?;
-    let conn = &opt.db_pool.unwrap().get().unwrap();
 
     let topic = match req.user_id {
         Some(_user_id) => diesel::update(topics::table
@@ -79,9 +67,7 @@ fn update_topic(req: &TopicRequest, opt: &QueryOption) -> QueryResult {
             .find(&topic_id))
             .set(req.make_update()?).get_result(conn)?
     };
-    let _ignore = UpdateCache::GotTopic(&topic).handle_update(&opt.cache_pool);
-
-    Ok(Response::ModifiedTopic.to_res())
+    Ok(topic)
 }
 
 pub fn update_topic_reply_count(id: &u32, now: &NaiveDateTime, conn: &PoolConnectionPostgres) -> Result<Topic, ServiceError> {

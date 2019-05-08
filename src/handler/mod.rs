@@ -2,7 +2,6 @@ pub mod auth;
 pub mod category;
 pub mod post;
 pub mod topic;
-pub mod topic_async;
 pub mod user;
 pub mod stream;
 pub mod email;

@@ -10,9 +10,7 @@ use crate::model::{
     topic::TopicRequest,
     user::{ToUserRef, UserUpdateRequest},
 };
-use crate::model::common::QueryOptAsync;
 use crate::handler::cache::UpdateCache;
-use core::borrow::Borrow;
 
 /// Admin query will hit database directly.
 pub fn admin_modify_category(jwt: UserJwt, req: Json<CategoryUpdateRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
@@ -58,7 +56,7 @@ pub fn admin_update_user(jwt: UserJwt, mut req: Json<UserUpdateRequest>, cache: 
         .and_then(move |_| req
             .into_inner()
             .into_update_query()
-            .into_user(QueryOptAsync::new(Some(db), None))
+            .into_user(db, None)
             .from_err()
             .and_then(move |u| {
                 let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
@@ -67,16 +65,18 @@ pub fn admin_update_user(jwt: UserJwt, mut req: Json<UserUpdateRequest>, cache: 
 }
 
 pub fn admin_update_topic(jwt: UserJwt, mut req: Json<TopicRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)
-                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+                          -> impl IntoFuture<Item=HttpResponse, Error=Error> {
     req.attach_user_id(None)
         .to_privilege_check(&jwt.is_admin)
         .handle_check(&db)
         .into_future()
         .from_err()
         .and_then(move |_| req
-            .to_update_query()
-            .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-            .into_future())
+            .into_inner()
+            .into_update_query()
+            .into_topic(db, None))
+        .from_err()
+        .and_then(|r| HttpResponse::Ok().json(&r))
 }
 
 pub fn admin_update_post(jwt: UserJwt, mut req: Json<PostRequest>, cache: Data<RedisPool>, db: Data<PostgresPool>)

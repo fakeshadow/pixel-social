@@ -13,23 +13,6 @@ pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnectio
 pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 
 
-pub struct QueryOptAsync {
-    pub db: Option<Data<PostgresPool>>,
-    pub global: Option<Data<GlobalGuard>>,
-}
-
-impl QueryOptAsync {
-    pub fn new(
-        db: Option<Data<PostgresPool>>,
-        global: Option<Data<GlobalGuard>>,
-    ) -> Self {
-        QueryOptAsync {
-            db,
-            global,
-        }
-    }
-}
-
 pub struct QueryOption<'a> {
     pub db_pool: Option<&'a PostgresPool>,
     pub cache_pool: Option<&'a RedisPool>,
