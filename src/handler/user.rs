@@ -1,79 +1,71 @@
-use actix_web::{Error, HttpResponse, web};
-use diesel::prelude::*;
 use futures::Future;
 
-use crate::handler::cache::{UpdateCache, MailCache};
+use actix_web::web::block;
+use diesel::prelude::*;
+
 use crate::model::{
-    common::{get_unique_id, GetUserId, GlobalGuard, PoolConnectionPostgres, QueryOption, Response, Validator},
+    common::{get_unique_id, GetUserId, QueryOptAsync, Response, Validator, PoolConnectionPostgres},
     errors::ServiceError,
-    user::{AuthRequest, AuthResponse, ToUserRef, User, UserQuery, UserUpdateRequest},
+    user::{AuthRequest, UserUpdateRequest, AuthResponseAsync, User},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
 
-use crate::{model::mail::Mail, handler::email::send_mail};
+pub enum UserQuery {
+    GetUser(u32),
+    Register(AuthRequest),
+    Login(AuthRequest),
+    UpdateUser(UserUpdateRequest),
+    ValidationFailed(ServiceError),
+}
 
-type QueryResult = Result<HttpResponse, ServiceError>;
+type QueryResult = Result<User, ServiceError>;
+type QueryResultMulti = Result<Vec<User>, ServiceError>;
 
-impl<'a> UserQuery<'a> {
-    pub fn handle_query(&self, opt: &QueryOption) -> QueryResult {
-        // ToDo: Find a better way to handle auth check.
-        match self {
-            UserQuery::GetMe(id) => get_user(Some(&id), None, opt),
-            UserQuery::GetUser(id) => get_user(None, Some(&id), opt),
-            UserQuery::Login(req) => {
-                self.check_login()?;
-                login_user(&req, opt)
-            }
-            UserQuery::UpdateUser(req) => {
-                if let Some(_) = req.username { self.check_username()?; }
-                update_user(&req, opt)
-            }
-            UserQuery::Register(req) => {
-                self.check_register()?;
-                register_user(&req, opt)
-            }
-        }
+impl UserQuery {
+    pub fn into_user(self, opt: QueryOptAsync) -> impl Future<Item=User, Error=ServiceError> {
+        block(move || match self {
+            UserQuery::GetUser(id) => get_user(&id, opt),
+            UserQuery::Register(req) => register_user(&req, opt),
+            UserQuery::UpdateUser(req) => update_user(&req, opt),
+            UserQuery::ValidationFailed(e) => Err(e),
+            _ => panic!("only single object query can use into_user method")
+        }).from_err()
+    }
+    pub fn into_login(self, opt: QueryOptAsync) -> impl Future<Item=AuthResponseAsync, Error=ServiceError> {
+        block(move || match self {
+            UserQuery::Login(req) => login_user(&req, opt),
+            _ => panic!("only login query can use into_login method")
+        }).from_err()
     }
 }
 
-fn get_user(self_id: Option<&u32>, other_id: Option<&u32>, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-    let id = self_id.unwrap_or_else(|| other_id.unwrap());
-    let user = get_user_by_id(&id, conn)?.pop().ok_or(ServiceError::InternalServerError)?;
-
-    let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
-    Ok(match self_id {
-        Some(_) => HttpResponse::Ok().json(&user),
-        None => HttpResponse::Ok().json(&user.to_ref())
-    })
+fn get_user(id: &u32, opt: QueryOptAsync) -> QueryResult {
+    let conn = &opt.db.unwrap().get()?;
+    Ok(get_user_by_id(&id, &conn)?.pop().ok_or(ServiceError::InternalServerError)?)
 }
 
-fn login_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
+fn update_user(req: &UserUpdateRequest, opt: QueryOptAsync) -> QueryResult {
+    let update = req.make_update()?;
+    let conn = &opt.db.unwrap().get()?;
+
+    Ok(diesel::update(users::table.filter(users::id.eq(update.id)))
+        .set(update).get_result(conn)?)
+}
+
+fn login_user(req: &AuthRequest, opt: QueryOptAsync) -> Result<AuthResponseAsync, ServiceError> {
+    let conn = &opt.db.unwrap().get()?;
     let user = users::table.filter(users::username.eq(&req.username)).first::<User>(conn)?;
     if user.blocked { return Err(ServiceError::Unauthorized); }
 
     hash::verify_password(&req.password, &user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-    Ok(HttpResponse::Ok().json(&AuthResponse { token: &token, user_data: user.to_ref() }))
+    Ok(AuthResponseAsync { token, user })
 }
 
-fn update_user(req: &UserUpdateRequest, opt: &QueryOption) -> QueryResult {
-    let update = req.make_update()?;
-    let conn = &opt.db_pool.unwrap().get()?;
-
-    let user: User = diesel::update(users::table.filter(users::id.eq(update.id)))
-        .set(update).get_result(conn)?;
-    let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
-
-    Ok(Response::ModifiedUser.to_res())
-}
-
-fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-
+fn register_user(req: &AuthRequest, opt: QueryOptAsync) -> QueryResult {
+    let conn = &opt.db.unwrap().get()?;
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
@@ -86,26 +78,28 @@ fn register_user(req: &AuthRequest, opt: &QueryOption) -> QueryResult {
         },
         None => {
             let password_hash: String = hash::hash_password(&req.password)?;
-            let id: u32 = opt.global_var.unwrap().lock()
+            let id: u32 = opt.global.unwrap().lock()
                 .map(|mut guarded_global_var| guarded_global_var.next_uid())
                 .map_err(|_| ServiceError::InternalServerError)?;
 
-            let user = diesel::insert_into(users::table)
+            Ok(diesel::insert_into(users::table)
                 .values(&req.make_user(&id, &password_hash)?)
-                .get_result(conn)?;
-
-            let _ignore = UpdateCache::GotUser(&user).handle_update(&opt.cache_pool);
-            let _ignore = MailCache::AddActivation(user.to_mail()).modify(&opt.cache_pool);
-
-            // ToDo: move sending mail to another thread.
-//            let mail_string = MailCache::GetActivation(Some(user.id)).get_mail_queue(&opt.cache_pool.unwrap())?;
-//            let mail = serde_json::from_str::<Mail>(&mail_string)?;
-//            let _ignore = send_mail(mail);
-
-            Ok(Response::Registered.to_res())
+                .get_result(conn)?)
         }
     }
 }
+
+pub fn get_users_async<T>(vec: &Vec<T>, opt: Option<u32>, conn: PoolConnectionPostgres)
+                          -> impl Future<Item=Vec<User>, Error=ServiceError>
+    where T: GetUserId {
+    let ids = get_unique_id(vec, opt);
+    block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&conn)?)).from_err()
+}
+
+pub fn get_user_by_id_async(id: u32, conn: PoolConnectionPostgres) -> impl Future<Item=Vec<User>, Error=ServiceError> {
+    block(move || Ok(users::table.find(&id).load::<User>(&conn)?)).from_err()
+}
+
 
 /// helper query function
 pub fn get_unique_users<T>(vec: &Vec<T>, opt: Option<u32>, conn: &PoolConnectionPostgres)

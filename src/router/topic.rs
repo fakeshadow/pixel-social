@@ -9,7 +9,7 @@ use crate::model::{
     cache::PathToTopicQueryAsync
 };
 use crate::handler::cache::{UpdateCache, get_users_cache_async};
-use crate::handler::user_async::{get_users_async, get_user_by_id_async};
+use crate::handler::user::{get_users_async, get_user_by_id_async};
 
 pub fn add_topic(jwt: UserJwt, mut req: Json<TopicRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
                  -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
@@ -68,7 +68,7 @@ pub fn update_topic_async(jwt: UserJwt, req: Json<TopicRequest>, db: Data<Postgr
             let _ignore = UpdateCache::GotTopic(&t).handle_update(&Some(&cache));
             get_user_by_id_async(t.id, db.get().unwrap())
                 .from_err()
-                .and_then(move |u| Ok(HttpResponse::Ok().json(t.attach_user(&u))))
+                .and_then(move |u| HttpResponse::Ok().json(t.attach_user(&u)))
         })
 }
 
@@ -90,14 +90,14 @@ pub fn get_topic_async(path: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Da
                     .from_err()
                     .and_then(move |(topic, posts)| {
                         if let Some(t) = &topic {
-                            let _ignore = UpdateCache::GotTopic(&t).handle_update(&Some(&cache));
+                            let _ignore = UpdateCache::GotTopic(t).handle_update(&Some(&cache));
                         }
                         let _ignore = UpdateCache::GotPosts(&posts).handle_update(&Some(&cache));
                         get_users_async(&posts, topic.as_ref().map(|t| t.id), db.get().unwrap())
                             .from_err()
-                            .and_then(move |u| Ok(HttpResponse::Ok().json(&TopicWithPost::new(
+                            .and_then(move |u| HttpResponse::Ok().json(&TopicWithPost::new(
                                 topic.as_ref().map(|t| t.attach_user(&u)),
-                                Some(posts.iter().map(|post| post.attach_user(&u)).collect())))))
+                                Some(posts.iter().map(|post| post.attach_user(&u)).collect()))))
                     })
             )
         })

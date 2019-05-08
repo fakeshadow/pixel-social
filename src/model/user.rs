@@ -3,7 +3,8 @@ use chrono::NaiveDateTime;
 use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, errors::ServiceError};
 use crate::model::mail::Mail;
 use crate::schema::users;
-use crate::handler::user_async::UserQueryAsync;
+use crate::handler::user::UserQuery;
+use jsonwebtoken::Validation;
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct User {
@@ -105,17 +106,14 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
-    pub fn to_register_query(&self) -> UserQuery {
-        UserQuery::Register(self)
+    pub fn into_register_query(self) -> UserQuery {
+        match self.check_register() {
+            Ok(_) => UserQuery::Register(self),
+            Err(e) => UserQuery::ValidationFailed(e)
+        }
     }
-    pub fn to_login_query(&self) -> UserQuery {
+    pub fn into_login_query(self) -> UserQuery {
         UserQuery::Login(self)
-    }
-
-    /// for async query
-    pub fn into_register_query(self) -> UserQueryAsync { UserQueryAsync::Register(self) }
-    pub fn into_login_query(self) -> UserQueryAsync {
-        UserQueryAsync::Login(self)
     }
 
     pub fn extract_email(&self) -> Result<&str, ServiceError> {
@@ -156,7 +154,7 @@ impl AuthResponseAsync {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UserUpdateRequest {
     pub id: Option<u32>,
     pub username: Option<String>,
@@ -185,7 +183,7 @@ pub struct UpdateUser<'a> {
 
 impl UserUpdateRequest {
     /// pass user_id from jwt for normal update user. pass none for admin update user.
-    pub fn attach_id(&mut self, id: Option<u32>) -> &Self {
+    pub fn attach_id_admin(&mut self, id: Option<u32>) -> &Self {
         match id {
             Some(_) => {
                 self.id = id;
@@ -204,7 +202,7 @@ impl UserUpdateRequest {
             }
         }
     }
-    pub fn attach_id_async(mut self, id: Option<u32>) -> Self {
+    pub fn attach_id(mut self, id: Option<u32>) -> Self {
         match id {
             Some(_) => {
                 self.id = id;
@@ -247,66 +245,37 @@ impl UserUpdateRequest {
     pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateUserCheck(level, self)
     }
-    pub fn into_update_query(self) -> UserQueryAsync { UserQueryAsync::UpdateUser(self) }
-
-    pub fn to_query(&self) -> UserQuery { UserQuery::UpdateUser(self) }
+    pub fn into_update_query(self) -> UserQuery {
+        match self.check_username() {
+            Ok(_) => UserQuery::UpdateUser(self),
+            Err(e) => UserQuery::ValidationFailed(e)
+        }
+    }
 }
 
-pub enum UserQuery<'a> {
-    Register(&'a AuthRequest),
-    Login(&'a AuthRequest),
-    GetMe(u32),
-    GetUser(u32),
-    UpdateUser(&'a UserUpdateRequest),
-}
 
-/// method is into_query when consume self. to_query when only ref self
 pub trait IdToQuery {
-    fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a>;
+    fn into_query(self) -> UserQuery;
 }
 
 impl IdToQuery for u32 {
-    fn into_query<'a>(self, jwt_id: u32) -> UserQuery<'a> {
-        if jwt_id == self {
-            UserQuery::GetMe(jwt_id)
-        } else {
-            UserQuery::GetUser(self)
-        }
-    }
-}
-
-pub trait IdToQueryAsync {
-    fn into_query(self) -> UserQueryAsync;
-}
-
-impl IdToQueryAsync for u32 {
-    fn into_query(self) -> UserQueryAsync {
-        UserQueryAsync::GetUser(self)
+    fn into_query(self) -> UserQuery {
+        UserQuery::GetUser(self)
     }
 }
 
 
-impl<'a> Validator for UserQuery<'a> {
+impl Validator for AuthRequest {
+    fn get_username(&self) -> &str { &self.username }
+    fn get_password(&self) -> &str { &self.password }
+    fn get_email(&self) -> &str { self.email.as_ref().map(String::as_str).unwrap_or("") }
+}
+
+impl Validator for UserUpdateRequest {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
-        match self {
-            UserQuery::Login(req) => &req.username,
-            UserQuery::Register(req) => &req.username,
-            UserQuery::UpdateUser(req) => req.username.as_ref().map(String::as_str).unwrap_or(""),
-            _ => ""
-        }
+        self.username.as_ref().map(String::as_str).unwrap_or("")
     }
-    fn get_password(&self) -> &str {
-        match self {
-            UserQuery::Register(req) => &req.password,
-            UserQuery::Login(req) => &req.password,
-            _ => ""
-        }
-    }
-    fn get_email(&self) -> &str {
-        match self {
-            UserQuery::Register(req) => req.email.as_ref().map(String::as_str).unwrap_or(""),
-            _ => ""
-        }
-    }
+    fn get_password(&self) -> &str { "" }
+    fn get_email(&self) -> &str { "" }
 }
