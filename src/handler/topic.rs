@@ -30,6 +30,9 @@ impl<'a> TopicQuery<'a> {
 }
 
 fn get_topic(id: &u32, page: &i64, opt: &QueryOption) -> QueryResult {
+    use std::{thread::sleep, time::Duration};
+    sleep(Duration::from_millis(10));
+
     let conn = &opt.db_pool.unwrap().get().unwrap();
 
     let posts = get_posts_by_topic_id(id, (page - 1) * 20, conn)?;

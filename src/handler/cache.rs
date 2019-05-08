@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use futures::Future;
 
 use actix_web::{HttpResponse, web};
 use lazy_static::__Deref;
 use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 
 use crate::model::{
-    cache::{CacheQuery, FromHashSet, Parser, SortHash},
+    cache::{CacheQuery, CacheQueryAsync, FromHashSet, Parser, SortHash},
     category::Category,
     common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
     errors::ServiceError,
@@ -18,6 +19,20 @@ use crate::model::{
 const LIMIT: isize = 20;
 const LIMIT_U: usize = 20;
 const MAIL_LIFE: usize = 2592000;
+
+impl CacheQueryAsync {
+    pub fn user_from_cache(self, pool: RedisPool) -> impl Future<Item=User, Error=ServiceError> {
+        web::block(move || match self {
+            CacheQueryAsync::GetUser(id) => get_user_cache_async(id, pool.try_get().ok_or(ServiceError::CacheOffline)?),
+            _ => panic!("Only user cache query can use user_from_cache method")
+        }).from_err()
+    }
+}
+
+fn get_user_cache_async(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
+    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
+    Ok(hash.parse::<User>()?)
+}
 
 pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
     match query {

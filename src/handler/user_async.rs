@@ -5,7 +5,7 @@ use diesel::prelude::*;
 
 use crate::handler::user::get_user_by_id;
 use crate::model::{
-    common::{get_unique_id, GetUserId, QueryOptAsync, Response, Validator},
+    common::{get_unique_id, GetUserId, QueryOptAsync, Response, Validator, PoolConnectionPostgres},
     errors::ServiceError,
     user::{AuthRequest, UserUpdateRequest, AuthResponseAsync, User},
 };
@@ -86,4 +86,16 @@ fn register_user(req: &AuthRequest, opt: QueryOptAsync) -> QueryResult {
                 .get_result(conn)?)
         }
     }
+}
+
+
+pub fn get_unique_users_async<T>(vec: &Vec<T>, opt: Option<u32>, conn: PoolConnectionPostgres)
+                                 -> impl Future<Item=Vec<User>, Error=ServiceError>
+    where T: GetUserId {
+    let ids = get_unique_id(vec, opt);
+    block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&conn)?)).from_err()
+}
+
+pub fn get_user_by_id_async(id: u32, conn: PoolConnectionPostgres) -> impl Future<Item=Vec<User>, Error=ServiceError> {
+    block(move|| Ok(users::table.find(&id).load::<User>(&conn)?)).from_err()
 }

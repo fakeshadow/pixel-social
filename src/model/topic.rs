@@ -63,6 +63,10 @@ impl TopicRequest {
         self.user_id = id;
         self
     }
+    pub fn attach_user_id_async(mut self, id: Option<u32>) -> Self {
+        self.user_id = id;
+        self
+    }
 
     pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateTopicCheck(level, self)
@@ -70,6 +74,10 @@ impl TopicRequest {
 
     pub fn to_add_query(&self) -> TopicQuery { TopicQuery::AddTopic(self) }
     pub fn to_update_query(&self) -> TopicQuery { TopicQuery::UpdateTopic(self) }
+
+    pub fn into_add_query_async(self) -> TopicQueryAsync { TopicQueryAsync::AddTopic(self) }
+    pub fn into_update_query_async(self) -> TopicQueryAsync { TopicQueryAsync::UpdateTopic(self) }
+
 
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
@@ -164,5 +172,21 @@ pub trait IdToQuery {
 impl IdToQuery for u32 {
     fn into_query<'a>(self, page: i64) -> TopicQuery<'a> {
         TopicQuery::GetTopic(self, page)
+    }
+}
+
+pub enum TopicQueryAsync {
+    GetTopic(u32, i64),
+    AddTopic(TopicRequest),
+    UpdateTopic(TopicRequest),
+}
+
+pub trait IdToQueryAsync {
+    fn into_query(self, page: i64) -> TopicQueryAsync;
+}
+
+impl IdToQueryAsync for u32 {
+    fn into_query(self, page: i64) -> TopicQueryAsync {
+        TopicQueryAsync::GetTopic(self, page)
     }
 }

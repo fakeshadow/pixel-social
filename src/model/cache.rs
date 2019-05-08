@@ -9,7 +9,7 @@ use crate::model::{
     post::Post,
     topic::Topic,
     user::User,
-    mail::Mail
+    mail::Mail,
 };
 
 // ToDo: add individual field sort
@@ -248,4 +248,21 @@ impl PageToCategoryQuery for i64 {
     fn to_query_cache<'a>(&'a self, id: &'a u32) -> CacheQuery<'a> {
         CacheQuery::GetCategory(id, self)
     }
+}
+
+
+pub enum CacheQueryAsync {
+    GetUser(u32),
+    GetPost(u32),
+    GetTopic(u32, i64),
+    GetAllCategories,
+    GetCategory(u32, i64),
+}
+
+pub trait IdToUserQueryAsync {
+    fn into_query_cache(self) -> CacheQueryAsync;
+}
+
+impl IdToUserQueryAsync for u32 {
+    fn into_query_cache(self) -> CacheQueryAsync { CacheQueryAsync::GetUser(self) }
 }
