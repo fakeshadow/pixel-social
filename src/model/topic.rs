@@ -181,12 +181,12 @@ pub enum TopicQueryAsync {
     UpdateTopic(TopicRequest),
 }
 
-pub trait IdToQueryAsync {
-    fn into_query(self, page: i64) -> TopicQueryAsync;
-}
 
-impl IdToQueryAsync for u32 {
-    fn into_query(self, page: i64) -> TopicQueryAsync {
-        TopicQueryAsync::GetTopic(self, page)
+pub trait PathToQueryAsync {
+    fn to_query(&self) -> TopicQueryAsync;
+}
+impl PathToQueryAsync for (u32, i64) {
+    fn to_query(&self) -> TopicQueryAsync {
+        TopicQueryAsync::GetTopic(self.0, self.1)
     }
 }

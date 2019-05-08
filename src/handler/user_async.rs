@@ -89,8 +89,8 @@ fn register_user(req: &AuthRequest, opt: QueryOptAsync) -> QueryResult {
 }
 
 
-pub fn get_unique_users_async<T>(vec: &Vec<T>, opt: Option<u32>, conn: PoolConnectionPostgres)
-                                 -> impl Future<Item=Vec<User>, Error=ServiceError>
+pub fn get_users_async<T>(vec: &Vec<T>, opt: Option<u32>, conn: PoolConnectionPostgres)
+                          -> impl Future<Item=Vec<User>, Error=ServiceError>
     where T: GetUserId {
     let ids = get_unique_id(vec, opt);
     block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&conn)?)).from_err()

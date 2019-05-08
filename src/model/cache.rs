@@ -266,3 +266,11 @@ pub trait IdToUserQueryAsync {
 impl IdToUserQueryAsync for u32 {
     fn into_query_cache(self) -> CacheQueryAsync { CacheQueryAsync::GetUser(self) }
 }
+
+pub trait PathToTopicQueryAsync {
+    fn to_query_cache(&self) -> CacheQueryAsync;
+}
+
+impl PathToTopicQueryAsync for (u32, i64) {
+    fn to_query_cache(&self) -> CacheQueryAsync { CacheQueryAsync::GetTopic(self.0, self.1) }
+}

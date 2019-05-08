@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use futures::Future;
 
-use actix_web::{HttpResponse, web};
+use actix_web::{HttpResponse, web::{Data, block}};
 use lazy_static::__Deref;
 use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 
@@ -21,15 +21,41 @@ const LIMIT_U: usize = 20;
 const MAIL_LIFE: usize = 2592000;
 
 impl CacheQueryAsync {
-    pub fn user_from_cache(self, pool: RedisPool) -> impl Future<Item=User, Error=ServiceError> {
-        web::block(move || match self {
-            CacheQueryAsync::GetUser(id) => get_user_cache_async(id, pool.try_get().ok_or(ServiceError::CacheOffline)?),
+    pub fn user_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=User, Error=ServiceError> {
+        block(move || match self {
+            CacheQueryAsync::GetUser(id) => get_user_async(id, pool.get().unwrap()),
+            _ => panic!("Only user cache query can use user_from_cache method")
+        }).from_err()
+    }
+    pub fn topic_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+        block(move || match self {
+            CacheQueryAsync::GetTopic(id, page) => get_topic_async(id, page, pool.get().unwrap()),
             _ => panic!("Only user cache query can use user_from_cache method")
         }).from_err()
     }
 }
 
-fn get_user_cache_async(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
+pub fn get_users_cache_async<T>(vec: &Vec<T>, opt: Option<u32>, pool: Data<RedisPool>)
+                                -> impl Future<Item=Vec<User>, Error=ServiceError>
+    where T: GetUserId {
+    let ids = get_unique_id(vec, opt);
+    block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get().unwrap())?)).from_err()
+}
+
+fn get_topic_async(id: u32, page: i64, conn: PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
+    let topic: Option<Topic> = if page == 1 {
+        from_hash_set::<Topic>(&vec![id.clone()], "topic", &conn)?.pop()
+    } else { None };
+
+    let list_key = format!("topic:{}:list", id);
+    let start = (page as isize - 1) * 20;
+    let post_id: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
+    let posts = from_hash_set::<Post>(&post_id, "post", &conn)?;
+    Ok((topic, posts))
+}
+
+
+fn get_user_async(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
     let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
     Ok(hash.parse::<User>()?)
 }

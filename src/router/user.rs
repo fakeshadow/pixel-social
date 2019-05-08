@@ -50,7 +50,7 @@ pub fn get_user_async(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache
                       -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{user::IdToQueryAsync, cache::IdToUserQueryAsync};
     id.into_query_cache()
-        .user_from_cache(cache.get_ref().clone())
+        .user_from_cache(cache.clone())
         .then(move |res| match res {
             Ok(u) => Either::A(if u.id == jwt.user_id {
                 ft_ok(HttpResponse::Ok().json(u))

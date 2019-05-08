@@ -44,7 +44,6 @@ fn main() -> std::io::Result<()> {
         .build(manager)
         .expect("Failed to create postgres pool.");
 
-    /// remove below if you are not using redis.
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
         .max_size(12)
@@ -52,7 +51,6 @@ fn main() -> std::io::Result<()> {
         .expect("Failed to create redis pool.");
     let _clear = clear_cache(&redis_pool);
     let _build = build_cache(&postgres_pool, &redis_pool);
-    /// remove above if you are not using redis.
 
     let global_arc = init_global_var(&postgres_pool);
 
