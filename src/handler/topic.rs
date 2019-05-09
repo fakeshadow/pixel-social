@@ -13,6 +13,7 @@ use crate::model::{
     common::{PoolConnectionPostgres, PostgresPool, GlobalGuard},
     errors::ServiceError,
     post::Post,
+    category::Category,
     topic::{Topic, TopicQuery, TopicRequest},
 };
 use crate::schema::topics;
@@ -20,22 +21,42 @@ use crate::schema::topics;
 const LIMIT: i64 = 20;
 
 impl TopicQuery {
-    pub fn into_topic_with_post(self, db: Data<PostgresPool>) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+    pub fn into_topic_with_post(self, pool: &PostgresPool)
+                                -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+        let pool = pool.clone();
         block(move || match self {
-            TopicQuery::GetTopic(id, page) => get_topic(&id, &page, &db.get()?),
+            TopicQuery::GetTopic(id, page) => get_topic(&id, &page, &pool.get()?),
             _ => panic!("Only getting topic query can use into_topic_with_post method")
         }).from_err()
     }
-    pub fn into_topic(self, db: Data<PostgresPool>, opt: Option<Data<GlobalGuard>>) -> impl Future<Item=Topic, Error=ServiceError> {
+    pub fn into_topic_with_category(self, pool: &PostgresPool, opt: Option<Data<GlobalGuard>>)
+                                    -> impl Future<Item=(Category, Topic), Error=ServiceError> {
+        let pool = pool.clone();
         block(move || match self {
-            TopicQuery::AddTopic(req) => add_topic(&req, &db.get()?, opt),
-            TopicQuery::UpdateTopic(req) => update_topic(&req, &db.get()?),
+            TopicQuery::AddTopic(req) => add_topic(&req, &pool.get()?, opt),
             _ => panic!("Only modify topic query can use into_topic method")
+        }).from_err()
+    }
+    pub fn into_topic(self, pool: &PostgresPool, opt: Option<Data<GlobalGuard>>)
+                      -> impl Future<Item=Topic, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            TopicQuery::UpdateTopic(req) => update_topic(&req, &pool.get()?),
+            _ => panic!("Only modify topic query can use into_topic method")
+        }).from_err()
+    }
+    pub fn into_topics(self, pool: &PostgresPool)
+                       -> impl Future<Item=Vec<Topic>, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            TopicQuery::GetTopics(ids, page) => get_topics_by_category_id(&ids, &page, &pool.get()?),
+            _ => panic!("Only getting topics query can use into_topics method")
         }).from_err()
     }
 }
 
-fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
+fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres)
+             -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
     let posts = get_posts_by_topic_id(id, (page - 1) * 20, conn)?;
     let topic = if page == &1 {
         Some(topics::table.find(&id).first::<Topic>(conn)?)
@@ -43,7 +64,8 @@ fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres) -> Result<(Opt
     Ok((topic, posts))
 }
 
-fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>) -> Result<Topic, ServiceError> {
+fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>)
+             -> Result<(Category, Topic), ServiceError> {
     // ToDo: Test if category_id can be null or out of range
     let category = update_category_topic_count(req.extract_category_id()?, conn)?;
 
@@ -53,7 +75,7 @@ fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<D
     let topic = diesel::insert_into(topics::table)
         .values(&req.make_topic(&id)?)
         .get_result::<Topic>(conn)?;
-    Ok(topic)
+    Ok((category, topic))
 }
 
 fn update_topic(req: &TopicRequest, conn: &PoolConnectionPostgres) -> Result<Topic, ServiceError> {

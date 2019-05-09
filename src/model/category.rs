@@ -5,6 +5,7 @@ use crate::model::{
 };
 use crate::model::admin::AdminPrivilegeCheck;
 use crate::schema::categories;
+use crate::model::topic::TopicQuery;
 
 #[derive(Queryable, Serialize, Deserialize)]
 pub struct Category {
@@ -42,8 +43,10 @@ pub struct CategoryRequest {
 }
 
 impl CategoryRequest {
-    pub fn to_query(&self) -> CategoryQuery {
-        CategoryQuery::GetCategory(&self.categories, &self.page)
+    pub fn to_query(&self) -> TopicQuery {
+        TopicQuery::GetTopics(
+            self.categories.iter().map(|i| *i).collect(),
+            self.page)
     }
 }
 
@@ -58,8 +61,8 @@ impl CategoryUpdateRequest {
     pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateCategoryCheck(level, self)
     }
-    pub fn to_add_query(&self) -> CategoryQuery { CategoryQuery::AddCategory(self) }
-    pub fn to_update_query(&self) -> CategoryQuery { CategoryQuery::UpdateCategory(self) }
+    pub fn into_add_query(self) -> CategoryQuery { CategoryQuery::AddCategory(self) }
+    pub fn into_update_query(self) -> CategoryQuery { CategoryQuery::UpdateCategory(self) }
 
     pub fn make_category<'a>(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
         Ok(NewCategory {
@@ -76,24 +79,26 @@ impl CategoryUpdateRequest {
     }
 }
 
-pub enum CategoryQuery<'a> {
+pub enum CategoryQuery {
     GetAllCategories,
-    GetPopular(&'a i64),
-    GetCategory(&'a Vec<u32>, &'a i64),
-    AddCategory(&'a CategoryUpdateRequest),
-    UpdateCategory(&'a CategoryUpdateRequest),
-    DeleteCategory(&'a u32),
+    GetPopular(i64),
+    GetCategory(Vec<u32>, i64),
+    AddCategory(CategoryUpdateRequest),
+    UpdateCategory(CategoryUpdateRequest),
+    DeleteCategory(u32),
 }
 
-pub trait PageToQuery {
-    fn to_query<'a>(&'a self, ids: &'a Vec<u32>) -> CategoryQuery<'a>;
+
+pub trait PathToQuery {
+    fn to_query(&self) -> TopicQuery;
 }
 
-impl PageToQuery for i64 {
-    fn to_query<'a>(&'a self, ids: &'a Vec<u32>) -> CategoryQuery<'a> {
-        CategoryQuery::GetCategory(ids, self)
+impl PathToQuery for (u32, i64) {
+    fn to_query(&self) -> TopicQuery {
+        TopicQuery::GetTopics(vec![self.0], self.1)
     }
 }
+
 
 pub trait IdToQuery {
     fn to_delete_query(&self) -> CategoryQuery;
@@ -101,6 +106,6 @@ pub trait IdToQuery {
 
 impl IdToQuery for u32 {
     fn to_delete_query(&self) -> CategoryQuery {
-        CategoryQuery::DeleteCategory(self)
+        CategoryQuery::DeleteCategory(*self)
     }
 }

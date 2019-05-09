@@ -6,80 +6,69 @@ use lazy_static::__Deref;
 use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 
 use crate::model::{
-    cache::{CacheQuery, CacheQueryAsync, FromHashSet, Parser, SortHash},
-    category::Category,
-    common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
     errors::ServiceError,
+    category::Category,
+    post::Post,
+    topic::Topic,
+    user::User,
+    cache::{CacheQuery, FromHashSet, Parser, SortHash},
+    common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
     mail::Mail,
-    post::{Post, PostWithUser},
-    topic::{Topic, TopicWithPost, TopicWithUser},
-    user::{ToUserRef, User},
 };
 
 const LIMIT: isize = 20;
 const LIMIT_U: usize = 20;
 const MAIL_LIFE: usize = 2592000;
 
-impl CacheQueryAsync {
-    pub fn user_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=User, Error=ServiceError> {
+impl CacheQuery {
+    pub fn into_user(self, pool: &RedisPool) -> impl Future<Item=User, Error=ServiceError> {
+        let pool = pool.clone();
         block(move || match self {
-            CacheQueryAsync::GetUser(id) => get_user_cache(id, pool.get().unwrap()),
-            _ => panic!("Only user cache query can use user_from_cache method")
+            CacheQuery::GetUser(id) => get_user(id, &pool.get()?),
+            _ => panic!("method not allowed")
         }).from_err()
     }
-    pub fn topic_from_cache(self, pool: Data<RedisPool>) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+
+    pub fn into_topics(self, pool: &RedisPool) -> impl Future<Item=Vec<Topic>, Error=ServiceError> {
+        let pool = pool.clone();
         block(move || match self {
-            CacheQueryAsync::GetTopic(id, page) => get_topic(id, page, pool.get().unwrap()),
-            _ => panic!("Only user cache query can use user_from_cache method")
+            CacheQuery::GetTopics(ids, page) => get_topics(&ids, &page, &pool.get()?),
+            _ => panic!("method not allowed")
+        }).from_err()
+    }
+
+    pub fn into_topic_with_post(self, pool: &RedisPool) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CacheQuery::GetTopic(id, page) => get_topic(id, page, &pool.get()?),
+            _ => panic!("method not allowed")
+        }).from_err()
+    }
+
+    pub fn into_categories(self, pool: &RedisPool) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CacheQuery::GetAllCategories => get_categories(&pool.get()?),
+            _ => panic!("method not allowed")
+        }).from_err()
+    }
+
+    pub fn into_post(self, pool: &RedisPool) -> impl Future<Item=Vec<Post>, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CacheQuery::GetPost(id) => get_post(id, &pool.get()?),
+            _ => panic!("method not allowed")
         }).from_err()
     }
 }
 
-fn get_user_cache(id: u32, conn: PoolConnectionRedis) -> Result<User, ServiceError> {
-    let hash = get_hash_set(&vec![id], "user", &conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
-    Ok(hash.parse::<User>()?)
+fn get_user(id: u32, conn: &PoolConnectionRedis) -> Result<User, ServiceError> {
+    let hash = get_hash_set(&vec![id], "user", conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
+    hash.parse::<User>()
 }
 
-pub fn get_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: Data<RedisPool>)
-                          -> impl Future<Item=Vec<User>, Error=ServiceError>
-    where T: GetUserId {
-    let ids = get_unique_id(vec, opt);
-    block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get().unwrap())?)).from_err()
-}
-
-fn get_topic(id: u32, page: i64, conn: PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
-    let topic: Option<Topic> = if page == 1 {
-        from_hash_set::<Topic>(&vec![id.clone()], "topic", &conn)?.pop()
-    } else { None };
-
-    let list_key = format!("topic:{}:list", id);
-    let start = (page as isize - 1) * 20;
-    let post_id: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
-
-    // ToDo: Handle case when posts are empty
-    let posts = from_hash_set::<Post>(&post_id, "post", &conn)?;
-    Ok((topic, posts))
-}
-
-pub fn handle_cache_query(query: CacheQuery, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    match query {
-        CacheQuery::GetPost(id) => get_post_cache(id, pool),
-        CacheQuery::GetAllCategories => get_categories_cache(pool),
-        CacheQuery::GetCategory(id, page) => get_topics_cache(id, page, pool),
-        _ => panic!("method not allowed")
-    }
-}
-
-pub fn get_post_cache(id: u32, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = &pool.try_get().ok_or(ServiceError::CacheOffline)?;
-    let post = from_hash_set::<Post>(&vec![id], "post", conn)?;
-    let user = get_users(&post, None, conn)?;
-    Ok(HttpResponse::Ok().json(&post[0].attach_user(&user)))
-}
-
-pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
+fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceError> {
     // ToDo: need further look into the logic
-    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
     let total = categories_total.len();
 
@@ -95,26 +84,43 @@ pub fn get_categories_cache(pool: &RedisPool) -> Result<HttpResponse, ServiceErr
         if !t.is_empty() { categories_hash_vec.push(t) }
     }
     if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
-    Ok(HttpResponse::Ok().json(&categories_hash_vec.iter().map(|hash| hash.parse()).collect::<Result<Vec<Category>, ServiceError>>()?))
+    categories_hash_vec.iter().map(|hash| hash.parse()).collect()
 }
 
-pub fn get_topics_cache(id: &u32, page: &i64, pool: &RedisPool) -> Result<HttpResponse, ServiceError> {
-    let conn = pool.try_get().ok_or(ServiceError::CacheOffline)?;
-    let list_key = format!("category:{}:list", id);
+fn get_topics(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, ServiceError> {
+    let list_key = format!("category:{}:list", ids.first().unwrap_or(&0));
     let start = (*page as isize - 1) * 20;
 
     let topic_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
-    let topics = from_hash_set::<Topic>(&topic_id, "topic", &conn)?;
-    let users = get_users(&topics, None, &conn)?;
-
-    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
+    from_hash_set::<Topic>(&topic_id, "topic", &conn)
 }
 
-fn get_users<T>(vec: &Vec<T>, topic_user_id: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<User>, ServiceError>
+fn get_topic(id: u32, page: i64, conn: &PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
+    let topic: Option<Topic> = if page == 1 {
+        from_hash_set::<Topic>(&vec![id.clone()], "topic", conn)?.pop()
+    } else { None };
+
+    let list_key = format!("topic:{}:list", id);
+    let start = (page as isize - 1) * 20;
+    let post_id: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
+
+    // ToDo: Handle case when posts are empty
+    let posts = from_hash_set::<Post>(&post_id, "post", conn)?;
+    Ok((topic, posts))
+}
+
+fn get_post(id: u32, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
+    from_hash_set::<Post>(&vec![id], "post", conn)
+}
+
+pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: &RedisPool)
+                                 -> impl Future<Item=Vec<User>, Error=ServiceError>
     where T: GetUserId {
-    let ids = get_unique_id(&vec, topic_user_id);
-    from_hash_set::<User>(&ids, "user", conn)
+    let ids = get_unique_id(vec, opt);
+    let pool = pool.clone();
+    block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get()?)?)).from_err()
 }
+
 
 /// use Parser and FromHashSet traits to convert HashMap into struct.
 fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
@@ -169,6 +175,8 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
         Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18]).query(conn.deref())?)
     } else if ids.len() == 20 {
         Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18],ids[19]).query(conn.deref())?)
+    } else if ids.len() == 21 {
+        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18],ids[19],ids[20]).query(conn.deref())?)
     } else {
         Err(ServiceError::NoCacheFound)
     }

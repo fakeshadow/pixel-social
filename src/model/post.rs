@@ -58,7 +58,11 @@ pub struct PostRequest {
 
 impl PostRequest {
     /// pass user_id from jwt token as option for regular user updating post. pass none for admin user
-    pub fn attach_user_id(&mut self, id: Option<u32>) -> &mut Self {
+    pub fn attach_user_id(&mut self, id: Option<u32>) -> &Self {
+        self.user_id = id;
+        self
+    }
+    pub fn attach_user_id_into(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
@@ -67,8 +71,8 @@ impl PostRequest {
         AdminPrivilegeCheck::UpdatePostCheck(level, self)
     }
 
-    pub fn to_add_query(&mut self) -> PostQuery { PostQuery::AddPost(self) }
-    pub fn to_update_query(&self) -> PostQuery { PostQuery::UpdatePost(self) }
+    pub fn into_add_query(self) -> PostQuery { PostQuery::AddPost(self) }
+    pub fn into_update_query(self) -> PostQuery { PostQuery::UpdatePost(self) }
 
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
@@ -139,10 +143,10 @@ impl GetUserId for Post {
     fn get_user_id(&self) -> u32 { self.user_id }
 }
 
-pub enum PostQuery<'a> {
-    AddPost(&'a mut PostRequest),
-    UpdatePost(&'a PostRequest),
-    GetPost(&'a u32),
+pub enum PostQuery {
+    AddPost(PostRequest),
+    UpdatePost(PostRequest),
+    GetPost(u32),
 }
 
 pub trait IdToQuery {
@@ -151,6 +155,6 @@ pub trait IdToQuery {
 
 impl IdToQuery for u32 {
     fn to_query(&self) -> PostQuery {
-        PostQuery::GetPost(self)
+        PostQuery::GetPost(*self)
     }
 }

@@ -4,7 +4,7 @@ use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, e
 use crate::model::mail::Mail;
 use crate::schema::users;
 use crate::handler::user::UserQuery;
-use jsonwebtoken::Validation;
+
 
 #[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct User {
@@ -155,7 +155,7 @@ impl AuthResponseAsync {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct UserUpdateRequest {
+pub struct UpdateRequest {
     pub id: Option<u32>,
     pub username: Option<String>,
     pub avatar_url: Option<String>,
@@ -181,9 +181,9 @@ pub struct UpdateUser<'a> {
     pub show_updated_at: Option<&'a bool>,
 }
 
-impl UserUpdateRequest {
+impl UpdateRequest {
     /// pass user_id from jwt for normal update user. pass none for admin update user.
-    pub fn attach_id_admin(&mut self, id: Option<u32>) -> &Self {
+    pub fn attach_id(&mut self, id: Option<u32>) -> &Self {
         match id {
             Some(_) => {
                 self.id = id;
@@ -202,7 +202,7 @@ impl UserUpdateRequest {
             }
         }
     }
-    pub fn attach_id(mut self, id: Option<u32>) -> Self {
+    pub fn attach_id_into(mut self, id: Option<u32>) -> Self {
         match id {
             Some(_) => {
                 self.id = id;
@@ -241,27 +241,28 @@ impl UserUpdateRequest {
     }
 }
 
-impl UserUpdateRequest {
+impl UpdateRequest {
     pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
         AdminPrivilegeCheck::UpdateUserCheck(level, self)
     }
     pub fn into_update_query(self) -> UserQuery {
-        match self.check_username() {
-            Ok(_) => UserQuery::UpdateUser(self),
-            Err(e) => UserQuery::ValidationFailed(e)
+        match self.username {
+            Some(_) => match self.check_username() {
+                Ok(_) => UserQuery::UpdateUser(self),
+                Err(e) => UserQuery::ValidationFailed(e)
+            }
+            None => UserQuery::UpdateUser(self)
         }
     }
 }
 
 
 pub trait IdToQuery {
-    fn into_query(self) -> UserQuery;
+    fn to_query(&self) -> UserQuery;
 }
 
 impl IdToQuery for u32 {
-    fn into_query(self) -> UserQuery {
-        UserQuery::GetUser(self)
-    }
+    fn to_query(&self) -> UserQuery { UserQuery::GetUser(*self) }
 }
 
 
@@ -271,7 +272,7 @@ impl Validator for AuthRequest {
     fn get_email(&self) -> &str { self.email.as_ref().map(String::as_str).unwrap_or("") }
 }
 
-impl Validator for UserUpdateRequest {
+impl Validator for UpdateRequest {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
         self.username.as_ref().map(String::as_str).unwrap_or("")

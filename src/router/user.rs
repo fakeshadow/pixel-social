@@ -1,21 +1,17 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
-use crate::handler::{
-    auth::UserJwt,
-    cache::UpdateCache,
-    user::UserQuery};
+use crate::handler::{auth::UserJwt, cache::UpdateCache};
 use crate::model::{
-    errors::ServiceError,
     common::{GlobalGuard, PostgresPool, RedisPool},
-    user::{ToUserRef, AuthRequest, UserUpdateRequest},
+    user::{ToUserRef, AuthRequest, UpdateRequest},
 };
 
 pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                      -> impl Future<Item=HttpResponse, Error=Error> {
-    use crate::model::{user::IdToQuery, cache::IdToUserQueryAsync};
-    id.into_query_cache()
-        .user_from_cache(cache.clone())
+                -> impl Future<Item=HttpResponse, Error=Error> {
+    use crate::model::{user::IdToQuery, cache::IdToUserQuery};
+    id.to_query_cache()
+        .into_user(&cache)
         .then(move |res| match res {
             Ok(u) => Either::A(if u.id == jwt.user_id {
                 ft_ok(HttpResponse::Ok().json(u))
@@ -23,13 +19,13 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
                 ft_ok(HttpResponse::Ok().json(u.to_ref()))
             }),
             Err(_) => Either::B(
-                id.into_query()
+                id.to_query()
                     .into_user(db, None)
                     .from_err()
                     .and_then(move |u| {
                         let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
                         if u.id == jwt.user_id {
-                            HttpResponse::Ok().json(u)
+                            HttpResponse::Ok().json(&u)
                         } else {
                             HttpResponse::Ok().json(u.to_ref())
                         }
@@ -39,21 +35,21 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
 }
 
 pub fn register_user(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                           -> impl Future<Item=HttpResponse, Error=Error> {
+                     -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_register_query()
         .into_user(db, Some(global))
         .from_err()
         .and_then(move |u| {
             let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(u.to_ref())
+            HttpResponse::Ok().json(&u)
         })
 }
 
-pub fn update_user(jwt: UserJwt, req: Json<UserUpdateRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                         -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn update_user(jwt: UserJwt, req: Json<UpdateRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                   -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
-        .attach_id(Some(jwt.user_id))
+        .attach_id_into(Some(jwt.user_id))
         .into_update_query()
         .into_user(db, None)
         .from_err()
@@ -64,10 +60,10 @@ pub fn update_user(jwt: UserJwt, req: Json<UserUpdateRequest>, db: Data<Postgres
 }
 
 pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
-                        -> impl Future<Item=HttpResponse, Error=Error> {
+                  -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_login_query()
-        .into_login(db)
+        .into_jwt_user(db)
         .from_err()
         .and_then(|u| HttpResponse::Ok().json(&u))
 }

@@ -197,80 +197,51 @@ impl FromHashSet for Category {
     }
 }
 
-pub enum CacheQuery<'a> {
-    GetMe(u32),
-    GetUser(u32),
-    GetPost(u32),
-    GetTopic(&'a u32, &'a i64),
-    GetAllCategories,
-    GetCategory(&'a u32, &'a i64),
-}
-
-pub trait IdToUserQuery {
-    fn into_query_cache<'a>(self, jwt_id: u32) -> CacheQuery<'a>;
-}
-
-impl IdToUserQuery for u32 {
-    fn into_query_cache<'a>(self, jwt_id: u32) -> CacheQuery<'a> {
-        if jwt_id == self {
-            CacheQuery::GetMe(jwt_id)
-        } else {
-            CacheQuery::GetUser(self)
-        }
-    }
-}
-
-pub trait IdToPostQuery {
-    fn into_query_cache<'a>(self) -> CacheQuery<'a>;
-}
-
-impl IdToPostQuery for u32 {
-    fn into_query_cache<'a>(self) -> CacheQuery<'a> {
-        CacheQuery::GetPost(self)
-    }
-}
-
-pub trait IdToTopicQuery {
-    fn to_query_cache<'a>(&'a self, page: &'a i64) -> CacheQuery<'a>;
-}
-
-impl IdToTopicQuery for u32 {
-    fn to_query_cache<'a>(&'a self, page: &'a i64) -> CacheQuery<'a> {
-        CacheQuery::GetTopic(self, page)
-    }
-}
-
-pub trait PageToCategoryQuery {
-    fn to_query_cache<'a>(&'a self, id: &'a u32) -> CacheQuery<'a>;
-}
-
-impl PageToCategoryQuery for i64 {
-    fn to_query_cache<'a>(&'a self, id: &'a u32) -> CacheQuery<'a> {
-        CacheQuery::GetCategory(id, self)
-    }
-}
-
-
-pub enum CacheQueryAsync {
+pub enum CacheQuery {
     GetUser(u32),
     GetPost(u32),
     GetTopic(u32, i64),
+    GetTopics(Vec<u32>, i64),
     GetAllCategories,
     GetCategory(u32, i64),
 }
 
-pub trait IdToUserQueryAsync {
-    fn into_query_cache(self) -> CacheQueryAsync;
+pub trait IdToUserQuery {
+    fn to_query_cache(&self) -> CacheQuery;
 }
 
-impl IdToUserQueryAsync for u32 {
-    fn into_query_cache(self) -> CacheQueryAsync { CacheQueryAsync::GetUser(self) }
+impl IdToUserQuery for u32 {
+    fn to_query_cache(&self) -> CacheQuery { CacheQuery::GetUser(*self) }
 }
 
-pub trait PathToTopicQueryAsync {
-    fn to_query_cache(&self) -> CacheQueryAsync;
+pub trait IdToPostQuery {
+    fn to_query_cache(&self) -> CacheQuery;
 }
 
-impl PathToTopicQueryAsync for (u32, i64) {
-    fn to_query_cache(&self) -> CacheQueryAsync { CacheQueryAsync::GetTopic(self.0, self.1) }
+impl IdToPostQuery for u32 {
+    fn to_query_cache(&self) -> CacheQuery { CacheQuery::GetPost(*self) }
+}
+
+pub trait PathToTopicQuery {
+    fn to_query_cache(&self) -> CacheQuery;
+}
+
+impl PathToTopicQuery for (u32, i64) {
+    fn to_query_cache(&self) -> CacheQuery { CacheQuery::GetTopic(self.0, self.1) }
+}
+
+pub trait PathToTopicsQuery {
+    fn to_query_cache(&self) -> CacheQuery;
+}
+
+impl PathToTopicsQuery for (u32, i64) {
+    fn to_query_cache(&self) -> CacheQuery { CacheQuery::GetTopics(vec![self.0], self.1) }
+}
+
+pub trait PathToCategoryQuery {
+    fn to_query_cache(&self) -> CacheQuery;
+}
+
+impl PathToCategoryQuery for (u32, i64) {
+    fn to_query_cache(&self) -> CacheQuery { CacheQuery::GetTopics(vec![self.0], self.1) }
 }

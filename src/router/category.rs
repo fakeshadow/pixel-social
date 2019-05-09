@@ -1,53 +1,85 @@
-use actix_web::{HttpResponse, web::{Data, Json, Path}};
-use futures::{Future, future::result as ftr, IntoFuture};
+use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
+use futures::{Future, future::{Either, ok as ft_ok}};
 
-use crate::handler::{auth::UserJwt, cache::handle_cache_query};
+use crate::handler::{
+    auth::UserJwt,
+    cache::{UpdateCache, get_unique_users_cache},
+    user::get_unique_users};
 use crate::model::{
-    cache::CacheQuery,
-    category::{CategoryQuery, CategoryRequest},
-    common::{PostgresPool, QueryOption, RedisPool},
-    errors::ServiceError,
+    topic::TopicWithUser,
+    category::{CategoryRequest, CategoryQuery},
+    common::{PostgresPool, RedisPool, AttachUser},
 };
+use crate::model::cache::{CacheQuery, PathToTopicsQuery};
 
-pub fn get_all_categories(cache: Data<RedisPool>, db: Data<PostgresPool>)
-                          -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    handle_cache_query(CacheQuery::GetAllCategories, &cache)
-        .into_future()
-        .then(move |res| match res {
-            Ok(res) => ftr(Ok(res)),
-            Err(_) => CategoryQuery::GetAllCategories
-                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-                .into_future()
+pub fn get_all_categories(
+    cache: Data<RedisPool>,
+    db: Data<PostgresPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    CacheQuery::GetAllCategories
+        .into_categories(&cache)
+        .then(move |r| match r {
+            Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
+            Err(_) => Either::B(CategoryQuery::GetAllCategories
+                .into_categories(&db)
+                .from_err()
+                .and_then(move |c| {
+                    let _ignore = UpdateCache::GotCategories(&c).handle_update(&Some(&cache));
+                    HttpResponse::Ok().json(&c)
+                }))
         })
 }
 
-pub fn get_popular(path: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
-                   -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+pub fn get_popular(page: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
+                   -> impl Future<Item=HttpResponse, Error=Error> {
     // ToDo: Add get popular cache query
-    let page = path.as_ref();
-    CategoryQuery::GetPopular(&page)
-        .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-        .into_future()
+    ft_ok(HttpResponse::Ok().finish())
 }
 
-pub fn get_category(path: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                    -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
-    use crate::model::{cache::PageToCategoryQuery, category::PageToQuery};
-    let (id, page) = path.into_inner();
-    handle_cache_query(page.to_query_cache(&id), &cache)
-        .into_future()
-        .then(move |result| match result {
-            Ok(res) => ftr(Ok(res)),
-            Err(_) => page
-                .to_query(&vec![id])
-                .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-                .into_future()
+pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)
+                    -> impl Future<Item=HttpResponse, Error=Error> {
+    use crate::model::{category::PathToQuery, cache::PathToTopicsQuery};
+    req.to_query_cache()
+        .into_topics(&cache)
+        .then(move |r| match r {
+            Ok(t) => Either::A(
+                get_unique_users_cache(&t, None, &cache)
+                    .from_err()
+                    .and_then(move |u|
+                        HttpResponse::Ok().json(
+                            &t.iter()
+                                .map(|t| t.attach_user(&u))
+                                .collect::<Vec<TopicWithUser>>()))),
+            Err(_) => Either::B(
+                req.to_query()
+                    .into_topics(&db)
+                    .from_err()
+                    .and_then(move |t|
+                        get_unique_users(&t, None, &db)
+                            .from_err()
+                            .and_then(move |u| {
+                                let _ignore = UpdateCache::GotTopics(&t).handle_update(&Some(&cache));
+                                HttpResponse::Ok().json(
+                                    &t.iter()
+                                        .map(|t| t.attach_user(&u))
+                                        .collect::<Vec<TopicWithUser>>())
+                            }))
+            )
         })
 }
 
 pub fn get_categories(req: Json<CategoryRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                      -> impl IntoFuture<Item=HttpResponse, Error=ServiceError> {
+                      -> impl Future<Item=HttpResponse, Error=Error> {
     req.to_query()
-        .handle_query(&QueryOption::new(Some(&db), Some(&cache), None))
-        .into_future()
+        .into_topics(&db)
+        .from_err()
+        .and_then(move |t|
+            get_unique_users(&t, None, &db)
+                .from_err()
+                .and_then(move |u| {
+                    HttpResponse::Ok().json(
+                        &t.iter()
+                            .map(|t| t.attach_user(&u))
+                            .collect::<Vec<TopicWithUser>>())
+                }))
 }

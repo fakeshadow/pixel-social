@@ -1,98 +1,72 @@
-use actix_web::{HttpResponse, web};
+use futures::Future;
+
+use actix_web::{HttpResponse, web::block};
 use diesel::prelude::*;
 
 use crate::handler::{
     cache::UpdateCache,
-    topic::get_topics_by_category_id,
-    user::get_unique_users,
 };
 use crate::model::{
-    category::{Category, CategoryQuery, CategoryUpdateRequest},
-    common::{AttachUser, get_unique_id, GetUserId, match_id, PoolConnectionPostgres, QueryOption, RedisPool, Response},
+    category::{Category, CategoryUpdateRequest, CategoryQuery},
+    common::{ match_id,PostgresPool, PoolConnectionPostgres, RedisPool},
     errors::ServiceError,
-    topic::TopicWithUser,
-    user::{ToUserRef, User},
 };
 use crate::schema::categories;
 
 const LIMIT: i64 = 20;
 
-type QueryResult = Result<HttpResponse, ServiceError>;
-
-impl<'a> CategoryQuery<'a> {
-    pub fn handle_query(self, opt: &QueryOption) -> QueryResult {
-        match self {
-            CategoryQuery::GetPopular(page) => get_popular(&page, &opt),
-            CategoryQuery::GetCategory(ids, page) => get_category(ids, page, &opt),
-            CategoryQuery::GetAllCategories => get_all_categories(&opt),
-            CategoryQuery::AddCategory(category_request) => add_category(&category_request, &opt),
-            CategoryQuery::UpdateCategory(category_request) => update_category(&category_request, &opt),
-            CategoryQuery::DeleteCategory(category_id) => delete_category(&category_id, &opt)
-        }
+impl CategoryQuery {
+    pub fn into_category(self, pool: &PostgresPool) -> impl Future<Item=Category, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CategoryQuery::UpdateCategory(req) => update_category(&req, &pool.get()?),
+            CategoryQuery::AddCategory(req) => add_category(&req, &pool.get()?),
+            _ => panic!("only category update query can use into_update method")
+        }).from_err()
+    }
+    pub fn into_categories(self, pool: &PostgresPool) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CategoryQuery::GetAllCategories => get_all_categories(&pool.get()?),
+            _ => panic!("only get all categories query can use into_query method")
+        }).from_err()
+    }
+    pub fn into_category_id(self, pool: &PostgresPool) -> impl Future<Item=u32, Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            CategoryQuery::DeleteCategory(id) => delete_category(&id, &pool.get()?),
+            _ => panic!("only category delete query can use into_delete method")
+        }).from_err()
     }
 }
 
-fn get_popular(page: &i64, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-    let offset = (page - 1) * LIMIT;
-//    let topics: Vec<Topic> = topics::table.order(topics::last_reply_time.desc()).limit(LIMIT).offset(offset).load::<Topic>(conn)?;
-//    let users = get_unique_users(&topics, None, &conn)?;
-//    let _ignore = UpdateCache::GotTopics(&topics).handle_update(&opt.cache_pool);
-//    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
-    Ok(HttpResponse::Ok().finish())
+fn get_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, ServiceError> {
+    Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }
 
-fn get_category(ids: &Vec<u32>, page: &i64, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-    let offset = (page - 1) * LIMIT;
-
-    let topics = get_topics_by_category_id(ids, &offset, conn)?;
-    let users = get_unique_users(&topics, None, conn)?;
-
-    let _ignore = UpdateCache::GotTopics(&topics).handle_update(&opt.cache_pool);
-    Ok(HttpResponse::Ok().json(&topics.iter().map(|topic| topic.attach_user(&users)).collect::<Vec<TopicWithUser>>()))
-}
-
-fn get_all_categories(opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-    let categories = categories::table.order(categories::id.asc()).load::<Category>(conn)?;
-
-    let _ignore = UpdateCache::GotCategories(&categories).handle_update(&opt.cache_pool);
-    Ok(HttpResponse::Ok().json(&categories))
-}
-
-fn add_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get().unwrap();
-
+fn add_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
+                -> Result<Category, ServiceError> {
     let last_cid = Ok(categories::table
         .select(categories::id).order(categories::id.desc()).limit(1).load(conn)?);
 
     /// thread will panic if the database failed to get last_cid
     let next_cid = match_id(last_cid);
-    let category: Category = diesel::insert_into(categories::table).values(&req.make_category(&next_cid)?).get_result(conn)?;
-
-    let _ignore = UpdateCache::GotCategories(&vec![category]).handle_update(&opt.cache_pool);
-
-    Ok(Response::UpdatedCategory.to_res())
+    Ok(diesel::insert_into(categories::table)
+        .values(&req.make_category(&next_cid)?)
+        .get_result(conn)?)
 }
 
-fn update_category(req: &CategoryUpdateRequest, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
-
-    let category: Category = diesel::update(categories::table
+fn update_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
+                   -> Result<Category, ServiceError> {
+    Ok(diesel::update(categories::table
         .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
-        .set(&req.make_update()).get_result(conn)?;
-
-    let _ignore = UpdateCache::GotCategories(&vec![category]).handle_update(&opt.cache_pool);
-
-    Ok(Response::UpdatedCategory.to_res())
+        .set(&req.make_update()).get_result(conn)?)
 }
 
-fn delete_category(id: &u32, opt: &QueryOption) -> QueryResult {
-    let conn = &opt.db_pool.unwrap().get()?;
+fn delete_category(id: &u32, conn: &PoolConnectionPostgres)
+                   -> Result<u32, ServiceError> {
     diesel::delete(categories::table.find(id)).execute(conn)?;
-    let _ignore = UpdateCache::DeleteCategory(id).handle_update(&opt.cache_pool);
-    Ok(Response::UpdatedCategory.to_res())
+    Ok(*id)
 }
 
 //helper functions
@@ -112,6 +86,6 @@ pub fn update_category_sub_count(id: &u32, conn: &PoolConnectionPostgres) -> Res
 }
 
 pub fn load_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, ServiceError> {
-    // ToDo: update category data on startup
+// ToDo: update category data on startup
     Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }

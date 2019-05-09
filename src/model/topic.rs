@@ -4,7 +4,7 @@ use crate::model::{
     admin::AdminPrivilegeCheck,
     common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
-    post::{Post,PostWithUser},
+    post::{Post, PostWithUser},
     user::{ToUserRef, User, UserRef},
 };
 use crate::schema::topics;
@@ -63,7 +63,7 @@ impl TopicRequest {
         self.user_id = id;
         self
     }
-    pub fn attach_user_id_async(mut self, id: Option<u32>) -> Self {
+    pub fn attach_user_id_into(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
@@ -161,16 +161,16 @@ impl GetUserId for Topic {
 
 pub enum TopicQuery {
     GetTopic(u32, i64),
+    GetTopics(Vec<u32>, i64),
     AddTopic(TopicRequest),
     UpdateTopic(TopicRequest),
 }
 
-
-pub trait PathToQueryAsync {
+pub trait PathToQuery {
     fn to_query(&self) -> TopicQuery;
 }
 
-impl PathToQueryAsync for (u32, i64) {
+impl PathToQuery for (u32, i64) {
     fn to_query(&self) -> TopicQuery {
         TopicQuery::GetTopic(self.0, self.1)
     }

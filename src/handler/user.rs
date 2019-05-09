@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use crate::model::{
     common::{get_unique_id, GetUserId, PoolConnectionPostgres},
     errors::ServiceError,
-    user::{AuthRequest, UserUpdateRequest, AuthResponseAsync, User},
+    user::{AuthRequest, UpdateRequest, AuthResponseAsync, User},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
@@ -16,7 +16,7 @@ pub enum UserQuery {
     GetUser(u32),
     Register(AuthRequest),
     Login(AuthRequest),
-    UpdateUser(UserUpdateRequest),
+    UpdateUser(UpdateRequest),
     ValidationFailed(ServiceError),
 }
 
@@ -33,7 +33,7 @@ impl UserQuery {
             _ => panic!("only single object query can use into_user method")
         }).from_err()
     }
-    pub fn into_login(self, db: Data<PostgresPool>) -> impl Future<Item=AuthResponseAsync, Error=ServiceError> {
+    pub fn into_jwt_user(self, db: Data<PostgresPool>) -> impl Future<Item=AuthResponseAsync, Error=ServiceError> {
         block(move || match self {
             UserQuery::Login(req) => login_user(&req, &db.get()?),
             _ => panic!("only login query can use into_login method")
@@ -45,7 +45,7 @@ fn get_user(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
     Ok(get_user_by_id(&id, &conn)?.pop().ok_or(ServiceError::InternalServerError)?)
 }
 
-fn update_user(req: &UserUpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
+fn update_user(req: &UpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     let update = req.make_update()?;
     Ok(diesel::update(users::table.filter(users::id.eq(update.id)))
         .set(update).get_result(conn)?)
@@ -85,24 +85,21 @@ fn register_user(req: &AuthRequest, conn: &PoolConnectionPostgres, global: Optio
     }
 }
 
-pub fn get_users_async<T>(vec: &Vec<T>, opt: Option<u32>, pool: Data<PostgresPool>)
-                          -> impl Future<Item=Vec<User>, Error=ServiceError>
+
+/// helper query function
+pub fn get_unique_users<T>(
+    vec: &Vec<T>,
+    opt: Option<u32>,
+    pool: &PostgresPool,
+) -> impl Future<Item=Vec<User>, Error=ServiceError>
     where T: GetUserId {
     let ids = get_unique_id(vec, opt);
+    let pool = pool.clone();
     block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&pool.get()?)?)).from_err()
 }
 
 pub fn get_user_by_id_async(id: u32, pool: Data<PostgresPool>) -> impl Future<Item=Vec<User>, Error=ServiceError> {
     block(move || Ok(users::table.find(&id).load::<User>(&pool.get()?)?)).from_err()
-}
-
-/// helper query function
-pub fn get_unique_users<T>(vec: &Vec<T>, opt: Option<u32>, conn: &PoolConnectionPostgres)
-                           -> Result<Vec<User>, ServiceError>
-    where T: GetUserId {
-    let user_ids = get_unique_id(&vec, opt);
-    let users = users::table.filter(users::id.eq_any(&user_ids)).load::<User>(conn)?;
-    Ok(users)
 }
 
 pub fn get_user_by_id(id: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {

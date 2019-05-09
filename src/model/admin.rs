@@ -1,12 +1,12 @@
 use crate::model::{
-    category::CategoryUpdateRequest,
-    post::PostRequest,
-    topic::TopicRequest,
-    user::UserUpdateRequest,
+	category::CategoryUpdateRequest,
+	post::PostRequest,
+	topic::TopicRequest,
+	user::UpdateRequest,
 };
 
 pub enum AdminPrivilegeCheck<'a> {
-	UpdateUserCheck(&'a u32, &'a UserUpdateRequest),
+	UpdateUserCheck(&'a u32, &'a UpdateRequest),
 	UpdateCategoryCheck(&'a u32, &'a CategoryUpdateRequest),
 	UpdateTopicCheck(&'a u32, &'a TopicRequest),
 	UpdatePostCheck(&'a u32, &'a PostRequest),

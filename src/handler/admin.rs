@@ -3,7 +3,7 @@ use diesel::prelude::*;
 
 use crate::handler::user::get_user_by_id;
 use crate::model::{
-    user::UserUpdateRequest,
+    user::UpdateRequest,
     category::CategoryUpdateRequest,
     common::{PoolConnectionPostgres, PostgresPool},
     errors::ServiceError,
@@ -28,7 +28,7 @@ impl<'a> AdminPrivilegeCheck<'a> {
     }
 }
 
-fn update_user_check(lv: &u32, req: &UserUpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
+fn update_user_check(lv: &u32, req: &UpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     check_admin_level(&req.is_admin, &lv, 9)?;
     let user = get_user_by_id(req.extract_id()?, conn)?.pop().ok_or(ServiceError::BadRequestGeneral)?;
     if lv <= &user.is_admin { return Err(ServiceError::Unauthorized); }
