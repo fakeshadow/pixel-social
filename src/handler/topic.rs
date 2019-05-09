@@ -99,10 +99,10 @@ pub fn update_topic_reply_count(id: &u32, now: &NaiveDateTime, conn: &PoolConnec
         .get_result(conn)?)
 }
 
-pub fn get_topics_by_category_id(ids: &Vec<u32>, offset: &i64, conn: &PoolConnectionPostgres) -> Result<Vec<Topic>, ServiceError> {
+pub fn get_topics_by_category_id(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionPostgres) -> Result<Vec<Topic>, ServiceError> {
     Ok(topics::table
         .filter(topics::category_id.eq_any(ids))
-        .order(topics::last_reply_time.desc()).limit(LIMIT).offset(*offset).load::<Topic>(conn)?)
+        .order(topics::last_reply_time.desc()).limit(LIMIT).offset((page - 1) * LIMIT).load::<Topic>(conn)?)
 }
 
 pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {

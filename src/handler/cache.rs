@@ -90,9 +90,8 @@ fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceEr
 fn get_topics(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, ServiceError> {
     let list_key = format!("category:{}:list", ids.first().unwrap_or(&0));
     let start = (*page as isize - 1) * 20;
-
-    let topic_id: Vec<u32> = conn.lrange(&list_key, start, start + LIMIT - 1)?;
-    from_hash_set::<Topic>(&topic_id, "topic", &conn)
+    let ids: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
+    from_hash_set::<Topic>(&ids, "topic", &conn)
 }
 
 fn get_topic(id: u32, page: i64, conn: &PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {

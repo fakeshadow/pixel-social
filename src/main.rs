@@ -29,6 +29,7 @@ mod router;
 mod schema;
 mod util;
 
+
 fn main() -> std::io::Result<()> {
     dotenv().ok();
 
