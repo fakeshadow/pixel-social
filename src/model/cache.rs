@@ -203,7 +203,6 @@ pub enum CacheQuery {
     GetTopic(u32, i64),
     GetTopics(Vec<u32>, i64),
     GetAllCategories,
-    GetCategory(u32, i64),
 }
 
 pub trait IdToUserQuery {

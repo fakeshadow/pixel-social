@@ -63,7 +63,7 @@ pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<R
                                     .iter()
                                     .map(|t| t.attach_user(&u))
                                     .collect::<Vec<TopicWithUser>>());
-                                UpdateCacheAsync::GotTopics(t).handler(&cache).then(|r| res)
+                                UpdateCacheAsync::GotTopics(t).handler(&cache).then(|_| res)
                             })
                     )
             )

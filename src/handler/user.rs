@@ -6,7 +6,7 @@ use diesel::prelude::*;
 use crate::model::{
     common::{get_unique_id, GetUserId, PoolConnectionPostgres},
     errors::ServiceError,
-    user::{AuthRequest, UpdateRequest, AuthResponseAsync, User},
+    user::{AuthRequest, UpdateRequest, AuthResponse, User},
 };
 use crate::schema::users;
 use crate::util::{hash, jwt};
@@ -33,7 +33,7 @@ impl UserQuery {
             _ => panic!("only single object query can use into_user method")
         }).from_err()
     }
-    pub fn into_jwt_user(self, db: Data<PostgresPool>) -> impl Future<Item=AuthResponseAsync, Error=ServiceError> {
+    pub fn into_jwt_user(self, db: Data<PostgresPool>) -> impl Future<Item=AuthResponse, Error=ServiceError> {
         block(move || match self {
             UserQuery::Login(req) => login_user(&req, &db.get()?),
             _ => panic!("only login query can use into_login method")
@@ -51,14 +51,14 @@ fn update_user(req: &UpdateRequest, conn: &PoolConnectionPostgres) -> QueryResul
         .set(update).get_result(conn)?)
 }
 
-fn login_user(req: &AuthRequest, conn: &PoolConnectionPostgres) -> Result<AuthResponseAsync, ServiceError> {
+fn login_user(req: &AuthRequest, conn: &PoolConnectionPostgres) -> Result<AuthResponse, ServiceError> {
     let user = users::table.filter(users::username.eq(&req.username)).first::<User>(conn)?;
     if user.blocked { return Err(ServiceError::Unauthorized); }
 
     hash::verify_password(&req.password, &user.hashed_password)?;
 
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-    Ok(AuthResponseAsync { token, user })
+    Ok(AuthResponse { token, user })
 }
 
 fn register_user(req: &AuthRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>) -> QueryResult {
@@ -96,10 +96,6 @@ pub fn get_unique_users<T>(
     let ids = get_unique_id(vec, opt);
     let pool = pool.clone();
     block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&pool.get()?)?)).from_err()
-}
-
-pub fn get_user_by_id_async(id: u32, pool: Data<PostgresPool>) -> impl Future<Item=Vec<User>, Error=ServiceError> {
-    block(move || Ok(users::table.find(&id).load::<User>(&pool.get()?)?)).from_err()
 }
 
 pub fn get_user_by_id(id: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {

@@ -16,7 +16,7 @@ pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>)
         title: Some("test title".to_string()),
         body: Some("test body".to_string()),
         is_locked: None,
-    }).into_topic(&db, Some(global))
+    }).into_topic_with_category(&db, Some(global))
         .from_err()
         .and_then(|_| Response::ModifiedTopic.to_res())
 }

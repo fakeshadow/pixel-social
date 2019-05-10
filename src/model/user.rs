@@ -134,24 +134,9 @@ impl AuthRequest {
 }
 
 #[derive(Serialize)]
-pub struct AuthResponse<'a> {
-    pub token: &'a str,
-    pub user_data: UserRef<'a>,
-}
-
-#[derive(Serialize)]
-pub struct AuthResponseAsync {
+pub struct AuthResponse {
     pub token: String,
     pub user: User,
-}
-
-impl AuthResponseAsync {
-    pub fn to_response(&self) -> AuthResponse {
-        AuthResponse {
-            token: &self.token,
-            user_data: self.user.to_ref(),
-        }
-    }
 }
 
 #[derive(Deserialize, Debug)]

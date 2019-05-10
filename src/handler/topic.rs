@@ -37,7 +37,7 @@ impl TopicQuery {
             _ => panic!("Only modify topic query can use into_topic method")
         }).from_err()
     }
-    pub fn into_topic(self, pool: &PostgresPool, opt: Option<Data<GlobalGuard>>)
+    pub fn into_topic(self, pool: &PostgresPool)
                       -> impl Future<Item=Topic, Error=ServiceError> {
         let pool = pool.clone();
         block(move || match self {

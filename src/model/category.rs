@@ -82,7 +82,6 @@ impl CategoryUpdateRequest {
 pub enum CategoryQuery {
     GetAllCategories,
     GetPopular(i64),
-    GetCategory(Vec<u32>, i64),
     AddCategory(CategoryUpdateRequest),
     UpdateCategory(CategoryUpdateRequest),
     DeleteCategory(u32),

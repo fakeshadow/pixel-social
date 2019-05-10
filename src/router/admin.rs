@@ -107,7 +107,7 @@ pub fn admin_update_topic(
         .and_then(move |_| req
             .into_inner()
             .into_update_query()
-            .into_topic(&db, None))
+            .into_topic(&db))
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);

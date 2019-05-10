@@ -19,8 +19,10 @@ pub fn add_topic(
         .into_add_query()
         .into_topic_with_category(&db, Some(global))
         .from_err()
-        .and_then(move |(c, t)| UpdateCacheAsync::AddedTopic(c, t).handler(&cache))
-        .then(|_| Response::ModifiedTopic.to_res())
+        .and_then(move |(c, t)|
+            UpdateCacheAsync::AddedTopic(c, t)
+                .handler(&cache)
+                .then(|_| Response::ModifiedTopic.to_res()))
 }
 
 pub fn update_topic(jwt: UserJwt, req: Json<TopicRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
@@ -28,10 +30,12 @@ pub fn update_topic(jwt: UserJwt, req: Json<TopicRequest>, db: Data<PostgresPool
     req.into_inner()
         .attach_user_id_into(Some(jwt.user_id))
         .into_update_query()
-        .into_topic(&db, None)
+        .into_topic(&db)
         .from_err()
-        .and_then(move |t| UpdateCacheAsync::GotTopic(t).handler(&cache))
-        .then(|_| Response::ModifiedTopic.to_res())
+        .and_then(move |t|
+            UpdateCacheAsync::GotTopic(t)
+                .handler(&cache)
+                .then(|_| Response::ModifiedTopic.to_res()))
 }
 
 pub fn get_topic(path: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)

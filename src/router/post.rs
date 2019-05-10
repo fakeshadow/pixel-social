@@ -23,8 +23,9 @@ pub fn add_post(
         .into_add_post(&db, Some(global))
         .from_err()
         .and_then(move |(c, t, p, p_new)|
-            UpdateCacheAsync::AddedPost(c, t, p, p_new).handler(&cache))
-        .then(|_| Response::AddedPost.to_res())
+            UpdateCacheAsync::AddedPost(c, t, p, p_new)
+                .handler(&cache)
+                .then(|_| Response::AddedPost.to_res()))
 }
 
 pub fn update_post(
@@ -38,8 +39,10 @@ pub fn update_post(
         .into_update_query()
         .into_post(&db)
         .from_err()
-        .and_then(move |p| UpdateCacheAsync::GotPost(p).handler(&cache))
-        .then(|_| Response::AddedPost.to_res())
+        .and_then(move |p|
+            UpdateCacheAsync::GotPost(p)
+                .handler(&cache)
+                .then(|_| Response::AddedPost.to_res()))
 }
 
 pub fn get_post(

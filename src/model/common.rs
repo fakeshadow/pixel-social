@@ -15,9 +15,7 @@ pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 pub enum Response {
     Registered,
     ModifiedTopic,
-    UpdatedCategory,
     AddedPost,
-    ModifiedUser,
 }
 
 impl Response {
@@ -26,8 +24,6 @@ impl Response {
             Response::Registered => HttpResponse::Ok().json(ResMsg::new("Register Success")),
             Response::ModifiedTopic => HttpResponse::Ok().json(ResMsg::new("Modify Topic Success")),
             Response::AddedPost => HttpResponse::Ok().json(ResMsg::new("Modify Post Success")),
-            Response::UpdatedCategory => HttpResponse::Ok().json(ResMsg::new("Modify Category Success")),
-            Response::ModifiedUser => HttpResponse::Ok().json(ResMsg::new("Modify User Success")),
         }
     }
 }
