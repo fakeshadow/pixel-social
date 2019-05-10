@@ -25,11 +25,11 @@ pub fn admin_modify_category(
             Some(_) => Either::A(
                 req.into_inner()
                     .into_update_query()
-                    .into_category(&db)
+                    .into_categories(&db)
                     .from_err()
                     .and_then(move |c| {
                         let res = HttpResponse::Ok().json(&c);
-                        UpdateCacheAsync::GotCategories(vec![c])
+                        UpdateCacheAsync::GotCategories(c)
                             .handler(&cache)
                             .then(|_| res)
                     })
@@ -37,7 +37,7 @@ pub fn admin_modify_category(
             None => Either::B(
                 req.into_inner()
                     .into_add_query()
-                    .into_category(&db)
+                    .into_categories(&db)
                     .from_err()
                     .and_then(move |c| {
                         let res = HttpResponse::Ok().json(&c);
@@ -107,11 +107,11 @@ pub fn admin_update_topic(
         .and_then(move |_| req
             .into_inner()
             .into_update_query()
-            .into_topic(&db))
+            .into_topics(&db))
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
-            UpdateCacheAsync::GotTopic(t).handler(&cache).then(|_| res)
+            UpdateCacheAsync::GotTopics(t).handler(&cache).then(|_| res)
         })
 }
 

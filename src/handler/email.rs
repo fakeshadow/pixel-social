@@ -6,9 +6,30 @@ use lettre::{
 };
 
 use crate::model::{mail::Mail, errors::ServiceError};
+use crate::handler::cache::MailCache;
+use std::any::Any;
+use crate::model::common::{PoolConnectionRedis, RedisPool};
 
-pub fn send_mail(mail: Mail) -> Result<(), ServiceError> {
-    let url = "http://test.com";
+const MAIL_TIME_GAP: u64 = 500;
+
+
+pub fn mail_service(pool: &RedisPool) {
+    use std::{thread, time::Duration};
+    let pool = pool.clone();
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_millis(MAIL_TIME_GAP));
+        match process_mail(&pool.get().unwrap()) {
+            Ok(_) => (),
+            Err(_) => {
+                println!("failed to send activation mail");
+                thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 5))
+            }
+        }
+    });
+}
+
+fn send_mail(mail: &Mail) -> Result<(), ServiceError> {
+    let url = env::var("SERVER_URL").expect("Server url must be set");
     let server = env::var("MAIL_SERVER").expect("Mail server must be set");
     let self_username = env::var("MAIL_USERNAME").expect("Mail server credentials must be set");
     let password = env::var("MAIL_PASSWORD").expect("Mail server credentials must be set");
@@ -27,7 +48,18 @@ pub fn send_mail(mail: Mail) -> Result<(), ServiceError> {
             vec![EmailAddress::new(mail.address.to_string()).unwrap()],
         ).unwrap(),
         format!("Hello {}", mail.username),
-        format!("Please visit this link to activate your account: <br> http://{}/activation/{}", url, mail.uuid).into_bytes(),
+        format!("Please visit this link to activate your account: <br> {}/activation/{}", url, mail.uuid).into_bytes(),
     );
     mailer.send(mail).map(|_| ()).map_err(|_| ServiceError::MailServiceError)
+}
+
+fn process_mail(conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+    let cache = MailCache::from_queue(conn)?;
+    match &cache {
+        MailCache::GotActivation(mail) => {
+            send_mail(mail)?;
+            cache.remove_queue(conn)
+        }
+        _ => Err(ServiceError::InternalServerError)
+    }
 }

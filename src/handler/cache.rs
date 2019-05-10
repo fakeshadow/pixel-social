@@ -184,15 +184,14 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
 
 
 pub enum UpdateCacheAsync {
-    GotTopic(Topic),
     GotTopics(Vec<Topic>),
-    AddedTopic(Category, Topic),
     GotPost(Post),
-    GotTopicWithPosts(Option<Topic>, Vec<Post>),
-    AddedPost(Category, Topic, Option<Post>, Post),
     GotUser(User),
     GotCategories(Vec<Category>),
-    AddedCategory(Category),
+    GotTopicWithPosts(Option<Topic>, Vec<Post>),
+    AddedTopic(Category, Topic),
+    AddedPost(Category, Topic, Option<Post>, Post),
+    AddedCategory(Vec<Category>),
     DeleteCategory(u32),
 }
 
@@ -208,7 +207,6 @@ impl UpdateCacheAsync {
             UpdateCacheAsync::AddedCategory(c) => added_category(&c, pool.get()?),
             UpdateCacheAsync::GotPost(p) => Ok(pool.get()?.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
             UpdateCacheAsync::GotUser(u) => Ok(pool.get()?.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
-            UpdateCacheAsync::GotTopic(t) => Ok(pool.get()?.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?),
             // ToDo: migrate post and topic when deleting category
             UpdateCacheAsync::DeleteCategory(id) => Ok(redis::pipe()
                 .lrem("category_id:meta", 1, id)
@@ -220,7 +218,8 @@ impl UpdateCacheAsync {
 
 type UpdateResult = Result<(), ServiceError>;
 
-fn added_category(c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
+fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
+    let c = c.first().ok_or(ServiceError::NoCacheFound)?;
     Ok(redis::pipe().atomic()
         .rpush("category_id:meta", c.id)
         .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
@@ -343,28 +342,26 @@ pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
 }
 
 // helper for mail service
-pub enum MailCache<'a> {
-    AddActivation(Mail<'a>),
-    AddRecovery(Mail<'a>),
+pub enum MailCache {
+    AddActivation(Mail),
+    AddRecovery(Mail),
+    GotActivation(Mail),
     GetActivation(Option<u32>),
-    RemoveActivation(&'a u32),
-    RemoveRecovery(&'a u32),
+    RemoveActivation(u32),
+    RemoveRecovery(u32),
 }
 
-impl<'a> MailCache<'a> {
-    pub fn modify(&self, pool: &Option<&RedisPool>) -> Result<(), ServiceError> {
-        let pool = pool.unwrap();
-        match self {
-            MailCache::AddActivation(mail) => add_mail_cache(mail, "activation", pool.get()?),
-            MailCache::RemoveActivation(id) => del_mail_queue(id, pool.get()?),
-            _ => Ok(())
-        }
+impl MailCache {
+    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            MailCache::AddActivation(mail) => add_mail_cache(&mail, pool.get()?),
+            _ => panic!("method not allowed")
+        }).from_err()
     }
-    pub fn get_mail_queue(&self, pool: &RedisPool) -> Result<String, ServiceError> {
-        match self {
-            MailCache::GetActivation(opt) => from_mail_queue(opt, pool.get()?),
-            _ => Err(ServiceError::BadRequestGeneral)
-        }
+    pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
+        let string = from_mail_queue(None, conn)?;
+        Ok(MailCache::GotActivation(serde_json::from_str(&string)?))
     }
     pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
         match self {
@@ -372,11 +369,17 @@ impl<'a> MailCache<'a> {
             _ => Err(ServiceError::BadRequestGeneral)
         }
     }
+    pub fn remove_queue(self, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+        match self {
+            MailCache::GotActivation(mail) => del_mail_queue(mail.user_id, conn),
+            _ => Err(ServiceError::InternalServerError)
+        }
+    }
 }
 
-fn add_mail_cache(mail: &Mail, key: &str, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
+fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
     let stringify = serde_json::to_string(mail)?;
-    let key = format!("{}:{}:set", key, mail.user_id);
+    let key = format!("activation:{}:set", mail.user_id);
     Ok(redis::pipe().atomic()
         .zadd("mail_queue", stringify, mail.user_id)
         .hset_multiple(&key, &mail.sort_hash())
@@ -384,13 +387,13 @@ fn add_mail_cache(mail: &Mail, key: &str, conn: PoolConnectionRedis) -> Result<(
         .query(conn.deref())?)
 }
 
-fn del_mail_queue(id: &u32, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
-    Ok(redis::cmd("zrembyscore").arg("mail_queue").arg(*id).arg(*id).query(conn.deref())?)
+fn del_mail_queue(id: u32, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+    Ok(redis::cmd("zrembyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?)
 }
 
-fn from_mail_queue(opt: &Option<u32>, conn: PoolConnectionRedis) -> Result<String, ServiceError> {
+fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<String, ServiceError> {
     match opt {
-        Some(id) => Ok(redis::cmd("zrange").arg("mail_queue").arg(*id).arg(*id).query(conn.deref())?),
+        Some(id) => Ok(redis::cmd("zrange").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
         None => Ok(redis::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
     }
 }

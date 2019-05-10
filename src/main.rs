@@ -20,14 +20,14 @@ use diesel::{PgConnection, r2d2::ConnectionManager};
 use dotenv::dotenv;
 use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
 
-use crate::handler::cache::clear_cache;
-use crate::util::startup::{build_cache, init_global_var};
-
 mod handler;
 mod model;
 mod router;
 mod schema;
 mod util;
+
+use crate::handler::{cache::clear_cache, email::mail_service};
+use crate::util::startup::{build_cache, init_global_var};
 
 
 fn main() -> std::io::Result<()> {
@@ -54,6 +54,8 @@ fn main() -> std::io::Result<()> {
     let _build = build_cache(&postgres_pool, &redis_pool);
 
     let global_arc = init_global_var(&postgres_pool);
+
+//    mail_service(&redis_pool);
 
     HttpServer::new(move || {
         App::new()

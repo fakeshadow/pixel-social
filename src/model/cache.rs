@@ -79,7 +79,7 @@ impl SortHash for Category {
     }
 }
 
-impl<'a> SortHash for Mail<'a> {
+impl SortHash for Mail {
     fn sort_hash(&self) -> Vec<(&str, String)> {
         vec![
             ("user_id", self.user_id.to_string()),

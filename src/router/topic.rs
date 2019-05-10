@@ -25,21 +25,28 @@ pub fn add_topic(
                 .then(|_| Response::ModifiedTopic.to_res()))
 }
 
-pub fn update_topic(jwt: UserJwt, req: Json<TopicRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                    -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn update_topic(
+    jwt: UserJwt,
+    req: Json<TopicRequest>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .attach_user_id_into(Some(jwt.user_id))
         .into_update_query()
-        .into_topic(&db)
+        .into_topics(&db)
         .from_err()
         .and_then(move |t|
-            UpdateCacheAsync::GotTopic(t)
+            UpdateCacheAsync::GotTopics(t)
                 .handler(&cache)
                 .then(|_| Response::ModifiedTopic.to_res()))
 }
 
-pub fn get_topic(path: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                 -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn get_topic(
+    path: Path<(u32, i64)>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{cache::PathToTopicQuery, topic::PathToQuery};
     use crate::handler::{user::get_unique_users, cache::get_unique_users_cache};
 
