@@ -1,7 +1,7 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
-use crate::handler::{auth::UserJwt, cache::UpdateCache};
+use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
 use crate::model::{
     common::{GlobalGuard, PostgresPool, RedisPool},
     user::{ToUserRef, AuthRequest, UpdateRequest},
@@ -23,12 +23,12 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
                     .into_user(db, None)
                     .from_err()
                     .and_then(move |u| {
-                        let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
-                        if u.id == jwt.user_id {
+                        let res = if u.id == jwt.user_id {
                             HttpResponse::Ok().json(&u)
                         } else {
                             HttpResponse::Ok().json(u.to_ref())
-                        }
+                        };
+                        UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
                     })
             )
         })
@@ -41,8 +41,8 @@ pub fn register_user(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data
         .into_user(db, Some(global))
         .from_err()
         .and_then(move |u| {
-            let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(&u)
+            let res = HttpResponse::Ok().json(&u);
+            UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
         })
 }
 
@@ -54,8 +54,8 @@ pub fn update_user(jwt: UserJwt, req: Json<UpdateRequest>, db: Data<PostgresPool
         .into_user(db, None)
         .from_err()
         .and_then(move |u| {
-            let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(u.to_ref())
+            let res = HttpResponse::Ok().json(u.to_ref());
+            UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
         })
 }
 
@@ -65,5 +65,5 @@ pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
         .into_login_query()
         .into_jwt_user(db)
         .from_err()
-        .and_then(|u| HttpResponse::Ok().json(&u))
+        .and_then(|u| HttpResponse::Ok().json(&u.to_response()))
 }

@@ -1,12 +1,14 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
-use crate::handler::{auth::UserJwt, cache::{UpdateCache, get_unique_users_cache}};
+use crate::handler::{
+    auth::UserJwt,
+    user::get_unique_users,
+    cache::{UpdateCacheAsync, get_unique_users_cache}};
 use crate::model::{
     common::{GlobalGuard, PostgresPool, RedisPool, Response, AttachUser},
     post::PostRequest,
 };
-use crate::handler::user::get_unique_users;
 
 pub fn add_post(
     jwt: UserJwt,
@@ -20,10 +22,9 @@ pub fn add_post(
         .into_add_query()
         .into_add_post(&db, Some(global))
         .from_err()
-        .and_then(move |(c, t, p, p_new)| {
-            let _ignore = UpdateCache::AddedPost(&t, &c, &p_new, &p).handle_update(&Some(&cache));
-            Response::AddedPost.to_res()
-        })
+        .and_then(move |(c, t, p, p_new)|
+            UpdateCacheAsync::AddedPost(c, t, p, p_new).handler(&cache))
+        .then(|_| Response::AddedPost.to_res())
 }
 
 pub fn update_post(
@@ -37,10 +38,8 @@ pub fn update_post(
         .into_update_query()
         .into_post(&db)
         .from_err()
-        .and_then(move |p| {
-            let _ignore = UpdateCache::GotPost(&p).handle_update(&Some(&cache));
-            Response::AddedPost.to_res()
-        })
+        .and_then(move |p| UpdateCacheAsync::GotPost(p).handler(&cache))
+        .then(|_| Response::AddedPost.to_res())
 }
 
 pub fn get_post(
@@ -62,11 +61,13 @@ pub fn get_post(
                     .into_post(&db)
                     .from_err()
                     .and_then(move |p| {
-                        let p = vec![p];
+                        let mut p = vec![p];
                         get_unique_users(&p, None, &db)
                             .from_err()
-                            .and_then(move |u|
-                                HttpResponse::Ok().json(&p.first().unwrap().attach_user(&u)))
+                            .and_then(move |u| {
+                                let res = HttpResponse::Ok().json(&p.first().unwrap().attach_user(&u));
+                                UpdateCacheAsync::GotPost(p.pop().unwrap()).handler(&cache).then(|_| res)
+                            })
                     }))
         })
 }

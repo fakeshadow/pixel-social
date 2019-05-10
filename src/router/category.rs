@@ -3,14 +3,14 @@ use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, get_unique_users_cache},
+    cache::{UpdateCacheAsync, get_unique_users_cache},
     user::get_unique_users};
 use crate::model::{
     topic::TopicWithUser,
+    cache::CacheQuery,
     category::{CategoryRequest, CategoryQuery},
     common::{PostgresPool, RedisPool, AttachUser},
 };
-use crate::model::cache::{CacheQuery, PathToTopicsQuery};
 
 pub fn get_all_categories(
     cache: Data<RedisPool>,
@@ -24,9 +24,10 @@ pub fn get_all_categories(
                 .into_categories(&db)
                 .from_err()
                 .and_then(move |c| {
-                    let _ignore = UpdateCache::GotCategories(&c).handle_update(&Some(&cache));
-                    HttpResponse::Ok().json(&c)
-                }))
+                    let res = HttpResponse::Ok().json(&c);
+                    UpdateCacheAsync::GotCategories(c).handler(&cache).then(|_| res)
+                })
+            )
         })
 }
 
@@ -46,10 +47,10 @@ pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<R
                 get_unique_users_cache(&t, None, &cache)
                     .from_err()
                     .and_then(move |u|
-                        HttpResponse::Ok().json(
-                            &t.iter()
-                                .map(|t| t.attach_user(&u))
-                                .collect::<Vec<TopicWithUser>>()))),
+                        HttpResponse::Ok().json(&t
+                            .iter()
+                            .map(|t| t.attach_user(&u))
+                            .collect::<Vec<TopicWithUser>>()))),
             Err(_) => Either::B(
                 req.to_query()
                     .into_topics(&db)
@@ -58,12 +59,13 @@ pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<R
                         get_unique_users(&t, None, &db)
                             .from_err()
                             .and_then(move |u| {
-                                let _ignore = UpdateCache::GotTopics(&t).handle_update(&Some(&cache));
-                                HttpResponse::Ok().json(
-                                    &t.iter()
-                                        .map(|t| t.attach_user(&u))
-                                        .collect::<Vec<TopicWithUser>>())
-                            }))
+                                let res = HttpResponse::Ok().json(&t
+                                    .iter()
+                                    .map(|t| t.attach_user(&u))
+                                    .collect::<Vec<TopicWithUser>>());
+                                UpdateCacheAsync::GotTopics(t).handler(&cache).then(|r| res)
+                            })
+                    )
             )
         })
 }
@@ -77,9 +79,9 @@ pub fn get_categories(req: Json<CategoryRequest>, db: Data<PostgresPool>, cache:
             get_unique_users(&t, None, &db)
                 .from_err()
                 .and_then(move |u| {
-                    HttpResponse::Ok().json(
-                        &t.iter()
-                            .map(|t| t.attach_user(&u))
-                            .collect::<Vec<TopicWithUser>>())
+                    HttpResponse::Ok().json(&t
+                        .iter()
+                        .map(|t| t.attach_user(&u))
+                        .collect::<Vec<TopicWithUser>>())
                 }))
 }

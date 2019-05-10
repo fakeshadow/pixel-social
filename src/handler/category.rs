@@ -3,9 +3,6 @@ use futures::Future;
 use actix_web::{HttpResponse, web::block};
 use diesel::prelude::*;
 
-use crate::handler::{
-    cache::UpdateCache,
-};
 use crate::model::{
     category::{Category, CategoryUpdateRequest, CategoryQuery},
     common::{ match_id,PostgresPool, PoolConnectionPostgres, RedisPool},

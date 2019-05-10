@@ -70,6 +70,7 @@ fn get_user(id: u32, conn: &PoolConnectionRedis) -> Result<User, ServiceError> {
 fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceError> {
     // ToDo: need further look into the logic
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
+    println!("{:?}", categories_total);
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
@@ -181,36 +182,56 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
     }
 }
 
-pub enum UpdateCache<'a> {
-    GotTopic(&'a Topic),
-    GotTopics(&'a Vec<Topic>),
-    AddedTopic(&'a Topic, &'a Category),
-    GotPost(&'a Post),
-    GotPosts(&'a Vec<Post>),
-    AddedPost(&'a Topic, &'a Category, &'a Post, &'a Option<Post>),
-    GotUser(&'a User),
-    GotCategories(&'a Vec<Category>),
-    DeleteCategory(&'a u32),
+
+pub enum UpdateCacheAsync {
+    GotTopic(Topic),
+    GotTopics(Vec<Topic>),
+    AddedTopic(Category, Topic),
+    GotPost(Post),
+    GotTopicWithPosts(Option<Topic>, Vec<Post>),
+    AddedPost(Category, Topic, Option<Post>, Post),
+    GotUser(User),
+    GotCategories(Vec<Category>),
+    AddedCategory(Category),
+    DeleteCategory(u32),
+}
+
+impl UpdateCacheAsync {
+    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
+        let pool = pool.clone();
+        block(move || match self {
+            UpdateCacheAsync::GotTopics(t) => update_hash_set(&t, "topic", pool.get()?),
+            UpdateCacheAsync::GotCategories(c) => update_hash_set(&c, "category", pool.get()?),
+            UpdateCacheAsync::GotTopicWithPosts(t, p) => got_topic_with_posts(t.as_ref(), &p, pool.get()?),
+            UpdateCacheAsync::AddedPost(c, t, p, p_new) => added_post(&t, &c, &p_new, &p, pool.get()?),
+            UpdateCacheAsync::AddedTopic(c, t) => added_topic(&t, &c, pool.get()?),
+            UpdateCacheAsync::AddedCategory(c) => added_category(&c, pool.get()?),
+            UpdateCacheAsync::GotPost(p) => Ok(pool.get()?.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
+            UpdateCacheAsync::GotUser(u) => Ok(pool.get()?.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
+            UpdateCacheAsync::GotTopic(t) => Ok(pool.get()?.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?),
+            // ToDo: migrate post and topic when deleting category
+            UpdateCacheAsync::DeleteCategory(id) => Ok(redis::pipe()
+                .lrem("category_id:meta", 1, id)
+                .del(format!("{}:{}:set", "category", id))
+                .query(pool.get()?.deref())?),
+        }).from_err()
+    }
 }
 
 type UpdateResult = Result<(), ServiceError>;
 
-impl<'a> UpdateCache<'a> {
-    pub fn handle_update(self, opt: &Option<&RedisPool>) -> UpdateResult {
-        let conn = opt.unwrap().try_get().ok_or(ServiceError::CacheOffline)?;
-        match self {
-            UpdateCache::GotTopics(t) => update_hash_set(t, "topic", conn),
-            UpdateCache::GotCategories(c) => update_hash_set(c, "category", conn),
-            UpdateCache::GotPosts(p) => update_hash_set(&p, "post", conn),
-            UpdateCache::AddedPost(t, c, p_new, p_old) => added_post(t, c, p_new, p_old, conn),
-            UpdateCache::AddedTopic(t, c) => added_topic(t, c, conn),
-            UpdateCache::GotPost(p) => Ok(conn.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
-            UpdateCache::GotUser(u) => Ok(conn.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
-            UpdateCache::GotTopic(t) => Ok(conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())?),
-            // ToDo: migrate post and topic when deleting category
-            UpdateCache::DeleteCategory(id) => Ok(conn.del(format!("{}:{}:set", "category", id))?),
-        }
+fn added_category(c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
+    Ok(redis::pipe().atomic()
+        .rpush("category_id:meta", c.id)
+        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+        .query(conn.deref())?)
+}
+
+fn got_topic_with_posts(t_opt: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    if let Some(t) = t_opt {
+        let _ignore: Result<usize, _> = conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash());
     }
+    update_hash_set(&p, "post", conn)
 }
 
 fn added_topic(topic: &Topic, category: &Category, conn: PoolConnectionRedis) -> UpdateResult {

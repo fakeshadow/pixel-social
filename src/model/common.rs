@@ -12,27 +12,6 @@ pub type RedisPool = redis_pool<RedisConnectionManager>;
 pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnection>>;
 pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 
-
-pub struct QueryOption<'a> {
-    pub db_pool: Option<&'a PostgresPool>,
-    pub cache_pool: Option<&'a RedisPool>,
-    pub global_var: Option<&'a GlobalGuard>,
-}
-
-impl<'a> QueryOption<'a> {
-    pub fn new(
-        db_pool: Option<&'a PostgresPool>,
-        cache_pool: Option<&'a RedisPool>,
-        global_var: Option<&'a GlobalGuard>,
-    ) -> QueryOption<'a> {
-        QueryOption {
-            db_pool,
-            cache_pool,
-            global_var,
-        }
-    }
-}
-
 pub enum Response {
     Registered,
     ModifiedTopic,

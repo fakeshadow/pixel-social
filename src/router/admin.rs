@@ -1,15 +1,14 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
-use futures::{Future, IntoFuture};
+use futures::{Future, future::Either, IntoFuture};
 
-use crate::handler::auth::UserJwt;
+use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
 use crate::model::{
     category::CategoryUpdateRequest,
-    common::{PostgresPool, QueryOption, RedisPool},
+    common::{PostgresPool, RedisPool},
     post::PostRequest,
     topic::TopicRequest,
     user::{ToUserRef, UpdateRequest},
 };
-use crate::handler::cache::UpdateCache;
 
 /// Admin query will hit database directly.
 pub fn admin_modify_category(
@@ -23,21 +22,30 @@ pub fn admin_modify_category(
         .into_future()
         .from_err()
         .and_then(move |_| match req.category_id {
-            Some(_) => req
-                .into_inner()
-                .into_update_query()
-                .into_category(&db)
-                .from_err(),
-            None => req
-                .into_inner()
-                .into_add_query()
-                .into_category(&db)
-                .from_err()
-        })
-        .and_then(move |c| {
-            let c = vec![c];
-            let _ignore = UpdateCache::GotCategories(&c).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(&c)
+            Some(_) => Either::A(
+                req.into_inner()
+                    .into_update_query()
+                    .into_category(&db)
+                    .from_err()
+                    .and_then(move |c| {
+                        let res = HttpResponse::Ok().json(&c);
+                        UpdateCacheAsync::GotCategories(vec![c])
+                            .handler(&cache)
+                            .then(|_| res)
+                    })
+            ),
+            None => Either::B(
+                req.into_inner()
+                    .into_add_query()
+                    .into_category(&db)
+                    .from_err()
+                    .and_then(move |c| {
+                        let res = HttpResponse::Ok().json(&c);
+                        UpdateCacheAsync::AddedCategory(c)
+                            .handler(&cache)
+                            .then(|_| res)
+                    })
+            ),
         })
 }
 
@@ -56,10 +64,10 @@ pub fn admin_remove_category(
             .to_delete_query()
             .into_category_id(&db))
         .from_err()
-        .and_then(move |id| {
-            let _ignore = UpdateCache::DeleteCategory(&id).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(id)
-        })
+        .and_then(move |id|
+            UpdateCacheAsync::DeleteCategory(id)
+                .handler(&cache)
+                .then(move |_| HttpResponse::Ok().json(id)))
 }
 
 
@@ -80,8 +88,8 @@ pub fn admin_update_user(
             .into_user(db, None))
         .from_err()
         .and_then(move |u| {
-            let _ignore = UpdateCache::GotUser(&u).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(u.to_ref())
+            let res = HttpResponse::Ok().json(u.to_ref());
+            UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
         })
 }
 
@@ -101,7 +109,10 @@ pub fn admin_update_topic(
             .into_update_query()
             .into_topic(&db, None))
         .from_err()
-        .and_then(|r| HttpResponse::Ok().json(&r))
+        .and_then(move |t| {
+            let res = HttpResponse::Ok().json(&t);
+            UpdateCacheAsync::GotTopic(t).handler(&cache).then(|_| res)
+        })
 }
 
 pub fn admin_update_post(
@@ -121,7 +132,7 @@ pub fn admin_update_post(
             .into_post(&db))
         .from_err()
         .and_then(move |p| {
-            let _ignore = UpdateCache::GotPost(&p).handle_update(&Some(&cache));
-            HttpResponse::Ok().json(&p)
+            let res = HttpResponse::Ok().json(&p);
+            UpdateCacheAsync::GotPost(p).handler(&cache).then(|_| res)
         })
 }
