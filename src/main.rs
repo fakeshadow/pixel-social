@@ -55,7 +55,7 @@ fn main() -> std::io::Result<()> {
 
     let global_arc = init_global_var(&postgres_pool);
 
-//    mail_service(&redis_pool);
+    mail_service(&redis_pool);
 
     HttpServer::new(move || {
         App::new()

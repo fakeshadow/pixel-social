@@ -1,10 +1,5 @@
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
-use chrono::format::ParseError as ParseNavDateError;
 use derive_more::Display;
-use diesel::result::{DatabaseErrorKind, Error as diesel_err};
-use r2d2::Error as r2d2_err;
-use r2d2_redis::redis::RedisError as redis_err;
-use serde_json::Error as json_err;
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -12,6 +7,8 @@ pub enum ServiceError {
     InternalServerError,
     #[display(fmt = "BadRequest: {}", _0)]
     BadRequest(String),
+    #[display(fmt = "BadRequest")]
+    BadRequestDb(DatabaseErrorMessage),
     #[display(fmt = "BadRequest")]
     BadRequestGeneral,
     #[display(fmt = "BadRequest")]
@@ -26,6 +23,10 @@ pub enum ServiceError {
     InvalidEmail,
     #[display(fmt = "BadRequest")]
     NotFound,
+    #[display(fmt = "RedisError: {}", _0)]
+    RedisError(String),
+    #[display(fmt = "RedisError")]
+    RedisErrorGeneral,
     #[display(fmt = "Forbidden")]
     WrongPwd,
     #[display(fmt = "Forbidden")]
@@ -36,8 +37,8 @@ pub enum ServiceError {
     NoCacheFound,
     #[display(fmt = "Internal Server Error")]
     CacheOffline,
-    #[display(fmt = "Internal Server Error")]
-    MailServiceError
+    #[display(fmt = "MailError")]
+    MailServiceError,
 }
 
 impl ResponseError for ServiceError {
@@ -46,6 +47,7 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequest(message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
+            ServiceError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
             ServiceError::InvalidPassword => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password")),
@@ -57,7 +59,7 @@ impl ResponseError for ServiceError {
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found")),
             ServiceError::CacheOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
-            _ =>  HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
+            _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
 }
@@ -65,49 +67,72 @@ impl ResponseError for ServiceError {
 
 impl From<BlockingError<ServiceError>> for ServiceError {
     fn from(err: BlockingError<ServiceError>) -> ServiceError {
-       match err {
-           BlockingError::Error(e) => e,
-           _ => ServiceError::InternalServerError
-       }
+        match err {
+            BlockingError::Error(e) => e,
+            _ => ServiceError::InternalServerError
+        }
     }
 }
 
+use r2d2_redis::redis::{RedisError, ErrorKind as RedisErrorKind};
 
-impl From<redis_err> for ServiceError {
-    fn from(_err: redis_err) -> ServiceError {
-        ServiceError::InternalServerError
+impl From<RedisError> for ServiceError {
+    fn from(err: RedisError) -> ServiceError {
+        match err.kind() {
+            RedisErrorKind::ResponseError => ServiceError::RedisError(err.to_string()),
+            RedisErrorKind::IoError => ServiceError::RedisError(err.to_string()),
+            _ => ServiceError::RedisErrorGeneral
+        }
     }
 }
 
-impl From<r2d2_err> for ServiceError {
-    fn from(_err: r2d2_err) -> ServiceError { ServiceError::NoCacheFound }
-}
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
-impl From<json_err> for ServiceError {
-    fn from(_err: json_err) -> ServiceError {
-        ServiceError::InternalServerError
-    }
-}
-
-impl From<diesel_err> for ServiceError {
-    fn from(error: diesel_err) -> ServiceError {
-        match error {
-            diesel_err::DatabaseError(kind, info) => {
-                if let DatabaseErrorKind::UniqueViolation = kind {
-                    let message = info.details().unwrap_or_else(|| info.message()).to_string();
-                    return ServiceError::BadRequest(message);
-                }
-                ServiceError::InternalServerError
+impl From<DieselError> for ServiceError {
+    fn from(e: DieselError) -> ServiceError {
+        match e {
+            DieselError::DatabaseError(kind, info) => match kind {
+                DatabaseErrorKind::UniqueViolation =>
+                    ServiceError::BadRequestDb(DatabaseErrorMessage {
+                        message: info.message().to_string(),
+                        details: info.details().map(|i| i.to_string()),
+                        hint: info.hint().map(|i| i.to_string()),
+                    }),
+                _ => ServiceError::InternalServerError
             }
             _ => ServiceError::InternalServerError,
         }
     }
 }
 
+use r2d2::Error as R2d2Error;
+
+impl From<R2d2Error> for ServiceError {
+    fn from(_err: R2d2Error) -> ServiceError { ServiceError::InternalServerError }
+}
+
+
+use serde_json::Error as SerdeError;
+
+impl From<SerdeError> for ServiceError {
+    fn from(_e: SerdeError) -> ServiceError {
+        ServiceError::InternalServerError
+    }
+}
+
+use chrono::format::ParseError as ParseNavDateError;
+
 impl From<ParseNavDateError> for ServiceError {
     fn from(_e: ParseNavDateError) -> ServiceError {
         ServiceError::InternalServerError
     }
+}
+
+#[derive(Serialize, Debug)]
+struct DatabaseErrorMessage {
+    message: String,
+    details: Option<String>,
+    hint: Option<String>,
 }
 
 

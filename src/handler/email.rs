@@ -7,7 +7,6 @@ use lettre::{
 
 use crate::model::{mail::Mail, errors::ServiceError};
 use crate::handler::cache::MailCache;
-use std::any::Any;
 use crate::model::common::{PoolConnectionRedis, RedisPool};
 
 const MAIL_TIME_GAP: u64 = 500;
@@ -18,14 +17,31 @@ pub fn mail_service(pool: &RedisPool) {
     let pool = pool.clone();
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(MAIL_TIME_GAP));
-        match process_mail(&pool.get().unwrap()) {
+        match process_mail(&pool) {
             Ok(_) => (),
-            Err(_) => {
-                println!("failed to send activation mail");
-                thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 5))
+            Err(e) => match e {
+                ServiceError::MailServiceError => {
+                    println!("failed to send mail");
+                    thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 5))
+                }
+                ServiceError::NoCacheFound =>
+                    thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 60)),
+                _ => ()
             }
         }
     });
+}
+
+fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {
+    let conn = &pool.get()?;
+    let cache = MailCache::from_queue(conn)?;
+    match &cache {
+        MailCache::GotActivation(mail) => {
+            send_mail(mail)?;
+            cache.remove_queue(conn)
+        }
+        _ => Err(ServiceError::NoCacheFound)
+    }
 }
 
 fn send_mail(mail: &Mail) -> Result<(), ServiceError> {
@@ -44,22 +60,11 @@ fn send_mail(mail: &Mail) -> Result<(), ServiceError> {
 
     let mail = SendableEmail::new(
         Envelope::new(
-            Some(EmailAddress::new(domain.clone()).unwrap()),
+            Some(EmailAddress::new(domain).unwrap()),
             vec![EmailAddress::new(mail.address.to_string()).unwrap()],
         ).unwrap(),
         format!("Hello {}", mail.username),
         format!("Please visit this link to activate your account: <br> {}/activation/{}", url, mail.uuid).into_bytes(),
     );
     mailer.send(mail).map(|_| ()).map_err(|_| ServiceError::MailServiceError)
-}
-
-fn process_mail(conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-    let cache = MailCache::from_queue(conn)?;
-    match &cache {
-        MailCache::GotActivation(mail) => {
-            send_mail(mail)?;
-            cache.remove_queue(conn)
-        }
-        _ => Err(ServiceError::InternalServerError)
-    }
 }

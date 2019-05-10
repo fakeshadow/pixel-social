@@ -70,7 +70,6 @@ fn get_user(id: u32, conn: &PoolConnectionRedis) -> Result<User, ServiceError> {
 fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceError> {
     // ToDo: need further look into the logic
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
-    println!("{:?}", categories_total);
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
@@ -96,17 +95,17 @@ fn get_topics(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionRedis) -> Result<
 }
 
 fn get_topic(id: u32, page: i64, conn: &PoolConnectionRedis) -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
-    let topic: Option<Topic> = if page == 1 {
+    let t: Option<Topic> = if page == 1 {
         from_hash_set::<Topic>(&vec![id.clone()], "topic", conn)?.pop()
     } else { None };
 
     let list_key = format!("topic:{}:list", id);
     let start = (page as isize - 1) * 20;
-    let post_id: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
+    let p_ids: Vec<u32> = redis::cmd("lrange").arg(&list_key).arg(start).arg(start + LIMIT - 1).query(conn.deref())?;
 
     // ToDo: Handle case when posts are empty
-    let posts = from_hash_set::<Post>(&post_id, "post", conn)?;
-    Ok((topic, posts))
+    let p = from_hash_set::<Post>(&p_ids, "post", conn)?;
+    Ok((t, p))
 }
 
 fn get_post(id: u32, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
@@ -182,7 +181,6 @@ fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result
     }
 }
 
-
 pub enum UpdateCacheAsync {
     GotTopics(Vec<Topic>),
     GotPost(Post),
@@ -226,40 +224,40 @@ fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult 
         .query(conn.deref())?)
 }
 
-fn got_topic_with_posts(t_opt: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-    if let Some(t) = t_opt {
+fn got_topic_with_posts(t: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    if let Some(t) = t {
         let _ignore: Result<usize, _> = conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash());
     }
     update_hash_set(&p, "post", conn)
 }
 
-fn added_topic(topic: &Topic, category: &Category, conn: PoolConnectionRedis) -> UpdateResult {
+fn added_topic(t: &Topic, c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
     Ok(redis::pipe().atomic()
-        .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
-        .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
-        .lpush(format!("category:{}:list", category.id), topic.id)
+        .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
+        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+        .lpush(format!("category:{}:list", c.id), t.id)
         .query(conn.deref())?)
 }
 
-fn added_post(topic: &Topic, category: &Category, post: &Post, post_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-    let list_key = format!("category:{}:list", topic.category_id);
-    Ok(match post_old {
-        Some(p) => redis::pipe().atomic()
-            .lrem(&list_key, 1, topic.id)
-            .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
-            .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
+fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+    let list_key = format!("category:{}:list", t.category_id);
+    Ok(match p_old {
+        Some(p_new) => redis::pipe().atomic()
+            .lrem(&list_key, 1, t.id)
+            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
             .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-            .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
-            .rpush(format!("topic:{}:list", topic.id), post.id)
-            .lpush(list_key, topic.id)
+            .hset_multiple(format!("post:{}:set", p_new.id), &p_new.sort_hash())
+            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+            .rpush(format!("topic:{}:list", t.id), p.id)
+            .lpush(list_key, t.id)
             .query(conn.deref())?,
         None => redis::pipe().atomic()
-            .lrem(&list_key, 1, topic.id)
-            .hset_multiple(format!("topic:{}:set", topic.id), &topic.sort_hash())
-            .hset_multiple(format!("post:{}:set", post.id), &post.sort_hash())
-            .hset_multiple(format!("category:{}:set", category.id), &category.sort_hash())
-            .rpush(format!("topic:{}:list", topic.id), post.id)
-            .lpush(list_key, topic.id)
+            .lrem(&list_key, 1, t.id)
+            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
+            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
+            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+            .rpush(format!("topic:{}:list", t.id), p.id)
+            .lpush(list_key, t.id)
             .query(conn.deref())?
     })
 }
@@ -361,7 +359,7 @@ impl MailCache {
     }
     pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
         let string = from_mail_queue(None, conn)?;
-        Ok(MailCache::GotActivation(serde_json::from_str(&string)?))
+        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::NoCacheFound)?)?))
     }
     pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
         match self {
@@ -391,9 +389,9 @@ fn del_mail_queue(id: u32, conn: &PoolConnectionRedis) -> Result<(), ServiceErro
     Ok(redis::cmd("zrembyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?)
 }
 
-fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<String, ServiceError> {
+fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<String>, ServiceError> {
     match opt {
-        Some(id) => Ok(redis::cmd("zrange").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
+        Some(id) => Ok(redis::cmd("zrangebyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
         None => Ok(redis::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
     }
 }
