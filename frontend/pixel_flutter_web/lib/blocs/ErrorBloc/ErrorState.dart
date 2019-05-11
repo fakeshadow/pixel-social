@@ -7,6 +7,8 @@ abstract class ErrorState extends Equatable {
 
 class NoSnack extends ErrorState {}
 
+class Init extends ErrorState {}
+
 class ShowError extends ErrorState {
   final String error;
 
