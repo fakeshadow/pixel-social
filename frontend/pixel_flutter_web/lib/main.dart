@@ -21,6 +21,7 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Pixel Flutter Web',
+        debugShowCheckedModeBanner: false,
         theme: ThemeData(
             brightness: Brightness.light,
             primarySwatch: Colors.blue,

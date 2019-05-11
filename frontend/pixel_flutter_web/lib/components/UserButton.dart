@@ -6,11 +6,15 @@ import 'package:pixel_flutter_web/components/AvatarIcon.dart';
 
 import 'package:pixel_flutter_web/views/AutenticationPage.dart';
 
-
 class UserButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Hero(tag: 'auth', child: Material(child: bloc(context)));
+    return Hero(
+        tag: 'auth',
+        child: Material(
+            //ToDo: in case change background color
+            color: Colors.transparent,
+            child: bloc(context)));
   }
 
   Widget bloc(context) {
@@ -47,9 +51,9 @@ class UserButton extends StatelessWidget {
         context,
         MaterialPageRoute(
             builder: (context) => AuthenticationPage(
-              type: 'Login',
-              username: state.username,
-            )));
+                  type: 'Login',
+                  username: state.username,
+                )));
   }
 
   void pushToRegister({BuildContext context, state}) {
@@ -57,8 +61,7 @@ class UserButton extends StatelessWidget {
         context,
         MaterialPageRoute(
             builder: (context) => AuthenticationPage(
-              type: 'Register',
-              username: 'test username',
-            )));
+                  type: 'Register',
+                )));
   }
 }

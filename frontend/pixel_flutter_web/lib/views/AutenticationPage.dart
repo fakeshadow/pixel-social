@@ -29,9 +29,9 @@ class _AuthenticationPageState extends State<AuthenticationPage>
   AnimationController _animationController;
   Animation<double> _animationDouble;
 
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
 
   initAnimation() {
     _animationController.forward();
@@ -43,13 +43,13 @@ class _AuthenticationPageState extends State<AuthenticationPage>
 //    if (_type == 'Login') {
 //      _usernameController.text = widget.username;
 //    }
-    _usernameController.text = widget.username;
-    
+    usernameController.text = widget.username;
+
     _registerBloc = RegisterBloc();
     _userBloc = BlocProvider.of<UserBloc>(context);
-    _usernameController.addListener(_onUsernameChanged);
-    _emailController.addListener(_onEmailChanged);
-    _passwordController.addListener(_onPasswordChanged);
+    usernameController.addListener(_onUsernameChanged);
+    emailController.addListener(_onEmailChanged);
+    passwordController.addListener(_onPasswordChanged);
 
     _animationController =
         AnimationController(vsync: this, duration: Duration(milliseconds: 250));
@@ -66,7 +66,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
         builder: (BuildContext context, RegisterState state) {
           // need to find a better way to handle login dispatch
           _registerBloc
-              .dispatch(UsernameChanged(username: _usernameController.text));
+              .dispatch(UsernameChanged(username: usernameController.text));
           return Hero(
               tag: 'auth',
               child: Scaffold(
@@ -149,7 +149,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
         color: Colors.white.withOpacity(0.1),
         elevation: 0,
         child: TextFormField(
-          controller: _usernameController,
+          controller: usernameController,
           decoration: InputDecoration(
             icon: Icon(Icons.person_outline),
             labelText: 'Username',
@@ -174,7 +174,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
             color: Colors.white.withOpacity(0.1),
             elevation: 0,
             child: TextFormField(
-              controller: _emailController,
+              controller: emailController,
               decoration: InputDecoration(
                 icon: Icon(Icons.email),
                 labelText: 'Email',
@@ -197,7 +197,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
         color: Colors.white.withOpacity(0.1),
         elevation: 0,
         child: TextFormField(
-          controller: _passwordController,
+          controller: passwordController,
           decoration: InputDecoration(
             icon: Icon(Icons.lock_outline),
             labelText: 'Password',
@@ -235,24 +235,24 @@ class _AuthenticationPageState extends State<AuthenticationPage>
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
+    usernameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
     _registerBloc.dispose();
     _animationController.dispose();
     super.dispose();
   }
 
   void _onUsernameChanged() {
-    _registerBloc.dispatch(UsernameChanged(username: _usernameController.text));
+    _registerBloc.dispatch(UsernameChanged(username: usernameController.text));
   }
 
   void _onEmailChanged() {
-    _registerBloc.dispatch(EmailChanged(email: _emailController.text));
+    _registerBloc.dispatch(EmailChanged(email: emailController.text));
   }
 
   void _onPasswordChanged() {
-    _registerBloc.dispatch(PasswordChanged(password: _passwordController.text));
+    _registerBloc.dispatch(PasswordChanged(password: passwordController.text));
   }
 
   void _submit(RegisterState state) {
