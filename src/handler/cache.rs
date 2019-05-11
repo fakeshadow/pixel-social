@@ -132,7 +132,7 @@ fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Re
 // ToDo: make a more compat macro to handle pipeline
 fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<HashMap<String, String>>, ServiceError> {
     macro_rules! pipeline {
-        ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hgetall(format!("{}:{}:set", $ y, $ x)))*);
+        ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hgetall (format!("{}:{}:set", $ y, $ x)))*);
     }
     if ids.len() == 1 {
         Ok(pipeline![key; ids[0]].query(conn.deref())?)

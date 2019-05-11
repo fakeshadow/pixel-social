@@ -51,7 +51,6 @@ pub fn get_topic(
     use crate::handler::{user::get_unique_users, cache::get_unique_users_cache};
 
     path.to_query_cache()
-        // ToDo: Break into_topic_with_post into two async query
         .into_topic_with_post(&cache)
         .then(move |res| match res {
             Ok((t, p)) => Either::A(
