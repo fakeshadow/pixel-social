@@ -7,8 +7,12 @@ use crate::model::{
     user::{ToUserRef, AuthRequest, UpdateRequest},
 };
 
-pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn get_user(
+    jwt: UserJwt,
+    id: Path<u32>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{user::IdToQuery, cache::IdToUserQuery};
     id.to_query_cache()
         .into_user(&cache)
@@ -34,8 +38,12 @@ pub fn get_user(jwt: UserJwt, id: Path<u32>, db: Data<PostgresPool>, cache: Data
         })
 }
 
-pub fn register_user(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                     -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn register_user(
+    req: Json<AuthRequest>,
+    global: Data<GlobalGuard>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_register_query()
         .into_user(db, Some(global))
@@ -45,8 +53,12 @@ pub fn register_user(req: Json<AuthRequest>, global: Data<GlobalGuard>, db: Data
             .then(|_| Response::Registered.to_res()))
 }
 
-pub fn update_user(jwt: UserJwt, req: Json<UpdateRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                   -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn update_user(
+    jwt: UserJwt,
+    req: Json<UpdateRequest>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .attach_id_into(Some(jwt.user_id))
         .into_update_query()
@@ -58,8 +70,10 @@ pub fn update_user(jwt: UserJwt, req: Json<UpdateRequest>, db: Data<PostgresPool
         })
 }
 
-pub fn login_user(req: Json<AuthRequest>, db: Data<PostgresPool>)
-                  -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn login_user(
+    req: Json<AuthRequest>,
+    db: Data<PostgresPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_login_query()
         .into_jwt_user(db)

@@ -9,6 +9,8 @@ class FloatingAppBar extends StatelessWidget {
     return SliverAppBar(
       floating: true,
       snap: true,
+      forceElevated: true,
+      elevation: 5.0,
       title: Text("Pixel fultter web test"),
       leading: IconButton(
         onPressed: () => BlocProvider.of<ErrorBloc>(context)

@@ -40,9 +40,9 @@ class _AuthenticationPageState extends State<AuthenticationPage>
   @override
   void initState() {
     _type = widget.type;
-//    if (_type == 'Login') {
-//      _usernameController.text = widget.username;
-//    }
+    if (_type == 'Login') {
+      usernameController.text = widget.username;
+    }
     usernameController.text = widget.username;
 
     _registerBloc = RegisterBloc();
@@ -64,7 +64,6 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     return BlocBuilder(
         bloc: _registerBloc,
         builder: (BuildContext context, RegisterState state) {
-          // need to find a better way to handle login dispatch
           _registerBloc
               .dispatch(UsernameChanged(username: usernameController.text));
           return Hero(
@@ -73,20 +72,8 @@ class _AuthenticationPageState extends State<AuthenticationPage>
                 body: BlocListener(
                   //ToDo: Change error handling to error bloc
                   bloc: _userBloc,
-                  listener: (context, userState) {
-                    if (userState is UserLoaded) {
-                      BlocProvider.of<ErrorBloc>(context)
-                          .dispatch(GetSuccess(success: 'Login Success'));
-                      Navigator.pop(context);
-                    }
-                    if (userState is Failure) {
-                      Scaffold.of(context).showSnackBar(SnackBar(
-                        duration: Duration(seconds: 2),
-                        content: Text(userState.error),
-                        backgroundColor: Colors.deepOrange,
-                      ));
-                      _userBloc.dispatch(UserInit());
-                    }
+                  listener: (context, userState) async {
+                    _snackController(context, userState);
                   },
                   child: Stack(children: <Widget>[
                     GeneralBackground(),
@@ -96,49 +83,52 @@ class _AuthenticationPageState extends State<AuthenticationPage>
                             scale: _animationDouble,
                             child: SingleChildScrollView(
                                 child: Column(
-                                  children: <Widget>[
-                                    AuthNavBar(),
-                                    Material(
-                                        color: Colors.transparent,
-                                        child:
+                              children: <Widget>[
+                                AuthNavBar(),
+                                Material(
+                                    color: Colors.transparent,
+                                    child:
                                         Text('PixelShare', style: logoStyle)),
-                                    Form(
-                                        child: ListView(
-                                            shrinkWrap: true,
-                                            children: <Widget>[
-                                              _usernameField(state),
-                                              _type == 'Register' || _type == 'Recover'
-                                                  ? _emailField(state)
-                                                  : Container(),
-                                              _type != 'Recover'
-                                                  ? _passwordField(state)
-                                                  : Container(),
-                                            ])),
-                                    SizedBox(
-                                      height: 20,
-                                    ),
-                                    SubmitAnimatedButton(
-                                        state: state,
-                                        type: _type,
-                                        submit: () => _submit(state)),
-                                    _type == 'Register'
-                                        ? _flatButton(
-                                        text: 'Already have account?',
-                                        function: () =>
-                                            _changeAuthType(type: 'Login'))
-                                        : Container(),
-                                    _type == 'Login'
-                                        ? _flatButton(
-                                        text: 'Forgot Password?',
-                                        function: () =>
-                                            _changeAuthType(type: 'Recover'))
-                                        : Container()
-                                  ],
-                                ))))
+                                _inputForm(state),
+                                SizedBox(
+                                  height: 20,
+                                ),
+                                SubmitAnimatedButton(
+                                    state: state,
+                                    type: _type,
+                                    submit: () => _submit(state)),
+                                _flatButtonChoice(_type, state)
+                              ],
+                            ))))
                   ]),
                 ),
               ));
         });
+  }
+
+  Widget _inputForm(state) {
+    return Form(
+        child: ListView(shrinkWrap: true, children: <Widget>[
+      _usernameField(state),
+      _type == 'Register' || _type == 'Recover'
+          ? _emailField(state)
+          : Container(),
+      _type != 'Recover' ? _passwordField(state) : Container(),
+    ]));
+  }
+
+  Widget _flatButtonChoice(String type, state) {
+    if (type == 'Register')
+      return _flatButton(
+          text: 'Already have account?',
+          function: () => _changeAuthType(type: 'Login'));
+    else if (type == 'Login') {
+      return _flatButton(
+          text: 'Forgot Password?',
+          function: () => _changeAuthType(type: 'Recover'));
+    } else {
+      return Container();
+    }
   }
 
   Widget _usernameField(RegisterState state) {
@@ -156,8 +146,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           ),
           autovalidate: true,
           validator: (_) {
-            return state.isUsernameValid
-                || state.username.length < 1
+            return state.isUsernameValid || state.username.length < 1
                 ? null
                 : 'Invalid Username';
           },
@@ -181,8 +170,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
               ),
               autovalidate: true,
               validator: (_) {
-                return state.isEmailValid
-                    || state.email.length < 1
+                return state.isEmailValid || state.email.length < 1
                     ? null
                     : 'Invalid Email';
               },
@@ -205,8 +193,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           obscureText: true,
           autovalidate: true,
           validator: (_) {
-            return state.isPasswordValid
-                || state.password.length < 1
+            return state.isPasswordValid || state.password.length < 1
                 ? null
                 : 'Invalid Password';
           },
@@ -223,6 +210,21 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           onPressed: function,
           child: Text(text, style: recoverButtonStyle)),
     );
+  }
+
+  void _snackController(context, userState) async {
+    if (userState is UserLoaded) {
+      BlocProvider.of<ErrorBloc>(context)
+          .dispatch(GetSuccess(success: 'Login Success'));
+      Navigator.pop(context);
+    }
+    if (userState is Failure) {
+      Scaffold.of(context).showSnackBar(SnackBar(
+        duration: Duration(seconds: 2),
+        content: Text(userState.error),
+        backgroundColor: Colors.deepOrange,
+      ));
+    }
   }
 
   void _changeAuthType({String type}) {

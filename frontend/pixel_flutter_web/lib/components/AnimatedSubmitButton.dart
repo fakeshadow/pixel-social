@@ -56,7 +56,7 @@ class _SubmitAnimatedButtonState extends State<SubmitAnimatedButton> {
             child: RaisedButton(
                 clipBehavior: Clip.antiAlias,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(25.0)),
+                    borderRadius: BorderRadius.circular(10.0)),
                 disabledColor: Colors.black12,
                 color: primaryColor,
                 onPressed:

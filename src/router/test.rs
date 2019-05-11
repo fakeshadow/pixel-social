@@ -6,8 +6,10 @@ use crate::model::{
     topic::{TopicRequest, TopicQuery},
 };
 
-pub fn test_global_var(global: Data<GlobalGuard>, db: Data<PostgresPool>)
-                       -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn test_global_var(
+    global: Data<GlobalGuard>,
+    db: Data<PostgresPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     TopicQuery::AddTopic(TopicRequest {
         id: None,
         user_id: Some(1),

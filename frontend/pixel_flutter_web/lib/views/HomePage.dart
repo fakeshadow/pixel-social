@@ -1,9 +1,12 @@
 import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_web/widgets.dart';
 
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
+
+const BREAK_POINT_WIDTH = 600.0;
 
 class HomePage extends StatelessWidget {
   HomePage({Key key, this.title}) : super(key: key);
@@ -23,11 +26,22 @@ class HomePage extends StatelessWidget {
             FloatingAppBar(),
             SliverFillViewport(
               delegate: SliverChildBuilderDelegate((context, index) {
-                return Container(
-                    width: 20,
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ));
+                return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      Container(
+                        width: MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
+                            ? MediaQuery.of(context).size.width / 2
+                            : MediaQuery.of(context).size.width,
+                        color: Colors.amber,
+                      ),
+                      MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
+                          ? Container(
+                              width: 300,
+                              color: Colors.black12,
+                            )
+                          : Container()
+                    ]);
               }, childCount: 1),
             )
           ],

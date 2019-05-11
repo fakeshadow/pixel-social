@@ -37,8 +37,11 @@ pub fn get_popular(page: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresP
     ft_ok(HttpResponse::Ok().finish())
 }
 
-pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                    -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn get_category(
+    req: Path<(u32, i64)>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{category::PathToQuery, cache::PathToTopicsQuery};
     req.to_query_cache()
         .into_topics(&cache)
@@ -70,8 +73,11 @@ pub fn get_category(req: Path<(u32, i64)>, db: Data<PostgresPool>, cache: Data<R
         })
 }
 
-pub fn get_categories(req: Json<CategoryRequest>, db: Data<PostgresPool>, cache: Data<RedisPool>)
-                      -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn get_categories(
+    req: Json<CategoryRequest>,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     req.to_query()
         .into_topics(&db)
         .from_err()

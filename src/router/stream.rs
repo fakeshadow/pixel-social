@@ -4,8 +4,10 @@ use futures::{Future, stream::Stream};
 
 use crate::handler::{auth::UserJwt, stream::save_file};
 
-pub fn upload_file(_: UserJwt, multipart: Multipart)
-                   -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn upload_file(
+    _: UserJwt,
+    multipart: Multipart,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     // ToDo: need to add an upload limit counter for user;
     multipart
         .map_err(error::ErrorInternalServerError)
