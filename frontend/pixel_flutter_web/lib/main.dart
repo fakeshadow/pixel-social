@@ -14,6 +14,7 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    userBloc.dispatch(UserInit());
     return BlocProviderTree(
       blocProviders: [
         BlocProvider<ErrorBloc>(bloc: errorBloc),

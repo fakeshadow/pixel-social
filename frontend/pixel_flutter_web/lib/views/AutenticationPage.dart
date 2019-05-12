@@ -118,7 +118,6 @@ class _AuthenticationPageState extends State<AuthenticationPage>
     ]);
   }
 
-
   Widget _inputForm(state) {
     return Form(
         child: ListView(shrinkWrap: true, children: <Widget>[

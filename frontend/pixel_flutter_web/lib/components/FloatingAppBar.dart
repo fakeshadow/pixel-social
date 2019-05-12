@@ -4,6 +4,9 @@ import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/components/UserButton.dart';
 
 class FloatingAppBar extends StatelessWidget {
+  final String title;
+  FloatingAppBar({this.title});
+
   @override
   Widget build(BuildContext context) {
     return SliverAppBar(
@@ -11,7 +14,7 @@ class FloatingAppBar extends StatelessWidget {
       snap: true,
       forceElevated: true,
       elevation: 5.0,
-      title: Text("Pixel fultter web test"),
+      title: Text(title),
       leading: IconButton(
         onPressed: () => BlocProvider.of<ErrorBloc>(context)
             .dispatch(GetSuccess(success: "You pressed something")),
