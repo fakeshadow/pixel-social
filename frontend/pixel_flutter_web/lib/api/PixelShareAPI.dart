@@ -29,11 +29,11 @@ class PixelShareAPI {
 
     final data = json.decode(response.body);
     return User(
-        id: data['user_data']['id'],
-        email: data['user_data']['email'],
-        username: data['user_data']['username'],
-        avatarUrl: data['user_data']['avatar_url'],
-        signature: data['user_data']['signature'],
+        id: data['user']['id'],
+        email: data['user']['email'],
+        username: data['user']['username'],
+        avatarUrl: data['user']['avatar_url'],
+        signature: data['user']['signature'],
         token: data['token']);
   }
 

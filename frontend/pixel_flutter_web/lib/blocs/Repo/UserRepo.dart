@@ -1,4 +1,5 @@
 import 'package:flutter_web/widgets.dart';
+import 'dart:html';
 
 import 'package:pixel_flutter_web/api/PixelShareAPI.dart';
 import 'package:pixel_flutter_web/models/User.dart';
@@ -18,6 +19,7 @@ class UserRepo {
   Future<User> login(
       {@required String username, @required String password}) async {
     final User _userData = await _api.login(username, password);
+    print(_userData);
     await this.saveUser(_userData);
     return _userData;
   }
@@ -70,31 +72,25 @@ class UserRepo {
   Future<bool> hasLocal({
     @required String key,
   }) async {
-//    SharedPreferences prefs = await SharedPreferences.getInstance();
-//    return prefs.containsKey(key);
-    return false;
+    return window.localStorage.containsKey(key);
   }
 
   Future<String> getLocal({
     @required String key,
   }) async {
-//    SharedPreferences prefs = await SharedPreferences.getInstance();
-//    return prefs.getString(key);
-    return "ABC";
+    return window.localStorage[key];
   }
 
   Future<void> deleteLocal({
     @required String key,
   }) async {
-//    SharedPreferences prefs = await SharedPreferences.getInstance();
-//    await prefs.remove(key);
+    window.localStorage.remove(key);
   }
 
   Future<void> saveLocal({
     @required String data,
     @required String key,
   }) async {
-//    SharedPreferences prefs = await SharedPreferences.getInstance();
-//    await prefs.setString(key, data);
+    window.localStorage[key] = data;
   }
 }
