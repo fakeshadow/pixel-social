@@ -4,8 +4,7 @@
 `Rustup 1.33 and above`<br>
 `PostgreSQL 10 and above`<br>
 `Redis 5.0.4 and above`<br>
-`Flutter 1.2 and above`<br>
-`Vue cli 3.0 and above`
+`Flutter 1.5 and above with flutter_web preview`<br>
 
 #### Setup:
 `Backend:`<br>
@@ -18,9 +17,8 @@
 5. run the compiled `pixel_rs` bin file to start the server
     
 `Web Frontend:`<br>
-1. `yarn install`
-2. `yarn build`
-3. setup up http server and change the `.env` file to match your backend server.
+1. `pub get` to get dependencies
+2. `webdev serve` to test locally
 
 `Mobile Frontend:`<br>
 1. `flutter create .` to generate dep files.

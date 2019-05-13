@@ -1,19 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' show Client;
+
+import 'package:pixel_flutter_web/env.dart';
 import 'package:pixel_flutter_web/models/Category.dart';
 import 'package:pixel_flutter_web/models/Post.dart';
 import 'package:pixel_flutter_web/models/Topic.dart';
 import 'package:pixel_flutter_web/models/User.dart';
 import 'package:pixel_flutter_web/models/TopicWithPost.dart';
 
-class PixelShareAPI {
+class PixelShareAPI extends env{
   final Client _http = Client();
-  static const String _url = 'http://192.168.1.197:3200';
 
   Future<void> register(String username, String password, String email) async {
     try {
-      await _http.post('$_url/user/register',
+      await _http.post('$url/user/register',
           headers: {"Content-Type": "application/json"},
           body: json.encode(
               {'username': username, 'password': password, 'email': email}));
@@ -23,7 +24,7 @@ class PixelShareAPI {
   }
 
   Future<User> login(String username, String password) async {
-    final response = await _http.post('$_url/user/login',
+    final response = await _http.post('$url/user/login',
         headers: {"Content-Type": "application/json"},
         body: json.encode({'username': username, 'password': password}));
 
@@ -39,7 +40,7 @@ class PixelShareAPI {
 
   Future<List<Category>> getCategories() async {
     try {
-      final response = await _http.get('$_url/categories/',
+      final response = await _http.get('$url/categories/',
           headers: {"Content-Type": "application/json"});
       final data = json.decode(response.body) as List;
       return data.map((rawCategories) {
@@ -58,7 +59,7 @@ class PixelShareAPI {
 
   Future<List<Topic>> getTopics(int categoryId, int page) async {
     try {
-      final response = await _http.get('$_url/categories/$categoryId/$page',
+      final response = await _http.get('$url/categories/$categoryId/$page',
           headers: {"Content-Type": "application/json"});
       final data = json.decode(response.body) as List;
       return data.map((rawTopic) {
@@ -80,7 +81,7 @@ class PixelShareAPI {
 
   Future<TopicWithPost> getTopic(int topicId, int page, String token) async {
     try {
-      final response = await _http.get('$_url/topic/$topicId/$page', headers: {
+      final response = await _http.get('$url/topic/$topicId/$page', headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + token
       });

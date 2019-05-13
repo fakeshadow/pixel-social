@@ -1,3 +1,5 @@
+
+
 import 'package:bloc/bloc.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -33,8 +35,9 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
           return;
         }
         if (currentState is TopicLoaded) {
-          final page =
-              ((currentState as TopicLoaded).topics.length / 20).ceil();
+          final page = 1 +
+              ((currentState as TopicLoaded).topics.length / 20).floor();
+          print(page);
           final topics = await topicRepo.getTopics(event.categoryId, page);
           yield topics.isEmpty
               ? (currentState as TopicLoaded).copyWith(hasReachedMax: true)

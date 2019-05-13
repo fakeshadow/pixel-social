@@ -1,13 +1,14 @@
-import 'package:flutter_web/gestures.dart';
 import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_web/widgets.dart';
 
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
-import 'package:pixel_flutter_web/blocs/UserBloc/UserBloc.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
-import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
+import 'package:pixel_flutter_web/blocs/TopicBlocs.dart';
+
+import 'package:pixel_flutter_web/components/BottomLoader.dart';
+import 'package:pixel_flutter_web/components/UserButton.dart';
+import 'package:pixel_flutter_web/components/TopicTile.dart';
 import 'package:pixel_flutter_web/components/UserDrawer.dart';
 
 import 'package:pixel_flutter_web/style/text.dart';
@@ -25,6 +26,25 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  TopicBloc _topicBloc;
+  final _scrollController = ScrollController();
+  final _scrollThreshold = 500.0;
+
+  @override
+  void initState() {
+    _topicBloc = TopicBloc();
+    _topicBloc.dispatch(GetTopics(categoryId: 1));
+    _scrollController.addListener(_onScroll);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    _topicBloc.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -34,43 +54,35 @@ class _HomePageState extends State<HomePage> {
           builder: (context, userState) {
             return Scaffold(
               endDrawer: userState is UserLoaded ? UserDrawer() : null,
+              appBar: AppBar(
+                elevation: 5.0,
+                title: Text("pixelshare example"),
+                leading: IconButton(
+                  onPressed: () => BlocProvider.of<ErrorBloc>(context)
+                      .dispatch(GetSuccess(success: "You pressed something")),
+                  icon: Icon(Icons.apps),
+                ),
+                actions: <Widget>[UserButton()],
+              ),
               body: BlocListener(
                 bloc: BlocProvider.of<ErrorBloc>(context),
                 listener: (BuildContext context, ErrorState state) async {
                   snackbarController(context, state);
                 },
-                child: CustomScrollView(
-                  slivers: <Widget>[
-                    FloatingAppBar(
-                      title: "PixelWeb example",
-                    ),
-                    SliverFillViewport(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        return Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              Container(
-                                width: MediaQuery.of(context).size.width > 700
-                                    ? 700
-                                    : MediaQuery.of(context).size.width,
-                                color: Colors.amber,
-                              ),
-                              MediaQuery.of(context).size.width >
-                                      BREAK_POINT_WIDTH
-                                  ? Container(
-                                      width: 200,
-                                      color: Colors.black12,
-                                    )
-                                  : Container()
-                            ]);
-                      }, childCount: 1),
-                    )
-                  ],
-                ),
+                child: Layout(
+                    topicBloc: _topicBloc, controller: _scrollController),
               ),
             );
           }),
     );
+  }
+
+  void _onScroll() {
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    if (maxScroll - currentScroll <= _scrollThreshold) {
+      _topicBloc.dispatch(GetTopics(categoryId: 1));
+    }
   }
 
   Future<bool> onWillPop() {
@@ -123,5 +135,48 @@ class _HomePageState extends State<HomePage> {
         ),
       ));
     }
+  }
+}
+
+class Layout extends StatelessWidget {
+  final TopicBloc topicBloc;
+  final ScrollController controller;
+
+  Layout({this.topicBloc, this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: <Widget>[
+      Container(
+        width: MediaQuery.of(context).size.width > 700
+            ? 700
+            : MediaQuery.of(context).size.width,
+        child: BlocBuilder(
+            bloc: topicBloc,
+            builder: (context, state) {
+              if (state is TopicLoaded) {
+                return ListView.builder(
+                  controller: controller,
+                  itemCount: state.hasReachedMax
+                      ? state.topics.length
+                      : state.topics.length + 1,
+                  itemBuilder: (context, index) {
+                    return index >= state.topics.length
+                        ? BottomLoader()
+                        : TopicTile(topic: state.topics[index]);
+                  },
+                );
+              } else {
+                return Container();
+              }
+            }),
+      ),
+      MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
+          ? Container(
+              width: 200,
+              color: Colors.black12,
+            )
+          : Container()
+    ]);
   }
 }
