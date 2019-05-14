@@ -68,7 +68,7 @@ class UserRepo {
     return hasLocal(key: 'token');
   }
 
-  /// localstorage functions
+  /// localstorage functions extends for other repo to use
   Future<bool> hasLocal({
     @required String key,
   }) async {

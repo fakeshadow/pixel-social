@@ -6,6 +6,8 @@ import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/style/colors.dart';
 import 'package:pixel_flutter_web/style/text.dart';
 
+const BREAK_POINT_WIDTH = 900.0;
+
 class UserDrawer extends StatefulWidget {
   @override
   _UserDrawerState createState() => _UserDrawerState();
@@ -39,7 +41,8 @@ class _UserDrawerState extends State<UserDrawer> {
   Widget build(BuildContext context) {
     return Container(
       color: primaryColor.withOpacity(0.9),
-      width: 150.0,
+      width:
+          MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH ? 150.0 : 300,
       child: Column(
         children: <Widget>[
           SizedBox(
@@ -49,7 +52,10 @@ class _UserDrawerState extends State<UserDrawer> {
             child: ListView.builder(
               itemBuilder: (context, index) {
                 return Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                      MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH
+                          ? EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+                          : EdgeInsets.symmetric(horizontal: 50, vertical: 20),
                   child: CollapsingListTile(
                       title: drawerItems[index].title,
                       icon: drawerItems[index].icon,
@@ -97,7 +103,9 @@ class _CollapsingListTileState extends State<CollapsingListTile> {
             size: 22,
           ),
           SizedBox(
-            width: 10,
+            width: MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH
+                ? 10
+                : 35,
           ),
           Text(
             widget.title,

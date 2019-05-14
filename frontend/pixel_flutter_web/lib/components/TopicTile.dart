@@ -1,8 +1,8 @@
 import 'package:flutter_web/material.dart';
+import 'package:pixel_flutter_web/env.dart';
 import 'package:pixel_flutter_web/models/Topic.dart';
 
-class TopicTile extends StatelessWidget {
-  final String url = 'http://192.168.1.197:3200';
+class TopicTile extends StatelessWidget with env {
   final Topic topic;
 
   TopicTile({this.topic});
@@ -18,8 +18,7 @@ class TopicTile extends StatelessWidget {
                 shape: BoxShape.circle,
                 image: DecorationImage(
                   fit: BoxFit.fill,
-                  image: NetworkImage(
-                      url + '${topic.avatarUrl}'),
+                  image: NetworkImage(url + '${topic.avatarUrl}'),
                 )),
           ),
           backgroundColor: Colors.white10,
@@ -37,10 +36,9 @@ class TopicTile extends StatelessWidget {
       ),
       subtitle: Text(
         '${topic.id}    ${topic.username}    ${topic.lastReplyTime}',
-        style:
-        TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
+        style: TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
       ),
-      trailing: Icon(IconData(0x0)),
+      trailing: Icon(Icons.add_comment),
     );
   }
 }

@@ -1,12 +1,14 @@
 import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:pixel_flutter_web/env.dart';
+
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/components/AvatarIcon.dart';
 
 import 'package:pixel_flutter_web/views/AutenticationPage.dart';
 
-class UserButton extends StatelessWidget {
+class UserButton extends StatelessWidget with env {
   @override
   Widget build(BuildContext context) {
     return Hero(
@@ -30,7 +32,7 @@ class UserButton extends StatelessWidget {
           if (state is UserLoaded) {
             return AvatarIcon(
               showAvatar: true,
-              avatarUrl: state.user.avatarUrl,
+              avatarUrl: url + state.user.avatarUrl,
               callback: () => showDrawer(context: context),
             );
           }

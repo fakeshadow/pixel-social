@@ -5,16 +5,20 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicBlocs.dart';
+import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
 import 'package:pixel_flutter_web/components/BottomLoader.dart';
 import 'package:pixel_flutter_web/components/UserButton.dart';
 import 'package:pixel_flutter_web/components/TopicTile.dart';
 import 'package:pixel_flutter_web/components/UserDrawer.dart';
+import 'package:pixel_flutter_web/components/SideMenu.dart';
 
 import 'package:pixel_flutter_web/style/text.dart';
 import 'package:pixel_flutter_web/style/colors.dart';
 
-const BREAK_POINT_WIDTH = 900.0;
+import '../env.dart';
+
+const BREAK_POINT_WIDTH = 930.0;
 
 class HomePage extends StatefulWidget {
   HomePage({Key key, this.title}) : super(key: key);
@@ -28,10 +32,11 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   TopicBloc _topicBloc;
   final _scrollController = ScrollController();
-  final _scrollThreshold = 500.0;
+  final _scrollThreshold = 300.0;
 
   @override
   void initState() {
+    BlocProvider.of<CategoryBloc>(context).dispatch(LoadCategories());
     _topicBloc = TopicBloc();
     _topicBloc.dispatch(GetTopics(categoryId: 1));
     _scrollController.addListener(_onScroll);
@@ -54,6 +59,7 @@ class _HomePageState extends State<HomePage> {
           builder: (context, userState) {
             return Scaffold(
               endDrawer: userState is UserLoaded ? UserDrawer() : null,
+              persistentFooterButtons: <Widget>[],
               appBar: AppBar(
                 elevation: 5.0,
                 title: Text("pixelshare example"),
@@ -161,7 +167,7 @@ class Layout extends StatelessWidget {
                       ? state.topics.length
                       : state.topics.length + 1,
                   itemBuilder: (context, index) {
-                    return index >= state.topics.length
+                    return index >= state.topics.length && !state.hasReachedMax
                         ? BottomLoader()
                         : TopicTile(topic: state.topics[index]);
                   },
@@ -172,11 +178,9 @@ class Layout extends StatelessWidget {
             }),
       ),
       MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
-          ? Container(
-              width: 200,
-              color: Colors.black12,
-            )
+          ? SideMenu()
           : Container()
     ]);
   }
 }
+

@@ -14,9 +14,7 @@ class UserBloc extends Bloc<UserEvent, UserState> {
     if (event is UserInit) {
       yield Loading();
       final hasToken = await userRepo.hasToken();
-      print(hasToken);
       final user = await userRepo.getLocalUser();
-      print(user);
       if (hasToken && user.username != null) {
         yield UserLoaded(user: user);
       } else if (user.username != null) {

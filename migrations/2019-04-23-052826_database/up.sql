@@ -80,9 +80,9 @@ VALUES (1, 'General', ''),
 (2, 'Announcement', '');
 
 INSERT INTO categories (id, name, thumbnail)
-VALUES (3, 'Armored Core', 'AC.jpg'),
-(4, 'Ace Combat', 'ACE.jpg'),
-(5, 'Persona', 'persona.jpeg');
+VALUES (3, 'Armored Core', 'ac.jpg'),
+(4, 'Ace Combat', 'ace.jpg'),
+(5, 'Persona', 'persona.jpg');
 
 INSERT INTO topics ( id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
