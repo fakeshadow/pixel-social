@@ -33,6 +33,9 @@ class MyApp extends StatelessWidget {
             accentColor: Colors.deepPurple,
             dividerColor: Colors.black,
         ),
+        routes: {
+          '/home': (context) => HomePage(title: 'PixelShare'),
+        },
         home: HomePage(title: 'PixelShare'),
       ),
     );

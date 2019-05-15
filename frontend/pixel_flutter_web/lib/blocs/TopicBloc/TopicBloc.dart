@@ -3,10 +3,10 @@ import 'package:rxdart/rxdart.dart';
 
 import 'package:pixel_flutter_web/blocs/TopicBloc/TopicEvent.dart';
 import 'package:pixel_flutter_web/blocs/TopicBloc/TopicState.dart';
-import 'package:pixel_flutter_web/blocs/Repo/TopicRepo.dart';
+import 'package:pixel_flutter_web/blocs/Repo/TopicsRepo.dart';
 
 class TopicBloc extends Bloc<TopicEvent, TopicState> {
-  final topicRepo = TopicRepo();
+  final topicsRepo = TopicsRepo();
 
   @override
   Stream<TopicState> transform(Stream<TopicEvent> events,
@@ -22,27 +22,27 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
   get initialState => TopicUninitialized();
 
   @override
-  Stream<TopicState> mapEventToState(
-    TopicEvent event,
-  ) async* {
-    if (event is GetTopics && !_hasReachedMax(currentState)) {
+  Stream<TopicState> mapEventToState(TopicEvent event,) async* {
+    if (event is GetTopic && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicUninitialized) {
-          final topics = await topicRepo.getTopics(event.categoryId, 1);
-          final maxed = topics.length < 20 ? true : false;
-          yield TopicLoaded(topics: topics, hasReachedMax: maxed);
+          final topicWithPost = await topicsRepo.getTopic(event.topicId, 1);
+          final maxed = topicWithPost.posts.length < 20 ? true : false;
+          yield TopicLoaded(topic: topicWithPost.topic,
+              posts: topicWithPost.posts,
+              hasReachedMax: maxed);
           return;
         }
         if (currentState is TopicLoaded) {
           final page =
-              1 + ((currentState as TopicLoaded).topics.length / 20).floor();
-          print(page);
-          final topics = await topicRepo.getTopics(event.categoryId, page);
-          yield topics.isEmpty
+              1 + ((currentState as TopicLoaded).posts.length / 20).floor();
+          final topicWithPost = await topicsRepo.getTopic(event.topicId, page);
+          yield topicWithPost.posts.isEmpty
               ? (currentState as TopicLoaded).copyWith(hasReachedMax: true)
               : TopicLoaded(
-                  topics: (currentState as TopicLoaded).topics + topics,
-                  hasReachedMax: false);
+              topic: (currentState as TopicLoaded).topic,
+              posts: (currentState as TopicLoaded).posts + topicWithPost.posts,
+              hasReachedMax: false);
         }
       } catch (_) {
         yield TopicError();

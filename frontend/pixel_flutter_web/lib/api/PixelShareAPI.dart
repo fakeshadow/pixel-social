@@ -35,8 +35,8 @@ class PixelShareAPI extends env {
   }
 
   Future<List<Category>> getCategories() async {
-    final response = await _http
-        .get(url + 'categories/', headers: {"Content-Type": "application/json"});
+    final response = await _http.get(url + 'categories/',
+        headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
     return data.map((rawCategories) {
       return Category(
@@ -57,7 +57,7 @@ class PixelShareAPI extends env {
       return Topic(
           id: rawTopic['id'],
           categoryId: rawTopic['category_id'],
-          userId: rawTopic['user']['user_id'],
+          userId: rawTopic['user']['id'],
           username: rawTopic['user']['username'],
           title: rawTopic['title'],
           body: rawTopic['body'],
@@ -67,17 +67,15 @@ class PixelShareAPI extends env {
     }).toList();
   }
 
-  Future<TopicWithPost> getTopic(int topicId, int page, String token) async {
-    final response = await _http.get(url + 'topic/$topicId/$page', headers: {
-      "Content-Type": "application/json",
-      "Authorization": "Bearer " + token
-    });
+  Future<TopicWithPost> getTopic(int topicId, int page) async {
+    final response = await _http.get(url + 'topic/$topicId/$page',
+        headers: {"Content-Type": "application/json"});
 
     final data = json.decode(response.body);
     final topic = Topic(
         id: data['topic']['id'],
         categoryId: data['topic']['category_id'],
-        userId: data['topic']['user']['user_id'],
+        userId: data['topic']['user']['id'],
         username: data['topic']['user']['username'],
         title: data['topic']['title'],
         body: data['topic']['body'],
@@ -88,7 +86,7 @@ class PixelShareAPI extends env {
     final posts = data['posts'].map((rawPost) {
       return Post(
           id: rawPost['id'],
-          userId: rawPost['user']['user_id'],
+          userId: rawPost['user']['id'],
           username: rawPost['user']['username'],
           avatarUrl: rawPost['user']['avatar_url'],
           topicId: rawPost['topic_id'],
@@ -97,6 +95,7 @@ class PixelShareAPI extends env {
           lastReplyTime: rawPost['last_reply_time'],
           replyCount: rawPost['reply_count']);
     }).toList();
+
     return TopicWithPost(topic: topic, posts: posts);
   }
 }

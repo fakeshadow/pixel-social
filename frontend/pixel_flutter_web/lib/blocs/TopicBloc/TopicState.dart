@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:pixel_flutter_web/models/Topic.dart';
+import 'package:pixel_flutter_web/models/Post.dart';
 
 abstract class TopicState extends Equatable {
   TopicState([List props = const []]) : super(props);
@@ -10,20 +11,24 @@ class TopicUninitialized extends TopicState {}
 class TopicError extends TopicState {}
 
 class TopicLoaded extends TopicState {
-  final List<Topic> topics;
+  final Topic topic;
+  final List posts;
   final bool hasReachedMax;
 
   TopicLoaded({
-    this.topics,
+    this.topic,
+    this.posts,
     this.hasReachedMax,
-  }) : super([topics, hasReachedMax]);
+  }) : super([topic, posts, hasReachedMax]);
 
   TopicLoaded copyWith({
-    List<Topic> topics,
+    Topic topic,
+    List posts,
     bool hasReachedMax,
   }) {
     return TopicLoaded(
-      topics: topics ?? this.topics,
+      topic: topic ?? this.topic,
+      posts: posts ?? this.posts,
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
     );
   }

@@ -4,7 +4,7 @@ import './Topic.dart';
 
 class TopicWithPost extends Equatable {
   final Topic topic;
-  final List<Post> posts;
+  final List posts;
 
   TopicWithPost({this.topic, this.posts}) : super([topic, posts]);
 }

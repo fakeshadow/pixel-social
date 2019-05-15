@@ -1,6 +1,7 @@
 import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 
 import 'package:pixel_flutter_web/style/colors.dart';
@@ -34,6 +35,8 @@ class _UserDrawerState extends State<UserDrawer> {
     if (index == 3) {
       BlocProvider.of<UserBloc>(context).dispatch(LoggingOut());
       Navigator.pop(context);
+      BlocProvider.of<ErrorBloc>(context)
+          .dispatch(GetSuccess(success: 'Loggout'));
     }
   }
 

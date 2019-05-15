@@ -55,7 +55,6 @@ fn main() -> std::io::Result<()> {
 
     let global_arc = init_global_var(&postgres_pool);
 
-    use std::thread::Builder;
 //    mail_service(&redis_pool);
 
     HttpServer::new(move || {

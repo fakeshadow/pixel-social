@@ -1,15 +1,15 @@
 import 'package:flutter_web/material.dart';
 import 'package:pixel_flutter_web/env.dart';
-import 'package:pixel_flutter_web/models/Topic.dart';
+import 'package:pixel_flutter_web/models/Post.dart';
 
-class TopicTile extends StatelessWidget with env {
-  final Topic topic;
-  final Function onTap;
+class PostTile extends StatelessWidget with env {
+  final Post post;
 
-  TopicTile({@required this.topic, this.onTap});
+  PostTile({this.post});
 
   @override
   Widget build(BuildContext context) {
+    print(post);
     return ListTile(
       leading: InkWell(
         onTap: () => print('Avatar pressed'),
@@ -19,16 +19,16 @@ class TopicTile extends StatelessWidget with env {
                 shape: BoxShape.circle,
                 image: DecorationImage(
                   fit: BoxFit.fill,
-                  image: NetworkImage(url + '${topic.avatarUrl}'),
+                  image: NetworkImage(url + '${post.avatarUrl}'),
                 )),
           ),
           backgroundColor: Colors.white10,
         ),
       ),
       title: InkWell(
-        onTap: onTap,
+        onTap: () => print('${post.id} pressed'),
         child: Text(
-          '${topic.title}',
+          '${post.postContent}',
           style: TextStyle(
             fontSize: 16.0,
             fontWeight: FontWeight.w600,
@@ -36,7 +36,7 @@ class TopicTile extends StatelessWidget with env {
         ),
       ),
       subtitle: Text(
-        '${topic.id}    ${topic.username}    ${topic.lastReplyTime}',
+        '${post.id}    ${post.username}    ${post.lastReplyTime}',
         style: TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
       ),
       trailing: Icon(Icons.add_comment),

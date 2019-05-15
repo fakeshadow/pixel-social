@@ -4,23 +4,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
-import 'package:pixel_flutter_web/blocs/TopicBlocs.dart';
+import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
-import 'package:pixel_flutter_web/components/BottomLoader.dart';
 import 'package:pixel_flutter_web/components/UserButton.dart';
-import 'package:pixel_flutter_web/components/TopicTile.dart';
 import 'package:pixel_flutter_web/components/UserDrawer.dart';
-import 'package:pixel_flutter_web/components/SideMenu.dart';
+import 'package:pixel_flutter_web/components/TopicsLayout.dart';
 
 import 'package:pixel_flutter_web/style/text.dart';
 import 'package:pixel_flutter_web/style/colors.dart';
 
-import '../env.dart';
+import 'package:pixel_flutter_web/env.dart';
 
-const BREAK_POINT_WIDTH = 930.0;
+import 'package:pixel_flutter_web/views/TopicPage.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends StatefulWidget with env {
   HomePage({Key key, this.title}) : super(key: key);
 
   final String title;
@@ -30,14 +28,14 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  TopicBloc _topicBloc;
+  TopicsBloc _topicBloc;
   final _scrollController = ScrollController();
   final _scrollThreshold = 300.0;
 
   @override
   void initState() {
     BlocProvider.of<CategoryBloc>(context).dispatch(LoadCategories());
-    _topicBloc = TopicBloc();
+    _topicBloc = TopicsBloc();
     _topicBloc.dispatch(GetTopics(categoryId: 1));
     _scrollController.addListener(_onScroll);
     super.initState();
@@ -61,13 +59,16 @@ class _HomePageState extends State<HomePage> {
               endDrawer: userState is UserLoaded ? UserDrawer() : null,
               persistentFooterButtons: <Widget>[],
               appBar: AppBar(
+                primary: false,
+                flexibleSpace:
+                    FlexibleSpaceBar(title: Text('pixelshare example')),
                 elevation: 5.0,
-                title: Text("pixelshare example"),
-                leading: IconButton(
-                  onPressed: () => BlocProvider.of<ErrorBloc>(context)
-                      .dispatch(GetSuccess(success: "You pressed something")),
-                  icon: Icon(Icons.apps),
-                ),
+                leading: MediaQuery.of(context).size.width < widget.BREAK_POINT_WIDTH
+                    ? IconButton(
+                        onPressed: () => Navigator.pushNamed(context, '/home'),
+                        icon: Icon(Icons.home),
+                      )
+                    : Container(),
                 actions: <Widget>[UserButton()],
               ),
               body: BlocListener(
@@ -75,7 +76,7 @@ class _HomePageState extends State<HomePage> {
                 listener: (BuildContext context, ErrorState state) async {
                   snackbarController(context, state);
                 },
-                child: Layout(
+                child: TopicsLayout(
                     topicBloc: _topicBloc, controller: _scrollController),
               ),
             );
@@ -143,44 +144,3 @@ class _HomePageState extends State<HomePage> {
     }
   }
 }
-
-class Layout extends StatelessWidget {
-  final TopicBloc topicBloc;
-  final ScrollController controller;
-
-  Layout({this.topicBloc, this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: <Widget>[
-      Container(
-        width: MediaQuery.of(context).size.width > 700
-            ? 700
-            : MediaQuery.of(context).size.width,
-        child: BlocBuilder(
-            bloc: topicBloc,
-            builder: (context, state) {
-              if (state is TopicLoaded) {
-                return ListView.builder(
-                  controller: controller,
-                  itemCount: state.hasReachedMax
-                      ? state.topics.length
-                      : state.topics.length + 1,
-                  itemBuilder: (context, index) {
-                    return index >= state.topics.length && !state.hasReachedMax
-                        ? BottomLoader()
-                        : TopicTile(topic: state.topics[index]);
-                  },
-                );
-              } else {
-                return Container();
-              }
-            }),
-      ),
-      MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
-          ? SideMenu()
-          : Container()
-    ]);
-  }
-}
-
