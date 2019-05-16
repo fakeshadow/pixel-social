@@ -2,21 +2,24 @@ import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:pixel_flutter_web/env.dart';
+
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
-import 'package:pixel_flutter_web/components/UserButton.dart';
 import 'package:pixel_flutter_web/components/UserDrawer.dart';
 import 'package:pixel_flutter_web/components/TopicsLayout.dart';
+import 'package:pixel_flutter_web/components/SideMenu.dart';
+import 'package:pixel_flutter_web/components/GeneralBackground.dart';
+import 'package:pixel_flutter_web/components/BottomLoader.dart';
+import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
+import 'package:pixel_flutter_web/components/TopicTile.dart';
 
 import 'package:pixel_flutter_web/style/text.dart';
 import 'package:pixel_flutter_web/style/colors.dart';
 
-import 'package:pixel_flutter_web/env.dart';
-
-import 'package:pixel_flutter_web/views/TopicPage.dart';
 
 class HomePage extends StatefulWidget with env {
   HomePage({Key key, this.title}) : super(key: key);
@@ -28,22 +31,22 @@ class HomePage extends StatefulWidget with env {
 }
 
 class _HomePageState extends State<HomePage> {
-  TopicsBloc _topicBloc;
+  TopicsBloc _topicsBloc;
   final _scrollController = ScrollController();
   final _scrollThreshold = 300.0;
 
   @override
   void initState() {
     BlocProvider.of<CategoryBloc>(context).dispatch(LoadCategories());
-    _topicBloc = TopicsBloc();
-    _topicBloc.dispatch(GetTopics(categoryId: 1));
+    _topicsBloc = TopicsBloc();
+    _topicsBloc.dispatch(GetTopics(categoryId: 1));
     _scrollController.addListener(_onScroll);
     super.initState();
   }
 
   @override
   void dispose() {
-    _topicBloc.dispose();
+    _topicsBloc.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -56,28 +59,46 @@ class _HomePageState extends State<HomePage> {
           bloc: BlocProvider.of<UserBloc>(context),
           builder: (context, userState) {
             return Scaffold(
-              endDrawer: userState is UserLoaded ? UserDrawer() : null,
-              persistentFooterButtons: <Widget>[],
-              appBar: AppBar(
-                primary: false,
-                flexibleSpace:
-                    FlexibleSpaceBar(title: Text('pixelshare example')),
-                elevation: 5.0,
-                leading: MediaQuery.of(context).size.width < widget.BREAK_POINT_WIDTH
-                    ? IconButton(
-                        onPressed: () => Navigator.pushNamed(context, '/home'),
-                        icon: Icon(Icons.home),
-                      )
-                    : Container(),
-                actions: <Widget>[UserButton()],
-              ),
+              endDrawer: UserDrawer(),
               body: BlocListener(
                 bloc: BlocProvider.of<ErrorBloc>(context),
-                listener: (BuildContext context, ErrorState state) async {
+                listener: (context, state) async {
                   snackbarController(context, state);
                 },
-                child: TopicsLayout(
-                    topicBloc: _topicBloc, controller: _scrollController),
+                child: Stack(
+                  alignment: Alignment.centerLeft,
+                  children: [
+                    GeneralBackground(),
+                    CustomScrollView(
+                      controller: _scrollController,
+                      slivers: [
+                        FloatingAppBar(title: 'pixelshare example'),
+                        SliverPadding(
+                          padding: EdgeInsets.only(
+                            left: MediaQuery.of(context).size.width >
+                                    widget.BREAK_POINT_WIDTH
+                                ? MediaQuery.of(context).size.width * 0.2
+                                : 0,
+                            right: MediaQuery.of(context).size.width >
+                                    widget.BREAK_POINT_WIDTH_SM
+                                ? MediaQuery.of(context).size.width * 0.4
+                                : 0,
+                          ),
+                          sliver: TopicsLayout(
+                            topicsBloc: _topicsBloc,
+                          ),
+                        )
+                      ],
+                    ),
+                    Padding(
+                        padding: EdgeInsets.only(
+                          left: MediaQuery.of(context).size.width * 0.6 + 30),
+                        child: MediaQuery.of(context).size.width >
+                                widget.BREAK_POINT_WIDTH_SM
+                            ? SideMenu()
+                            : Container())
+                  ],
+                ),
               ),
             );
           }),
@@ -88,7 +109,7 @@ class _HomePageState extends State<HomePage> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     if (maxScroll - currentScroll <= _scrollThreshold) {
-      _topicBloc.dispatch(GetTopics(categoryId: 1));
+      _topicsBloc.dispatch(GetTopics(categoryId: 1));
     }
   }
 
@@ -144,3 +165,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 }
+
+class TopicsLayoutNew extends StatelessWidget with env {
+  final TopicsBloc topicsBloc;
+
+  TopicsLayoutNew({this.topicsBloc});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder(
+        bloc: topicsBloc,
+        builder: (context, state) {
+          if (state is TopicsLoaded) {
+            return SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                return index >= state.topics.length && !state.hasReachedMax
+                    ? BottomLoader()
+                    : TopicTile(topic: state.topics[index]);
+              },
+                  childCount: state.hasReachedMax
+                      ? state.topics.length
+                      : state.topics.length + 1),
+            );
+          } else {
+            return SliverToBoxAdapter(
+              child: Center(
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            );
+          }
+        });
+  }
+}
+
+

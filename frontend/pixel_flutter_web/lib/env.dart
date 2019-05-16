@@ -7,5 +7,7 @@ class env {
   final int TIME_GATE = 360000;
 
   /// breakpoint between web and mobile
-  final double BREAK_POINT_WIDTH = 930.0;
+  final double BREAK_POINT_WIDTH = 1000.0;
+
+  final double BREAK_POINT_WIDTH_SM = 600.0;
 }

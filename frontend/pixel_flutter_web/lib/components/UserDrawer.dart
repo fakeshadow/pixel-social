@@ -1,15 +1,15 @@
 import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:pixel_flutter_web/env.dart';
+
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 
 import 'package:pixel_flutter_web/style/colors.dart';
 import 'package:pixel_flutter_web/style/text.dart';
 
-const BREAK_POINT_WIDTH = 900.0;
-
-class UserDrawer extends StatefulWidget {
+class UserDrawer extends StatefulWidget with env{
   @override
   _UserDrawerState createState() => _UserDrawerState();
 }
@@ -45,7 +45,7 @@ class _UserDrawerState extends State<UserDrawer> {
     return Container(
       color: primaryColor.withOpacity(0.9),
       width:
-          MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH ? 150.0 : 300,
+          MediaQuery.of(context).size.width <= widget.BREAK_POINT_WIDTH ? 150.0 : 300,
       child: Column(
         children: <Widget>[
           SizedBox(
@@ -56,7 +56,7 @@ class _UserDrawerState extends State<UserDrawer> {
               itemBuilder: (context, index) {
                 return Padding(
                   padding:
-                      MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH
+                      MediaQuery.of(context).size.width <= widget.BREAK_POINT_WIDTH
                           ? EdgeInsets.symmetric(horizontal: 12, vertical: 10)
                           : EdgeInsets.symmetric(horizontal: 50, vertical: 20),
                   child: CollapsingListTile(
@@ -81,7 +81,7 @@ class DrawerItem {
   DrawerItem({this.title, this.icon});
 }
 
-class CollapsingListTile extends StatefulWidget {
+class CollapsingListTile extends StatefulWidget with env {
   final String title;
   final IconData icon;
   final Function callback;
@@ -106,7 +106,7 @@ class _CollapsingListTileState extends State<CollapsingListTile> {
             size: 22,
           ),
           SizedBox(
-            width: MediaQuery.of(context).size.width <= BREAK_POINT_WIDTH
+            width: MediaQuery.of(context).size.width <= widget.BREAK_POINT_WIDTH
                 ? 10
                 : 35,
           ),

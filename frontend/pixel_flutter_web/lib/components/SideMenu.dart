@@ -13,41 +13,33 @@ import 'package:pixel_flutter_web/views/TopicsPage.dart';
 class SideMenu extends StatelessWidget with env {
   @override
   Widget build(BuildContext context) {
-    return Padding(
-        padding: const EdgeInsets.only(left: 30.0),
-        child: Container(
-          width: 200,
-          child: ListView(children: <Widget>[
-            Divider(),
-            SideMenuBox(
-                sideMenuItem: SideMenuItem(
-                    title: 'Popular Categories',
-                    blocBuilder: CategoryBuilder(context),
-                    // ToDo: Hero widget and push to categories page.
-                    onTapBottom: () => print("testtest"))),
-            Divider(),
-            BlocBuilder(
-              bloc: BlocProvider.of<UserBloc>(context),
-              builder: (context, state) {
-                if (state is UserLoaded) {
-                  return SideMenuBox(
-                      sideMenuItem: SideMenuItem(
-                          title: 'My collection',
-                          blocBuilder: CollectionBuilder(context),
-                          // ToDo: Hero widget and push to categories page.
-                          onTapBottom: () => print("testtest")));
-                } else {
-                  return Container();
-                }
-              },
-            )
-          ]),
-        ));
-  }
-
-  Widget Divider() {
-    return SizedBox(
-      height: 20,
+    return Container(
+      width: 200,
+      child: ListView(children: <Widget>[
+        SizedBox(height: 70),
+        SideMenuBoxNew(
+            sideMenuItem: SideMenuItem(
+                title: 'Popular Categories',
+                blocBuilder: CategoryBuilder(context),
+                // ToDo: Hero widget and push to categories page.
+                onTapBottom: () => print("testtest"))),
+        SizedBox(height: 20),
+        BlocBuilder(
+          bloc: BlocProvider.of<UserBloc>(context),
+          builder: (context, state) {
+            if (state is UserLoaded) {
+              return SideMenuBoxNew(
+                  sideMenuItem: SideMenuItem(
+                      title: 'My collection',
+                      blocBuilder: CollectionBuilder(context),
+                      // ToDo: Hero widget and push to categories page.
+                      onTapBottom: () => print("testtest")));
+            } else {
+              return Container();
+            }
+          },
+        )
+      ]),
     );
   }
 
@@ -65,7 +57,8 @@ class SideMenu extends StatelessWidget with env {
           return ListView.builder(
             physics: ClampingScrollPhysics(),
             shrinkWrap: true,
-            itemCount: state.categories.length > 10 ? 10 : state.categories.length,
+            itemCount:
+            state.categories.length > 10 ? 10 : state.categories.length,
             itemBuilder: (context, index) {
               return InkWell(
                 onTap: () => pushToTopicsPage(context, state.categories[index]),
@@ -113,16 +106,12 @@ class SideMenu extends StatelessWidget with env {
           child: Stack(
             children: <Widget>[
               // Todo: give an drag drop notification if user have no collection
-                    Image.network(
-                        url,
-                        width: 200,
-                        height: 40,
-                        fit: BoxFit.fitWidth),
-                    Container(
-                      width: 200,
-                      height: 40,
-                      color: Colors.black26.withOpacity(0.4),
-                    ),
+              Image.network(url, width: 200, height: 40, fit: BoxFit.fitWidth),
+              Container(
+                width: 200,
+                height: 40,
+                color: Colors.black26.withOpacity(0.4),
+              ),
               Positioned(
                 top: 10,
                 left: 30,
@@ -146,10 +135,10 @@ class SideMenu extends StatelessWidget with env {
   }
 }
 
-class SideMenuBox extends StatelessWidget {
+class SideMenuBoxNew extends StatelessWidget {
   final Widget sideMenuItem;
 
-  SideMenuBox({this.sideMenuItem});
+  SideMenuBoxNew({this.sideMenuItem});
 
   @override
   Widget build(BuildContext context) {
