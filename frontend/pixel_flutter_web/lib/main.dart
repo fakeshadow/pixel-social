@@ -1,9 +1,9 @@
 import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
-import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
+import 'package:pixel_flutter_web/blocs/CategoryBloc/CategoryBloc.dart';
+import 'package:pixel_flutter_web/blocs/ErrorBloc/ErrorBloc.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 
 import 'package:pixel_flutter_web/views/HomePage.dart';
@@ -28,10 +28,10 @@ class MyApp extends StatelessWidget {
         title: 'Pixel Flutter Web',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-            brightness: Brightness.light,
-            primarySwatch: Colors.blue,
-            accentColor: Colors.deepPurple,
-            dividerColor: Colors.black,
+          brightness: Brightness.light,
+          primarySwatch: Colors.blue,
+          accentColor: Colors.deepPurple,
+          dividerColor: Colors.black,
         ),
         routes: {
           '/home': (context) => HomePage(title: 'PixelShare'),

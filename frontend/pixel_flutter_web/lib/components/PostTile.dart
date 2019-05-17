@@ -9,7 +9,6 @@ class PostTile extends StatelessWidget with env {
 
   @override
   Widget build(BuildContext context) {
-    print(post);
     return ListTile(
       leading: InkWell(
         onTap: () => print('Avatar pressed'),

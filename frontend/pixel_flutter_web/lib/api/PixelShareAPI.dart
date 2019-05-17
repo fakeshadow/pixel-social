@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' show Client;
 
 import 'package:pixel_flutter_web/env.dart';
+
 import 'package:pixel_flutter_web/models/Category.dart';
 import 'package:pixel_flutter_web/models/Post.dart';
 import 'package:pixel_flutter_web/models/Topic.dart';
@@ -50,6 +51,8 @@ class PixelShareAPI extends env {
   }
 
   Future<List<Topic>> getTopics(int categoryId, int page) async {
+    print('getting topics');
+
     final response = await _http.get(url + 'categories/$categoryId/$page',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
@@ -68,20 +71,23 @@ class PixelShareAPI extends env {
   }
 
   Future<TopicWithPost> getTopic(int topicId, int page) async {
+    print('getting topic');
     final response = await _http.get(url + 'topic/$topicId/$page',
         headers: {"Content-Type": "application/json"});
 
     final data = json.decode(response.body);
-    final topic = Topic(
-        id: data['topic']['id'],
-        categoryId: data['topic']['category_id'],
-        userId: data['topic']['user']['id'],
-        username: data['topic']['user']['username'],
-        title: data['topic']['title'],
-        body: data['topic']['body'],
-        lastReplyTime: data['topic']['last_reply_time'],
-        avatarUrl: data['topic']['user']['avatar_url'],
-        thumbnail: data['topic']['thumbnail']);
+    final topic = page == 1
+        ? Topic(
+            id: data['topic']['id'],
+            categoryId: data['topic']['category_id'],
+            userId: data['topic']['user']['id'],
+            username: data['topic']['user']['username'],
+            title: data['topic']['title'],
+            body: data['topic']['body'],
+            lastReplyTime: data['topic']['last_reply_time'],
+            avatarUrl: data['topic']['user']['avatar_url'],
+            thumbnail: data['topic']['thumbnail'])
+        : null;
 
     final posts = data['posts'].map((rawPost) {
       return Post(

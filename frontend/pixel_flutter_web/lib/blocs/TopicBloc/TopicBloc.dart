@@ -22,13 +22,16 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
   get initialState => TopicUninitialized();
 
   @override
-  Stream<TopicState> mapEventToState(TopicEvent event,) async* {
+  Stream<TopicState> mapEventToState(
+    TopicEvent event,
+  ) async* {
     if (event is GetTopic && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicUninitialized) {
           final topicWithPost = await topicsRepo.getTopic(event.topicId, 1);
           final maxed = topicWithPost.posts.length < 20 ? true : false;
-          yield TopicLoaded(topic: topicWithPost.topic,
+          yield TopicLoaded(
+              topic: topicWithPost.topic,
               posts: topicWithPost.posts,
               hasReachedMax: maxed);
           return;
@@ -37,12 +40,13 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
           final page =
               1 + ((currentState as TopicLoaded).posts.length / 20).floor();
           final topicWithPost = await topicsRepo.getTopic(event.topicId, page);
-          yield topicWithPost.posts.isEmpty
+          yield topicWithPost.posts.length < 20
               ? (currentState as TopicLoaded).copyWith(hasReachedMax: true)
               : TopicLoaded(
-              topic: (currentState as TopicLoaded).topic,
-              posts: (currentState as TopicLoaded).posts + topicWithPost.posts,
-              hasReachedMax: false);
+                  topic: (currentState as TopicLoaded).topic,
+                  posts:
+                      (currentState as TopicLoaded).posts + topicWithPost.posts,
+                  hasReachedMax: false);
         }
       } catch (_) {
         yield TopicError();

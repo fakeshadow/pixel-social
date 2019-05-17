@@ -1,5 +1,4 @@
 import 'package:equatable/equatable.dart';
-import './Post.dart';
 import './Topic.dart';
 
 class TopicWithPost extends Equatable {

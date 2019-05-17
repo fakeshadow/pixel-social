@@ -1,22 +1,17 @@
 import 'package:flutter_web/material.dart';
 
-import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter_web/env.dart';
 
-import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
-import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 
-import 'package:pixel_flutter_web/components/BottomLoader.dart';
-import 'package:pixel_flutter_web/components/UserButton.dart';
-import 'package:pixel_flutter_web/components/TopicTile.dart';
-import 'package:pixel_flutter_web/components/UserDrawer.dart';
+import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
+import 'package:pixel_flutter_web/components/BasicLayout.dart';
+import 'package:pixel_flutter_web/components/TopicsList.dart';
 import 'package:pixel_flutter_web/components/SideMenu.dart';
 
 import 'package:pixel_flutter_web/models/Category.dart';
 
-const BREAK_POINT_WIDTH = 930.0;
-
-class TopicsPage extends StatefulWidget {
+class TopicsPage extends StatefulWidget with env{
   TopicsPage({Key key, this.category}) : super(key: key);
 
   final Category category;
@@ -49,30 +44,31 @@ class _TopicsPageState extends State<TopicsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder(
-        bloc: BlocProvider.of<UserBloc>(context),
-        builder: (context, userState) {
-          return Scaffold(
-            endDrawer: userState is UserLoaded ? UserDrawer() : null,
-            appBar: AppBar(
-              elevation: 5.0,
-              title: Text(category.name),
-              leading: IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: Icon(Icons.arrow_back),
-              ),
-              actions: <Widget>[UserButton()],
-            ),
-            body: BlocListener(
-              bloc: BlocProvider.of<ErrorBloc>(context),
-              listener: (BuildContext context, ErrorState state) async {
-                snackbarController(context, state);
-              },
-              child: Layout(
-                  topicsBloc: _topicsBloc, controller: _scrollController),
-            ),
-          );
-        });
+    return BasicLayout(
+      scrollView: scrollView(_scrollController),
+      sideMenu: SideMenu(),
+    );
+  }
+
+  Widget scrollView(scrollController) {
+    return Scrollbar(
+      child: CustomScrollView(controller: scrollController, slivers: [
+        FloatingAppBar(title: category.name),
+        SliverPadding(
+          padding: EdgeInsets.only(
+            left: MediaQuery.of(context).size.width > widget.BREAK_POINT_WIDTH
+                ? MediaQuery.of(context).size.width * 0.2
+                : 0,
+            right: MediaQuery.of(context).size.width > widget.BREAK_POINT_WIDTH_SM
+                ? MediaQuery.of(context).size.width * 0.4
+                : 0,
+          ),
+          sliver: TopicsList(
+            topicsBloc: _topicsBloc,
+          ),
+        )
+      ]),
+    );
   }
 
   void _onScroll() {
@@ -81,74 +77,5 @@ class _TopicsPageState extends State<TopicsPage> {
     if (maxScroll - currentScroll <= _scrollThreshold) {
       _topicsBloc.dispatch(GetTopics(categoryId: 1));
     }
-  }
-
-  snackbarController(BuildContext context, ErrorState state) async {
-    if (state is NoSnack) {
-      Scaffold.of(context).hideCurrentSnackBar();
-    } else if (state is ShowSuccess) {
-      Scaffold.of(context).showSnackBar(SnackBar(
-        duration: Duration(seconds: 2),
-        backgroundColor: Colors.green,
-        content: Text(
-          state.success,
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
-        ),
-      ));
-    } else if (state is ShowError) {
-      Scaffold.of(context).showSnackBar(SnackBar(
-        duration: Duration(seconds: 2),
-        backgroundColor: Colors.deepOrangeAccent,
-        content: Text(
-          state.error,
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.bold),
-        ),
-      ));
-    }
-  }
-}
-
-class Layout extends StatelessWidget {
-  final TopicsBloc topicsBloc;
-  final ScrollController controller;
-
-  Layout({this.topicsBloc, this.controller});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: <Widget>[
-      Container(
-        width: MediaQuery.of(context).size.width > 700
-            ? 700
-            : MediaQuery.of(context).size.width,
-        child: BlocBuilder(
-            bloc: topicsBloc,
-            builder: (context, state) {
-              if (state is TopicsLoaded) {
-                return state.topics.isEmpty
-                    ? Container()
-                    : ListView.builder(
-                        controller: controller,
-                        itemCount: state.hasReachedMax
-                            ? state.topics.length
-                            : state.topics.length + 1,
-                        itemBuilder: (context, index) {
-                          return index >= state.topics.length &&
-                                  !state.hasReachedMax
-                              ? BottomLoader()
-                              : TopicTile(topic: state.topics[index]);
-                        },
-                      );
-              } else {
-                return Container();
-              }
-            }),
-      ),
-      MediaQuery.of(context).size.width > BREAK_POINT_WIDTH
-          ? SideMenu()
-          : Container()
-    ]);
   }
 }

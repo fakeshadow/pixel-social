@@ -36,9 +36,8 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
         if (currentState is TopicsLoaded) {
           final page =
               1 + ((currentState as TopicsLoaded).topics.length / 20).floor();
-          print(page);
           final topics = await topicsRepo.getTopics(event.categoryId, page);
-          yield topics.isEmpty
+          yield topics.length < 20
               ? (currentState as TopicsLoaded).copyWith(hasReachedMax: true)
               : TopicsLoaded(
                   topics: (currentState as TopicsLoaded).topics + topics,

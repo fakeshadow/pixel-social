@@ -6,8 +6,9 @@ class env {
   /// how often user can fetch categories data
   final int TIME_GATE = 360000;
 
-  /// breakpoint between web and mobile
+  /// breakpoint between lg and md size
   final double BREAK_POINT_WIDTH = 1000.0;
 
+  /// breakpoint between web and mobile
   final double BREAK_POINT_WIDTH_SM = 600.0;
 }

@@ -13,6 +13,16 @@ import 'package:pixel_flutter_web/views/TopicsPage.dart';
 class SideMenu extends StatelessWidget with env {
   @override
   Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(left: MediaQuery.of(context).size.width * 0.6 + 30),
+      child: MediaQuery.of(context).size.width > BREAK_POINT_WIDTH_SM
+          ? _sideMenu(context)
+          : Container(),
+    );
+  }
+
+  Widget _sideMenu(context) {
     return Container(
       width: 200,
       child: ListView(children: <Widget>[
@@ -58,7 +68,7 @@ class SideMenu extends StatelessWidget with env {
             physics: ClampingScrollPhysics(),
             shrinkWrap: true,
             itemCount:
-            state.categories.length > 10 ? 10 : state.categories.length,
+                state.categories.length > 10 ? 10 : state.categories.length,
             itemBuilder: (context, index) {
               return InkWell(
                 onTap: () => pushToTopicsPage(context, state.categories[index]),
