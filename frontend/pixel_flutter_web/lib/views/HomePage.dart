@@ -1,6 +1,7 @@
 import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pixel_flutter_web/blocs/FloatingButtonBlocs.dart';
 
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
@@ -51,6 +52,7 @@ class _HomePageState extends State<HomePage> {
         child: BasicLayout(
           scrollView: scrollView(),
           sideMenu: SideMenu(),
+          backToTop: () => scrollController.animateTo(0.0, duration: Duration(milliseconds: 300), curve: Curves.linear),
         ));
   }
 
@@ -72,13 +74,20 @@ class _HomePageState extends State<HomePage> {
     if (maxScroll - currentScroll <= _scrollThreshold) {
       _topicsBloc.dispatch(GetTopics(categoryId: 1));
     }
+    if (currentScroll > MediaQuery.of(context).size.height) {
+      BlocProvider.of<FloatingButtonBloc>(context)
+          .dispatch(ShowFloating(showFloating: true));
+    }
+    if (currentScroll < MediaQuery.of(context).size.height) {
+      BlocProvider.of<FloatingButtonBloc>(context)
+          .dispatch(ShowFloating(showFloating: false));
+    }
   }
 
   Future<bool> onWillPop() {
     return showDialog(
         context: context,
-        builder: (context) =>
-            AlertDialog(
+        builder: (context) => AlertDialog(
               title: Text('Leaving?'),
               content: Text('Do you want to exit the app'),
               actions: <Widget>[

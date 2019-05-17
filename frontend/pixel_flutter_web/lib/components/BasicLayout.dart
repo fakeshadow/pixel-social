@@ -7,12 +7,14 @@ import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 
 import 'package:pixel_flutter_web/components/GeneralBackground.dart';
 import 'package:pixel_flutter_web/components/UserDrawer.dart';
+import 'package:pixel_flutter_web/components/BackToTopButton.dart';
 
 class BasicLayout extends StatelessWidget {
   final Widget scrollView;
   final Widget sideMenu;
+  final Function backToTop;
 
-  BasicLayout({this.scrollView, this.sideMenu});
+  BasicLayout({this.scrollView, this.sideMenu, this.backToTop});
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +22,8 @@ class BasicLayout extends StatelessWidget {
         bloc: BlocProvider.of<UserBloc>(context),
         builder: (context, userState) {
           return Scaffold(
-            floatingActionButton: ActionButton(),
+            floatingActionButton: BackToTopButton(onPressed: backToTop),
+            floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
             endDrawer: userState is UserLoaded ? UserDrawer() : null,
             body: BlocListener(
               bloc: BlocProvider.of<ErrorBloc>(context),
@@ -65,15 +68,5 @@ class BasicLayout extends StatelessWidget {
         ),
       ));
     }
-  }
-}
-
-class ActionButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: Icon(Icons.translate),
-      onPressed: () => print('floating action button pressed'),
-    );
   }
 }
