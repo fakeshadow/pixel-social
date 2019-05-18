@@ -4,7 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter_web/env.dart';
 
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
-import 'package:pixel_flutter_web/components/AvatarIcon.dart';
+
+import 'package:pixel_flutter_web/components/FloatingBarActionIcon.dart';
 
 import 'package:pixel_flutter_web/views/AutenticationPage.dart';
 
@@ -24,22 +25,24 @@ class UserButton extends StatelessWidget with env {
         bloc: BlocProvider.of<UserBloc>(context),
         builder: (BuildContext context, UserState state) {
           if (state is UserLoggedOut) {
-            return AvatarIcon(
-                showAvatar: false,
-                avatarUrl: '',
-                callback: () => pushToLogin(context: context, state: state));
+            return FloatingBarActionIcon(
+                iconSize: 30,
+                icon: Icon(Icons.apps),
+                onPressed: () => pushToLogin(context: context, state: state));
           }
           if (state is UserLoaded) {
-            return AvatarIcon(
-              showAvatar: true,
-              avatarUrl: url + state.user.avatarUrl,
-              callback: () => showDrawer(context: context),
+            return FloatingBarActionIcon(
+              iconSize: 40,
+              icon: CircleAvatar(
+                  backgroundImage:
+                      NetworkImage(url + '${state.user.avatarUrl}')),
+              onPressed: () => showDrawer(context: context),
             );
           }
-          return AvatarIcon(
-            showAvatar: false,
-            avatarUrl: '',
-            callback: () => pushToRegister(context: context, state: state),
+          return FloatingBarActionIcon(
+            iconSize: 30,
+            icon: Icon(Icons.apps),
+            onPressed: () => pushToRegister(context: context, state: state),
           );
         });
   }

@@ -1,17 +1,21 @@
 import 'package:flutter_web/material.dart';
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+
 import 'package:pixel_flutter_web/env.dart';
 
+import 'package:pixel_flutter_web/blocs/FloatingButtonBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 
 import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
 import 'package:pixel_flutter_web/components/BasicLayout.dart';
+import 'package:pixel_flutter_web/components/BasicSliverPadding.dart';
 import 'package:pixel_flutter_web/components/TopicsList.dart';
 import 'package:pixel_flutter_web/components/SideMenu.dart';
 
 import 'package:pixel_flutter_web/models/Category.dart';
 
-class TopicsPage extends StatefulWidget with env{
+class TopicsPage extends StatefulWidget with env {
   TopicsPage({Key key, this.category}) : super(key: key);
 
   final Category category;
@@ -28,6 +32,7 @@ class _TopicsPageState extends State<TopicsPage> {
 
   @override
   void initState() {
+    BlocProvider.of<FloatingButtonBloc>(context).dispatch(ShowFloating(showFloating: false));
     category = widget.category;
     _topicsBloc = TopicsBloc();
     _topicsBloc.dispatch(GetTopics(categoryId: category.id));
@@ -47,6 +52,7 @@ class _TopicsPageState extends State<TopicsPage> {
     return BasicLayout(
       scrollView: scrollView(_scrollController),
       sideMenu: SideMenu(),
+      backToTop: () => backTop(),
     );
   }
 
@@ -54,19 +60,7 @@ class _TopicsPageState extends State<TopicsPage> {
     return Scrollbar(
       child: CustomScrollView(controller: scrollController, slivers: [
         FloatingAppBar(title: category.name),
-        SliverPadding(
-          padding: EdgeInsets.only(
-            left: MediaQuery.of(context).size.width > widget.BREAK_POINT_WIDTH
-                ? MediaQuery.of(context).size.width * 0.2
-                : 0,
-            right: MediaQuery.of(context).size.width > widget.BREAK_POINT_WIDTH_SM
-                ? MediaQuery.of(context).size.width * 0.4
-                : 0,
-          ),
-          sliver: TopicsList(
-            topicsBloc: _topicsBloc,
-          ),
-        )
+        BasicSliverPadding(sliver: TopicsList(topicsBloc: _topicsBloc))
       ]),
     );
   }
@@ -75,7 +69,24 @@ class _TopicsPageState extends State<TopicsPage> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
     if (maxScroll - currentScroll <= _scrollThreshold) {
-      _topicsBloc.dispatch(GetTopics(categoryId: 1));
+      loadMore();
     }
+    if (currentScroll > MediaQuery.of(context).size.height) {
+      BlocProvider.of<FloatingButtonBloc>(context)
+          .dispatch(ShowFloating(showFloating: true));
+    }
+    if (currentScroll < MediaQuery.of(context).size.height) {
+      BlocProvider.of<FloatingButtonBloc>(context)
+          .dispatch(ShowFloating(showFloating: false));
+    }
+  }
+
+  void loadMore() {
+    _topicsBloc.dispatch(GetTopics(categoryId: widget.category.id));
+  }
+
+  void backTop() {
+    _scrollController.animateTo(0.0,
+        duration: Duration(milliseconds: 300), curve: Curves.linear);
   }
 }

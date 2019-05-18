@@ -1,28 +1,29 @@
 import 'dart:math' as math;
 
-import 'package:flutter_web/foundation.dart';
 import 'package:flutter_web/material.dart';
+
+import 'package:pixel_flutter_web/env.dart';
+
 import 'package:pixel_flutter_web/style/colors.dart';
 
-class AvatarIcon extends StatelessWidget {
-  final String avatarUrl;
-  final Function callback;
-  final bool showAvatar;
-  final String _url = 'http://192.168.1.197:3200';
+class FloatingBarActionIcon extends StatelessWidget with env {
+  final Function onPressed;
+  final Widget icon;
+  final double iconSize;
 
-  AvatarIcon(
-      {@required this.avatarUrl, this.callback, @required this.showAvatar});
+  FloatingBarActionIcon({this.onPressed, @required this.icon, @required this.iconSize});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       color: primaryColor,
       padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 15),
-      onPressed: callback != null ? () => callback() : () {},
-      icon: showAvatar
-          ? CircleAvatar(backgroundImage: NetworkImage('$_url$avatarUrl'))
-          : Icon(Icons.apps),
-      iconSize: showAvatar ? 40 : 30,
+      onPressed: onPressed != null ? () => onPressed() : () {},
+      icon: icon,
+//      showAvatar
+//          ? CircleAvatar(backgroundImage: NetworkImage(url + '$avatarUrl'))
+//          : Icon(Icons.apps),
+      iconSize: iconSize,
     );
   }
 }
