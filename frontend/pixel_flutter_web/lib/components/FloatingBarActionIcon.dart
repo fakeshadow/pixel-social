@@ -20,9 +20,6 @@ class FloatingBarActionIcon extends StatelessWidget with env {
       padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 15),
       onPressed: onPressed != null ? () => onPressed() : () {},
       icon: icon,
-//      showAvatar
-//          ? CircleAvatar(backgroundImage: NetworkImage(url + '$avatarUrl'))
-//          : Icon(Icons.apps),
       iconSize: iconSize,
     );
   }

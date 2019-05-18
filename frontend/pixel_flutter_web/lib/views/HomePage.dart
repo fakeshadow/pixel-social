@@ -2,8 +2,6 @@ import 'package:flutter_web/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:pixel_flutter_web/env.dart';
-
 import 'package:pixel_flutter_web/blocs/FloatingButtonBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
@@ -16,8 +14,9 @@ import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
 
 import 'package:pixel_flutter_web/style/text.dart';
 import 'package:pixel_flutter_web/style/colors.dart';
+import 'package:pixel_flutter_web/views/InputPage.dart';
 
-class HomePage extends StatefulWidget with env {
+class HomePage extends StatefulWidget {
   HomePage({Key key, this.title}) : super(key: key);
 
   final String title;
@@ -80,61 +79,17 @@ class _HomePageState extends State<HomePage> {
         context: context,
         builder: (context) {
           return WillPopScope(
-            onWillPop: () => onWillPop(
-                title: 'Exiting input?', content: 'All input will be lost'),
-            child: AlertDialog(
-              title: Text('Start a new topic'),
-              contentPadding: EdgeInsets.all(16),
-              content: Container(
-                width: MediaQuery.of(context).size.width <
-                        widget.BREAK_POINT_WIDTH_SM
-                    ? MediaQuery.of(context).size.width
-                    : widget.BREAK_POINT_WIDTH_SM,
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: <Widget>[
-                    TextField(
-                      autofocus: true,
-                      decoration: InputDecoration(
-                          labelText: 'Title',
-                          hintText: 'please input your topic title'),
-                    ),
-                    TextField(
-                      autofocus: false,
-                      decoration: InputDecoration(
-                          labelText: 'Body',
-                          hintText: 'please input your topic body'),
-                    ),
-                  ],
-                ),
-              ),
-              actions: <Widget>[
-                FlatButton(
-                  onPressed: () async {
-                    if (await onWillPop(
-                        title: 'Exit posting?',
-                        content: 'All content will be lost')) {
-                      Navigator.pop(context);
-                    } else {
-                      return;
-                    }
-                  },
-                  child: Text(
-                    'Cancel',
-                    style: recoverButtonStyle,
-                  ),
-                ),
-                RaisedButton(
-                  color: primaryColor,
-                  onPressed: () => Navigator.pop(context, true),
-                  child: Text(
-                    'Confirm',
-                    style: submitButtonStyle.copyWith(fontSize: 16),
-                  ),
-                )
-              ],
-            ),
-          );
+              onWillPop: () => onWillPop(
+                  title: 'Exiting input?', content: 'All input will be lost'),
+              child: InputPage(onCancelButtonPressed: () async {
+                if (await onWillPop(
+                    title: 'Exit posting?',
+                    content: 'All content will be lost')) {
+                  Navigator.pop(context);
+                } else {
+                  return;
+                }
+              }));
         });
   }
 

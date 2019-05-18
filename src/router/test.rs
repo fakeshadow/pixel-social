@@ -22,3 +22,7 @@ pub fn test_global_var(
         .from_err()
         .and_then(|_| Response::ModifiedTopic.to_res())
 }
+
+pub fn test_hello_world() -> HttpResponse {
+    HttpResponse::Ok().json("hello world")
+}
