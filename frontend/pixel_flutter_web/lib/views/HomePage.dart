@@ -3,6 +3,7 @@ import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter_web/blocs/FloatingButtonBlocs.dart';
+import 'package:pixel_flutter_web/blocs/TopicInputBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
@@ -27,6 +28,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   TopicsBloc _topicsBloc;
+  TopicInputBloc _topicInputBloc;
   final _scrollController = ScrollController();
   final _scrollThreshold = 300.0;
 
@@ -36,6 +38,7 @@ class _HomePageState extends State<HomePage> {
         .dispatch(ShowFloating(showFloating: false));
     BlocProvider.of<CategoryBloc>(context).dispatch(LoadCategories());
     _topicsBloc = TopicsBloc();
+    _topicInputBloc = TopicInputBloc();
     _topicsBloc.dispatch(GetTopics(categoryId: 1));
     _scrollController.addListener(_onScroll);
     super.initState();
@@ -44,6 +47,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _topicsBloc.dispose();
+    _topicInputBloc.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -78,10 +82,10 @@ class _HomePageState extends State<HomePage> {
     await showDialog(
         context: context,
         builder: (context) {
-          return WillPopScope(
+          return InputPage(
               onWillPop: () => onWillPop(
                   title: 'Exiting input?', content: 'All input will be lost'),
-              child: InputPage(onCancelButtonPressed: () async {
+              onCancelButtonPressed: () async {
                 if (await onWillPop(
                     title: 'Exit posting?',
                     content: 'All content will be lost')) {
@@ -89,7 +93,7 @@ class _HomePageState extends State<HomePage> {
                 } else {
                   return;
                 }
-              }));
+              });
         });
   }
 

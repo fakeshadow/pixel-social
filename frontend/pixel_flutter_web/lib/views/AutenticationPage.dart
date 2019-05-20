@@ -71,13 +71,12 @@ class _AuthenticationPageState extends State<AuthenticationPage>
               tag: 'auth',
               child: Scaffold(
                 body: BlocListener(
-                  //ToDo: Change error handling to error bloc
+                    //ToDo: Change error handling to error bloc
                     bloc: _userBloc,
                     listener: (context, userState) async {
                       _snackController(context, userState);
                     },
-                    child:_authStack(state)
-                ),
+                    child: _authStack(state)),
               ));
         });
   }
@@ -87,54 +86,52 @@ class _AuthenticationPageState extends State<AuthenticationPage>
       GeneralBackground(),
       FutureBuilder(
           future: initAnimation(),
-          builder: (context, snapshot) =>
-              ScaleTransition(
-                  scale: _animationDouble,
-                  child: SingleChildScrollView(
-                      child: Center(
-                        child: SizedBox(
-                          width: 500,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.max,
-                            children: <Widget>[
-                              AuthNavBar(),
-                              Material(
-                                  color: Colors.transparent,
-                                  child:
-                                  Text('PixelShare', style: logoStyle)),
-                              _inputForm(state),
-                              SizedBox(
-                                height: 20,
-                              ),
-                              SubmitAnimatedButton(
-                                  state: state,
-                                  type: _type,
-                                  submit: () => _submit(state)),
-                              _flatButtonChoice(_type, state)
-                            ],
-                          ),
-                        ),
-                      ))))
+          builder: (context, snapshot) => ScaleTransition(
+              scale: _animationDouble,
+              child: SingleChildScrollView(
+                  child: Center(
+                child: SizedBox(
+                  width: 500,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.max,
+                    children: <Widget>[
+                      AuthNavBar(),
+                      Material(
+                          color: Colors.transparent,
+                          child: Text('PixelShare', style: logoStyle)),
+                      _inputForm(state),
+                      SizedBox(
+                        height: 20,
+                      ),
+                      SubmitAnimatedButton(
+                          state: state,
+                          type: _type,
+                          submit: () => _submit(state)),
+                      _flatButtonChoice(_type, state)
+                    ],
+                  ),
+                ),
+              ))))
     ]);
   }
 
   Widget _inputForm(state) {
     return Form(
         child: ListView(shrinkWrap: true, children: <Widget>[
-          _usernameField(state),
-          _type == 'Register' || _type == 'Recover'
-              ? _emailField(state)
-              : Container(),
-          _type != 'Recover' ? _passwordField(state) : Container(),
-        ]));
+      _usernameField(state),
+      _type == 'Register' || _type == 'Recover'
+          ? _emailField(state)
+          : Container(),
+      _type != 'Recover' ? _passwordField(state) : Container(),
+    ]));
   }
 
   Widget _flatButtonChoice(String type, state) {
-    if (type == 'Register')
+    if (type == 'Register') {
       return _flatButton(
           text: 'Already have account?',
           function: () => _changeAuthType(type: 'Login'));
-    else if (type == 'Login') {
+    } else if (type == 'Login') {
       return _flatButton(
           text: 'Forgot Password?',
           function: () => _changeAuthType(type: 'Recover'));
@@ -158,7 +155,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           ),
           autovalidate: true,
           validator: (_) {
-            return state.isUsernameValid || state.username.length < 1
+            return state.isUsernameValid || state.username.isEmpty
                 ? null
                 : 'Invalid Username';
           },
@@ -182,7 +179,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
               ),
               autovalidate: true,
               validator: (_) {
-                return state.isEmailValid || state.email.length < 1
+                return state.isEmailValid || state.email.isEmpty
                     ? null
                     : 'Invalid Email';
               },
@@ -205,7 +202,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
           obscureText: true,
           autovalidate: true,
           validator: (_) {
-            return state.isPasswordValid || state.password.length < 1
+            return state.isPasswordValid || state.password.isEmpty
                 ? null
                 : 'Invalid Password';
           },

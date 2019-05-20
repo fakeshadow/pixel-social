@@ -2,13 +2,15 @@ use actix_web::{Error, HttpResponse, web::{Data, Json, Path}};
 use futures::Future;
 
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, Response},
+    common::{GlobalGuard, PostgresPool,RedisPool, Response},
     topic::{TopicRequest, TopicQuery},
 };
+use crate::handler::cache::UpdateCacheAsync;
 
 pub fn test_global_var(
     global: Data<GlobalGuard>,
     db: Data<PostgresPool>,
+    cache: Data<RedisPool>
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     TopicQuery::AddTopic(TopicRequest {
         id: None,
@@ -20,7 +22,10 @@ pub fn test_global_var(
         is_locked: None,
     }).into_topic_with_category(&db, Some(global))
         .from_err()
-        .and_then(|_| Response::ModifiedTopic.to_res())
+        .and_then(move |(c, t)|
+            UpdateCacheAsync::AddedTopic(c, t)
+                .handler(&cache)
+                .then(|_| Response::ModifiedTopic.to_res()))
 }
 
 pub fn test_hello_world() -> HttpResponse {

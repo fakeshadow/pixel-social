@@ -6,6 +6,12 @@ class env {
   /// how often user can fetch categories data
   final int TIME_GATE = 360000;
 
+  /// Max length of topic title
+  final int MAX_TITLE_LENGTH = 256;
+
+  /// Max length of topic body of post content
+  final int MAX_TEXT_LENGTH = 9999;
+
   /// breakpoint between lg and md size
   final double BREAK_POINT_WIDTH = 1000.0;
 

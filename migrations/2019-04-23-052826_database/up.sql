@@ -76,8 +76,8 @@ INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, 
 VALUES (1,'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'avatar_url', 9);
 
 INSERT INTO categories (id, name, thumbnail)
-VALUES (1, 'General', ''),
-(2, 'Announcement', '');
+VALUES (1, 'General', 'category_default.png'),
+(2, 'Announcement', 'category_default.png');
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (3, 'Armored Core', 'ac.jpg'),
