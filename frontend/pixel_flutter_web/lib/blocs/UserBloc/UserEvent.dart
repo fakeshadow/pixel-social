@@ -26,15 +26,3 @@ class LoggingIn extends UserEvent {
 class LoggingOut extends UserEvent {}
 
 class Delete extends UserEvent {}
-
-class AddTopic extends UserEvent {
-  final String thumbnail, title, body;
-  final int categoryId;
-
-  AddTopic(
-      {this.thumbnail,
-      @required this.body,
-      @required this.title,
-      @required this.categoryId})
-      : super([title, body, categoryId, thumbnail]);
-}

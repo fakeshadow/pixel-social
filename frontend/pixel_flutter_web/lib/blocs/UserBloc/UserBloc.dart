@@ -71,23 +71,5 @@ class UserBloc extends Bloc<UserEvent, UserState> {
       yield Loading();
       await userRepo.deleteUser();
     }
-
-    if (event is AddTopic) {
-      yield Loading();
-      try {
-        final token = await userRepo.getLocal(key: 'token');
-        print(token);
-        final message = await userRepo.addTopic(
-            Topic(
-                title: event.title,
-                body: event.body,
-                categoryId: event.categoryId,
-                thumbnail: event.thumbnail),
-            token);
-        yield TopicSuccess(message: message);
-      } catch (e) {
-        yield Failure(error: e.toString());
-      }
-    }
   }
 }

@@ -23,12 +23,6 @@ class UserLoggedOut extends UserState {
   UserLoggedOut({@required this.username}) : super([username]);
 }
 
-class TopicSuccess extends UserState {
-  final String message;
-
-  TopicSuccess({@required this.message}) : super([message]);
-}
-
 class Failure extends UserState {
   final String error;
 

@@ -3,6 +3,7 @@ import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter_web/blocs/TopicBlocs.dart';
+import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 
 import 'package:pixel_flutter_web/components/BottomLoader.dart';
 import 'package:pixel_flutter_web/components/Lists/PostTile.dart';
@@ -29,8 +30,13 @@ class PostsList extends TopicsList {
                       ? state.posts.length
                       : state.posts.length + 1),
             );
+          } else if (state is GotError) {
+            BlocProvider.of<ErrorBloc>(context)
+                .dispatch(GetError(error: state.error));
+            // Todo: add error page
+            return Container();
           } else {
-            return Loading();
+            return CenterLoader();
           }
         });
   }

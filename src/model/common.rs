@@ -39,7 +39,6 @@ impl<'a> ResMsg<'a> {
     }
 }
 
-
 pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
 }

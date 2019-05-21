@@ -62,6 +62,7 @@ class PixelShareAPI extends env {
           username: rawTopic['user']['username'],
           title: rawTopic['title'],
           body: rawTopic['body'],
+          replyCount: rawTopic['reply_count'],
           lastReplyTime: rawTopic['last_reply_time'],
           avatarUrl: rawTopic['user']['avatar_url'],
           thumbnail: rawTopic['thumbnail']);
@@ -81,6 +82,7 @@ class PixelShareAPI extends env {
             username: data['topic']['user']['username'],
             title: data['topic']['title'],
             body: data['topic']['body'],
+            replyCount: data['reply_count'],
             lastReplyTime: data['topic']['last_reply_time'],
             avatarUrl: data['topic']['user']['avatar_url'],
             thumbnail: data['topic']['thumbnail'])
@@ -103,7 +105,7 @@ class PixelShareAPI extends env {
   }
 
   // ToDo: add error handling
-  Future<String> addTopic(Topic topic, String jwt) async {
+  Future<Topic> addTopic(Topic topic, String jwt) async {
     final response = await _http.post(url + 'topic/',
         headers: {
           "Content-Type": "application/json",
@@ -116,6 +118,14 @@ class PixelShareAPI extends env {
           'category_id': topic.categoryId
         }));
     final data = json.decode(response.body);
-    return data['message'];
+    return Topic(
+        id: data['id'],
+        categoryId: data['category_id'],
+        userId: data['user_id'],
+        title: data['title'],
+        body: data['body'],
+        replyCount: data['reply_count'],
+        lastReplyTime: data['last_reply_time'],
+        thumbnail: data['thumbnail']);
   }
 }

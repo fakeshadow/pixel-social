@@ -7,8 +7,6 @@ abstract class TopicState extends Equatable {
 
 class TopicUninitialized extends TopicState {}
 
-class TopicError extends TopicState {}
-
 class TopicLoaded extends TopicState {
   final Topic topic;
   final List posts;
@@ -31,4 +29,10 @@ class TopicLoaded extends TopicState {
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
     );
   }
+}
+
+class GotError extends TopicState {
+  final String error;
+
+  GotError({this.error}) : super([error]);
 }

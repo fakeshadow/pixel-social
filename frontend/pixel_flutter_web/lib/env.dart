@@ -17,4 +17,7 @@ class env {
 
   /// breakpoint between web and mobile
   final double BREAK_POINT_WIDTH_SM = 600.0;
+
+  /// Snackbar message for success input
+  final String GOT_TOPIC = 'Modified topic success';
 }

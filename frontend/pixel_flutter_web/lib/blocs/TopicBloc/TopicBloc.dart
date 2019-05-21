@@ -3,6 +3,7 @@ import 'package:rxdart/rxdart.dart';
 
 import 'package:pixel_flutter_web/blocs/TopicBloc/TopicEvent.dart';
 import 'package:pixel_flutter_web/blocs/TopicBloc/TopicState.dart';
+
 import 'package:pixel_flutter_web/blocs/Repo/TopicsRepo.dart';
 
 class TopicBloc extends Bloc<TopicEvent, TopicState> {
@@ -48,8 +49,8 @@ class TopicBloc extends Bloc<TopicEvent, TopicState> {
                       (currentState as TopicLoaded).posts + topicWithPost.posts,
                   hasReachedMax: false);
         }
-      } catch (_) {
-        yield TopicError();
+      } catch (e) {
+        yield GotError(error: e.toString());
       }
     }
   }

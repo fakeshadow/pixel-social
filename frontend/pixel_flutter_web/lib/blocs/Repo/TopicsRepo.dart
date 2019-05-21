@@ -12,4 +12,8 @@ class TopicsRepo {
   Future<TopicWithPost> getTopic(int topicId, int page) async {
     return _api.getTopic(topicId, page);
   }
+
+  Future<Topic> addTopic(Topic topic, String jwt)  {
+    return _api.addTopic(topic, jwt);
+  }
 }

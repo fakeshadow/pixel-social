@@ -19,10 +19,10 @@ pub fn add_topic(
         .into_add_query()
         .into_topic_with_category(&db, Some(global))
         .from_err()
-        .and_then(move |(c, t)|
-            UpdateCacheAsync::AddedTopic(c, t)
-                .handler(&cache)
-                .then(|_| Response::ModifiedTopic.to_res()))
+        .and_then(move |(c, t)| {
+            let res = HttpResponse::Ok().json(&t);
+            UpdateCacheAsync::AddedTopic(c, t).handler(&cache).then(|_| res)
+        })
 }
 
 pub fn update_topic(

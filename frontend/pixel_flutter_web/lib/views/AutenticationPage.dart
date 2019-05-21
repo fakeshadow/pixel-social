@@ -6,9 +6,11 @@ import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 
 import 'package:pixel_flutter_web/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
+
 import 'package:pixel_flutter_web/components/GeneralBackground.dart';
 import 'package:pixel_flutter_web/components/SubmitButton/AuthSubmitButton.dart';
 import 'package:pixel_flutter_web/components/AuthenticationNavBar.dart';
+
 import 'package:pixel_flutter_web/style/text.dart';
 
 /// pass in type and username for login form and type only for register

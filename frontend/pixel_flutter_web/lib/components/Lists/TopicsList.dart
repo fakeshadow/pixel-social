@@ -36,12 +36,12 @@ class TopicsList extends StatelessWidget with env {
                       : state.topics.length + 1),
             );
           } else {
-            return Loading();
+            return CenterLoader();
           }
         });
   }
 
-  Widget Loading() {
+  Widget CenterLoader() {
     return SliverFillViewport(
         delegate: SliverChildBuilderDelegate((context, index) {
       return Center(

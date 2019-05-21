@@ -3,7 +3,6 @@ import 'dart:html';
 
 import 'package:pixel_flutter_web/api/PixelShareAPI.dart';
 import 'package:pixel_flutter_web/models/User.dart';
-import 'package:pixel_flutter_web/models/Topic.dart';
 
 class UserRepo {
   final _api = PixelShareAPI();
@@ -28,10 +27,6 @@ class UserRepo {
   Future<User> update() async {
     await Future.delayed(Duration(seconds: 1));
     return User(id: 1, username: 'test', avatarUrl: 'test', signature: 'test');
-  }
-
-  Future<String> addTopic(Topic topic, String jwt)  {
-    return _api.addTopic(topic, jwt);
   }
 
   Future<User> getLocalUser() async {

@@ -49,16 +49,16 @@ class _TopicPageState extends State<TopicPage> {
   @override
   Widget build(BuildContext context) {
     return BasicLayout(
-      scrollView: scrollView(_scrollController, widget.topic),
+      scrollView: scrollView(_scrollController),
       sideMenu: SideMenu(),
       backToTop: () => backTop(),
     );
   }
 
-  Widget scrollView(scrollController, Topic topic) {
+  Widget scrollView(scrollController) {
     return Scrollbar(
       child: CustomScrollView(controller: scrollController, slivers: [
-        FloatingAppBar(title: topic.title),
+        FloatingAppBar(title: widget.topic.title),
         BasicSliverPadding(
             sliver: TopicItem(
           topicBloc: _topicBloc,
