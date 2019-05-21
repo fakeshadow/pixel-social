@@ -20,7 +20,13 @@ class UserNone extends UserState {}
 class UserLoggedOut extends UserState {
   final String username;
 
-  UserLoggedOut({@required this.username}):super([username]);
+  UserLoggedOut({@required this.username}) : super([username]);
+}
+
+class TopicSuccess extends UserState {
+  final String message;
+
+  TopicSuccess({@required this.message}) : super([message]);
 }
 
 class Failure extends UserState {

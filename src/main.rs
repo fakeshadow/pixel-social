@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
     let redis_url = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_string());
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_string());
     let server_port = env::var("SERVER_PORT").unwrap_or("8081".to_string());
-    let cors_origin = env::var("CORS_ORIGIN").unwrap_or("*".to_string());
+    let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_string());
 
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let postgres_pool = r2d2::Pool::builder()

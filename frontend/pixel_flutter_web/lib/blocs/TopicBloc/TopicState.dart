@@ -1,6 +1,5 @@
 import 'package:equatable/equatable.dart';
 import 'package:pixel_flutter_web/models/Topic.dart';
-import 'package:pixel_flutter_web/models/Post.dart';
 
 abstract class TopicState extends Equatable {
   TopicState([List props = const []]) : super(props);

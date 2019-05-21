@@ -10,7 +10,7 @@ import 'package:pixel_flutter_web/blocs/TopicsBlocs.dart';
 import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
 import 'package:pixel_flutter_web/components/BasicLayout.dart';
 import 'package:pixel_flutter_web/components/BasicSliverPadding.dart';
-import 'package:pixel_flutter_web/components/TopicsList.dart';
+import 'package:pixel_flutter_web/components/Lists/TopicsList.dart';
 import 'package:pixel_flutter_web/components/SideMenu.dart';
 
 import 'package:pixel_flutter_web/models/Category.dart';

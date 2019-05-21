@@ -10,8 +10,8 @@ import 'package:pixel_flutter_web/blocs/FloatingButtonBlocs.dart';
 import 'package:pixel_flutter_web/components/BasicSliverPadding.dart';
 import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
 import 'package:pixel_flutter_web/components/BasicLayout.dart';
-import 'package:pixel_flutter_web/components/TopicTile.dart';
-import 'package:pixel_flutter_web/components/PostsList.dart';
+import 'package:pixel_flutter_web/components/Lists/TopicTile.dart';
+import 'package:pixel_flutter_web/components/Lists/PostsList.dart';
 import 'package:pixel_flutter_web/components/SideMenu.dart';
 
 import 'package:pixel_flutter_web/models/Topic.dart';

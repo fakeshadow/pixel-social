@@ -7,7 +7,7 @@ import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/RegisterBlocs.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/components/GeneralBackground.dart';
-import 'package:pixel_flutter_web/components/AnimatedSubmitButton.dart';
+import 'package:pixel_flutter_web/components/SubmitButton/AuthSubmitButton.dart';
 import 'package:pixel_flutter_web/components/AuthenticationNavBar.dart';
 import 'package:pixel_flutter_web/style/text.dart';
 
@@ -103,8 +103,15 @@ class _AuthenticationPageState extends State<AuthenticationPage>
                       SizedBox(
                         height: 20,
                       ),
-                      SubmitAnimatedButton(
-                          state: state,
+                      AuthSubmitButton(
+                          width: 200,
+                          valid: state.isRegisterValid && _type == 'Register'
+                              ? true
+                              : state.isLoginValid && _type == 'Login'
+                                  ? true
+                                  : state.isRecoverValid && _type == 'Recover'
+                                      ? true
+                                      : false,
                           type: _type,
                           submit: () => _submit(state)),
                       _flatButtonChoice(_type, state)

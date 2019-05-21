@@ -9,7 +9,7 @@ import 'package:pixel_flutter_web/blocs/CategoryBlocs.dart';
 
 import 'package:pixel_flutter_web/components/BasicLayout.dart';
 import 'package:pixel_flutter_web/components/BasicSliverPadding.dart';
-import 'package:pixel_flutter_web/components/TopicsList.dart';
+import 'package:pixel_flutter_web/components/Lists/TopicsList.dart';
 import 'package:pixel_flutter_web/components/SideMenu.dart';
 import 'package:pixel_flutter_web/components/FloatingAppBar.dart';
 
@@ -86,12 +86,13 @@ class _HomePageState extends State<HomePage> {
               onWillPop: () => onWillPop(
                   title: 'Exiting input?', content: 'All input will be lost'),
               onCancelButtonPressed: () async {
-                if (await onWillPop(
+                final result = await onWillPop(
                     title: 'Exit posting?',
-                    content: 'All content will be lost')) {
-                  Navigator.pop(context);
+                    content: 'All content will be lost');
+                if (result == null || result == false) {
+                  return false;
                 } else {
-                  return;
+                  Navigator.pop(context);
                 }
               });
         });

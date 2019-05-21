@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter_web/widgets.dart';
 import 'package:meta/meta.dart';
 
 abstract class UserEvent extends Equatable {
@@ -8,9 +9,7 @@ abstract class UserEvent extends Equatable {
 class UserInit extends UserEvent {}
 
 class Registering extends UserEvent {
-  final String username;
-  final String password;
-  final String email;
+  final String username, password, email;
 
   Registering(
       {@required this.username, @required this.password, @required this.email})
@@ -18,8 +17,7 @@ class Registering extends UserEvent {
 }
 
 class LoggingIn extends UserEvent {
-  final String username;
-  final String password;
+  final String username, password;
 
   LoggingIn({@required this.username, @required this.password})
       : super([username, password]);
@@ -28,3 +26,15 @@ class LoggingIn extends UserEvent {
 class LoggingOut extends UserEvent {}
 
 class Delete extends UserEvent {}
+
+class AddTopic extends UserEvent {
+  final String thumbnail, title, body;
+  final int categoryId;
+
+  AddTopic(
+      {this.thumbnail,
+      @required this.body,
+      @required this.title,
+      @required this.categoryId})
+      : super([title, body, categoryId, thumbnail]);
+}

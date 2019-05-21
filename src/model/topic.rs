@@ -88,7 +88,8 @@ impl TopicRequest {
             id,
             user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
             category_id: self.extract_category_id()?,
-            thumbnail: self.thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            thumbnail: self.thumbnail.as_ref().map(String::as_str).unwrap_or(""),
+//            thumbnail: self.thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
             title: self.title.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
             body: self.body.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
         })

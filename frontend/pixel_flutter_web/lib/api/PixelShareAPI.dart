@@ -51,8 +51,6 @@ class PixelShareAPI extends env {
   }
 
   Future<List<Topic>> getTopics(int categoryId, int page) async {
-    print('getting topics');
-
     final response = await _http.get(url + 'categories/$categoryId/$page',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
@@ -71,7 +69,6 @@ class PixelShareAPI extends env {
   }
 
   Future<TopicWithPost> getTopic(int topicId, int page) async {
-    print('getting topic');
     final response = await _http.get(url + 'topic/$topicId/$page',
         headers: {"Content-Type": "application/json"});
 
@@ -103,5 +100,22 @@ class PixelShareAPI extends env {
     }).toList();
 
     return TopicWithPost(topic: topic, posts: posts);
+  }
+
+  // ToDo: add error handling
+  Future<String> addTopic(Topic topic, String jwt) async {
+    final response = await _http.post(url + 'topic/',
+        headers: {
+          "Content-Type": "application/json",
+          "AUTHORIZATION": "Bearer " + jwt
+        },
+        body: json.encode({
+          'title': topic.title,
+          'body': topic.body,
+          'thumbnail': topic.thumbnail,
+          'category_id': topic.categoryId
+        }));
+    final data = json.decode(response.body);
+    return data['message'];
   }
 }

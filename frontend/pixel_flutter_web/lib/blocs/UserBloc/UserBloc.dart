@@ -4,6 +4,10 @@ import 'package:bloc/bloc.dart';
 import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 import 'package:pixel_flutter_web/blocs/Repo/UserRepo.dart';
 
+import 'package:pixel_flutter_web/models/Topic.dart';
+
+/// User bloc handles auth and other outgoing traffics.
+
 class UserBloc extends Bloc<UserEvent, UserState> {
   final userRepo = UserRepo();
 
@@ -66,6 +70,24 @@ class UserBloc extends Bloc<UserEvent, UserState> {
     if (event is Delete) {
       yield Loading();
       await userRepo.deleteUser();
+    }
+
+    if (event is AddTopic) {
+      yield Loading();
+      try {
+        final token = await userRepo.getLocal(key: 'token');
+        print(token);
+        final message = await userRepo.addTopic(
+            Topic(
+                title: event.title,
+                body: event.body,
+                categoryId: event.categoryId,
+                thumbnail: event.thumbnail),
+            token);
+        yield TopicSuccess(message: message);
+      } catch (e) {
+        yield Failure(error: e.toString());
+      }
     }
   }
 }

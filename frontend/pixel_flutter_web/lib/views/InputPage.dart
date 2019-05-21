@@ -5,8 +5,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter_web/env.dart';
 
 import 'package:pixel_flutter_web/blocs/TopicInputBlocs.dart';
+import 'package:pixel_flutter_web/blocs/UserBlocs.dart';
 
-import 'package:pixel_flutter_web/style/colors.dart';
+import 'package:pixel_flutter_web/components/SubmitButton/TopicSubmitButton.dart';
 import 'package:pixel_flutter_web/style/text.dart';
 
 class InputPage extends StatefulWidget with env {
@@ -50,7 +51,11 @@ class _InputPageState extends State<InputPage> {
   }
 
   void _submit() {
-    print(titleController.text);
+    BlocProvider.of<UserBloc>(context).dispatch(AddTopic(
+        title: titleController.text,
+        body: bodyController.text,
+        categoryId: 1,
+        thumbnail: ""));
   }
 
   @override
@@ -59,11 +64,16 @@ class _InputPageState extends State<InputPage> {
         bloc: _topicInputBloc,
         builder: (context, TopicInputState state) {
           return WillPopScope(
-              onWillPop: () {
+              onWillPop: () async {
                 if (state.title.isEmpty && state.body.isEmpty) {
-                  Navigator.pop(context);
+                  return Future.value(true);
                 } else {
-                  return widget.onWillPop();
+                  final result = await widget.onWillPop();
+                  if (result != null) {
+                    return result;
+                  } else {
+                    return Future.value(false);
+                  }
                 }
               },
               child: AlertDialog(
@@ -81,19 +91,23 @@ class _InputPageState extends State<InputPage> {
                 ),
                 actions: <Widget>[
                   FlatButton(
-                    onPressed: widget.onCancelButtonPressed,
+                    onPressed: () {
+                      if (state.title.isEmpty && state.body.isEmpty) {
+                        return Navigator.pop(context);
+                      } else {
+                        return widget.onCancelButtonPressed();
+                      }
+                    },
                     child: Text(
                       'Cancel',
                       style: recoverButtonStyle,
                     ),
                   ),
-                  RaisedButton(
-                    color: primaryColor,
-                    onPressed: () => _submit(),
-                    child: Text(
-                      'Submit',
-                      style: submitButtonStyle.copyWith(fontSize: 16),
-                    ),
+                  TopicSubmitButton(
+                    width: 100,
+                    type: 'Submit',
+                    valid: state.isTopicValid,
+                    submit: () => _submit(),
                   )
                 ],
               ));
