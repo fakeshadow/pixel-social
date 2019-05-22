@@ -1,4 +1,5 @@
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
+use actix_http::{http::header, Response};
 use derive_more::Display;
 
 #[derive(Debug, Display)]
@@ -61,6 +62,14 @@ impl ResponseError for ServiceError {
             ServiceError::CacheOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
+    }
+    fn render_response(&self) -> Response {
+        let mut resp = self.error_response();
+        resp.headers_mut().insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+        resp
     }
 }
 
