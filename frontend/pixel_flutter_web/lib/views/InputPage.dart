@@ -5,7 +5,6 @@ import 'package:pixel_flutter_web/blocs/UpdateBlocs.dart';
 
 import 'package:pixel_flutter_web/env.dart';
 
-import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
 import 'package:pixel_flutter_web/blocs/TopicInputBlocs.dart';
 
 import 'package:pixel_flutter_web/components/SubmitButton/UpdateSubmitButton.dart';
@@ -104,7 +103,17 @@ class _InputPageState extends State<InputPage> {
                         : widget.BREAK_POINT_WIDTH_SM,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[titleInput(state), bodyInput(state)],
+                      children: <Widget>[
+                        Container(
+                          child: InkWell(
+                            onTap: () {
+                            },
+                            child: Text('upload file'),
+                          ),
+                        ),
+                        titleInput(state),
+                        bodyInput(state)
+                      ],
                     ),
                   ),
                   actions: <Widget>[

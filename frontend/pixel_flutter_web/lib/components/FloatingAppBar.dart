@@ -3,8 +3,9 @@ import 'package:flutter_web/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter_web/blocs/ErrorBlocs.dart';
-import 'package:pixel_flutter_web/components/NewTopicButton.dart';
-import 'package:pixel_flutter_web/components/UserButton.dart';
+import 'package:pixel_flutter_web/components/AppBarActionButton/MessageButton.dart';
+import 'package:pixel_flutter_web/components/AppBarActionButton/NewTopicButton.dart';
+import 'package:pixel_flutter_web/components/AppBarActionButton/UserButton.dart';
 
 class FloatingAppBar extends StatelessWidget {
   final String title;
@@ -27,6 +28,7 @@ class FloatingAppBar extends StatelessWidget {
       ),
       actions: <Widget>[
         NewTopicButton(onPressed: onNewTopicButtonPressed),
+        MessageButton(),
         UserButton()
       ],
     );

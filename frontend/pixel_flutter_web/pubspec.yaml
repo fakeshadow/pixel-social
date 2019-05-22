@@ -7,6 +7,7 @@ dependencies:
   rxdart: ^0.22.0
   http: ^0.12.0+2
   equatable: ^0.2.3
+  timeago: ^2.0.16
   flutter_bloc:
     git:
       url: https://github.com/felangel/bloc
