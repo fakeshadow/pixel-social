@@ -26,9 +26,9 @@ mod router;
 mod schema;
 mod util;
 
+use crate::model::talk::ChatServer;
 use crate::handler::{cache::clear_cache, email::mail_service};
 use crate::util::startup::{build_cache, init_global_var};
-
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -57,11 +57,15 @@ fn main() -> std::io::Result<()> {
 
 //    mail_service(&redis_pool);
 
+    let sys = System::new("PixelShare");
+    let talk_service = ChatServer::default().start();
+
     HttpServer::new(move || {
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
             .data(global_arc.clone())
+            .data(talk_service.clone())
             .wrap(Logger::default())
             .wrap(Cors::new()
                 .allowed_origin(&cors_origin)
@@ -99,6 +103,8 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/hello").route(web::get().to(router::test::test_hello_world))))
             .service(web::scope("/upload")
                 .service(web::resource("/").route(web::post().to_async(router::stream::upload_file))))
+            .service(web::resource("/talk/").to(router::stream::talk))
             .service(fs::Files::new("/public", "./public"))
-    }).bind(format!("{}:{}", &server_ip, &server_port))?.run()
+    }).bind(format!("{}:{}", &server_ip, &server_port))?.start();
+    sys.run()
 }

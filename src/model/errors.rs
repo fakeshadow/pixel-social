@@ -1,6 +1,8 @@
-use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
-use actix_http::{http::header, Response};
 use derive_more::Display;
+use actix_http::Response;
+use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
+
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -64,12 +66,7 @@ impl ResponseError for ServiceError {
         }
     }
     fn render_response(&self) -> Response {
-        let mut resp = self.error_response();
-        resp.headers_mut().insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
-        resp
+        self.error_response()
     }
 }
 
@@ -94,8 +91,6 @@ impl From<RedisError> for ServiceError {
         }
     }
 }
-
-use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
 impl From<DieselError> for ServiceError {
     fn from(e: DieselError) -> ServiceError {
@@ -138,7 +133,7 @@ impl From<ParseNavDateError> for ServiceError {
 }
 
 #[derive(Serialize, Debug)]
-struct DatabaseErrorMessage {
+pub struct DatabaseErrorMessage {
     message: String,
     details: Option<String>,
     hint: Option<String>,

@@ -21,7 +21,6 @@ pub enum UserQuery {
 }
 
 type QueryResult = Result<User, ServiceError>;
-type QueryResultMulti = Result<Vec<User>, ServiceError>;
 
 impl UserQuery {
     pub fn into_user(self, db: Data<PostgresPool>, opt: Option<Data<GlobalGuard>>) -> impl Future<Item=User, Error=ServiceError> {

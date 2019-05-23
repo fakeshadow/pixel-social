@@ -10,6 +10,7 @@ actix-http = "0.2.0"
 actix-web = "1.0.0-rc"
 actix-files = "0.1.0-beta.4"
 actix-multipart = "0.1.0"
+actix-web-actors = "1.0.0-beta.4"
 bcrypt = "0.2.1"
 chrono = { version = "0.4.6", features = ["serde"] }
 diesel = { version = "1.4.2", features = ["postgres", "r2d2", "chrono"] }
