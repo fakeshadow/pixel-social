@@ -1,6 +1,6 @@
 use futures::Future;
 
-use actix_web::web::{Data, block};
+use actix_web::web::block;
 use diesel::prelude::*;
 use chrono::NaiveDateTime;
 
@@ -29,9 +29,8 @@ impl TopicQuery {
             _ => panic!("Only getting topic query can use into_topic_with_post method")
         }).from_err()
     }
-    pub fn into_topic_with_category(self, pool: &PostgresPool, opt: Option<Data<GlobalGuard>>)
+    pub fn into_topic_with_category(self, pool: PostgresPool, opt: Option<GlobalGuard>)
                                     -> impl Future<Item=(Category, Topic), Error=ServiceError> {
-        let pool = pool.clone();
         block(move || match self {
             TopicQuery::AddTopic(req) => add_topic(&req, &pool.get()?, opt),
             _ => panic!("Only modify topic query can use into_topic method")
@@ -57,7 +56,7 @@ fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres)
     Ok((topic, posts))
 }
 
-fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>)
+fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<GlobalGuard>)
              -> Result<(Category, Topic), ServiceError> {
     // ToDo: Test if category_id can be null or out of range
     let category = update_category_topic_count(req.extract_category_id()?, conn)?;

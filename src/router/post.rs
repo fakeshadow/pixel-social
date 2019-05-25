@@ -20,7 +20,7 @@ pub fn add_post(
     req.into_inner()
         .attach_user_id_into(Some(jwt.user_id))
         .into_add_query()
-        .into_add_post(&db, Some(global))
+        .into_add_post(db.get_ref().clone(), Some(global.get_ref().clone()))
         .from_err()
         .and_then(move |(c, t, p, p_new)|
             UpdateCacheAsync::AddedPost(c, t, p, p_new)
@@ -37,7 +37,7 @@ pub fn update_post(
     req.into_inner()
         .attach_user_id_into(Some(jwt.user_id))
         .into_update_query()
-        .into_post(&db)
+        .into_post(db.get_ref().clone())
         .from_err()
         .and_then(move |p|
             UpdateCacheAsync::GotPost(p)
@@ -55,13 +55,13 @@ pub fn get_post(
         .into_post(&cache)
         .then(move |r| match r {
             Ok(p) => Either::A(
-                get_unique_users_cache(&p, None, &cache)
+                get_unique_users_cache(&p, None, cache.get_ref().clone())
                     .from_err()
                     .and_then(move |u|
                         HttpResponse::Ok().json(&p.first().unwrap().attach_user(&u)))),
             Err(_) => Either::B(
                 id.to_query()
-                    .into_post(&db)
+                    .into_post(db.get_ref().clone())
                     .from_err()
                     .and_then(move |p| {
                         let mut p = vec![p];

@@ -44,10 +44,10 @@ pub fn get_category(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{category::PathToQuery, cache::PathToTopicsQuery};
     req.to_query_cache()
-        .into_topics(&cache)
+        .into_topics(cache.get_ref().clone())
         .then(move |r| match r {
             Ok(t) => Either::A(
-                get_unique_users_cache(&t, None, &cache)
+                get_unique_users_cache(&t, None, cache.get_ref().clone())
                     .from_err()
                     .and_then(move |u|
                         HttpResponse::Ok().json(&t

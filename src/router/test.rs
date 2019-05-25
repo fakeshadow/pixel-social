@@ -20,7 +20,7 @@ pub fn test_global_var(
         title: Some("test title".to_string()),
         body: Some("test body".to_string()),
         is_locked: None,
-    }).into_topic_with_category(&db, Some(global))
+    }).into_topic_with_category(db.get_ref().clone(), Some(global.get_ref().clone()))
         .from_err()
         .and_then(move |(c, t)|
             UpdateCacheAsync::AddedTopic(c, t)

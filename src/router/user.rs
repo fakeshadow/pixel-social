@@ -15,7 +15,7 @@ pub fn get_user(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     use crate::model::{user::IdToQuery, cache::IdToUserQuery};
     id.to_query_cache()
-        .into_user(&cache)
+        .into_user(cache.get_ref())
         .then(move |res| match res {
             Ok(u) => Either::A(if u.id == jwt.user_id {
                 ft_ok(HttpResponse::Ok().json(u))
@@ -24,7 +24,7 @@ pub fn get_user(
             }),
             Err(_) => Either::B(
                 id.to_query()
-                    .into_user(db, None)
+                    .into_user(db.get_ref().clone(), None)
                     .from_err()
                     .and_then(move |u| {
                         let res = if u.id == jwt.user_id {
@@ -32,7 +32,7 @@ pub fn get_user(
                         } else {
                             HttpResponse::Ok().json(u.to_ref())
                         };
-                        UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
+                        UpdateCacheAsync::GotUser(u).handler(cache.get_ref()).then(|_| res)
                     })
             )
         })
@@ -46,7 +46,7 @@ pub fn register_user(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_register_query()
-        .into_user(db, Some(global))
+        .into_user(db.get_ref().clone(), Some(global.get_ref().clone()))
         .from_err()
         .and_then(move |u| UpdateCacheAsync::GotUser(u)
             .handler(&cache)
@@ -62,7 +62,7 @@ pub fn update_user(
     req.into_inner()
         .attach_id_into(Some(jwt.user_id))
         .into_update_query()
-        .into_user(db, None)
+        .into_user(db.get_ref().clone(), None)
         .from_err()
         .and_then(move |u| {
             let res = HttpResponse::Ok().json(u.to_ref());
@@ -76,7 +76,7 @@ pub fn login_user(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     req.into_inner()
         .into_login_query()
-        .into_jwt_user(db)
+        .into_jwt_user(db.get_ref().clone())
         .from_err()
         .and_then(|u| HttpResponse::Ok().json(&u))
 }

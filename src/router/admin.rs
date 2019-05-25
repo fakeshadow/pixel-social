@@ -85,7 +85,7 @@ pub fn admin_update_user(
         .and_then(move |_| req
             .into_inner()
             .into_update_query()
-            .into_user(db, None))
+            .into_user(db.get_ref().clone(), None))
         .from_err()
         .and_then(move |u| {
             let res = HttpResponse::Ok().json(u.to_ref());
@@ -129,7 +129,7 @@ pub fn admin_update_post(
         .and_then(move |_| req
             .into_inner()
             .into_update_query()
-            .into_post(&db))
+            .into_post(db.get_ref().clone()))
         .from_err()
         .and_then(move |p| {
             let res = HttpResponse::Ok().json(&p);

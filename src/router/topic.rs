@@ -17,7 +17,7 @@ pub fn add_topic(
     req.into_inner()
         .attach_user_id_into(Some(jwt.user_id))
         .into_add_query()
-        .into_topic_with_category(&db, Some(global))
+        .into_topic_with_category(db.get_ref().clone(), Some(global.get_ref().clone()))
         .from_err()
         .and_then(move |(c, t)| {
             let res = HttpResponse::Ok().json(&t);
@@ -51,10 +51,10 @@ pub fn get_topic(
     use crate::handler::{user::get_unique_users, cache::get_unique_users_cache};
 
     path.to_query_cache()
-        .into_topic_with_post(&cache)
+        .into_topic_with_post(cache.get_ref().clone())
         .then(move |res| match res {
             Ok((t, p)) => Either::A(
-                get_unique_users_cache(&p, t.as_ref().map(|t| t.user_id), &cache)
+                get_unique_users_cache(&p, t.as_ref().map(|t| t.user_id), cache.get_ref().clone())
                     .from_err()
                     .and_then(move |u|
                         HttpResponse::Ok().json(&TopicWithPost::new(t.as_ref(), &p, &u)))),

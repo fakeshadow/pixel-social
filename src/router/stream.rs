@@ -1,14 +1,16 @@
 use std::time::{Duration, Instant};
-
 use futures::{Future, stream::Stream};
 
 use actix::prelude::*;
-use actix_web::{web::{Payload,Data}, error, Error, HttpResponse, HttpRequest};
+use actix_web::{web::{Payload, Data}, error, Error, HttpResponse, HttpRequest};
 use actix_multipart::Multipart;
 use actix_web_actors::ws;
 
+use crate::model::{
+    common::{RedisPool, PostgresPool},
+    talk,
+};
 use crate::handler::{auth::UserJwt, stream::save_file};
-use crate::model::talk;
 
 pub fn upload_file(
     _: UserJwt,
@@ -28,7 +30,13 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn talk(req: HttpRequest, stream: Payload, srv: Data<Addr<talk::ChatServer>>) -> Result<HttpResponse, Error> {
+pub fn talk(
+    req: HttpRequest,
+    stream: Payload,
+    db: Data<PostgresPool>,
+    cache: Data<RedisPool>,
+    srv: Data<Addr<talk::ChatServer>>,
+) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
             id: 0,
@@ -76,7 +84,7 @@ impl Actor for WsChatSession {
                 addr: addr.recipient(),
             })
             .into_actor(self)
-            .then(|res,mut act, ctx| {
+            .then(|res, mut act, ctx| {
                 match res {
                     Ok(res) => act.id = res,
                     // something is wrong with chat server

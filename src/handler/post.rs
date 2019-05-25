@@ -1,6 +1,6 @@
 use futures::Future;
 
-use actix_web::{HttpResponse, web::{Data, block}};
+use actix_web::{HttpResponse, web::block};
 use diesel::prelude::*;
 use chrono::Utc;
 
@@ -20,17 +20,15 @@ use crate::schema::posts;
 const LIMIT: i64 = 20;
 
 impl PostQuery {
-    pub fn into_post(self, pool: &PostgresPool) -> impl Future<Item=Post, Error=ServiceError> {
-        let pool = pool.clone();
+    pub fn into_post(self, pool: PostgresPool) -> impl Future<Item=Post, Error=ServiceError> {
         block(move || match self {
             PostQuery::GetPost(id) => get_post(&id, &pool.get()?),
             PostQuery::UpdatePost(req) => update_post(&req, &pool.get()?),
             _ => panic!("method not allowed")
         }).from_err()
     }
-    pub fn into_add_post(self, pool: &PostgresPool, opt: Option<Data<GlobalGuard>>)
+    pub fn into_add_post(self, pool: PostgresPool, opt: Option<GlobalGuard>)
                          -> impl Future<Item=(Category, Topic, Option<Post>, Post), Error=ServiceError> {
-        let pool = pool.clone();
         block(move || match self {
             PostQuery::AddPost(mut req) => add_post(&mut req, &pool.get()?, opt),
             _ => panic!("method not allowed")
@@ -59,7 +57,7 @@ fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> Result<Post,
 fn add_post(
     req: &mut PostRequest,
     conn: &PoolConnectionPostgres,
-    global: Option<Data<GlobalGuard>>,
+    global: Option<GlobalGuard>,
 ) -> Result<(Category, Topic, Option<Post>, Post), ServiceError> {
     let topic_id = req.extract_topic_id()?;
 

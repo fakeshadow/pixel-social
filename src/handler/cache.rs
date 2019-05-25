@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use futures::Future;
 
-use actix_web::{HttpResponse, web::{Data, block}};
+use actix_web::{HttpResponse, web::block};
 use lazy_static::__Deref;
 use r2d2_redis::{redis, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
 
@@ -29,16 +29,14 @@ impl CacheQuery {
         }).from_err()
     }
 
-    pub fn into_topics(self, pool: &RedisPool) -> impl Future<Item=Vec<Topic>, Error=ServiceError> {
-        let pool = pool.clone();
+    pub fn into_topics(self, pool: RedisPool) -> impl Future<Item=Vec<Topic>, Error=ServiceError> {
         block(move || match self {
             CacheQuery::GetTopics(ids, page) => get_topics(&ids, &page, &pool.get()?),
             _ => panic!("method not allowed")
         }).from_err()
     }
 
-    pub fn into_topic_with_post(self, pool: &RedisPool) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
-        let pool = pool.clone();
+    pub fn into_topic_with_post(self, pool: RedisPool) -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
         block(move || match self {
             CacheQuery::GetTopic(id, page) => get_topic(id, page, &pool.get()?),
             _ => panic!("method not allowed")
@@ -112,11 +110,10 @@ fn get_post(id: u32, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceErr
     from_hash_set::<Post>(&vec![id], "post", conn)
 }
 
-pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: &RedisPool)
+pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: RedisPool)
                                  -> impl Future<Item=Vec<User>, Error=ServiceError>
     where T: GetUserId {
     let ids = get_unique_id(vec, opt);
-    let pool = pool.clone();
     block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get()?)?)).from_err()
 }
 

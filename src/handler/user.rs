@@ -1,6 +1,6 @@
 use futures::Future;
 
-use actix_web::web::{Data, block};
+use actix_web::web::block;
 use diesel::prelude::*;
 
 use crate::model::{
@@ -23,7 +23,7 @@ pub enum UserQuery {
 type QueryResult = Result<User, ServiceError>;
 
 impl UserQuery {
-    pub fn into_user(self, db: Data<PostgresPool>, opt: Option<Data<GlobalGuard>>) -> impl Future<Item=User, Error=ServiceError> {
+    pub fn into_user(self, db: PostgresPool, opt: Option<GlobalGuard>) -> impl Future<Item=User, Error=ServiceError> {
         block(move || match self {
             UserQuery::GetUser(id) => get_user(&id, &db.get()?),
             UserQuery::Register(req) => register_user(&req, &db.get()?, opt),
@@ -32,7 +32,7 @@ impl UserQuery {
             _ => panic!("only single object query can use into_user method")
         }).from_err()
     }
-    pub fn into_jwt_user(self, db: Data<PostgresPool>) -> impl Future<Item=AuthResponse, Error=ServiceError> {
+    pub fn into_jwt_user(self, db: PostgresPool) -> impl Future<Item=AuthResponse, Error=ServiceError> {
         block(move || match self {
             UserQuery::Login(req) => login_user(&req, &db.get()?),
             _ => panic!("only login query can use into_login method")
@@ -60,7 +60,7 @@ fn login_user(req: &AuthRequest, conn: &PoolConnectionPostgres) -> Result<AuthRe
     Ok(AuthResponse { token, user })
 }
 
-fn register_user(req: &AuthRequest, conn: &PoolConnectionPostgres, global: Option<Data<GlobalGuard>>) -> QueryResult {
+fn register_user(req: &AuthRequest, conn: &PoolConnectionPostgres, global: Option<GlobalGuard>) -> QueryResult {
     match users::table
         .select((users::username, users::email))
         .filter(users::username.eq(&req.username))
