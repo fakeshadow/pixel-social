@@ -17,7 +17,6 @@ use crate::model::{
 };
 
 const LIMIT: isize = 20;
-const LIMIT_U: usize = 20;
 const MAIL_LIFE: usize = 2592000;
 
 impl CacheQuery {
@@ -66,21 +65,14 @@ fn get_user(id: u32, conn: &PoolConnectionRedis) -> Result<User, ServiceError> {
 }
 
 fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceError> {
-    // ToDo: need further look into the logic
     let mut categories_total = get_meta::<u32>("category_id", &conn)?;
     let total = categories_total.len();
 
     let mut categories_hash_vec = Vec::with_capacity(total);
-    while categories_total.len() > LIMIT_U {
-        let index = categories_total.len() - LIMIT_U;
-        let slice = categories_total.drain(index..).collect();
-        for t in get_hash_set(&slice, "category", &conn)?.into_iter() {
-            if !t.is_empty() { categories_hash_vec.push(t) }
-        }
-    }
     for t in get_hash_set(&categories_total, "category", &conn)?.into_iter() {
         if !t.is_empty() { categories_hash_vec.push(t) }
     }
+
     if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
     categories_hash_vec.iter().map(|hash| hash.parse()).collect()
 }
@@ -126,56 +118,14 @@ fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Re
     vec.iter().map(|hash| hash.parse::<T>()).collect()
 }
 
-// ToDo: make a more compat macro to handle pipeline
 fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<HashMap<String, String>>, ServiceError> {
-    macro_rules! pipeline {
-        ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hgetall (format!("{}:{}:set", $ y, $ x)))*);
+    let mut pipe = redis::pipe();
+    let pipe = pipe.atomic();
+
+    for id in ids {
+        pipe.hgetall(format!("{}:{}:set", key, id));
     }
-    if ids.len() == 1 {
-        Ok(pipeline![key; ids[0]].query(conn.deref())?)
-    } else if ids.len() == 2 {
-        Ok(pipeline![key; ids[0], ids[1]].query(conn.deref())?)
-    } else if ids.len() == 3 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2]).query(conn.deref())?)
-    } else if ids.len() == 4 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3]).query(conn.deref())?)
-    } else if ids.len() == 5 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4]).query(conn.deref())?)
-    } else if ids.len() == 6 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5]).query(conn.deref())?)
-    } else if ids.len() == 7 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6]).query(conn.deref())?)
-    } else if ids.len() == 8 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7]).query(conn.deref())?)
-    } else if ids.len() == 9 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8]).query(conn.deref())?)
-    } else if ids.len() == 10 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9]).query(conn.deref())?)
-    } else if ids.len() == 11 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10]).query(conn.deref())?)
-    } else if ids.len() == 12 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11]).query(conn.deref())?)
-    } else if ids.len() == 13 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12]).query(conn.deref())?)
-    } else if ids.len() == 14 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13]).query(conn.deref())?)
-    } else if ids.len() == 15 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14]).query(conn.deref())?)
-    } else if ids.len() == 16 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15]).query(conn.deref())?)
-    } else if ids.len() == 17 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16]).query(conn.deref())?)
-    } else if ids.len() == 18 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17]).query(conn.deref())?)
-    } else if ids.len() == 19 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18]).query(conn.deref())?)
-    } else if ids.len() == 20 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18],ids[19]).query(conn.deref())?)
-    } else if ids.len() == 21 {
-        Ok(pipeline!(key; ids[0], ids[1], ids[2], ids[3], ids[4],ids[5], ids[6], ids[7], ids[8], ids[9],ids[10],ids[11], ids[12], ids[13],ids[14],ids[15], ids[16],ids[17],ids[18],ids[19],ids[20]).query(conn.deref())?)
-    } else {
-        Err(ServiceError::NoCacheFound)
-    }
+    Ok(pipe.query(conn.deref())?)
 }
 
 pub enum UpdateCacheAsync {
@@ -261,52 +211,15 @@ fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: Poo
 
 fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
     where T: GetSelfId + SortHash {
-    macro_rules! pipeline {
-        ( $ y: expr; $( $ x: expr),*) =>(redis::pipe().atomic() $ (.hset_multiple(&format!("{}:{}:set", $ y, $ x.get_self_id()), &$x.sort_hash()))*);
+
+    let mut pipe = redis::pipe();
+    let pipe = pipe.atomic();
+
+    for v in vec {
+        pipe.hset_multiple(&format!("{}:{}:set",key, v.get_self_id()), &v.sort_hash());
     }
-    if vec.len() == 1 {
-        Ok(pipeline![key; vec[0]].query(conn.deref())?)
-    } else if vec.len() == 2 {
-        Ok(pipeline![key; vec[0], vec[1]].query(conn.deref())?)
-    } else if vec.len() == 3 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2]).query(conn.deref())?)
-    } else if vec.len() == 4 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3]).query(conn.deref())?)
-    } else if vec.len() == 5 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4]).query(conn.deref())?)
-    } else if vec.len() == 6 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5]).query(conn.deref())?)
-    } else if vec.len() == 7 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6]).query(conn.deref())?)
-    } else if vec.len() == 8 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7]).query(conn.deref())?)
-    } else if vec.len() == 9 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8]).query(conn.deref())?)
-    } else if vec.len() == 10 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9]).query(conn.deref())?)
-    } else if vec.len() == 11 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10]).query(conn.deref())?)
-    } else if vec.len() == 12 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11]).query(conn.deref())?)
-    } else if vec.len() == 13 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12]).query(conn.deref())?)
-    } else if vec.len() == 14 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13]).query(conn.deref())?)
-    } else if vec.len() == 15 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14]).query(conn.deref())?)
-    } else if vec.len() == 16 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15]).query(conn.deref())?)
-    } else if vec.len() == 17 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16]).query(conn.deref())?)
-    } else if vec.len() == 18 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17]).query(conn.deref())?)
-    } else if vec.len() == 19 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17], vec[18]).query(conn.deref())?)
-    } else if vec.len() == 20 {
-        Ok(pipeline!(key; vec[0], vec[1], vec[2], vec[3], vec[4], vec[5], vec[6], vec[7], vec[8], vec[9], vec[10], vec[11], vec[12], vec[13], vec[14], vec[15], vec[16], vec[17], vec[18], vec[19]).query(conn.deref())?)
-    } else {
-        Err(ServiceError::NoCacheFound)
-    }
+
+    Ok(pipe.query(conn.deref())?)
 }
 
 /// Category meta store all active category ids.
