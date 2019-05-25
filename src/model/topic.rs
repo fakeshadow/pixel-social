@@ -77,21 +77,21 @@ impl TopicRequest {
 
 
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
+        Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
     pub fn extract_category_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.category_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
+        Ok(self.category_id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
 
     pub fn make_topic<'a>(&'a self, id: &'a u32) -> Result<NewTopic<'a>, ServiceError> {
         Ok(NewTopic {
             id,
-            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequest)?,
             category_id: self.extract_category_id()?,
             thumbnail: self.thumbnail.as_ref().map(String::as_str).unwrap_or(""),
 //            thumbnail: self.thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
-            title: self.title.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
-            body: self.body.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            title: self.title.as_ref().ok_or(ServiceError::BadRequest)?,
+            body: self.body.as_ref().ok_or(ServiceError::BadRequest)?,
         })
     }
     pub fn make_update(&self) -> Result<UpdateTopic, ServiceError> {

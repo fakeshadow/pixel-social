@@ -98,7 +98,7 @@ pub trait Parser {
 
 impl Parser for HashMap<String, String> {
     fn skip(&self) -> Result<(), ServiceError> {
-        if self.is_empty() { Err(ServiceError::NoCacheFound) } else { Ok(()) }
+        if self.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
     }
     fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
         Ok(self.get(key).ok_or(ServiceError::InternalServerError)?.to_string())

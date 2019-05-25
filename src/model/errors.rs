@@ -3,17 +3,14 @@ use actix_http::Response;
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
-
 #[derive(Debug, Display)]
 pub enum ServiceError {
     #[display(fmt = "Internal Server Error")]
     InternalServerError,
-    #[display(fmt = "BadRequest: {}", _0)]
-    BadRequest(String),
     #[display(fmt = "BadRequest")]
     BadRequestDb(DatabaseErrorMessage),
     #[display(fmt = "BadRequest")]
-    BadRequestGeneral,
+    BadRequest,
     #[display(fmt = "BadRequest")]
     UsernameTaken,
     #[display(fmt = "BadRequest")]
@@ -24,22 +21,16 @@ pub enum ServiceError {
     InvalidPassword,
     #[display(fmt = "BadRequest")]
     InvalidEmail,
-    #[display(fmt = "BadRequest")]
-    NotFound,
+//    #[display(fmt = "BadRequest")]
+//    NotFound,
     #[display(fmt = "RedisError: {}", _0)]
     RedisError(String),
-    #[display(fmt = "RedisError")]
-    RedisErrorGeneral,
     #[display(fmt = "Forbidden")]
     WrongPwd,
     #[display(fmt = "Forbidden")]
     Unauthorized,
     #[display(fmt = "Forbidden")]
     AuthTimeout,
-    #[display(fmt = "Forbidden")]
-    NoCacheFound,
-    #[display(fmt = "Internal Server Error")]
-    CacheOffline,
     #[display(fmt = "MailError")]
     MailServiceError,
 }
@@ -48,20 +39,18 @@ impl ResponseError for ServiceError {
     fn error_response(&self) -> HttpResponse {
         match self {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
-            ServiceError::BadRequestGeneral => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
-            ServiceError::BadRequest(message) => HttpResponse::BadRequest().json(ErrorMessage::new(message)),
+            ServiceError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
             ServiceError::InvalidPassword => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password")),
             ServiceError::InvalidEmail => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Email")),
             ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
-            ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
+//            ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::NoCacheFound => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache not found")),
-            ServiceError::CacheOffline => HttpResponse::InternalServerError().json(ErrorMessage::new("Cache service is offline")),
+            ServiceError::RedisError(e) => HttpResponse::InternalServerError().json(ErrorMessage::new(e)),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
@@ -87,7 +76,7 @@ impl From<RedisError> for ServiceError {
         match err.kind() {
             RedisErrorKind::ResponseError => ServiceError::RedisError(err.to_string()),
             RedisErrorKind::IoError => ServiceError::RedisError(err.to_string()),
-            _ => ServiceError::RedisErrorGeneral
+            _ => ServiceError::InternalServerError
         }
     }
 }

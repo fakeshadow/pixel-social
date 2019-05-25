@@ -75,20 +75,20 @@ impl PostRequest {
     pub fn into_update_query(self) -> PostQuery { PostQuery::UpdatePost(self) }
 
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
+        Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
 
     pub fn extract_topic_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.topic_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?)
+        Ok(self.topic_id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
 
     pub fn make_post<'a>(&'a self, id: &'a u32, time: &'a NaiveDateTime) -> Result<NewPost<'a>, ServiceError> {
         Ok(NewPost {
             id,
-            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequest)?,
             topic_id: self.extract_topic_id()?,
             post_id: self.post_id.as_ref(),
-            post_content: self.post_content.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            post_content: self.post_content.as_ref().ok_or(ServiceError::BadRequest)?,
             created_at: time,
             updated_at: time,
             last_reply_time: time,

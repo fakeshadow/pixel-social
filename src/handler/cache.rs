@@ -60,21 +60,13 @@ impl CacheQuery {
 }
 
 fn get_user(id: u32, conn: &PoolConnectionRedis) -> Result<User, ServiceError> {
-    let hash = get_hash_set(&vec![id], "user", conn)?.pop().ok_or(ServiceError::NoCacheFound)?;
+    let hash = get_hash_set(&vec![id], "user", conn)?.pop().ok_or(ServiceError::InternalServerError)?;
     hash.parse::<User>()
 }
 
 fn get_categories(conn: &PoolConnectionRedis) -> Result<Vec<Category>, ServiceError> {
-    let mut categories_total = get_meta::<u32>("category_id", &conn)?;
-    let total = categories_total.len();
-
-    let mut categories_hash_vec = Vec::with_capacity(total);
-    for t in get_hash_set(&categories_total, "category", &conn)?.into_iter() {
-        if !t.is_empty() { categories_hash_vec.push(t) }
-    }
-
-    if categories_hash_vec.len() != total { return Err(ServiceError::NoCacheFound); }
-    categories_hash_vec.iter().map(|hash| hash.parse()).collect()
+    let  ids = get_meta::<u32>("category_id", &conn)?;
+    from_hash_set::<Category>(&ids,"category", &conn)
 }
 
 fn get_topics(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionRedis) -> Result<Vec<Topic>, ServiceError> {
@@ -114,7 +106,7 @@ pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: RedisPool
 fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
     where T: FromHashSet {
     let vec = get_hash_set(ids, key, &conn)?;
-    if vec.len() != ids.len() { return Err(ServiceError::NoCacheFound); };
+    if vec.len() != ids.len() { return Err(ServiceError::InternalServerError); };
     vec.iter().map(|hash| hash.parse::<T>()).collect()
 }
 
@@ -164,7 +156,7 @@ impl UpdateCacheAsync {
 type UpdateResult = Result<(), ServiceError>;
 
 fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
-    let c = c.first().ok_or(ServiceError::NoCacheFound)?;
+    let c = c.first().ok_or(ServiceError::InternalServerError)?;
     Ok(redis::pipe().atomic()
         .rpush("category_id:meta", c.id)
         .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
@@ -269,12 +261,12 @@ impl MailCache {
     }
     pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
         let string = from_mail_queue(None, conn)?;
-        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::NoCacheFound)?)?))
+        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::InternalServerError)?)?))
     }
     pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
         match self {
             MailCache::GetActivation(opt) => from_mail_hash(opt, "activation", pool.get()?),
-            _ => Err(ServiceError::BadRequestGeneral)
+            _ => Err(ServiceError::BadRequest)
         }
     }
     pub fn remove_queue(self, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {

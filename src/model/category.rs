@@ -7,7 +7,7 @@ use crate::model::admin::AdminPrivilegeCheck;
 use crate::schema::categories;
 use crate::model::topic::TopicQuery;
 
-#[derive(Queryable, Serialize, Deserialize)]
+#[derive(Queryable, Serialize, Deserialize, Debug)]
 pub struct Category {
     pub id: u32,
     pub name: String,
@@ -67,8 +67,8 @@ impl CategoryUpdateRequest {
     pub fn make_category<'a>(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
         Ok(NewCategory {
             id,
-            name: self.category_name.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
-            thumbnail: self.category_thumbnail.as_ref().ok_or(ServiceError::BadRequestGeneral)?,
+            name: self.category_name.as_ref().ok_or(ServiceError::BadRequest)?,
+            thumbnail: self.category_thumbnail.as_ref().ok_or(ServiceError::BadRequest)?,
         })
     }
     pub fn make_update(&self) -> UpdateCategory {

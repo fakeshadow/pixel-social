@@ -24,7 +24,7 @@ pub fn mail_service(pool: &RedisPool) {
                     println!("failed to send mail");
                     thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 5))
                 }
-                ServiceError::NoCacheFound =>
+                ServiceError::InternalServerError =>
                     thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 60)),
                 _ => ()
             }
@@ -40,7 +40,7 @@ fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {
             send_mail(mail)?;
             cache.remove_queue(conn)
         }
-        _ => Err(ServiceError::NoCacheFound)
+        _ => Err(ServiceError::InternalServerError)
     }
 }
 

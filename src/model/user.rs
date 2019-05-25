@@ -117,7 +117,7 @@ impl AuthRequest {
     }
 
     pub fn extract_email(&self) -> Result<&str, ServiceError> {
-        self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequestGeneral)
+        self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequest)
     }
 
     pub fn make_user<'a>(&'a self, id: &'a u32, hashed_password: &'a str) -> Result<NewUser<'a>, ServiceError> {
@@ -208,7 +208,7 @@ impl UpdateRequest {
     }
 
     pub fn extract_id(&self) -> Result<&u32, ServiceError> {
-        self.id.as_ref().ok_or(ServiceError::BadRequestGeneral)
+        self.id.as_ref().ok_or(ServiceError::BadRequest)
     }
 
     pub fn make_update(&self) -> Result<UpdateUser, ServiceError> {

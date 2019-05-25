@@ -50,7 +50,7 @@ fn add_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
 fn update_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
                    -> Result<Vec<Category>, ServiceError> {
     Ok(diesel::update(categories::table
-        .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequestGeneral)?)))
+        .filter(categories::id.eq(&req.category_id.ok_or(ServiceError::BadRequest)?)))
         .set(&req.make_update()).get_results(conn)?)
 }
 
