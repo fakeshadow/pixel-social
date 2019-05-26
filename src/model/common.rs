@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use actix_web::{web::Data, HttpResponse};
+use actix_web::{web::Data};
 use diesel::{pg::PgConnection, r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection}};
 use r2d2_redis::{r2d2::Pool as redis_pool, RedisConnectionManager};
 
@@ -11,22 +11,6 @@ pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_pool<RedisConnectionManager>;
 pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnection>>;
 pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
-
-pub enum Response {
-    Registered,
-    ModifiedTopic,
-    AddedPost,
-}
-
-impl Response {
-    pub fn to_res(&self) -> HttpResponse {
-        match self {
-            Response::Registered => HttpResponse::Ok().json(ResMsg::new("Register Success")),
-            Response::ModifiedTopic => HttpResponse::Ok().json(ResMsg::new("Modify Topic Success")),
-            Response::AddedPost => HttpResponse::Ok().json(ResMsg::new("Modify Post Success")),
-        }
-    }
-}
 
 #[derive(Serialize)]
 struct ResMsg<'a> {
@@ -60,7 +44,7 @@ pub trait AttachUser<'u, T>
     }
 }
 
-// need to improve validator with regex
+//ToDo: need to improve validator with regex
 pub trait Validator {
     fn get_username(&self) -> &str;
     fn get_password(&self) -> &str;

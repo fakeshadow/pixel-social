@@ -41,11 +41,11 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
-            ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username Taken")),
+            ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username already taken")),
+            ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
             ServiceError::InvalidPassword => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password")),
             ServiceError::InvalidEmail => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Email")),
-            ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
 //            ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
@@ -82,8 +82,8 @@ impl From<RedisError> for ServiceError {
 }
 
 impl From<DieselError> for ServiceError {
-    fn from(e: DieselError) -> ServiceError {
-        match e {
+    fn from(err: DieselError) -> ServiceError {
+        match err {
             DieselError::DatabaseError(kind, info) => match kind {
                 DatabaseErrorKind::UniqueViolation =>
                     ServiceError::BadRequestDb(DatabaseErrorMessage {
@@ -108,7 +108,7 @@ impl From<R2d2Error> for ServiceError {
 use serde_json::Error as SerdeError;
 
 impl From<SerdeError> for ServiceError {
-    fn from(_e: SerdeError) -> ServiceError {
+    fn from(_err: SerdeError) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
@@ -116,7 +116,7 @@ impl From<SerdeError> for ServiceError {
 use chrono::format::ParseError as ParseNavDateError;
 
 impl From<ParseNavDateError> for ServiceError {
-    fn from(_e: ParseNavDateError) -> ServiceError {
+    fn from(_err: ParseNavDateError) -> ServiceError {
         ServiceError::InternalServerError
     }
 }

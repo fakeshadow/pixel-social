@@ -6,10 +6,11 @@ use crate::handler::{
     user::get_unique_users,
     cache::{UpdateCacheAsync, get_unique_users_cache}};
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, RedisPool, Response, AttachUser},
+    common::{GlobalGuard, PostgresPool, RedisPool, AttachUser},
     post::PostRequest,
 };
 
+// ToDo: Return post on response and use it to update the frontend.
 pub fn add_post(
     jwt: UserJwt,
     req: Json<PostRequest>,
@@ -25,7 +26,7 @@ pub fn add_post(
         .and_then(move |(c, t, p, p_new)|
             UpdateCacheAsync::AddedPost(c, t, p, p_new)
                 .handler(&cache)
-                .then(|_| Response::AddedPost.to_res()))
+                .then(|_| HttpResponse::Ok().finish()))
 }
 
 pub fn update_post(
@@ -42,7 +43,7 @@ pub fn update_post(
         .and_then(move |p|
             UpdateCacheAsync::GotPost(p)
                 .handler(&cache)
-                .then(|_| Response::AddedPost.to_res()))
+                .then(|_| HttpResponse::Ok().finish()))
 }
 
 pub fn get_post(

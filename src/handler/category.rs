@@ -5,7 +5,7 @@ use diesel::prelude::*;
 
 use crate::model::{
     category::{Category, CategoryUpdateRequest, CategoryQuery},
-    common::{ match_id,PostgresPool, PoolConnectionPostgres, RedisPool},
+    common::{match_id, PostgresPool, PoolConnectionPostgres, RedisPool},
     errors::ServiceError,
 };
 use crate::schema::categories;

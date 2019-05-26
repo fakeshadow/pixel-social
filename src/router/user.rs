@@ -3,7 +3,7 @@ use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, RedisPool, Response},
+    common::{GlobalGuard, PostgresPool, RedisPool},
     user::{ToUserRef, AuthRequest, UpdateRequest},
 };
 
@@ -50,7 +50,7 @@ pub fn register_user(
         .from_err()
         .and_then(move |u| UpdateCacheAsync::GotUser(u)
             .handler(&cache)
-            .then(|_| Response::Registered.to_res()))
+            .then(|_| HttpResponse::Ok().finish()))
 }
 
 pub fn update_user(

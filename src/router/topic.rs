@@ -3,7 +3,7 @@ use futures::{Future, future::Either};
 
 use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, RedisPool, AttachUser, Response},
+    common::{GlobalGuard, PostgresPool, RedisPool, AttachUser},
     topic::{TopicRequest, TopicWithPost},
 };
 
@@ -36,10 +36,10 @@ pub fn update_topic(
         .into_update_query()
         .into_topics(&db)
         .from_err()
-        .and_then(move |t|
-            UpdateCacheAsync::GotTopics(t)
-                .handler(&cache)
-                .then(|_| Response::ModifiedTopic.to_res()))
+        .and_then(move |t| {
+            let res = HttpResponse::Ok().json(&t);
+            UpdateCacheAsync::GotTopics(t).handler(&cache).then(|_| res)
+        })
 }
 
 pub fn get_topic(

@@ -2,7 +2,7 @@ use actix_web::{Error, HttpResponse, web::{Data, Json, Path}};
 use futures::Future;
 
 use crate::model::{
-    common::{GlobalGuard, PostgresPool,RedisPool, Response},
+    common::{GlobalGuard, PostgresPool,RedisPool},
     topic::{TopicRequest, TopicQuery},
 };
 use crate::handler::cache::UpdateCacheAsync;
@@ -25,7 +25,7 @@ pub fn test_global_var(
         .and_then(move |(c, t)|
             UpdateCacheAsync::AddedTopic(c, t)
                 .handler(&cache)
-                .then(|_| Response::ModifiedTopic.to_res()))
+                .then(|_| HttpResponse::Ok().finish()))
 }
 
 pub fn test_hello_world() -> HttpResponse {
