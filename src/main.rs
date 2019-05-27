@@ -103,7 +103,7 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/hello").route(web::get().to(router::test::test_hello_world))))
             .service(web::scope("/upload")
                 .service(web::resource("/").route(web::post().to_async(router::stream::upload_file))))
-            .service(web::resource("/talk/").to(router::stream::talk))
+            .service(web::resource("/talk/").to_async(router::stream::talk))
             .service(fs::Files::new("/public", "./public"))
     }).bind(format!("{}:{}", &server_ip, &server_port))?.start();
     sys.run()

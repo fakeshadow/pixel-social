@@ -10,7 +10,7 @@ use crate::model::{
     common::{RedisPool, PostgresPool},
     talk,
 };
-use crate::handler::{auth::UserJwt, stream::save_file};
+use crate::handler::{auth::UserJwt, stream::save_file, cache::get_unique_users_cache};
 
 pub fn upload_file(
     _: UserJwt,
@@ -24,7 +24,6 @@ pub fn upload_file(
         .collect()
         .map(|result| HttpResponse::Ok().json(result))
 }
-
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -41,8 +40,9 @@ pub fn talk(
             id: 0,
             hb: Instant::now(),
             room: "Main".to_owned(),
-            name: None,
+            name: "Lobby".to_owned(),
             addr: srv.get_ref().clone(),
+            cache: cache.get_ref().clone(),
         },
         &req,
         stream,
@@ -50,17 +50,12 @@ pub fn talk(
 }
 
 struct WsChatSession {
-    /// unique session id
     id: usize,
-    /// Client must send ping at least once per 10 seconds (CLIENT_TIMEOUT),
-    /// otherwise we drop connection.
     hb: Instant,
-    /// joined room
     room: String,
-    /// peer name
-    name: Option<String>,
-    /// Chat server
+    name: String,
     addr: Addr<talk::ChatServer>,
+    cache: RedisPool,
 }
 
 impl Actor for WsChatSession {
@@ -91,10 +86,10 @@ impl Actor for WsChatSession {
     }
 }
 
-impl Handler<talk::Message> for WsChatSession {
+impl Handler<talk::SelfMessage> for WsChatSession {
     type Result = ();
 
-    fn handle(&mut self, msg: talk::Message, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: talk::SelfMessage, ctx: &mut Self::Context) {
         ctx.text(msg.0);
     }
 }
@@ -119,6 +114,19 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
     if t.starts_with('/') {
         let v: Vec<&str> = t.splitn(2, ' ').collect();
         match v[0] {
+            "/auth" => {
+                if v.len() == 2 {
+                    match UserJwt::from(v[1]) {
+                        Ok(token) => {
+                            session.id = token.user_id as usize;
+                            session.name = "ToDo".to_owned();
+                            // ToDo: add to authenticated session
+                            ctx.text("To Do");
+                        }
+                        Err(e) => ctx.text(format!("!!! {}", e.to_string()))
+                    }
+                } else { ctx.stop(); }
+            }
             "/join" => {
                 if v.len() == 2 {
                     session.room = v[1].to_owned();
@@ -134,7 +142,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             }
             "/name" => {
                 if v.len() == 2 {
-                    session.name = Some(v[1].to_owned());
+                    session.name = v[1].to_owned();
                 } else {
                     ctx.text("!!! name is required");
                 }
@@ -142,20 +150,13 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             _ => ctx.text(format!("!!! unknown command: {:?}", t)),
         }
     } else {
-        let msg = if let Some(ref name) = session.name {
-            format!("{}: {}", name, t)
-        } else {
-            t.to_owned()
-        };
-        // send message to chat server
         session.addr.do_send(talk::ClientMessage {
             id: session.id,
-            msg,
+            msg: format!("{}: {}", session.name, t),
             room: session.room.clone(),
         })
     }
 }
-
 
 impl WsChatSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {

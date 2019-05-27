@@ -22,12 +22,16 @@ impl JwtPayLoad {
             is_admin,
         }
     }
-    pub fn decode(token: &str) -> Result<JwtPayLoad, ServiceError> {
-        decode::<JwtPayLoad>(token, get_secret().as_ref(), &Validation::default())
-            .map(|data| Ok(data.claims.into()))
-            .map_err(|_| ServiceError::Unauthorized)?
+    pub fn from(string: &str) -> Result<JwtPayLoad, ServiceError> {
+        let token:JwtPayLoad = decode::<JwtPayLoad>(string, get_secret().as_ref(), &Validation::default())
+            .map(|data| data.claims.into())
+            .map_err(|_| ServiceError::Unauthorized)?;
+        if token.exp as i64 - Local::now().timestamp() < 0 {
+            Err(ServiceError::AuthTimeout)
+        } else {
+            Ok(token)
+        }
     }
-
     pub fn sign(&self) -> Result<String, ServiceError> {
         encode(&Header::default(), &self, get_secret().as_ref())
             .map_err(|_| ServiceError::InternalServerError)

@@ -1,5 +1,4 @@
 use actix_web::{dev, FromRequest, HttpRequest};
-use chrono::Local;
 
 use crate::model::{
     errors::ServiceError
@@ -8,7 +7,7 @@ use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;
 
-/// jwt token extractor
+/// jwt token extractor from request
 impl FromRequest for JwtPayLoad {
     type Error = ServiceError;
     type Future = Result<UserJwt, ServiceError>;
@@ -22,12 +21,7 @@ impl FromRequest for JwtPayLoad {
                     .unwrap_or("no token")
                     .rsplitn(2, " ")
                     .collect();
-
-                let jwt_payload = JwtPayLoad::decode(vec[0])?;
-                if jwt_payload.exp as i64 - Local::now().timestamp() < 0 {
-                    return Err(ServiceError::AuthTimeout);
-                };
-                Ok(jwt_payload)
+                JwtPayLoad::from(vec[0])
             }
             None => Err(ServiceError::Unauthorized)
         }
