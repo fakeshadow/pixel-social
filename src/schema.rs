@@ -35,6 +35,15 @@ table! {
 }
 
 table! {
+    talks (id) {
+        id -> Oid,
+        name -> Varchar,
+        description -> Varchar,
+        users_id -> Nullable<Array<Oid>>,
+    }
+}
+
+table! {
     topics (id) {
         id -> Oid,
         user_id -> Oid,
@@ -72,6 +81,7 @@ allow_tables_to_appear_in_same_query!(
     associates,
     categories,
     posts,
+    talks,
     topics,
     users,
 );

@@ -31,8 +31,6 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn talk(
     req: HttpRequest,
     stream: Payload,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
     srv: Data<Addr<talk::ChatServer>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
@@ -40,9 +38,7 @@ pub fn talk(
             id: 0,
             hb: Instant::now(),
             room: "Main".to_owned(),
-            name: "Lobby".to_owned(),
             addr: srv.get_ref().clone(),
-            cache: cache.get_ref().clone(),
         },
         &req,
         stream,
@@ -53,9 +49,7 @@ struct WsChatSession {
     id: usize,
     hb: Instant,
     room: String,
-    name: String,
     addr: Addr<talk::ChatServer>,
-    cache: RedisPool,
 }
 
 impl Actor for WsChatSession {
@@ -119,14 +113,14 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     match UserJwt::from(v[1]) {
                         Ok(token) => {
                             session.id = token.user_id as usize;
-                            session.name = "ToDo".to_owned();
-                            // ToDo: add to authenticated session
+                            // ToDo: add username;
                             ctx.text("To Do");
                         }
                         Err(e) => ctx.text(format!("!!! {}", e.to_string()))
                     }
                 } else { ctx.stop(); }
             }
+            /// join is also used on new room create
             "/join" => {
                 if v.len() == 2 {
                     session.room = v[1].to_owned();
@@ -134,25 +128,17 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         id: session.id,
                         name: session.room.clone(),
                     });
-
                     ctx.text("joined");
                 } else {
                     ctx.text("!!! room name is required");
                 }
             }
-            "/name" => {
-                if v.len() == 2 {
-                    session.name = v[1].to_owned();
-                } else {
-                    ctx.text("!!! name is required");
-                }
-            }
-            _ => ctx.text(format!("!!! unknown command: {:?}", t)),
+            _ => ctx.text("!!! unknown command"),
         }
     } else {
         session.addr.do_send(talk::ClientMessage {
             id: session.id,
-            msg: format!("{}: {}", session.name, t),
+            msg: t.to_string(),
             room: session.room.clone(),
         })
     }

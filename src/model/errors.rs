@@ -1,5 +1,4 @@
 use derive_more::Display;
-use actix_http::Response;
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
@@ -54,7 +53,7 @@ impl ResponseError for ServiceError {
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
-    fn render_response(&self) -> Response {
+    fn render_response(&self) -> HttpResponse {
         self.error_response()
     }
 }

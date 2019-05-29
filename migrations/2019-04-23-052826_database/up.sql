@@ -63,9 +63,19 @@ CREATE TABLE associates
     last_update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE talks
+(
+    id              OID       NOT NULL UNIQUE PRIMARY KEY,
+    name            VARCHAR(128) NOT NULL UNIQUE,
+    description     VARCHAR(128) NOT NULL,
+    users_id        OID[]
+);
+
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
 CREATE UNIQUE INDEX categories_name ON categories (name);
+CREATE UNIQUE INDEX talks_name ON talks (name);
+
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 

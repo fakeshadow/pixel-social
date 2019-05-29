@@ -48,6 +48,9 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool) -> Result<(),
     let users = load_all_users(conn).unwrap_or_else(|_| panic!("Failed to load users"));
     build_hash_set(&users, "user", &conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
 
+    /// load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
+
+
     Ok(())
 }
 

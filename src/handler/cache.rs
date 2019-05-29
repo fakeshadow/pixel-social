@@ -101,7 +101,6 @@ pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: RedisPool
     block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get()?)?)).from_err()
 }
 
-
 /// use Parser and FromHashSet traits to convert HashMap into struct.
 fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
     where T: FromHashSet {
