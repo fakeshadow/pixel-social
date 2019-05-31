@@ -68,7 +68,7 @@ CREATE TABLE talks
     id              OID       NOT NULL UNIQUE PRIMARY KEY,
     name            VARCHAR(128) NOT NULL UNIQUE,
     description     VARCHAR(128) NOT NULL,
-    users_id        OID[]
+    users_id        OID[] NOT NULL
 );
 
 CREATE UNIQUE INDEX users_username ON users (username);

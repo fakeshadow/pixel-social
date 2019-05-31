@@ -133,6 +133,18 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     ctx.text("!!! room name is required");
                 }
             }
+            /// get users of one room
+            "/users" => {
+                if v.len() == 2 {
+                    let room_id = v[1].parse::<usize>().unwrap_or(0);
+                    session.addr.do_send(talk::GetRoomMembers {
+                        id: session.id,
+                        room_id,
+                    })
+                } else {
+                    ctx.text("!!! room id is required");
+                }
+            }
             _ => ctx.text("!!! unknown command"),
         }
     } else {

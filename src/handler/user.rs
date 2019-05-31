@@ -94,7 +94,11 @@ pub fn get_unique_users<T>(
     where T: GetUserId {
     let ids = get_unique_id(vec, opt);
     let pool = pool.clone();
-    block(move || Ok(users::table.filter(users::id.eq_any(&ids)).load::<User>(&pool.get()?)?)).from_err()
+    block(move || get_users_by_id(&ids, &pool.get()?)).from_err()
+}
+
+pub fn get_users_by_id(ids: &Vec<u32>, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {
+    Ok(users::table.filter(users::id.eq_any(ids)).load::<User>(conn)?)
 }
 
 pub fn get_user_by_id(id: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {

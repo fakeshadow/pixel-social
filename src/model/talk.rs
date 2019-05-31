@@ -35,7 +35,8 @@ pub struct Join {
 
 #[derive(prelude::Message)]
 pub struct GetRoomMembers {
-    pub room_id: usize
+    pub id: usize,
+    pub room_id: usize,
 }
 
 pub struct ChatServer {
@@ -49,7 +50,6 @@ pub struct ChatServer {
 impl ChatServer {
     pub fn new(db: PostgresPool, cache: RedisPool) -> ChatServer {
         let conn = cache.get().unwrap();
-
 
 
         let mut rooms = HashMap::new();
@@ -76,6 +76,10 @@ impl ChatServer {
                 }
             }
         }
+    }
+
+    fn send_room_members(&self, session_id: usize, room_id: usize) {
+        let conn = self.db.get().unwrap();
     }
 }
 
@@ -118,10 +122,39 @@ impl prelude::Handler<Disconnect> for ChatServer {
     }
 }
 
+impl prelude::Handler<Join> for ChatServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {
+        let mut rooms: Vec<String> = Vec::new();
+
+        if self.sessions.remove(&msg.id).is_some() {
+            // remove session from all rooms
+            for (name, sessions) in &mut self.rooms {
+                if sessions.remove(&msg.id) {
+                    rooms.push(name.to_owned());
+                }
+            }
+        }
+        for room in rooms {
+            self.send_message(&room, "Someone disconnected", 0);
+        }
+    }
+}
+
+
 impl prelude::Handler<ClientMessage> for ChatServer {
     type Result = ();
 
     fn handle(&mut self, msg: ClientMessage, _: &mut prelude::Context<Self>) {
         self.send_message(&msg.room, msg.msg.as_str(), msg.id);
+    }
+}
+
+impl prelude::Handler<GetRoomMembers> for ChatServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: GetRoomMembers, _: &mut prelude::Context<Self>) {
+        self.send_room_members(msg.id, msg.room_id)
     }
 }

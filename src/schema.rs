@@ -39,7 +39,7 @@ table! {
         id -> Oid,
         name -> Varchar,
         description -> Varchar,
-        users_id -> Nullable<Array<Oid>>,
+        users_id -> Array<Oid>,
     }
 }
 
