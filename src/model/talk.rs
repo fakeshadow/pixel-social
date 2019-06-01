@@ -3,6 +3,33 @@ use rand::{self, rngs::ThreadRng, Rng};
 use std::collections::{HashMap, HashSet};
 
 use crate::model::common::{PostgresPool, RedisPool};
+use crate::handler::talk::get_room_members;
+
+use crate::schema::talks;
+
+#[derive(Queryable,Insertable)]
+#[table_name = "talks"]
+pub struct Talk {
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub owner: u32,
+    pub admin: Vec<u32>,
+    pub users: Vec<u32>,
+}
+
+impl Talk {
+    pub fn new(id: u32, msg: Create) -> Self {
+        Talk {
+            id,
+            name: msg.name,
+            description: msg.description,
+            owner: msg.owner,
+            admin: vec![],
+            users: vec![],
+        }
+    }
+}
 
 #[derive(prelude::Message)]
 pub struct SelfMessage(pub String);
@@ -26,11 +53,16 @@ pub struct ClientMessage {
 }
 
 #[derive(prelude::Message)]
-pub struct Join {
-    /// Client id
-    pub id: usize,
-    /// Room name
+pub struct Create {
     pub name: String,
+    pub description: String,
+    pub owner: u32,
+}
+
+#[derive(prelude::Message)]
+pub struct Join {
+    pub id: u32,
+    pub user_id: u32,
 }
 
 #[derive(prelude::Message)]
@@ -49,9 +81,6 @@ pub struct ChatServer {
 
 impl ChatServer {
     pub fn new(db: PostgresPool, cache: RedisPool) -> ChatServer {
-        let conn = cache.get().unwrap();
-
-
         let mut rooms = HashMap::new();
         rooms.insert("Main".to_owned(), HashSet::new());
 
@@ -79,7 +108,11 @@ impl ChatServer {
     }
 
     fn send_room_members(&self, session_id: usize, room_id: usize) {
-        let conn = self.db.get().unwrap();
+        if let Some(addr) = self.sessions.get(&room_id) {
+            let conn = self.db.get().unwrap();
+            let message = get_room_members(room_id as u32, &conn).unwrap();
+            addr.do_send(SelfMessage(serde_json::to_string(&message).unwrap()));
+        }
     }
 }
 
@@ -122,24 +155,19 @@ impl prelude::Handler<Disconnect> for ChatServer {
     }
 }
 
+impl prelude::Handler<Create> for ChatServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: Create, _: &mut prelude::Context<Self>) {
+        let conn = self.db.get().unwrap();
+    }
+}
+
+
 impl prelude::Handler<Join> for ChatServer {
     type Result = ();
 
-    fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {
-        let mut rooms: Vec<String> = Vec::new();
-
-        if self.sessions.remove(&msg.id).is_some() {
-            // remove session from all rooms
-            for (name, sessions) in &mut self.rooms {
-                if sessions.remove(&msg.id) {
-                    rooms.push(name.to_owned());
-                }
-            }
-        }
-        for room in rooms {
-            self.send_message(&room, "Someone disconnected", 0);
-        }
-    }
+    fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {}
 }
 
 

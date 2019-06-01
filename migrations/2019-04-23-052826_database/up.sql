@@ -17,12 +17,12 @@ CREATE TABLE users
 
 CREATE TABLE categories
 (
-    id    OID           NOT NULL UNIQUE PRIMARY KEY,
-    name  VARCHAR(128)  NOT NULL,
-    topic_count INTEGER NOT NULL DEFAULT 0,
-    post_count INTEGER NOT NULL DEFAULT 0,
-    subscriber_count INTEGER NOT NULL DEFAULT 0,
-    thumbnail VARCHAR(256) NOT NULL
+    id              OID          NOT NULL UNIQUE PRIMARY KEY,
+    name            VARCHAR(128) NOT NULL,
+    topic_count     INTEGER      NOT NULL DEFAULT 0,
+    post_count      INTEGER      NOT NULL DEFAULT 0,
+    subscriber_count INTEGER     NOT NULL DEFAULT 0,
+    thumbnail       VARCHAR(256) NOT NULL
 );
 
 CREATE TABLE topics
@@ -65,10 +65,12 @@ CREATE TABLE associates
 
 CREATE TABLE talks
 (
-    id              OID       NOT NULL UNIQUE PRIMARY KEY,
-    name            VARCHAR(128) NOT NULL UNIQUE,
-    description     VARCHAR(128) NOT NULL,
-    users_id        OID[] NOT NULL
+    id              OID             NOT NULL UNIQUE PRIMARY KEY,
+    name            VARCHAR(128)    NOT NULL UNIQUE,
+    description     VARCHAR(128)    NOT NULL,
+    owner           OID             NOT NULL,
+    admin           OID[]           NOT NULL,
+    users           OID[]           NOT NULL
 );
 
 CREATE UNIQUE INDEX users_username ON users (username);

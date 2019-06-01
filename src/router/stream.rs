@@ -123,10 +123,11 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             /// join is also used on new room create
             "/join" => {
                 if v.len() == 2 {
-                    session.room = v[1].to_owned();
+                    let room_id = v[1].parse::<u32>().unwrap();
+                    session.id = 1;
                     session.addr.do_send(talk::Join {
-                        id: session.id,
-                        name: session.room.clone(),
+                        id: room_id,
+                        user_id: session.id as u32,
                     });
                     ctx.text("joined");
                 } else {

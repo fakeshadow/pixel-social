@@ -39,7 +39,9 @@ table! {
         id -> Oid,
         name -> Varchar,
         description -> Varchar,
-        users_id -> Array<Oid>,
+        owner -> Oid,
+        admin -> Array<Oid>,
+        users -> Array<Oid>,
     }
 }
 
