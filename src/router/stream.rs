@@ -35,9 +35,8 @@ pub fn talk(
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
-            id: 0,
+            id: 1,
             hb: Instant::now(),
-            room: "Main".to_owned(),
             addr: srv.get_ref().clone(),
         },
         &req,
@@ -46,9 +45,8 @@ pub fn talk(
 }
 
 struct WsChatSession {
-    id: usize,
+    id: u32,
     hb: Instant,
-    room: String,
     addr: Addr<talk::ChatServer>,
 }
 
@@ -66,7 +64,7 @@ impl Actor for WsChatSession {
             .into_actor(self)
             .then(|res, mut act, ctx| {
                 match res {
-                    Ok(res) => act.id = res,
+                    Ok(res) => act.id = res as u32,
                     _ => ctx.stop(),
                 }
                 fut::ok(())
@@ -112,7 +110,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 if v.len() == 2 {
                     match UserJwt::from(v[1]) {
                         Ok(token) => {
-                            session.id = token.user_id as usize;
+                            session.id = token.user_id;
                             // ToDo: add username;
                             ctx.text("To Do");
                         }
@@ -137,7 +135,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             /// get users of one room
             "/users" => {
                 if v.len() == 2 {
-                    let room_id = v[1].parse::<usize>().unwrap_or(0);
+                    let room_id = v[1].parse::<u32>().unwrap_or(0);
                     session.addr.do_send(talk::GetRoomMembers {
                         id: session.id,
                         room_id,
@@ -148,12 +146,6 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             }
             _ => ctx.text("!!! unknown command"),
         }
-    } else {
-        session.addr.do_send(talk::ClientMessage {
-            id: session.id,
-            msg: t.to_string(),
-            room: session.room.clone(),
-        })
     }
 }
 

@@ -58,7 +58,7 @@ fn main() -> std::io::Result<()> {
 //    mail_service(&redis_pool);
 
     let sys = System::new("PixelShare");
-    let talk_service = ChatServer::new(postgres_pool.clone(), redis_pool.clone()).start();
+    let talk_service = ChatServer::init(postgres_pool.clone(), redis_pool.clone()).start();
 
     HttpServer::new(move || {
         App::new()

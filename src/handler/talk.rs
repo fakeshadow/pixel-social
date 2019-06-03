@@ -23,3 +23,7 @@ pub fn create_talk(msg: Create, conn: &PoolConnectionPostgres) -> Result<Talk, S
     let talk = Talk::new(id, msg);
     Ok(diesel::insert_into(talks::table).values(&talk).get_result(conn)?)
 }
+
+pub fn load_all_talks(conn: &PoolConnectionPostgres) -> Result<Vec<Talk>, ServiceError> {
+    Ok(talks::table.load::<Talk>(conn)?)
+}
