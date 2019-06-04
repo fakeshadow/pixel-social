@@ -59,12 +59,13 @@ impl Actor for WsChatSession {
         let addr = ctx.address();
         self.addr
             .send(talk::Connect {
+                session_id: self.id,
                 addr: addr.recipient(),
             })
             .into_actor(self)
             .then(|res, mut act, ctx| {
                 match res {
-                    Ok(res) => act.id = res as u32,
+                    Ok(_) => {}
                     _ => ctx.stop(),
                 }
                 fut::ok(())
@@ -73,7 +74,7 @@ impl Actor for WsChatSession {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(talk::Disconnect { id: self.id });
+        self.addr.do_send(talk::Disconnect { session_id: self.id });
         Running::Stop
     }
 }
@@ -105,46 +106,53 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
     let t = text.trim();
     if t.starts_with('/') {
         let v: Vec<&str> = t.splitn(2, ' ').collect();
-        match v[0] {
-            "/auth" => {
-                if v.len() == 2 {
-                    match UserJwt::from(v[1]) {
-                        Ok(token) => {
-                            session.id = token.user_id;
-                            // ToDo: add username;
-                            ctx.text("To Do");
-                        }
-                        Err(e) => ctx.text(format!("!!! {}", e.to_string()))
+        if v.len() != 2 {
+            ctx.text("!!! illegal command");
+            ctx.stop();
+        } else {
+            match v[0] {
+                "/auth" => match UserJwt::from(v[1]) {
+                    Ok(token) => {
+                        session.id = token.user_id;
+                        // ToDo: add username;
+                        ctx.text("To Do");
                     }
-                } else { ctx.stop(); }
-            }
-            /// join is also used on new room create
-            "/join" => {
-                if v.len() == 2 {
-                    let room_id = v[1].parse::<u32>().unwrap();
+                    Err(e) => ctx.text(format!("!!! {}", e.to_string()))
+                }
+                "/create" => {
+                    session.addr.send(talk::Create {
+                        name: "".to_string(),
+                        description: "".to_string(),
+                        owner: session.id,
+                    }).into_actor(session)
+                        .then(|res, mut act, ctx| {
+                            match res {
+                                Ok(talk) => ctx.text(talk),
+                                _ => ctx.stop(),
+                            }
+                            fut::ok(())
+                        })
+                        .wait(ctx);
+                }
+                "/join" => {
+                    let talk_id = v[1].parse::<u32>().unwrap();
                     session.id = 1;
                     session.addr.do_send(talk::Join {
-                        id: room_id,
-                        user_id: session.id as u32,
+                        talk_id,
+                        session_id: session.id,
                     });
                     ctx.text("joined");
-                } else {
-                    ctx.text("!!! room name is required");
                 }
-            }
-            /// get users of one room
-            "/users" => {
-                if v.len() == 2 {
-                    let room_id = v[1].parse::<u32>().unwrap_or(0);
-                    session.addr.do_send(talk::GetRoomMembers {
-                        id: session.id,
-                        room_id,
-                    })
-                } else {
-                    ctx.text("!!! room id is required");
+                /// get users of one room
+                "/users" => {
+                    let talk_id = v[1].parse::<u32>().unwrap_or(0);
+                    let result = session.addr.do_send(talk::GetRoomMembers {
+                        session_id: session.id,
+                        talk_id,
+                    });
                 }
+                _ => ctx.text("!!! unknown command"),
             }
-            _ => ctx.text("!!! unknown command"),
         }
     }
 }
@@ -154,7 +162,7 @@ impl WsChatSession {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // check client heartbeats
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                act.addr.do_send(talk::Disconnect { id: act.id });
+                act.addr.do_send(talk::Disconnect { session_id: act.id });
                 ctx.stop();
                 return;
             }
