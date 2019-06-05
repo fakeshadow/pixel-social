@@ -158,7 +158,10 @@ impl prelude::Handler<Create> for ChatServer {
 impl prelude::Handler<Join> for ChatServer {
     type Result = ();
 
-    fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {}
+    fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {
+        let conn = self.db.get().unwrap();
+        join_talk(&msg, &conn);
+    }
 }
 
 

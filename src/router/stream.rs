@@ -111,6 +111,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             ctx.stop();
         } else {
             match v[0] {
+                // ToDo: move auth into link
                 "/auth" => match UserJwt::from(v[1]) {
                     Ok(token) => {
                         session.id = token.user_id;

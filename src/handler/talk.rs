@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use crate::model::{
     errors::ServiceError,
     user::User,
-    talk::{Talk, Create},
+    talk::{Talk, Create, Join},
     common::{PoolConnectionPostgres, match_id},
 };
 
@@ -22,6 +22,18 @@ pub fn create_talk(msg: Create, conn: &PoolConnectionPostgres) -> Result<Talk, S
     let id = match_id(last_id);
     let talk = Talk::new(id, msg);
     Ok(diesel::insert_into(talks::table).values(&talk).get_result(conn)?)
+}
+
+pub fn join_talk(msg: &Join, conn: &PoolConnectionPostgres) -> Result<(), ServiceError> {
+    let mut users = talks::table.find(msg.talk_id).select(talks::users).first::<Vec<u32>>(conn)?;
+
+    users.push(msg.talk_id);
+    users.sort();
+
+    let _ = diesel::update(talks::table.find(msg.talk_id))
+        .set(talks::users.eq(users))
+        .execute(conn)?;
+    Ok(())
 }
 
 pub fn load_all_talks(conn: &PoolConnectionPostgres) -> Result<Vec<Talk>, ServiceError> {
