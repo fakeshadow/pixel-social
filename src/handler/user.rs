@@ -47,8 +47,6 @@ fn get_user(id: &u32, conn: &PoolConnectionPostgres) -> QueryResult {
 fn update_user(req: &UpdateRequest, conn: &PoolConnectionPostgres) -> QueryResult {
     let update = req.make_update()?;
     Ok(diesel::update(users::table.find(update.id)).set(update).get_result(conn)?)
-//    Ok(diesel::update(users::table.filter(users::id.eq(update.id)))
-//        .set(update).get_result(conn)?)
 }
 
 fn login_user(req: &AuthRequest, conn: &PoolConnectionPostgres) -> Result<AuthResponse, ServiceError> {

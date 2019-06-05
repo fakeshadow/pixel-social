@@ -79,10 +79,10 @@ impl Actor for WsChatSession {
     }
 }
 
-impl Handler<talk::SelfMessage> for WsChatSession {
+impl Handler<talk::SessionMessage> for WsChatSession {
     type Result = ();
 
-    fn handle(&mut self, msg: talk::SelfMessage, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: talk::SessionMessage, ctx: &mut Self::Context) {
         ctx.text(msg.0);
     }
 }
@@ -142,12 +142,19 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         talk_id,
                         session_id: session.id,
                     });
-                    ctx.text("joined");
                 }
                 /// get users of one room
                 "/users" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
                     let result = session.addr.do_send(talk::GetRoomMembers {
+                        session_id: session.id,
+                        talk_id,
+                    });
+                }
+                /// request talk_id 0 to get all talks.
+                "/talks" => {
+                    let talk_id = v[1].parse::<u32>().unwrap_or(0);
+                    let _ = session.addr.do_send(talk::GetTalks {
                         session_id: session.id,
                         talk_id,
                     });

@@ -12,7 +12,6 @@ use crate::schema::talks;
 
 pub fn get_talk_members(id: u32, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {
     let ids = talks::table.find(id).select(talks::users).first::<Vec<u32>>(conn)?;
-
     get_users_by_id(&ids, conn)
 }
 
