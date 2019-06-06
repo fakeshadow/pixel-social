@@ -1,4 +1,6 @@
-use std::{env, thread, time::Duration};
+use actix::prelude::*;
+
+use std::{env, thread, time::{Duration, Instant}};
 
 use lettre::{
     EmailAddress, Envelope, SendableEmail, smtp::{authentication::{Credentials, Mechanism}, ConnectionReuseParameters, extension::ClientId}, SmtpClient,
@@ -9,27 +11,35 @@ use crate::model::{mail::Mail, errors::ServiceError};
 use crate::handler::cache::MailCache;
 use crate::model::common::{PoolConnectionRedis, RedisPool};
 
-const MAIL_TIME_GAP: u64 = 500;
+const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 
+pub struct MailService {
+    pool: RedisPool,
+}
 
-pub fn mail_service(pool: &RedisPool) {
-    use std::{thread, time::Duration};
-    let pool = pool.clone();
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(MAIL_TIME_GAP));
-        match process_mail(&pool) {
-            Ok(_) => (),
-            Err(e) => match e {
-                ServiceError::MailServiceError => {
-                    println!("failed to send mail");
-                    thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 5))
-                }
-                ServiceError::InternalServerError =>
-                    thread::sleep(Duration::from_millis(MAIL_TIME_GAP * 60)),
-                _ => ()
-            }
+impl Actor for MailService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb(ctx);
+    }
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        Running::Stop
+    }
+}
+
+impl MailService {
+    pub fn init(pool: RedisPool) -> Self {
+        MailService {
+            pool,
         }
-    });
+    }
+
+    fn hb(&self, ctx: &mut Context<Self>) {
+        ctx.run_interval(MAIL_TIME_GAP, |act, ctx| {
+            let _ = process_mail(&act.pool);
+        });
+    }
 }
 
 fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {

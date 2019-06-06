@@ -30,6 +30,53 @@ impl Talk {
     }
 }
 
+pub struct ChatService {
+    sessions: HashMap<u32, prelude::Recipient<SessionMessage>>,
+    talks: Vec<Talk>,
+    db: PostgresPool,
+    cache: RedisPool,
+}
+
+impl prelude::Actor for ChatService {
+    type Context = prelude::Context<Self>;
+}
+
+impl ChatService {
+    pub fn init(db: PostgresPool, cache: RedisPool) -> ChatService {
+        let talks = load_all_talks(&db.get().unwrap()).unwrap();
+        ChatService {
+            sessions: HashMap::new(),
+            talks,
+            db,
+            cache,
+        }
+    }
+
+    fn send_message_many(&self, msg: PublicMessage) {
+        let _ = self.talks.iter()
+            .filter(|talk| talk.id == msg.talk_id)
+            .next()
+            .map(|talk| &talk.users)
+            .unwrap_or(&vec![])
+            .into_iter()
+            .map(|id| self.send_message(id, msg.msg.to_owned()));
+    }
+
+    fn send_talk_members(&self, session_id: u32, talk_id: u32) {
+        if let Some(addr) = self.sessions.get(&session_id) {
+            let conn = self.db.get().unwrap();
+            let msg = get_talk_members(talk_id, &conn).unwrap();
+            addr.do_send(SessionMessage(serde_json::to_string(&msg).unwrap()));
+        }
+    }
+
+    fn send_message(&self, session_id: &u32, msg: String) {
+        if let Some(addr) = self.sessions.get(&session_id) {
+            let _ = addr.do_send(SessionMessage(msg));
+        }
+    }
+}
+
 #[derive(prelude::Message)]
 pub struct SessionMessage(pub String);
 
@@ -76,54 +123,7 @@ pub struct GetTalks {
     pub talk_id: u32,
 }
 
-pub struct ChatServer {
-    sessions: HashMap<u32, prelude::Recipient<SessionMessage>>,
-    talks: Vec<Talk>,
-    db: PostgresPool,
-    cache: RedisPool,
-}
-
-impl prelude::Actor for ChatServer {
-    type Context = prelude::Context<Self>;
-}
-
-impl ChatServer {
-    pub fn init(db: PostgresPool, cache: RedisPool) -> ChatServer {
-        let talks = load_all_talks(&db.get().unwrap()).unwrap();
-        ChatServer {
-            sessions: HashMap::new(),
-            talks,
-            db,
-            cache,
-        }
-    }
-
-    fn send_message_many(&self, msg: PublicMessage) {
-        let _ = self.talks.iter()
-            .filter(|talk| talk.id == msg.talk_id)
-            .next()
-            .map(|talk| &talk.users)
-            .unwrap_or(&vec![])
-            .into_iter()
-            .map(|id| self.send_message(id, msg.msg.to_owned()));
-    }
-
-    fn send_talk_members(&self, session_id: u32, talk_id: u32) {
-        if let Some(addr) = self.sessions.get(&session_id) {
-            let conn = self.db.get().unwrap();
-            let msg = get_talk_members(talk_id, &conn).unwrap();
-            addr.do_send(SessionMessage(serde_json::to_string(&msg).unwrap()));
-        }
-    }
-
-    fn send_message(&self, session_id: &u32, msg: String) {
-        if let Some(addr) = self.sessions.get(&session_id) {
-            let _ = addr.do_send(SessionMessage(msg));
-        }
-    }
-}
-
-impl prelude::Handler<Connect> for ChatServer {
+impl prelude::Handler<Connect> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: Connect, _: &mut prelude::Context<Self>) {
@@ -131,7 +131,7 @@ impl prelude::Handler<Connect> for ChatServer {
     }
 }
 
-impl prelude::Handler<Disconnect> for ChatServer {
+impl prelude::Handler<Disconnect> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: Disconnect, _: &mut prelude::Context<Self>) {
@@ -139,7 +139,7 @@ impl prelude::Handler<Disconnect> for ChatServer {
     }
 }
 
-impl prelude::Handler<Create> for ChatServer {
+impl prelude::Handler<Create> for ChatService {
     type Result = String;
 
     fn handle(&mut self, msg: Create, _: &mut prelude::Context<Self>) -> Self::Result {
@@ -151,7 +151,7 @@ impl prelude::Handler<Create> for ChatServer {
     }
 }
 
-impl prelude::Handler<Join> for ChatServer {
+impl prelude::Handler<Join> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {
@@ -166,7 +166,7 @@ impl prelude::Handler<Join> for ChatServer {
     }
 }
 
-impl prelude::Handler<PublicMessage> for ChatServer {
+impl prelude::Handler<PublicMessage> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: PublicMessage, _: &mut prelude::Context<Self>) {
@@ -174,7 +174,7 @@ impl prelude::Handler<PublicMessage> for ChatServer {
     }
 }
 
-impl prelude::Handler<GetRoomMembers> for ChatServer {
+impl prelude::Handler<GetRoomMembers> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: GetRoomMembers, _: &mut prelude::Context<Self>) {
@@ -182,7 +182,7 @@ impl prelude::Handler<GetRoomMembers> for ChatServer {
     }
 }
 
-impl prelude::Handler<GetTalks> for ChatServer {
+impl prelude::Handler<GetTalks> for ChatService {
     type Result = ();
     fn handle(&mut self, msg: GetTalks, _: &mut prelude::Context<Self>) {
         let conn = self.db.get().unwrap();

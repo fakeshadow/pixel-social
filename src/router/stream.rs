@@ -31,7 +31,7 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn talk(
     req: HttpRequest,
     stream: Payload,
-    srv: Data<Addr<talk::ChatServer>>,
+    srv: Data<Addr<talk::ChatService>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
@@ -47,7 +47,7 @@ pub fn talk(
 struct WsChatSession {
     id: u32,
     hb: Instant,
-    addr: Addr<talk::ChatServer>,
+    addr: Addr<talk::ChatService>,
 }
 
 impl Actor for WsChatSession {
@@ -168,7 +168,6 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
 impl WsChatSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // check client heartbeats
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 act.addr.do_send(talk::Disconnect { session_id: act.id });
                 ctx.stop();

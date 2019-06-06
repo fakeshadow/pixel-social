@@ -26,8 +26,8 @@ mod router;
 mod schema;
 mod util;
 
-use crate::model::talk::ChatServer;
-use crate::handler::{cache::clear_cache, email::mail_service};
+use crate::model::talk::ChatService;
+use crate::handler::{cache::clear_cache, email::MailService};
 use crate::util::startup::{build_cache, init_global_var};
 
 fn main() -> std::io::Result<()> {
@@ -55,10 +55,9 @@ fn main() -> std::io::Result<()> {
 
     let global_arc = init_global_var(&postgres_pool);
 
-//    mail_service(&redis_pool);
-
     let sys = System::new("PixelShare");
-    let talk_service = ChatServer::init(postgres_pool.clone(), redis_pool.clone()).start();
+    let talk_service = ChatService::init(postgres_pool.clone(), redis_pool.clone()).start();
+    let mail_service = MailService::init(redis_pool.clone()).start();
 
     HttpServer::new(move || {
         App::new()
