@@ -1,6 +1,6 @@
 use actix::prelude::*;
 
-use std::{env, thread, time::{Duration, Instant}};
+use std::{env, time::Duration};
 
 use lettre::{
     EmailAddress, Envelope, SendableEmail, smtp::{authentication::{Credentials, Mechanism}, ConnectionReuseParameters, extension::ClientId}, SmtpClient,
@@ -11,7 +11,7 @@ use crate::model::{mail::Mail, errors::ServiceError};
 use crate::handler::cache::MailCache;
 use crate::model::common::{PoolConnectionRedis, RedisPool};
 
-const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
+const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
 
 pub struct MailService {
     pool: RedisPool,
@@ -22,9 +22,6 @@ impl Actor for MailService {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.hb(ctx);
-    }
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        Running::Stop
     }
 }
 

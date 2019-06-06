@@ -80,10 +80,16 @@ impl ChatService {
 #[derive(prelude::Message)]
 pub struct SessionMessage(pub String);
 
-#[derive(prelude::Message)]
+#[derive(prelude::Message, Deserialize)]
 pub struct PublicMessage {
     pub msg: String,
     pub talk_id: u32,
+}
+
+#[derive(prelude::Message, Deserialize)]
+pub struct PrivateMessage {
+    pub msg: String,
+    pub session_id: u32,
 }
 
 #[derive(prelude::Message)]
@@ -174,6 +180,14 @@ impl prelude::Handler<PublicMessage> for ChatService {
     }
 }
 
+impl prelude::Handler<PrivateMessage> for ChatService {
+    type Result = ();
+
+    fn handle(&mut self, msg: PrivateMessage, _: &mut prelude::Context<Self>) {
+        self.send_message(&msg.session_id, msg.msg);
+    }
+}
+
 impl prelude::Handler<GetRoomMembers> for ChatService {
     type Result = ();
 
@@ -190,6 +204,7 @@ impl prelude::Handler<GetTalks> for ChatService {
             0 => self.talks.iter().collect(),
             _ => self.talks.iter().filter(|t| t.id == msg.talk_id).next().map(|t| vec![t]).unwrap_or(vec![])
         };
-        self.send_message(&msg.session_id, serde_json::to_string(&talks).unwrap());
+        let string = serde_json::to_string(&talks).unwrap_or("!!! Stringify error".to_owned());
+        self.send_message(&msg.session_id, string);
     }
 }
