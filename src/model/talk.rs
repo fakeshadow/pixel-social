@@ -1,5 +1,8 @@
-use actix::prelude;
 use std::collections::HashMap;
+
+use actix::prelude;
+use chrono::NaiveDateTime;
+use diesel::sql_types::{VarChar, Timestamp, Bool};
 
 use crate::model::{
     errors::ServiceError,
@@ -46,8 +49,9 @@ impl prelude::Actor for ChatService {
 
 impl ChatService {
     pub fn init(db: PostgresPool, cache: RedisPool) -> ChatService {
-        let talks = load_all_talks(&db.get().unwrap_or_else(|_| panic!("Database connection failed")))
-            .unwrap_or_else(|_| panic!("Loading talks failed"));
+        let conn = &db.get().unwrap_or_else(|_| panic!("Database connection failed"));
+        let talks = load_all_talks(conn).unwrap_or_else(|_| panic!("Loading talks failed"));
+
         ChatService {
             sessions: HashMap::new(),
             talks,
@@ -88,6 +92,7 @@ impl ChatService {
 #[derive(prelude::Message)]
 pub struct SessionMessage(pub String);
 
+
 #[derive(prelude::Message, Deserialize)]
 pub struct PublicMessage {
     pub msg: String,
@@ -98,6 +103,24 @@ pub struct PublicMessage {
 pub struct PrivateMessage {
     pub msg: String,
     pub session_id: u32,
+}
+
+#[derive(QueryableByName, Serialize)]
+pub struct HistoryMessage {
+    #[sql_type = "Timestamp"]
+    pub date: NaiveDateTime,
+    #[sql_type = "VarChar"]
+    pub message: String,
+}
+
+#[derive(QueryableByName, Serialize)]
+pub struct HistoryMessagePrivate {
+    #[sql_type = "Timestamp"]
+    pub date: NaiveDateTime,
+    #[sql_type = "VarChar"]
+    pub message: String,
+    #[sql_type = "Bool"]
+    pub read: bool,
 }
 
 #[derive(prelude::Message)]
@@ -137,6 +160,13 @@ pub struct GetTalks {
     pub talk_id: u32,
 }
 
+#[derive(prelude::Message, Deserialize)]
+pub struct GetHistory {
+    pub time: String,
+    pub talk_id: u32,
+    pub session_id: u32,
+}
+
 impl prelude::Handler<Connect> for ChatService {
     type Result = ();
 
@@ -164,10 +194,7 @@ impl prelude::Handler<Create> for ChatService {
             self.talks.push(talk);
             Ok(string)
         };
-        match result() {
-            Ok(string) => string,
-            Err(e) => format!("!!! Join failed. Error: {}", e)
-        }
+        result().unwrap_or("!!! Join failed.".to_owned())
     }
 }
 
@@ -180,14 +207,13 @@ impl prelude::Handler<Join> for ChatService {
                 self.send_message(&msg.session_id, "Already joined".to_owned())
             }
         }
-        let result = || -> Result<(), ServiceError> {
+        let result = || -> Result<String, ServiceError> {
             let conn = self.db.get()?;
-            Ok(join_talk(&msg, &conn)?)
+            join_talk(&msg, &conn)?;
+            Ok("!!! Joined".to_owned())
         };
-        match result() {
-            Ok(_) => self.send_message(&msg.session_id, "!!! Joined".to_owned()),
-            Err(_) => self.send_message(&msg.session_id, "!!! Join failed.".to_owned()),
-        }
+        let string = result().unwrap_or("!!! Join failed.".to_owned());
+        self.send_message(&msg.session_id, string);
     }
 }
 
@@ -204,6 +230,19 @@ impl prelude::Handler<PrivateMessage> for ChatService {
 
     fn handle(&mut self, msg: PrivateMessage, _: &mut prelude::Context<Self>) {
         self.send_message(&msg.session_id, msg.msg);
+    }
+}
+
+impl prelude::Handler<GetHistory> for ChatService {
+    type Result = ();
+
+    fn handle(&mut self, msg: GetHistory, _: &mut prelude::Context<Self>) {
+        let result = || -> Result<String, ServiceError> {
+            let conn = &self.db.get()?;
+            Ok("placeholder".to_owned())
+        };
+        let string = result().unwrap_or("!!! Failed to get history message".to_owned());
+        self.send_message(&msg.session_id, string);
     }
 }
 

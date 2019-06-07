@@ -78,12 +78,3 @@ table! {
         show_updated_at -> Bool,
     }
 }
-
-//allow_tables_to_appear_in_same_query!(
-//    associates,
-//    categories,
-//    posts,
-//    talks,
-//    topics,
-//    users,
-//);
