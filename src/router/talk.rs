@@ -60,14 +60,6 @@ impl Actor for WsChatSession {
     }
 }
 
-impl Handler<talk::SessionMessage> for WsChatSession {
-    type Result = ();
-
-    fn handle(&mut self, msg: talk::SessionMessage, ctx: &mut Self::Context) {
-        ctx.text(msg.0);
-    }
-}
-
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
         match msg {
@@ -92,28 +84,19 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             ctx.stop();
         } else {
             match v[0] {
-                "/create" => {
-                    session.addr.send(talk::Create {
-                        name: "".to_string(),
-                        description: "".to_string(),
-                        owner: session.id,
-                    }).into_actor(session)
-                        .then(|res, _, ctx| {
-                            match res {
-                                Ok(talk) => ctx.text(talk),
-                                _ => ctx.stop(),
-                            }
-                            fut::ok(())
-                        })
-                        .wait(ctx);
+                "/public" => {
+                    let msg: Result<talk::PublicMessage, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Err(_) => ctx.text("!!! parsing error"),
+                        Ok(msg) => session.addr.do_send(msg)
+                    }
                 }
-                "/join" => {
-                    let talk_id = v[1].parse::<u32>().unwrap();
-                    session.id = 1;
-                    session.addr.do_send(talk::Join {
-                        talk_id,
-                        session_id: session.id,
-                    });
+                "/private" => {
+                    let msg: Result<talk::PrivateMessage, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Err(_) => ctx.text("!!! parsing error"),
+                        Ok(msg) => session.addr.do_send(msg)
+                    }
                 }
                 /// get users of one room
                 "/users" => {
@@ -131,26 +114,34 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         talk_id,
                     });
                 }
-                "/public" => {
-                    let msg: Result<talk::PublicMessage, _> = serde_json::from_str(v[1]);
-                    match msg {
-                        Err(_) => ctx.text("!!! parsing error"),
-                        Ok(msg) => session.addr.do_send(msg)
-                    }
+                "/join" => {
+                    let talk_id = v[1].parse::<u32>().unwrap_or(0);
+                    session.id = 1;
+                    session.addr.do_send(talk::Join {
+                        talk_id,
+                        session_id: session.id,
+                    });
                 }
-                "/private" => {
-                    let msg: Result<talk::PrivateMessage, _> = serde_json::from_str(v[1]);
-                    match msg {
-                        Err(_) => ctx.text("!!! parsing error"),
-                        Ok(msg) => session.addr.do_send(msg)
-                    }
+                "/create" => {
+                    session.addr.send(talk::Create {
+                        name: "".to_string(),
+                        description: "".to_string(),
+                        owner: session.id,
+                    }).into_actor(session)
+                        .then(|res, _, ctx| {
+                            match res {
+                                Ok(talk) => ctx.text(talk),
+                                _ => ctx.stop(),
+                            }
+                            fut::ok(())
+                        })
+                        .wait(ctx);
                 }
                 _ => ctx.text("!!! unknown command")
             }
         }
     }
 }
-
 
 impl WsChatSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
@@ -162,5 +153,13 @@ impl WsChatSession {
             }
             ctx.ping("");
         });
+    }
+}
+
+impl Handler<talk::SessionMessage> for WsChatSession {
+    type Result = ();
+
+    fn handle(&mut self, msg: talk::SessionMessage, ctx: &mut Self::Context) {
+        ctx.text(msg.0);
     }
 }

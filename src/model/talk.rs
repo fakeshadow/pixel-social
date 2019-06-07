@@ -1,7 +1,10 @@
 use actix::prelude;
 use std::collections::HashMap;
 
-use crate::model::common::{PostgresPool, RedisPool};
+use crate::model::{
+    errors::ServiceError,
+    common::{PostgresPool, RedisPool},
+};
 use crate::handler::talk::*;
 
 use crate::schema::talks;
@@ -43,7 +46,8 @@ impl prelude::Actor for ChatService {
 
 impl ChatService {
     pub fn init(db: PostgresPool, cache: RedisPool) -> ChatService {
-        let talks = load_all_talks(&db.get().unwrap()).unwrap();
+        let talks = load_all_talks(&db.get().unwrap_or_else(|_| panic!("Database connection failed")))
+            .unwrap_or_else(|_| panic!("Loading talks failed"));
         ChatService {
             sessions: HashMap::new(),
             talks,
@@ -64,9 +68,13 @@ impl ChatService {
 
     fn send_talk_members(&self, session_id: u32, talk_id: u32) {
         if let Some(addr) = self.sessions.get(&session_id) {
-            let conn = self.db.get().unwrap();
-            let msg = get_talk_members(talk_id, &conn).unwrap();
-            addr.do_send(SessionMessage(serde_json::to_string(&msg).unwrap()));
+            let result = || -> Result<String, ServiceError> {
+                let conn = self.db.get()?;
+                let msg = get_talk_members(talk_id, &conn)?;
+                Ok(serde_json::to_string(&msg)?)
+            };
+            let msg = result().unwrap_or("!!! Failed to get talk members".to_owned());
+            addr.do_send(SessionMessage(msg));
         }
     }
 
@@ -149,11 +157,17 @@ impl prelude::Handler<Create> for ChatService {
     type Result = String;
 
     fn handle(&mut self, msg: Create, _: &mut prelude::Context<Self>) -> Self::Result {
-        let conn = self.db.get().unwrap();
-        let talk = create_talk(msg, &conn).unwrap();
-        let string = serde_json::to_string(&talk).unwrap();
-        self.talks.push(talk);
-        string
+        let result = || -> Result<String, ServiceError> {
+            let conn = self.db.get()?;
+            let talk = create_talk(msg, &conn)?;
+            let string = serde_json::to_string(&talk)?;
+            self.talks.push(talk);
+            Ok(string)
+        };
+        match result() {
+            Ok(string) => string,
+            Err(e) => format!("!!! Join failed. Error: {}", e)
+        }
     }
 }
 
@@ -166,9 +180,14 @@ impl prelude::Handler<Join> for ChatService {
                 self.send_message(&msg.session_id, "Already joined".to_owned())
             }
         }
-        let conn = self.db.get().unwrap();
-        join_talk(&msg, &conn);
-        self.send_message(&msg.session_id, "Joined".to_owned())
+        let result = || -> Result<(), ServiceError> {
+            let conn = self.db.get()?;
+            Ok(join_talk(&msg, &conn)?)
+        };
+        match result() {
+            Ok(_) => self.send_message(&msg.session_id, "!!! Joined".to_owned()),
+            Err(_) => self.send_message(&msg.session_id, "!!! Join failed.".to_owned()),
+        }
     }
 }
 
@@ -199,7 +218,6 @@ impl prelude::Handler<GetRoomMembers> for ChatService {
 impl prelude::Handler<GetTalks> for ChatService {
     type Result = ();
     fn handle(&mut self, msg: GetTalks, _: &mut prelude::Context<Self>) {
-        let conn = self.db.get().unwrap();
         let talks = match msg.session_id {
             0 => self.talks.iter().collect(),
             _ => self.talks.iter().filter(|t| t.id == msg.talk_id).next().map(|t| vec![t]).unwrap_or(vec![])
