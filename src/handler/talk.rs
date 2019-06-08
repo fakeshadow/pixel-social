@@ -4,41 +4,31 @@ use diesel::{sql_query, prelude::*};
 use crate::model::{
     errors::ServiceError,
     user::User,
-    talk::{Talk, HistoryMessage, HistoryMessagePrivate, Create, Join},
+    talk::{Talk, HistoryMessage, Create, Join},
     common::{PoolConnectionPostgres, match_id},
 };
 
 use crate::handler::user::get_users_by_id;
 use crate::schema::talks;
 
-
 pub fn get_history(
+    table: &str,
     id: u32,
     time: &NaiveDateTime,
     conn: &PoolConnectionPostgres,
 ) -> Result<Vec<HistoryMessage>, ServiceError> {
     // ToDo: in case the query failed to get message history
-    let query = format!("SELECT * FROM talk{} WHERE date <= {} ORDER BY date DESC LIMIT 40", id, time);
+    let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 40", table, id, time);
     Ok(sql_query(query).load(conn)?)
 }
 
-pub fn get_history_private(
-    id: u32,
-    time: &NaiveDateTime,
-    conn: &PoolConnectionPostgres,
-) -> Result<Vec<HistoryMessagePrivate>, ServiceError> {
-    // ToDo: in case the query failed to get message history
-    let query = format!("SELECT * FROM private{} WHERE date <= {} ORDER BY date DESC LIMIT 40", id, time);
-    Ok(sql_query(query).load(conn)?)
-}
-
-pub fn save_message(
+pub fn insert_message(
     table: &str,
-    id: u32,
+    id: &u32,
     msg: &str,
     conn: &PoolConnectionPostgres,
 ) -> Result<(), ServiceError> {
-    let query = format!("INSERT INTO {}{} (message) VALUES ({})", table, id,msg);
+    let query = format!("INSERT INTO {}{} (message) VALUES ({})", table, id, msg);
     let _ = sql_query(query).execute(conn)?;
     Ok(())
 }

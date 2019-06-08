@@ -113,16 +113,6 @@ pub struct HistoryMessage {
     pub message: String,
 }
 
-#[derive(QueryableByName, Serialize)]
-pub struct HistoryMessagePrivate {
-    #[sql_type = "Timestamp"]
-    pub date: NaiveDateTime,
-    #[sql_type = "VarChar"]
-    pub message: String,
-    #[sql_type = "Bool"]
-    pub read: bool,
-}
-
 #[derive(prelude::Message)]
 pub struct Connect {
     pub session_id: u32,
@@ -160,10 +150,11 @@ pub struct GetTalks {
     pub talk_id: u32,
 }
 
+/// pass talk id for talk public messages. pass none for private history message.
 #[derive(prelude::Message, Deserialize)]
 pub struct GetHistory {
     pub time: String,
-    pub talk_id: u32,
+    pub talk_id: Option<u32>,
     pub session_id: u32,
 }
 
@@ -221,6 +212,8 @@ impl prelude::Handler<PublicMessage> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: PublicMessage, _: &mut prelude::Context<Self>) {
+        // ToDo: batch insert messages to database.
+        let _ = insert_message("talk", &msg.talk_id, &msg.msg, &self.db.get()?);
         self.send_message_many(msg);
     }
 }
@@ -229,6 +222,8 @@ impl prelude::Handler<PrivateMessage> for ChatService {
     type Result = ();
 
     fn handle(&mut self, msg: PrivateMessage, _: &mut prelude::Context<Self>) {
+        // ToDo: batch insert messages to database.
+        let _ = insert_message("private", &msg.session_id, &msg.msg, &self.db.get()?);
         self.send_message(&msg.session_id, msg.msg);
     }
 }
@@ -238,8 +233,13 @@ impl prelude::Handler<GetHistory> for ChatService {
 
     fn handle(&mut self, msg: GetHistory, _: &mut prelude::Context<Self>) {
         let result = || -> Result<String, ServiceError> {
-            let conn = &self.db.get()?;
-            Ok("placeholder".to_owned())
+            let table = match msg.talk_id {
+                Some(id) => "talk",
+                None => "private"
+            };
+            let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
+            let history = get_history(table, msg.talk_id.unwrap_or(msg.session_id), &time, &self.db.get()?)?;
+            Ok(serde_json::to_string(&history)?)
         };
         let string = result().unwrap_or("!!! Failed to get history message".to_owned());
         self.send_message(&msg.session_id, string);

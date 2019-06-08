@@ -16,7 +16,7 @@ pub fn talk(
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
-            id: 1,
+            id: 0,
             hb: Instant::now(),
             addr: srv.get_ref().clone(),
         },
@@ -75,6 +75,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     }
 }
 
+/// pattern match ws command
 fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::WebsocketContext<WsChatSession>) {
     let t = text.trim();
     if t.starts_with('/') {
@@ -94,11 +95,18 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 "/private" => {
                     let msg: Result<talk::PrivateMessage, _> = serde_json::from_str(v[1]);
                     match msg {
-                        Err(_) => ctx.text("!!! parsing error"),
-                        Ok(msg) => session.addr.do_send(msg)
+                        Ok(msg) => session.addr.do_send(msg),
+                        Err(_) => ctx.text("!!! parsing error")
                     }
                 }
-                /// get users of one room
+                "/history" => {
+                    let msg: Result<talk::GetHistory, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Ok(msg) => session.addr.do_send(msg),
+                        Err(_) => ctx.text("!!! parsing error")
+                    }
+                }
+                /// get users of one talk from talk_id
                 "/users" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
                     let result = session.addr.do_send(talk::GetRoomMembers {
@@ -106,7 +114,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         talk_id,
                     });
                 }
-                /// request talk_id 0 to get all talks.
+                /// request talk_id 0 to get all talks details.
                 "/talks" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
                     let _ = session.addr.do_send(talk::GetTalks {
