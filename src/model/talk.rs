@@ -213,7 +213,7 @@ impl prelude::Handler<PublicMessage> for ChatService {
 
     fn handle(&mut self, msg: PublicMessage, _: &mut prelude::Context<Self>) {
         // ToDo: batch insert messages to database.
-        let _ = insert_message("talk", &msg.talk_id, &msg.msg, &self.db.get()?);
+        let _ = insert_message("talk", &msg.talk_id, &msg.msg, &self.db);
         self.send_message_many(msg);
     }
 }
@@ -223,7 +223,7 @@ impl prelude::Handler<PrivateMessage> for ChatService {
 
     fn handle(&mut self, msg: PrivateMessage, _: &mut prelude::Context<Self>) {
         // ToDo: batch insert messages to database.
-        let _ = insert_message("private", &msg.session_id, &msg.msg, &self.db.get()?);
+        let _ = insert_message("private", &msg.session_id, &msg.msg, &self.db);
         self.send_message(&msg.session_id, msg.msg);
     }
 }

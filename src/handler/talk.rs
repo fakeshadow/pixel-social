@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
     user::User,
     talk::{Talk, HistoryMessage, Create, Join},
-    common::{PoolConnectionPostgres, match_id},
+    common::{PoolConnectionPostgres,PostgresPool, match_id},
 };
 
 use crate::handler::user::get_users_by_id;
@@ -26,8 +26,9 @@ pub fn insert_message(
     table: &str,
     id: &u32,
     msg: &str,
-    conn: &PoolConnectionPostgres,
+    pool: &PostgresPool,
 ) -> Result<(), ServiceError> {
+    let conn = &pool.get()?;
     let query = format!("INSERT INTO {}{} (message) VALUES ({})", table, id, msg);
     let _ = sql_query(query).execute(conn)?;
     Ok(())
