@@ -101,7 +101,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         Ok(mut msg) => {
                             msg.session_id = session.id;
                             session.addr.do_send(msg)
-                        },
+                        }
                         Err(_) => ctx.text("!!! parsing error")
                     }
                 }
@@ -129,6 +129,16 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                         session_id: session.id,
                     });
                 }
+                "/remove" => {
+                    let msg: Result<talk::Remove, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Ok(mut msg) => {
+                            msg.session_id = session.id;
+                            session.addr.do_send(msg)
+                        }
+                        Err(_) => ctx.text("!!! parsing error")
+                    }
+                }
                 "/create" => {
                     session.addr.send(talk::Create {
                         name: "".to_string(),
@@ -148,7 +158,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
                     session.addr.do_send(talk::Delete {
                         session_id: session.id,
-                        talk_id
+                        talk_id,
                     });
                 }
                 _ => ctx.text("!!! unknown command")

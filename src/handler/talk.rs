@@ -42,6 +42,15 @@ pub fn get_talk_members(
     get_users_by_id(&ids, conn)
 }
 
+pub fn remove_talk_member(
+    id: u32,
+    talk_id: u32,
+    pool: &PostgresPool,
+) -> Result<(),ServiceError> {
+    let conn = &pool.get()?;
+    Ok(())
+}
+
 pub fn create_talk(
     msg: Create,
     conn: &PoolConnectionPostgres,

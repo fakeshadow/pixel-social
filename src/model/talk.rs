@@ -140,6 +140,12 @@ pub struct Delete {
     pub talk_id: u32,
 }
 
+#[derive(prelude::Message, Deserialize)]
+pub struct Remove {
+    pub session_id: u32,
+    pub user_id: u32,
+    pub talk_id: u32,
+}
 
 #[derive(prelude::Message)]
 pub struct GetRoomMembers {
@@ -209,6 +215,38 @@ impl prelude::Handler<Join> for TalkService {
             let string = result().unwrap_or("!!! Join failed.");
             self.send_message(&msg.session_id, string);
         }
+    }
+}
+
+impl prelude::Handler<Remove> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Remove, _: &mut prelude::Context<Self>) {
+
+        let string = match self.talks.get_mut(&msg.talk_id) {
+            Some(talk) => {
+                let (index, _) = talk.users
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, uid)| *uid == &msg.user_id)
+                    .next()
+                    .unwrap_or((0, &0));
+
+                if index > 0 && talk.owner == msg.session_id {
+                    remove_talk_member(msg.user_id, msg.talk_id, &self.db)
+                        .map(|_| {
+                            talk.users.remove(index);
+                            "Removed"
+                        })
+                        .unwrap_or("!!! Remove Failed")
+                } else {
+                    "!!! Wrong user id"
+                }
+            }
+            None => "!!! Wrong talk id"
+        };
+
+        self.send_message(&msg.session_id, string);
     }
 }
 
