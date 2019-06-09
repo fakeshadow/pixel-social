@@ -26,7 +26,7 @@ mod router;
 mod schema;
 mod util;
 
-use crate::model::talk::ChatService;
+use crate::model::talk::TalkService;
 use crate::handler::{cache::clear_cache, email::MailService};
 use crate::util::startup::{build_cache, init_global_var};
 
@@ -57,7 +57,7 @@ fn main() -> std::io::Result<()> {
     let global_arc = init_global_var(&postgres_pool);
 
     let sys = System::new("PixelShare");
-    let talk_service = ChatService::init(postgres_pool.clone(), redis_pool.clone()).start();
+    let talk_service = TalkService::init(postgres_pool.clone(), redis_pool.clone()).start();
     /// mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 

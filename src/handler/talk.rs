@@ -4,8 +4,8 @@ use diesel::{sql_query, prelude::*};
 use crate::model::{
     errors::ServiceError,
     user::User,
-    talk::{Talk, HistoryMessage, Create, Join},
-    common::{PoolConnectionPostgres,PostgresPool, match_id},
+    talk::{Talk, HistoryMessage, Create, Join, Delete},
+    common::{PoolConnectionPostgres, PostgresPool, match_id},
 };
 
 use crate::handler::user::get_users_by_id;
@@ -34,7 +34,10 @@ pub fn insert_message(
     Ok(())
 }
 
-pub fn get_talk_members(id: u32, conn: &PoolConnectionPostgres) -> Result<Vec<User>, ServiceError> {
+pub fn get_talk_members(
+    id: u32,
+    conn: &PoolConnectionPostgres,
+) -> Result<Vec<User>, ServiceError> {
     let ids = talks::table.find(id).select(talks::users).first::<Vec<u32>>(conn)?;
     get_users_by_id(&ids, conn)
 }
@@ -56,6 +59,15 @@ pub fn create_talk(
     let _ = sql_query(query).execute(conn)?;
 
     Ok(talk)
+}
+
+pub fn remove_talk(
+    msg: &Delete,
+    conn: &PoolConnectionPostgres,
+) -> Result<(), ServiceError> {
+    let query = format!("DROP TABLE talk{}", msg.talk_id);
+    sql_query(query).execute(conn)?;
+    Ok(())
 }
 
 pub fn join_talk(

@@ -12,7 +12,7 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn talk(
     req: HttpRequest,
     stream: Payload,
-    srv: Data<Addr<talk::ChatService>>,
+    srv: Data<Addr<talk::TalkService>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
@@ -28,7 +28,7 @@ pub fn talk(
 struct WsChatSession {
     id: u32,
     hb: Instant,
-    addr: Addr<talk::ChatService>,
+    addr: Addr<talk::TalkService>,
 }
 
 impl Actor for WsChatSession {
@@ -85,31 +85,30 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             ctx.stop();
         } else {
             match v[0] {
-                "/public" => {
-                    let msg: Result<talk::PublicMessage, _> = serde_json::from_str(v[1]);
+                "/msg" => {
+                    let msg: Result<talk::ClientMessage, _> = serde_json::from_str(v[1]);
                     match msg {
-                        Err(_) => ctx.text("!!! parsing error"),
-                        Ok(msg) => session.addr.do_send(msg)
-                    }
-                }
-                "/private" => {
-                    let msg: Result<talk::PrivateMessage, _> = serde_json::from_str(v[1]);
-                    match msg {
-                        Ok(msg) => session.addr.do_send(msg),
+                        Ok(mut msg) => {
+                            msg.session_id = session.id;
+                            session.addr.do_send(msg);
+                        }
                         Err(_) => ctx.text("!!! parsing error")
                     }
                 }
                 "/history" => {
                     let msg: Result<talk::GetHistory, _> = serde_json::from_str(v[1]);
                     match msg {
-                        Ok(msg) => session.addr.do_send(msg),
+                        Ok(mut msg) => {
+                            msg.session_id = session.id;
+                            session.addr.do_send(msg)
+                        },
                         Err(_) => ctx.text("!!! parsing error")
                     }
                 }
                 /// get users of one talk from talk_id
                 "/users" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
-                    let result = session.addr.do_send(talk::GetRoomMembers {
+                    let _ = session.addr.do_send(talk::GetRoomMembers {
                         session_id: session.id,
                         talk_id,
                     });
@@ -144,6 +143,13 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                             fut::ok(())
                         })
                         .wait(ctx);
+                }
+                "/delete" => {
+                    let talk_id = v[1].parse::<u32>().unwrap_or(0);
+                    session.addr.do_send(talk::Delete {
+                        session_id: session.id,
+                        talk_id
+                    });
                 }
                 _ => ctx.text("!!! unknown command")
             }

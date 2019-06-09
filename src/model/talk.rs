@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use actix::prelude;
 use chrono::NaiveDateTime;
@@ -12,7 +12,7 @@ use crate::handler::talk::*;
 
 use crate::schema::talks;
 
-#[derive(Queryable, Insertable, Serialize)]
+#[derive(Queryable, Insertable, Serialize, Hash, Eq, PartialEq)]
 #[table_name = "talks"]
 pub struct Talk {
     pub id: u32,
@@ -36,38 +36,39 @@ impl Talk {
     }
 }
 
-pub struct ChatService {
+pub struct TalkService {
     sessions: HashMap<u32, prelude::Recipient<SessionMessage>>,
-    talks: Vec<Talk>,
+    talks: HashMap<u32, Talk>,
     db: PostgresPool,
     cache: RedisPool,
 }
 
-impl prelude::Actor for ChatService {
+impl prelude::Actor for TalkService {
     type Context = prelude::Context<Self>;
 }
 
-impl ChatService {
-    pub fn init(db: PostgresPool, cache: RedisPool) -> ChatService {
+impl TalkService {
+    pub fn init(db: PostgresPool, cache: RedisPool) -> TalkService {
         let conn = &db.get().unwrap_or_else(|_| panic!("Database connection failed"));
         let talks = load_all_talks(conn).unwrap_or_else(|_| panic!("Loading talks failed"));
+        let mut hash = HashMap::new();
 
-        ChatService {
+        for talk in talks.into_iter() {
+            hash.insert(talk.id, talk);
+        }
+
+        TalkService {
             sessions: HashMap::new(),
-            talks,
+            talks: hash,
             db,
             cache,
         }
     }
 
-    fn send_message_many(&self, msg: PublicMessage) {
-        let _ = self.talks.iter()
-            .filter(|talk| talk.id == msg.talk_id)
-            .next()
-            .map(|talk| &talk.users)
-            .unwrap_or(&vec![])
-            .into_iter()
-            .map(|id| self.send_message(id, msg.msg.to_owned()));
+    fn send_message_many(&self, id: u32, msg: &str) {
+        if let Some(talk) = self.talks.get(&id) {
+            talk.users.iter().map(|id| self.send_message(id, msg));
+        }
     }
 
     fn send_talk_members(&self, session_id: u32, talk_id: u32) {
@@ -82,9 +83,9 @@ impl ChatService {
         }
     }
 
-    fn send_message(&self, session_id: &u32, msg: String) {
+    fn send_message(&self, session_id: &u32, msg: &str) {
         if let Some(addr) = self.sessions.get(&session_id) {
-            let _ = addr.do_send(SessionMessage(msg));
+            let _ = addr.do_send(SessionMessage(msg.to_owned()));
         }
     }
 }
@@ -92,16 +93,11 @@ impl ChatService {
 #[derive(prelude::Message)]
 pub struct SessionMessage(pub String);
 
-
+/// pass talk_id in json for public message, pass none for private message
 #[derive(prelude::Message, Deserialize)]
-pub struct PublicMessage {
+pub struct ClientMessage {
     pub msg: String,
-    pub talk_id: u32,
-}
-
-#[derive(prelude::Message, Deserialize)]
-pub struct PrivateMessage {
-    pub msg: String,
+    pub talk_id: Option<u32>,
     pub session_id: u32,
 }
 
@@ -139,6 +135,13 @@ pub struct Join {
 }
 
 #[derive(prelude::Message)]
+pub struct Delete {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+
+#[derive(prelude::Message)]
 pub struct GetRoomMembers {
     pub session_id: u32,
     pub talk_id: u32,
@@ -158,7 +161,7 @@ pub struct GetHistory {
     pub session_id: u32,
 }
 
-impl prelude::Handler<Connect> for ChatService {
+impl prelude::Handler<Connect> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Connect, _: &mut prelude::Context<Self>) {
@@ -166,7 +169,7 @@ impl prelude::Handler<Connect> for ChatService {
     }
 }
 
-impl prelude::Handler<Disconnect> for ChatService {
+impl prelude::Handler<Disconnect> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Disconnect, _: &mut prelude::Context<Self>) {
@@ -174,7 +177,7 @@ impl prelude::Handler<Disconnect> for ChatService {
     }
 }
 
-impl prelude::Handler<Create> for ChatService {
+impl prelude::Handler<Create> for TalkService {
     type Result = String;
 
     fn handle(&mut self, msg: Create, _: &mut prelude::Context<Self>) -> Self::Result {
@@ -182,53 +185,76 @@ impl prelude::Handler<Create> for ChatService {
             let conn = self.db.get()?;
             let talk = create_talk(msg, &conn)?;
             let string = serde_json::to_string(&talk)?;
-            self.talks.push(talk);
+            self.talks.insert(talk.id, talk);
             Ok(string)
         };
         result().unwrap_or("!!! Join failed.".to_owned())
     }
 }
 
-impl prelude::Handler<Join> for ChatService {
+impl prelude::Handler<Join> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Join, _: &mut prelude::Context<Self>) {
-        for talk in self.talks.iter() {
+        if let Some(talk) = self.talks.get(&msg.talk_id) {
             if talk.users.contains(&msg.session_id) {
-                self.send_message(&msg.session_id, "Already joined".to_owned())
+                self.send_message(&msg.session_id, "Already joined")
+            }
+
+            let result = || -> Result<&str, ServiceError> {
+                let conn = self.db.get()?;
+                join_talk(&msg, &conn)?;
+                Ok("!!! Joined")
+            };
+            let string = result().unwrap_or("!!! Join failed.");
+            self.send_message(&msg.session_id, string);
+        }
+    }
+}
+
+impl prelude::Handler<Delete> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Delete, _: &mut prelude::Context<Self>) {
+        if let Some(talk) = self.talks.get(&msg.talk_id) {
+            let result = || -> Result<(), ServiceError> {
+                if &talk.owner == &msg.session_id {
+                    remove_talk(&msg, &self.db.get()?)
+                } else {
+                    Err(ServiceError::InternalServerError)
+                }
+            };
+            let string = result()
+                .map(|_| {
+                    self.talks.remove(&msg.talk_id);
+                    "Deleted"
+                })
+                .unwrap_or("!!! Wrong talk");
+
+            self.send_message(&msg.session_id, string);
+        }
+    }
+}
+
+impl prelude::Handler<ClientMessage> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: ClientMessage, _: &mut prelude::Context<Self>) {
+        // ToDo: batch insert messages to database.
+        match msg.talk_id {
+            Some(id) => {
+                let _ = insert_message("talk", &id, &msg.msg, &self.db);
+                self.send_message_many(id, &msg.msg);
+            }
+            None => {
+                let _ = insert_message("private", &msg.session_id, &msg.msg, &self.db);
+                self.send_message(&msg.session_id, &msg.msg);
             }
         }
-        let result = || -> Result<String, ServiceError> {
-            let conn = self.db.get()?;
-            join_talk(&msg, &conn)?;
-            Ok("!!! Joined".to_owned())
-        };
-        let string = result().unwrap_or("!!! Join failed.".to_owned());
-        self.send_message(&msg.session_id, string);
     }
 }
 
-impl prelude::Handler<PublicMessage> for ChatService {
-    type Result = ();
-
-    fn handle(&mut self, msg: PublicMessage, _: &mut prelude::Context<Self>) {
-        // ToDo: batch insert messages to database.
-        let _ = insert_message("talk", &msg.talk_id, &msg.msg, &self.db);
-        self.send_message_many(msg);
-    }
-}
-
-impl prelude::Handler<PrivateMessage> for ChatService {
-    type Result = ();
-
-    fn handle(&mut self, msg: PrivateMessage, _: &mut prelude::Context<Self>) {
-        // ToDo: batch insert messages to database.
-        let _ = insert_message("private", &msg.session_id, &msg.msg, &self.db);
-        self.send_message(&msg.session_id, msg.msg);
-    }
-}
-
-impl prelude::Handler<GetHistory> for ChatService {
+impl prelude::Handler<GetHistory> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: GetHistory, _: &mut prelude::Context<Self>) {
@@ -241,12 +267,13 @@ impl prelude::Handler<GetHistory> for ChatService {
             let history = get_history(table, msg.talk_id.unwrap_or(msg.session_id), &time, &self.db.get()?)?;
             Ok(serde_json::to_string(&history)?)
         };
+
         let string = result().unwrap_or("!!! Failed to get history message".to_owned());
-        self.send_message(&msg.session_id, string);
+        self.send_message(&msg.session_id, &string);
     }
 }
 
-impl prelude::Handler<GetRoomMembers> for ChatService {
+impl prelude::Handler<GetRoomMembers> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: GetRoomMembers, _: &mut prelude::Context<Self>) {
@@ -254,14 +281,14 @@ impl prelude::Handler<GetRoomMembers> for ChatService {
     }
 }
 
-impl prelude::Handler<GetTalks> for ChatService {
+impl prelude::Handler<GetTalks> for TalkService {
     type Result = ();
     fn handle(&mut self, msg: GetTalks, _: &mut prelude::Context<Self>) {
         let talks = match msg.session_id {
-            0 => self.talks.iter().collect(),
-            _ => self.talks.iter().filter(|t| t.id == msg.talk_id).next().map(|t| vec![t]).unwrap_or(vec![])
+            0 => self.talks.iter().map(|(_, t)| t).collect(),
+            _ => self.talks.get(&msg.talk_id).map(|t| vec![t]).unwrap_or(vec![])
         };
         let string = serde_json::to_string(&talks).unwrap_or("!!! Stringify error".to_owned());
-        self.send_message(&msg.session_id, string);
+        self.send_message(&msg.session_id, &string);
     }
 }
