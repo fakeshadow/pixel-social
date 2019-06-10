@@ -65,6 +65,15 @@ impl TalkService {
         }
     }
 
+
+    fn remove_admin(&mut self, id: u32, talk_id: &u32) -> Result<(), ServiceError> {
+        let talk = self.talks.get_mut(talk_id).ok_or(ServiceError::InternalServerError)?;
+        let ids = talk.admin.clone();
+        let ids = remove_id(id, ids)?;
+        talk.admin = ids;
+        Ok(())
+    }
+
     fn send_message_many(&self, id: u32, msg: &str) {
         if let Some(talk) = self.talks.get(&id) {
             talk.users.iter().map(|id| self.send_message(id, msg));
@@ -147,6 +156,14 @@ pub struct Remove {
     pub talk_id: u32,
 }
 
+#[derive(prelude::Message, Deserialize)]
+pub struct Admin {
+    pub add: Option<u32>,
+    pub remove: Option<u32>,
+    pub talk_id: u32,
+    pub session_id: u32,
+}
+
 #[derive(prelude::Message)]
 pub struct GetRoomMembers {
     pub session_id: u32,
@@ -222,7 +239,6 @@ impl prelude::Handler<Remove> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Remove, _: &mut prelude::Context<Self>) {
-
         let string = match self.talks.get_mut(&msg.talk_id) {
             Some(talk) => {
                 let (index, _) = talk.users
@@ -271,6 +287,50 @@ impl prelude::Handler<Delete> for TalkService {
 
             self.send_message(&msg.session_id, string);
         }
+    }
+}
+
+impl prelude::Handler<Admin> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Admin, _: &mut prelude::Context<Self>) {
+        let string = match self.talks.get_mut(&msg.talk_id) {
+            Some(talk) => {
+                let (typ, id, can_update) = match msg.add {
+                    Some(id) => ("add", id, !talk.admin.contains(&id)),
+                    None => {
+                        let id = msg.remove.unwrap_or(0);
+                        ("remove", id, talk.admin.contains(&id))
+                    }
+                };
+                if &talk.owner == &msg.session_id && can_update {
+                    match typ {
+                        "add" => add_admin(id, msg.talk_id, &self.db)
+                            .map(|_| {
+                                talk.admin.push(id);
+                                "Update admin success"
+                            })
+                            .unwrap_or("Add admin failed"),
+                        _ => remove_admin(id, msg.talk_id, &self.db)
+                            .map(|_| {
+                                let (index, _) = talk.admin
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(i, uid)| *uid == &id)
+                                    .next()
+                                    .unwrap();
+                                talk.admin.remove(index);
+                                "Update admin success"
+                            })
+                            .unwrap_or("Add admin failed"),
+                    }
+                } else {
+                    "!!! Parsing failed"
+                }
+            }
+            None => "!!! Wrong talk"
+        };
+        self.send_message(&msg.session_id, string);
     }
 }
 

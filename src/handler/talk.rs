@@ -46,8 +46,40 @@ pub fn remove_talk_member(
     id: u32,
     talk_id: u32,
     pool: &PostgresPool,
-) -> Result<(),ServiceError> {
+) -> Result<(), ServiceError> {
     let conn = &pool.get()?;
+    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::users).first::<Vec<u32>>(conn)?;
+    ids = remove_id(id, ids)?;
+
+    let _ = diesel::update(talks::table.find(talk_id)).set(talks::users.eq(ids)).execute(conn)?;
+
+    Ok(())
+}
+
+pub fn add_admin(
+    id: u32,
+    talk_id: u32,
+    pool: &PostgresPool,
+) -> Result<(), ServiceError> {
+    let conn = &pool.get()?;
+    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::admin).first::<Vec<u32>>(conn)?;
+    ids.push(id);
+    ids.sort();
+    let _ = diesel::update(talks::table.find(talk_id)).set(talks::admin.eq(ids)).execute(conn)?;
+    Ok(())
+}
+
+pub fn remove_admin(
+    id: u32,
+    talk_id: u32,
+    pool: &PostgresPool,
+) -> Result<(), ServiceError> {
+    let conn = &pool.get()?;
+    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::admin).first::<Vec<u32>>(conn)?;
+    ids = remove_id(id, ids)?;
+
+    let _ = diesel::update(talks::table.find(talk_id)).set(talks::admin.eq(ids)).execute(conn)?;
+
     Ok(())
 }
 
@@ -98,4 +130,18 @@ pub fn load_all_talks(
     conn: &PoolConnectionPostgres
 ) -> Result<Vec<Talk>, ServiceError> {
     Ok(talks::table.load::<Talk>(conn)?)
+}
+
+pub fn remove_id(
+    id:u32,
+    mut ids: Vec<u32>
+)-> Result<Vec<u32>, ServiceError> {
+    let (index, _) = ids
+        .iter()
+        .enumerate()
+        .filter(|(i, uid)| *uid == &id)
+        .next()
+        .ok_or(ServiceError::InternalServerError)?;
+    ids.remove(index);
+    Ok(ids)
 }

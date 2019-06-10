@@ -5,18 +5,20 @@ use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
 use actix_web_actors::ws;
 
 use crate::model::talk;
+use crate::handler::auth::UserJwt;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn talk(
+    jwt: UserJwt,
     req: HttpRequest,
     stream: Payload,
     srv: Data<Addr<talk::TalkService>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
-            id: 0,
+            id: jwt.user_id,
             hb: Instant::now(),
             addr: srv.get_ref().clone(),
         },
@@ -131,6 +133,16 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 }
                 "/remove" => {
                     let msg: Result<talk::Remove, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Ok(mut msg) => {
+                            msg.session_id = session.id;
+                            session.addr.do_send(msg)
+                        }
+                        Err(_) => ctx.text("!!! parsing error")
+                    }
+                }
+                "/admin" => {
+                    let msg: Result<talk::Admin, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.session_id = session.id;
