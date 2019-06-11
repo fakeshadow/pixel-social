@@ -84,22 +84,35 @@ pub fn remove_admin(
 }
 
 pub fn create_talk(
-    msg: Create,
+    msg: &Create,
     conn: &PoolConnectionPostgres,
 ) -> Result<Talk, ServiceError> {
     let last_id = Ok(talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?);
 
     let id = match_id(last_id);
+    let msg = msg.clone();
     let talk = Talk::new(id, msg);
 
-    let talk = diesel::insert_into(talks::table).values(&talk).get_result::<Talk>(conn)?;
+    use crate::schema::talkstest;
+    let result = diesel::insert_into(talkstest::table).values(&talk).execute(conn);
+
+    println!("{:?}", result);
+
+//    let talk = diesel::insert_into(talks::table).values(&talk).get_result::<Talk>(conn)?;
 
     // ToDo: in case the query failed to generate new table
-    let query = format!("CREATE TABLE talk{} (date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))", talk.id);
+    let query = format!("CREATE TABLE talk{} (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))", talk.id);
 
     let _ = sql_query(query).execute(conn)?;
 
-    Ok(talk)
+    Ok(Talk {
+        id,
+        name: "123".to_owned(),
+        description: "123".to_owned(),
+        owner: 1,
+        admin: vec![1],
+        users: vec![1],
+    })
 }
 
 pub fn remove_talk(
@@ -133,9 +146,9 @@ pub fn load_all_talks(
 }
 
 pub fn remove_id(
-    id:u32,
-    mut ids: Vec<u32>
-)-> Result<Vec<u32>, ServiceError> {
+    id: u32,
+    mut ids: Vec<u32>,
+) -> Result<Vec<u32>, ServiceError> {
     let (index, _) = ids
         .iter()
         .enumerate()

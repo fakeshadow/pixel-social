@@ -11,14 +11,14 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn talk(
-    jwt: UserJwt,
-    req: HttpRequest,
-    stream: Payload,
-    srv: Data<Addr<talk::TalkService>>,
+//    jwt: UserJwt,
+req: HttpRequest,
+stream: Payload,
+srv: Data<Addr<talk::TalkService>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
-            id: jwt.user_id,
+            id: 0,
             hb: Instant::now(),
             addr: srv.get_ref().clone(),
         },
@@ -152,19 +152,14 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     }
                 }
                 "/create" => {
-                    session.addr.send(talk::Create {
-                        name: "".to_string(),
-                        description: "".to_string(),
-                        owner: session.id,
-                    }).into_actor(session)
-                        .then(|res, _, ctx| {
-                            match res {
-                                Ok(talk) => ctx.text(talk),
-                                _ => ctx.stop(),
-                            }
-                            fut::ok(())
-                        })
-                        .wait(ctx);
+                    let msg: Result<talk::Create, _> = serde_json::from_str(v[1]);
+                    match msg {
+                        Ok(mut msg) => {
+                            msg.owner = session.id;
+                            session.addr.do_send(msg)
+                        }
+                        Err(_) => ctx.text("!!! parsing error")
+                    }
                 }
                 "/delete" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);

@@ -11,8 +11,9 @@ use crate::model::{
 use crate::handler::talk::*;
 
 use crate::schema::talks;
+use crate::schema::talkstest;
 
-#[derive(Queryable, Insertable, Serialize, Hash, Eq, PartialEq)]
+#[derive(Queryable, Insertable, Serialize, Hash, Eq, PartialEq, Debug)]
 #[table_name = "talks"]
 pub struct Talk {
     pub id: u32,
@@ -23,15 +24,28 @@ pub struct Talk {
     pub users: Vec<u32>,
 }
 
+#[derive(Insertable)]
+#[table_name = "talkstest"]
+pub struct NewTalk {
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub owner: u32,
+    pub admin: Vec<i32>,
+    pub users: Vec<i32>,
+}
+
 impl Talk {
-    pub fn new(id: u32, msg: Create) -> Self {
-        Talk {
+    pub fn new(id: u32, msg: Create) -> NewTalk {
+        let test = msg.owner;
+
+        NewTalk {
             id,
             name: msg.name,
             description: msg.description,
-            owner: msg.owner,
-            admin: vec![],
-            users: vec![],
+            owner: 1,
+            admin: vec![1],
+            users: vec![1],
         }
     }
 }
@@ -63,15 +77,6 @@ impl TalkService {
             db,
             cache,
         }
-    }
-
-
-    fn remove_admin(&mut self, id: u32, talk_id: &u32) -> Result<(), ServiceError> {
-        let talk = self.talks.get_mut(talk_id).ok_or(ServiceError::InternalServerError)?;
-        let ids = talk.admin.clone();
-        let ids = remove_id(id, ids)?;
-        talk.admin = ids;
-        Ok(())
     }
 
     fn send_message_many(&self, id: u32, msg: &str) {
@@ -129,8 +134,7 @@ pub struct Disconnect {
     pub session_id: u32,
 }
 
-#[derive(prelude::Message)]
-#[rtype(String)]
+#[derive(prelude::Message, Deserialize, Clone)]
 pub struct Create {
     pub name: String,
     pub description: String,
@@ -201,17 +205,18 @@ impl prelude::Handler<Disconnect> for TalkService {
 }
 
 impl prelude::Handler<Create> for TalkService {
-    type Result = String;
+    type Result = ();
 
     fn handle(&mut self, msg: Create, _: &mut prelude::Context<Self>) -> Self::Result {
-        let result = || -> Result<String, ServiceError> {
+        let mut result = || -> Result<String, ServiceError> {
             let conn = self.db.get()?;
-            let talk = create_talk(msg, &conn)?;
+            let talk = create_talk(&msg, &conn)?;
             let string = serde_json::to_string(&talk)?;
             self.talks.insert(talk.id, talk);
             Ok(string)
         };
-        result().unwrap_or("!!! Join failed.".to_owned())
+        let string = result().unwrap_or("!!! Create failed.".to_owned());
+        self.send_message(&msg.owner, string.as_str());
     }
 }
 
@@ -308,6 +313,7 @@ impl prelude::Handler<Admin> for TalkService {
                         "add" => add_admin(id, msg.talk_id, &self.db)
                             .map(|_| {
                                 talk.admin.push(id);
+                                talk.admin.sort();
                                 "Update admin success"
                             })
                             .unwrap_or("Add admin failed"),

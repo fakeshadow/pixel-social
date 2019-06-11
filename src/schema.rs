@@ -35,6 +35,13 @@ table! {
 }
 
 table! {
+    talk1 (date) {
+        date -> Timestamp,
+        message -> Nullable<Varchar>,
+    }
+}
+
+table! {
     talks (id) {
         id -> Oid,
         name -> Varchar,
@@ -42,6 +49,17 @@ table! {
         owner -> Oid,
         admin -> Array<Oid>,
         users -> Array<Oid>,
+    }
+}
+
+table! {
+    talkstest (id) {
+        id -> Oid,
+        name -> Varchar,
+        description -> Varchar,
+        owner -> Oid,
+        admin -> Array<Int4>,
+        users -> Array<Int4>,
     }
 }
 
@@ -78,3 +96,14 @@ table! {
         show_updated_at -> Bool,
     }
 }
+
+allow_tables_to_appear_in_same_query!(
+    associates,
+    categories,
+    posts,
+    talk1,
+    talks,
+    talkstest,
+    topics,
+    users,
+);

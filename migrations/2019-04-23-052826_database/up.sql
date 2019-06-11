@@ -69,9 +69,20 @@ CREATE TABLE talks
     name            VARCHAR(128)    NOT NULL UNIQUE,
     description     VARCHAR(128)    NOT NULL,
     owner           OID             NOT NULL,
-    admin           OID[]           NOT NULL,
-    users           OID[]           NOT NULL
+    admin           OID[]          NOT NULL,
+    users           OID[]          NOT NULL
 );
+
+CREATE TABLE talkstest
+(
+    id              OID             NOT NULL UNIQUE PRIMARY KEY,
+    name            VARCHAR(128)    NOT NULL UNIQUE,
+    description     VARCHAR(128)    NOT NULL,
+    owner           OID             NOT NULL,
+    admin           INTEGER []          NOT NULL,
+    users           INTEGER[]          NOT NULL
+);
+
 
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
