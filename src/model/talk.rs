@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use actix::prelude;
 use chrono::NaiveDateTime;
-use diesel::sql_types::{VarChar, Timestamp, Bool};
+use diesel::sql_types::{VarChar, Timestamp, Bool, Oid, Array};
 
 use crate::model::{
     errors::ServiceError,
@@ -11,10 +11,8 @@ use crate::model::{
 use crate::handler::talk::*;
 
 use crate::schema::talks;
-use crate::schema::talkstest;
 
-#[derive(Queryable, Insertable, Serialize, Hash, Eq, PartialEq, Debug)]
-#[table_name = "talks"]
+#[derive(Queryable, Serialize, Hash, Eq, PartialEq, Debug)]
 pub struct Talk {
     pub id: u32,
     pub name: String,
@@ -22,32 +20,6 @@ pub struct Talk {
     pub owner: u32,
     pub admin: Vec<u32>,
     pub users: Vec<u32>,
-}
-
-#[derive(Insertable)]
-#[table_name = "talkstest"]
-pub struct NewTalk {
-    pub id: u32,
-    pub name: String,
-    pub description: String,
-    pub owner: u32,
-    pub admin: Vec<i32>,
-    pub users: Vec<i32>,
-}
-
-impl Talk {
-    pub fn new(id: u32, msg: Create) -> NewTalk {
-        let test = msg.owner;
-
-        NewTalk {
-            id,
-            name: msg.name,
-            description: msg.description,
-            owner: 1,
-            admin: vec![1],
-            users: vec![1],
-        }
-    }
 }
 
 pub struct TalkService {

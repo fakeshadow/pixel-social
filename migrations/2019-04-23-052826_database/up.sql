@@ -17,12 +17,12 @@ CREATE TABLE users
 
 CREATE TABLE categories
 (
-    id              OID          NOT NULL UNIQUE PRIMARY KEY,
-    name            VARCHAR(128) NOT NULL,
-    topic_count     INTEGER      NOT NULL DEFAULT 0,
-    post_count      INTEGER      NOT NULL DEFAULT 0,
-    subscriber_count INTEGER     NOT NULL DEFAULT 0,
-    thumbnail       VARCHAR(256) NOT NULL
+    id               OID          NOT NULL UNIQUE PRIMARY KEY,
+    name             VARCHAR(128) NOT NULL,
+    topic_count      INTEGER      NOT NULL DEFAULT 0,
+    post_count       INTEGER      NOT NULL DEFAULT 0,
+    subscriber_count INTEGER      NOT NULL DEFAULT 0,
+    thumbnail        VARCHAR(256) NOT NULL
 );
 
 CREATE TABLE topics
@@ -65,24 +65,13 @@ CREATE TABLE associates
 
 CREATE TABLE talks
 (
-    id              OID             NOT NULL UNIQUE PRIMARY KEY,
-    name            VARCHAR(128)    NOT NULL UNIQUE,
-    description     VARCHAR(128)    NOT NULL,
-    owner           OID             NOT NULL,
-    admin           OID[]          NOT NULL,
-    users           OID[]          NOT NULL
+    id          OID          NOT NULL UNIQUE PRIMARY KEY,
+    name        VARCHAR(128) NOT NULL UNIQUE,
+    description VARCHAR(128) NOT NULL,
+    owner       OID          NOT NULL,
+    admin       OID[]        NOT NULL,
+    users       OID[]        NOT NULL
 );
-
-CREATE TABLE talkstest
-(
-    id              OID             NOT NULL UNIQUE PRIMARY KEY,
-    name            VARCHAR(128)    NOT NULL UNIQUE,
-    description     VARCHAR(128)    NOT NULL,
-    owner           OID             NOT NULL,
-    admin           INTEGER []          NOT NULL,
-    users           INTEGER[]          NOT NULL
-);
-
 
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
@@ -96,19 +85,20 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 --Placeholder data below.Safe to delete
 --admin password is 1234asdf
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)
-VALUES (1,'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'avatar_url', 9);
+VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
+        'avatar_url', 9);
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', 'category_default.png'),
-(2, 'Announcement', 'category_default.png');
+       (2, 'Announcement', 'category_default.png');
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (3, 'Armored Core', 'ac.jpg'),
-(4, 'Ace Combat', 'ace.jpg'),
-(5, 'Persona', 'persona.jpg');
+       (4, 'Ace Combat', 'ace.jpg'),
+       (5, 'Persona', 'persona.jpg');
 
-INSERT INTO topics ( id, user_id, category_id, title, body, thumbnail)
+INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
-INSERT INTO posts ( id, user_id, topic_id, post_content)
+INSERT INTO posts (id, user_id, topic_id, post_content)
 VALUES (1, 1, 1, 'First Reply Only to stop cache build from complaining');

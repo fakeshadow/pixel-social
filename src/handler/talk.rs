@@ -90,29 +90,30 @@ pub fn create_talk(
     let last_id = Ok(talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?);
 
     let id = match_id(last_id);
-    let msg = msg.clone();
-    let talk = Talk::new(id, msg);
 
-    use crate::schema::talkstest;
-    let result = diesel::insert_into(talkstest::table).values(&talk).execute(conn);
-
-    println!("{:?}", result);
-
-//    let talk = diesel::insert_into(talks::table).values(&talk).get_result::<Talk>(conn)?;
-
-    // ToDo: in case the query failed to generate new table
-    let query = format!("CREATE TABLE talk{} (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))", talk.id);
+    let array = vec![msg.owner];
+    let query = format!(
+        "INSERT INTO talks
+        (id, name, description, owner, admin, users)
+        VALUES ({}, '{}', '{}', {}, ARRAY {:?}, ARRAY {:?})",
+        id,
+        msg.name,
+        msg.description,
+        msg.owner,
+        &array,
+        &array);
 
     let _ = sql_query(query).execute(conn)?;
 
-    Ok(Talk {
-        id,
-        name: "123".to_owned(),
-        description: "123".to_owned(),
-        owner: 1,
-        admin: vec![1],
-        users: vec![1],
-    })
+    let query = format!(
+        "CREATE TABLE talk{}
+        (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))",
+        id);
+
+    let _ = sql_query(query).execute(conn)?;
+
+    // ToDo: fix problem getting returned talk when inserting.
+    Ok(talks::table.find(id).first::<Talk>(conn)?)
 }
 
 pub fn remove_talk(
