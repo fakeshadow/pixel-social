@@ -2,7 +2,7 @@ use actix_web::{Error, HttpResponse, web::{Data, Json, Path}};
 use futures::Future;
 
 use crate::model::{
-    common::{GlobalGuard, PostgresPool,RedisPool},
+    common::{GlobalGuard, PostgresPool, RedisPool},
     topic::{TopicRequest, TopicQuery},
 };
 use crate::handler::cache::UpdateCacheAsync;
@@ -10,7 +10,7 @@ use crate::handler::cache::UpdateCacheAsync;
 pub fn test_global_var(
     global: Data<GlobalGuard>,
     db: Data<PostgresPool>,
-    cache: Data<RedisPool>
+    cache: Data<RedisPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     TopicQuery::AddTopic(TopicRequest {
         id: None,
@@ -28,6 +28,13 @@ pub fn test_global_var(
                 .then(|_| HttpResponse::Ok().finish()))
 }
 
-pub fn test_hello_world() -> HttpResponse {
-    HttpResponse::Ok().json("hello world")
+use crate::handler::asynctest::{PostgresConnection, DB, Test};
+
+pub fn test_hello_world(db: Data<DB>) -> impl Future<Item=HttpResponse, Error=Error> {
+    db.send(Test)
+        .from_err()
+        .and_then(|res| match res {
+            Ok(r) => HttpResponse::Ok().json(r),
+            Err(e) => HttpResponse::NotFound().finish()
+        })
 }

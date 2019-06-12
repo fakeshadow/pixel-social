@@ -39,7 +39,7 @@ fn main() -> std::io::Result<()> {
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
 
-    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    let manager = ConnectionManager::<PgConnection>::new(database_url.clone());
     let postgres_pool = r2d2::Pool::builder()
         .max_size(12)
         .build(manager)
@@ -61,12 +61,18 @@ fn main() -> std::io::Result<()> {
     /// mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 
+    use crate::handler::asynctest::PostgresConnection;
+
+
+
     HttpServer::new(move || {
+        let test = PostgresConnection::connect(&database_url);
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
             .data(global_arc.clone())
             .data(talk_service.clone())
+            .data(test)
             .wrap(Logger::default())
             .wrap(Cors::new()
                 .allowed_origin(&cors_origin)
@@ -101,7 +107,7 @@ fn main() -> std::io::Result<()> {
                     .route(web::post().to_async(router::category::get_categories))))
             .service(web::scope("/test")
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
-                .service(web::resource("/hello").route(web::get().to(router::test::test_hello_world))))
+                .service(web::resource("/hello").route(web::get().to_async(router::test::test_hello_world))))
             .service(web::scope("/upload")
                 .service(web::resource("").route(web::post().to_async(router::stream::upload_file))))
             .service(web::resource("/talk").to_async(router::talk::talk))

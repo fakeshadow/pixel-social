@@ -8,3 +8,5 @@ pub mod talk;
 pub mod email;
 pub mod cache;
 pub mod admin;
+
+pub mod asynctest;

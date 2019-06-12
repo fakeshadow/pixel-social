@@ -16,19 +16,24 @@ pub fn get_all_categories(
     cache: Data<RedisPool>,
     db: Data<PostgresPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    CacheQuery::GetAllCategories
-        .into_categories(&cache)
-        .then(move |r| match r {
-            Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
-            Err(_) => Either::B(CategoryQuery::GetAllCategories
-                .into_categories(&db)
-                .from_err()
-                .and_then(move |c| {
-                    let res = HttpResponse::Ok().json(&c);
-                    UpdateCacheAsync::GotCategories(c).handler(&cache).then(|_| res)
-                })
-            )
-        })
+    CategoryQuery::GetAllCategories
+        .into_categories(&db)
+        .from_err()
+        .and_then(move |c| HttpResponse::Ok().json(&c))
+
+//    CacheQuery::GetAllCategories
+//        .into_categories(&cache)
+//        .then(move |r| match r {
+//            Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
+//            Err(_) => Either::B(CategoryQuery::GetAllCategories
+//                .into_categories(&db)
+//                .from_err()
+//                .and_then(move |c| {
+//                    let res = HttpResponse::Ok().json(&c);
+//                    UpdateCacheAsync::GotCategories(c).handler(&cache).then(|_| res)
+//                })
+//            )
+//        })
 }
 
 pub fn get_popular(page: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
