@@ -61,12 +61,11 @@ fn main() -> std::io::Result<()> {
     /// mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 
-    use crate::handler::asynctest::PostgresConnection;
-
-
+    use crate::handler::db::PostgresConnection;
 
     HttpServer::new(move || {
         let test = PostgresConnection::connect(&database_url);
+
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
@@ -107,7 +106,10 @@ fn main() -> std::io::Result<()> {
                     .route(web::post().to_async(router::category::get_categories))))
             .service(web::scope("/test")
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
-                .service(web::resource("/hello").route(web::get().to_async(router::test::test_hello_world))))
+                .service(web::resource("/categories").route(web::get().to_async(router::test::get_all_categories)))
+                .service(web::resource("/categories/{category_id}/{page}").route(web::get().to_async(router::test::get_category)))
+                .service(web::resource("/topic/{topic_id}/{page}").route(web::get().to_async(router::test::get_topic)))
+            )
             .service(web::scope("/upload")
                 .service(web::resource("").route(web::post().to_async(router::stream::upload_file))))
             .service(web::resource("/talk").to_async(router::talk::talk))

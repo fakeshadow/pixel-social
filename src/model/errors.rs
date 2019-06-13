@@ -20,7 +20,7 @@ pub enum ServiceError {
     InvalidPassword,
     #[display(fmt = "BadRequest")]
     InvalidEmail,
-//    #[display(fmt = "BadRequest")]
+    //    #[display(fmt = "BadRequest")]
 //    NotFound,
     #[display(fmt = "RedisError: {}", _0)]
     RedisError(String),
@@ -58,6 +58,24 @@ impl ResponseError for ServiceError {
     }
 }
 
+impl From<tokio_postgres::error::Error> for ServiceError {
+    fn from(e: tokio_postgres::error::Error) -> ServiceError {
+        ServiceError::BadRequestDb(DatabaseErrorMessage {
+            message: e.description().to_owned(),
+            details: Some(e.to_string()),
+            hint: None,
+        })
+    }
+}
+
+impl From<actix::MailboxError> for ServiceError {
+    fn from(e: actix::MailboxError) -> ServiceError {
+        match e {
+            actix::MailboxError::Closed => ServiceError::BadRequest,
+            actix::MailboxError::Timeout => ServiceError::InternalServerError
+        }
+    }
+}
 
 impl From<BlockingError<ServiceError>> for ServiceError {
     fn from(err: BlockingError<ServiceError>) -> ServiceError {
@@ -113,6 +131,7 @@ impl From<SerdeError> for ServiceError {
 }
 
 use chrono::format::ParseError as ParseNavDateError;
+use std::error::Error;
 
 impl From<ParseNavDateError> for ServiceError {
     fn from(_err: ParseNavDateError) -> ServiceError {
