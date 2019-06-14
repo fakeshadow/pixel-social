@@ -3,17 +3,20 @@ use futures::Future;
 use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
 
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, RedisPool},
-    topic::{TopicRequest, TopicQuery},
+    db::{PostgresConnection, DB},
+    common::{AttachUser, GlobalGuard, PostgresPool, RedisPool},
+    topic::{TopicRequest, TopicQuery, TopicWithUser, TopicWithPost},
 };
 use crate::handler::cache::UpdateCacheAsync;
+use crate::handler::auth::UserJwt;
+use crate::handler::db::{GetCategories, GetTopics, GetTopic, GetUsers, GetPosts, AddTopic, UpdateTopic};
 
 pub fn test_global_var(
     global: Data<GlobalGuard>,
-    db: Data<PostgresPool>,
+    db: Data<DB>,
     cache: Data<RedisPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    TopicQuery::AddTopic(TopicRequest {
+    let req = TopicRequest {
         id: None,
         user_id: Some(1),
         category_id: Some(1),
@@ -21,18 +24,15 @@ pub fn test_global_var(
         title: Some("test title".to_string()),
         body: Some("test body".to_string()),
         is_locked: None,
-    }).into_topic_with_category(db.get_ref().clone(), Some(global.get_ref().clone()))
+    };
+
+    db.send(AddTopic(req, global.get_ref().clone()))
         .from_err()
-        .and_then(move |(c, t)|
-            UpdateCacheAsync::AddedTopic(c, t)
-                .handler(&cache)
-                .then(|_| HttpResponse::Ok().finish()))
+        .and_then(|r| r)
+        .from_err()
+        .and_then(|t| HttpResponse::Ok().json(&t))
 }
 
-use crate::handler::db::{PostgresConnection, DB, GetCategories, GetTopics, GetTopic, GetUsers, GetPosts, AddTopic};
-use crate::model::common::AttachUser;
-use crate::model::topic::{TopicWithUser, TopicWithPost};
-use crate::handler::auth::UserJwt;
 
 pub fn get_all_categories(db: Data<DB>) -> impl Future<Item=HttpResponse, Error=Error> {
     db.send(GetCategories)
@@ -72,23 +72,25 @@ pub fn get_topic(
         .and_then(|r| r)
         .from_err()
         .and_then(move |t| db
-            .send(GetPosts(t.id, page))
+            .send(GetPosts(id, page))
             .from_err()
             .and_then(|r| r)
             .from_err()
             // return user ids and posts for users query
             .and_then(move |(p, mut ids)| {
                 // push topic's user_id and sort user ids
-                ids.push(t.user_id);
-                ids.sort();
-                ids.dedup();
+                if let Some(t) = t.first().as_ref() {
+                    ids.push(t.user_id);
+                    ids.sort();
+                    ids.dedup();
+                };
                 db.send(GetUsers(ids))
                     .from_err()
                     .and_then(|r| r)
                     .from_err()
                     .and_then(move |u| {
                         // include topic when querying first page.
-                        let topic = if page == 1 { Some(&t) } else { None };
+                        let topic = if page == 1 { t.first() } else { None };
                         HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))
                     })
             }))
@@ -105,5 +107,18 @@ pub fn add_topic(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(|r| HttpResponse::Ok().json("test"))
+        .and_then(|t| HttpResponse::Ok().json(&t))
+}
+
+pub fn update_topic(
+    jwt: UserJwt,
+    db: Data<DB>,
+    req: Json<TopicRequest>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
+    db.send(UpdateTopic(req))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(|t| HttpResponse::Ok().json(&t))
 }

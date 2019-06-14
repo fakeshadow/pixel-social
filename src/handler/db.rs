@@ -1,129 +1,18 @@
-use std::io;
 use futures::{Future, future, IntoFuture};
 
 use actix::prelude::*;
-use tokio_postgres::{connect, Client, tls::NoTls, Statement};
+use chrono::NaiveDateTime;
+use tokio_postgres::{Row, SimpleQueryRow, SimpleQueryMessage};
 
 use crate::model::{
     errors::ServiceError,
+    db::PostgresConnection,
     user::User,
     post::Post,
     category::Category,
     topic::{Topic, TopicRequest},
     common::GlobalGuard,
 };
-
-pub struct PostgresConnection {
-    db: Option<Client>,
-    categories: Option<Statement>,
-    topics_by_cid: Option<Statement>,
-    topics_by_id: Option<Statement>,
-    posts_by_tid: Option<Statement>,
-    users_by_id: Option<Statement>,
-    add_topic: Option<Statement>,
-}
-
-impl Actor for PostgresConnection {
-    type Context = Context<Self>;
-}
-
-pub type DB = Addr<PostgresConnection>;
-
-impl PostgresConnection {
-    pub fn connect(postgres_url: &str) -> Addr<PostgresConnection> {
-        let hs = connect(postgres_url, NoTls);
-
-        PostgresConnection::create(move |ctx| {
-            let addr = PostgresConnection {
-                db: None,
-                categories: None,
-                topics_by_cid: None,
-                topics_by_id: None,
-                posts_by_tid: None,
-                users_by_id: None,
-                add_topic: None,
-            };
-
-            hs.map_err(|_| panic!("Can't connect to database"))
-                .into_actor(&addr)
-                .and_then(|(mut db, conn), addr, ctx| {
-                    ctx.wait(
-                        db.prepare("SELECT * FROM categories")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.categories = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM topics
-                        WHERE category_id = ANY($1)
-                        ORDER BY last_reply_time DESC
-                        OFFSET $2
-                        LIMIT 20")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.topics_by_cid = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM topics
-                        WHERE id = ANY($1)
-                        ORDER BY last_reply_time DESC")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.topics_by_id = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM posts
-                        WHERE topic_id=$1
-                        ORDER BY id ASC
-                        OFFSET $2
-                        LIMIT 20")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.posts_by_tid = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM users
-                         WHERE id = ANY($1)")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.users_by_id = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("INSERT INTO topics (id, user_id, category_id, thumbnail, title, body)
-                        VALUES ($1, $2, $3, $4, $5, $6)")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.add_topic = Some(st);
-                                fut::ok(())
-                            })
-                    );
-
-                    addr.db = Some(db);
-                    Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));
-                    fut::ok(())
-                })
-                .wait(ctx);
-            addr
-        })
-    }
-}
-
 
 pub struct GetTopics(pub Vec<u32>, pub i64);
 
@@ -198,11 +87,11 @@ impl Handler<GetCategories> for PostgresConnection {
 pub struct GetTopic(pub u32);
 
 impl Message for GetTopic {
-    type Result = Result<Topic, ServiceError>;
+    type Result = Result<Vec<Topic>, ServiceError>;
 }
 
 impl Handler<GetTopic> for PostgresConnection {
-    type Result = ResponseFuture<Topic, ServiceError>;
+    type Result = ResponseFuture<Vec<Topic>, ServiceError>;
 
     fn handle(&mut self, msg: GetTopic, _: &mut Self::Context) -> Self::Result {
         Box::new(self.db
@@ -212,22 +101,7 @@ impl Handler<GetTopic> for PostgresConnection {
             .into_future()
             .map_err(|(e, _)| e)
             .from_err()
-            .and_then(|(row, _)| match row {
-                Some(row) => Ok(Topic {
-                    id: row.get(0),
-                    user_id: row.get(1),
-                    category_id: row.get(2),
-                    title: row.get(3),
-                    body: row.get(4),
-                    thumbnail: row.get(5),
-                    created_at: row.get(6),
-                    updated_at: row.get(7),
-                    last_reply_time: row.get(8),
-                    reply_count: row.get(9),
-                    is_locked: row.get(10),
-                }),
-                None => Err(ServiceError::InternalServerError)
-            })
+            .and_then(|(row, _)| topic_from_row(row))
         )
     }
 }
@@ -274,7 +148,6 @@ impl Handler<GetPosts> for PostgresConnection {
     }
 }
 
-
 pub struct GetUsers(pub Vec<u32>);
 
 impl Message for GetUsers {
@@ -317,11 +190,11 @@ impl Handler<GetUsers> for PostgresConnection {
 pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
 
 impl Message for AddTopic {
-    type Result = Result<(), ServiceError>;
+    type Result = Result<Vec<Topic>, ServiceError>;
 }
 
 impl Handler<AddTopic> for PostgresConnection {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ResponseFuture<Vec<Topic>, ServiceError>;
 
     fn handle(&mut self, msg: AddTopic, _: &mut Self::Context) -> Self::Result {
         let id = match msg.1.lock() {
@@ -342,9 +215,116 @@ impl Handler<AddTopic> for PostgresConnection {
                 .into_future()
                 .map_err(|(e, _)| e)
                 .from_err()
-                .and_then(|(t, _)| {
-                    Ok(())
-                })
+                .and_then(|(row, _)| topic_from_row(row))
         )
+    }
+}
+
+pub struct UpdateTopic(pub TopicRequest);
+
+impl Message for UpdateTopic {
+    type Result = Result<Vec<Topic>, ServiceError>;
+}
+
+impl Handler<UpdateTopic> for PostgresConnection {
+    type Result = ResponseFuture<Vec<Topic>, ServiceError>;
+
+    fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
+        let t = match msg.0.make_update() {
+            Ok(t) => t,
+            Err(e) => return Box::new(future::err(e))
+        };
+
+        let mut query = String::new();
+
+        query.push_str("UPDATE topics SET");
+
+        use std::fmt::Write;
+        if let Some(s) = t.title {
+            let _ = write!(&mut query, " title='{}',", s);
+        }
+        if let Some(s) = t.body {
+            let _ = write!(&mut query, " body='{}',", s);
+        }
+        if let Some(s) = t.thumbnail {
+            let _ = write!(&mut query, " thumbnail='{}',", s);
+        }
+        if let Some(s) = t.is_locked {
+            let _ = write!(&mut query, " is_locked='{}',", s);
+        }
+        if let Some(s) = t.category_id {
+            let _ = write!(&mut query, " category_id='{}',", s);
+        }
+
+        // update update_at or return err as the query is empty.
+        if query.ends_with(",") {
+            let _ = write!(&mut query, " updated_at=DEFAULT");
+        } else {
+            return Box::new(future::err(ServiceError::BadRequest))
+        }
+
+        let _ = write!(&mut query, " WHERE id='{}' ", t.id);
+        if let Some(s) = t.user_id {
+            let _ = write!(&mut query, "AND user_id='{}' ", s);
+        }
+
+        query.push_str("RETURNING *");
+
+        Box::new(self.db
+            .as_mut()
+            .unwrap()
+            .simple_query(&query)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .from_err()
+            .and_then(|(r, _)| match r {
+                Some(s) => match s {
+                    SimpleQueryMessage::Row(row) => topic_from_simple_row(row),
+                    _ => return Err(ServiceError::InternalServerError)
+                }
+                None => return Err(ServiceError::InternalServerError)
+            })
+        )
+    }
+}
+
+fn topic_from_simple_row(row: SimpleQueryRow) -> Result<Vec<Topic>, ServiceError> {
+    let mut vec = Vec::with_capacity(1);
+    vec.push(Topic {
+        id: row.get(0).ok_or(ServiceError::InternalServerError)?.parse::<u32>().map_err(|_| ServiceError::InternalServerError)?,
+        user_id: row.get(1).ok_or(ServiceError::InternalServerError)?.parse::<u32>().map_err(|_| ServiceError::InternalServerError)?,
+        category_id: row.get(2).ok_or(ServiceError::InternalServerError)?.parse::<u32>().map_err(|_| ServiceError::InternalServerError)?,
+        title: row.get(3).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        body: row.get(4).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        thumbnail: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        created_at: NaiveDateTime::parse_from_str(row.get(6).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?,
+        updated_at: NaiveDateTime::parse_from_str(row.get(7).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?,
+        last_reply_time: NaiveDateTime::parse_from_str(row.get(8).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?,
+        reply_count: row.get(9).ok_or(ServiceError::InternalServerError)?.parse::<i32>().map_err(|_| ServiceError::InternalServerError)?,
+        is_locked: if row.get(10) == Some("f") { false } else { true },
+    });
+    Ok(vec)
+}
+
+fn topic_from_row(row: Option<Row>) -> Result<Vec<Topic>, ServiceError> {
+    match row {
+        Some(row) => {
+            let mut vec = Vec::with_capacity(1);
+            vec.push(Topic {
+                id: row.get(0),
+                user_id: row.get(1),
+                category_id: row.get(2),
+                title: row.get(3),
+                body: row.get(4),
+                thumbnail: row.get(5),
+                created_at: row.get(6),
+                updated_at: row.get(7),
+                last_reply_time: row.get(8),
+                reply_count: row.get(9),
+                is_locked: row.get(10),
+            });
+            Ok(vec)
+        }
+        None => Err(ServiceError::InternalServerError)
     }
 }

@@ -24,7 +24,7 @@ pub struct Topic {
     pub is_locked: bool,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, Debug)]
 #[table_name = "topics"]
 pub struct NewTopic<'a> {
     pub id: &'a u32,
