@@ -16,11 +16,6 @@ pub fn get_all_categories(
     cache: Data<RedisPool>,
     db: Data<PostgresPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-//    CategoryQuery::GetAllCategories
-//        .into_categories(&db)
-//        .from_err()
-//        .and_then(move |c| HttpResponse::Ok().json(&c))
-
     CacheQuery::GetAllCategories
         .into_categories(&cache)
         .then(move |r| match r {

@@ -29,6 +29,7 @@ mod util;
 use crate::model::talk::TalkService;
 use crate::handler::{cache::clear_cache, email::MailService};
 use crate::util::startup::{build_cache, init_global_var};
+use crate::model::db::RedisConnection;
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -47,7 +48,7 @@ fn main() -> std::io::Result<()> {
 
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
-        .max_size(12)
+        .max_size(1)
         .build(cache_manager)
         .expect("Failed to create redis pool.");
 
@@ -58,13 +59,16 @@ fn main() -> std::io::Result<()> {
 
     let sys = System::new("PixelShare");
     let talk_service = TalkService::init(postgres_pool.clone(), redis_pool.clone()).start();
-    /// mail service is not passed into data as we add mail queue into redis cache directly.
+
+    // mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 
     use crate::model::db::PostgresConnection;
 
+
     HttpServer::new(move || {
         let db = PostgresConnection::connect(&database_url);
+        let cache = RedisConnection::connect(&redis_url);
 
         App::new()
             .data(postgres_pool.clone())
@@ -72,6 +76,7 @@ fn main() -> std::io::Result<()> {
             .data(global_arc.clone())
             .data(talk_service.clone())
             .data(db)
+            .data(cache)
             .wrap(Logger::default())
             .wrap(Cors::new()
                 .allowed_origin(&cors_origin)
@@ -105,7 +110,10 @@ fn main() -> std::io::Result<()> {
                     .route(web::get().to_async(router::category::get_all_categories))
                     .route(web::post().to_async(router::category::get_categories))))
             .service(web::scope("/test")
+                .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
+                .service(web::resource("/user/register").route(web::post().to_async(router::test::register)))
+                .service(web::resource("/user/login").route(web::post().to_async(router::test::login)))
                 .service(web::resource("/categories").route(web::get().to_async(router::test::get_all_categories)))
                 .service(web::resource("/categories/{category_id}/{page}").route(web::get().to_async(router::test::get_category)))
                 .service(web::resource("/topic/{topic_id}/{page}").route(web::get().to_async(router::test::get_topic)))

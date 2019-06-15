@@ -1,5 +1,10 @@
 use actix::prelude::*;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement};
+use redis::Client as RedisClient;
+
+use crate::model::errors::ServiceError;
+use futures::sink::Sink;
+use futures::future::IntoFuture;
 
 pub struct PostgresConnection {
     pub db: Option<Client>,
@@ -11,14 +16,40 @@ pub struct PostgresConnection {
     pub add_topic: Option<Statement>,
 }
 
+pub type Conn = redis::aio::Connection;
+
+pub struct RedisConnection {
+    pub cache: Option<RedisClient>
+}
+
 impl Actor for PostgresConnection {
+    type Context = Context<Self>;
+}
+
+impl Actor for RedisConnection {
     type Context = Context<Self>;
 }
 
 pub type DB = Addr<PostgresConnection>;
 
+pub type CACHE = Addr<RedisConnection>;
+
+
+impl RedisConnection {
+    pub fn connect(redis_url: &str) -> CACHE {
+        let client = RedisClient::open(redis_url)
+            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+
+        RedisConnection::create(move |ctx| {
+            RedisConnection {
+                cache: Some(client)
+            }
+        })
+    }
+}
+
 impl PostgresConnection {
-    pub fn connect(postgres_url: &str) -> Addr<PostgresConnection> {
+    pub fn connect(postgres_url: &str) -> DB {
         let hs = connect(postgres_url, NoTls);
 
         PostgresConnection::create(move |ctx| {

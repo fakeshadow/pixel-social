@@ -6,7 +6,7 @@ use crate::schema::users;
 use crate::handler::user::UserQuery;
 
 
-#[derive(Queryable, Serialize, Deserialize, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,
@@ -240,7 +240,6 @@ impl UpdateRequest {
         }
     }
 }
-
 
 pub trait IdToQuery {
     fn to_query(&self) -> UserQuery;
