@@ -101,7 +101,3 @@ pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u3
     Ok(topics::table.select(topics::id)
         .filter(topics::category_id.eq(&cid)).order(topics::last_reply_time.desc()).load::<u32>(conn)?)
 }
-
-pub fn get_last_tid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
-    Ok(topics::table.select(topics::id).order(topics::id.desc()).limit(1).load(conn)?)
-}

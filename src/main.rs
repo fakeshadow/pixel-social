@@ -28,8 +28,8 @@ mod util;
 
 use crate::model::talk::TalkService;
 use crate::handler::{cache::clear_cache, email::MailService};
-use crate::util::startup::{build_cache, init_global_var};
-use crate::model::db::RedisConnection;
+use crate::util::startup::{build_cache, generate_global};
+use crate::model::db::{RedisConnection, PostgresConnection};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -53,9 +53,9 @@ fn main() -> std::io::Result<()> {
         .expect("Failed to create redis pool.");
 
     let _ = clear_cache(&redis_pool);
-    let _ = build_cache(&postgres_pool, &redis_pool);
+    let _ = build_cache(&postgres_pool, &redis_pool, &database_url, &redis_url);
 
-    let global_arc = init_global_var(&postgres_pool);
+    let global_arc = generate_global(&database_url);
 
     let sys = System::new("PixelShare");
     let talk_service = TalkService::init(postgres_pool.clone(), redis_pool.clone()).start();
@@ -63,13 +63,9 @@ fn main() -> std::io::Result<()> {
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 
-    use crate::model::db::PostgresConnection;
-
-
     HttpServer::new(move || {
         let db = PostgresConnection::connect(&database_url);
         let cache = RedisConnection::connect(&redis_url);
-
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())

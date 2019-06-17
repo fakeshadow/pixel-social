@@ -1,22 +1,23 @@
 use actix::prelude::*;
-use tokio_postgres::{connect, Client, tls::NoTls, Statement};
+use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 use redis::Client as RedisClient;
 
 use crate::model::errors::ServiceError;
-use futures::sink::Sink;
-use futures::future::IntoFuture;
+
+pub type Conn = redis::aio::Connection;
+pub type SharedConn = redis::aio::SharedConnection;
+pub type DB = Addr<PostgresConnection>;
+pub type CACHE = Addr<RedisConnection>;
 
 pub struct PostgresConnection {
     pub db: Option<Client>,
     pub categories: Option<Statement>,
-    pub topics_by_cid: Option<Statement>,
-    pub topics_by_id: Option<Statement>,
     pub posts_by_tid: Option<Statement>,
     pub users_by_id: Option<Statement>,
-    pub add_topic: Option<Statement>,
+    pub next_tid: Option<Statement>,
+    pub next_pid: Option<Statement>,
+    pub next_uid: Option<Statement>,
 }
-
-pub type Conn = redis::aio::Connection;
 
 pub struct RedisConnection {
     pub cache: Option<RedisClient>
@@ -29,11 +30,6 @@ impl Actor for PostgresConnection {
 impl Actor for RedisConnection {
     type Context = Context<Self>;
 }
-
-pub type DB = Addr<PostgresConnection>;
-
-pub type CACHE = Addr<RedisConnection>;
-
 
 impl RedisConnection {
     pub fn connect(redis_url: &str) -> CACHE {
@@ -56,49 +52,16 @@ impl PostgresConnection {
             let addr = PostgresConnection {
                 db: None,
                 categories: None,
-                topics_by_cid: None,
-                topics_by_id: None,
                 posts_by_tid: None,
                 users_by_id: None,
-                add_topic: None,
+                next_uid: None,
+                next_tid: None,
+                next_pid: None,
             };
 
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    ctx.wait(
-                        db.prepare("SELECT * FROM categories")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.categories = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM topics
-                        WHERE category_id = ANY($1)
-                        ORDER BY last_reply_time DESC
-                        OFFSET $2
-                        LIMIT 20")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.topics_by_cid = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM topics
-                        WHERE id = ANY($1)
-                        ORDER BY last_reply_time DESC")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.topics_by_id = Some(st);
-                                fut::ok(())
-                            })
-                    );
                     ctx.wait(
                         db.prepare("SELECT * FROM posts
                         WHERE topic_id=$1
@@ -123,17 +86,14 @@ impl PostgresConnection {
                             })
                     );
                     ctx.wait(
-                        db.prepare("INSERT INTO topics (id, user_id, category_id, thumbnail, title, body)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING *")
+                        db.prepare("SELECT * FROM categories")
                             .map_err(|e| panic!("{}", e))
                             .into_actor(addr)
                             .and_then(|st, addr, _| {
-                                addr.add_topic = Some(st);
+                                addr.categories = Some(st);
                                 fut::ok(())
                             })
                     );
-
                     addr.db = Some(db);
                     Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));
                     fut::ok(())

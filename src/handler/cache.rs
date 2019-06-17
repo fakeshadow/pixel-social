@@ -17,7 +17,7 @@ use crate::model::{
     common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
     mail::Mail,
 };
-use crate::model::db::{RedisConnection, Conn};
+use crate::model::db::{RedisConnection, Conn, SharedConn};
 
 use redis;
 
@@ -35,34 +35,35 @@ impl Handler<GetCategoriesCache> for RedisConnection {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
     fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.cache
-            .as_mut()
-            .unwrap()
-            .get_async_connection()
-            .map_err(|_| ServiceError::BadRequest)
-            .and_then(|conn| redis::cmd("lrange")
-                .arg("category_id:meta")
-                .arg(0)
-                .arg(-1)
-                .query_async(conn)
-                .map_err(|_| ServiceError::BadRequest)
-                .and_then(|(conn, ids): (Conn, Vec<u32>)| {
-                    let mut pipe = redis::pipe();
-                    for id in ids {
-                        pipe.cmd("HGETALL").arg(format!("category:{}:set", id));
-                    }
-                    pipe.query_async(conn)
-                        .map_err(|_| ServiceError::BadRequest)
-                        .and_then(|(conn, vec): (Conn, Vec<HashMap<String, String>>)| {
-                            let r: Result<Vec<Category>, ServiceError> =
-                                vec.iter()
-                                    .map(|hash| hash.parse::<Category>())
-                                    .collect();
-                            r
-                        })
-                })
-            ))
+        Box::new(get_categories_cache(self.cache.as_mut().unwrap()))
     }
+}
+
+fn get_categories_cache(c: &mut redis::Client) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+    c.get_shared_async_connection()
+        .from_err()
+        .and_then(|conn| redis::cmd("lrange")
+            .arg("category_id:meta")
+            .arg(0)
+            .arg(-1)
+            .query_async(conn)
+            .from_err()
+            .and_then(|(conn, ids): (SharedConn, Vec<u32>)| {
+                let mut pipe = redis::pipe();
+                for id in ids {
+                    pipe.cmd("HGETALL").arg(format!("category:{}:set", id));
+                }
+                pipe.query_async(conn)
+                    .map_err(|_| ServiceError::BadRequest)
+                    .and_then(|(conn, vec): (SharedConn, Vec<HashMap<String, String>>)| {
+                        let r: Result<Vec<Category>, ServiceError> =
+                            vec.iter()
+                                .map(|hash| hash.parse::<Category>())
+                                .collect();
+                        r
+                    })
+            })
+        )
 }
 
 pub struct GetTopicsCache(pub Vec<u32>, pub i64);
@@ -78,8 +79,8 @@ impl Handler<GetTopicsCache> for RedisConnection {
         Box::new(self.cache
             .as_mut()
             .unwrap()
-            .get_async_connection()
-            .map_err(|_| ServiceError::BadRequest)
+            .get_shared_async_connection()
+            .from_err()
             .and_then(move |conn| {
                 // get topic ids from category:id:list
                 let list_key = format!("category:{}:list", msg.0.first().unwrap_or(&0));
@@ -89,17 +90,17 @@ impl Handler<GetTopicsCache> for RedisConnection {
                     .arg(start)
                     .arg(start + LIMIT - 1)
                     .query_async(conn)
-                    .map_err(|_| ServiceError::BadRequest)
+                    .from_err()
             })
-            .and_then(|(conn, tids): (Conn, Vec<u32>)| {
+            .and_then(|(conn, tids): (SharedConn, Vec<u32>)| {
                 // pipeline query with th topic ids to get hash map.
                 let mut pipe = redis::pipe();
                 for id in tids.iter() {
                     pipe.cmd("HGETALL").arg(format!("topic:{}:set", id));
                 }
                 pipe.query_async(conn)
-                    .map_err(|_| ServiceError::BadRequest)
-                    .and_then(move |(conn, vec): (Conn, Vec<HashMap<String, String>>)| {
+                    .from_err()
+                    .and_then(move |(conn, vec): (SharedConn, Vec<HashMap<String, String>>)| {
                         // collect topics and topic user_ids from hash map
                         let mut t = Vec::with_capacity(20);
                         let mut uids = Vec::with_capacity(20);
@@ -125,8 +126,8 @@ impl Handler<GetTopicsCache> for RedisConnection {
                         }
                         // pipeline query with the users id to get hash map
                         Either::B(pipe.query_async(conn)
-                            .map_err(|_| ServiceError::BadRequest)
-                            .and_then(move |(conn, vec): (Conn, Vec<HashMap<String, String>>)| {
+                            .from_err()
+                            .and_then(move |(conn, vec): (SharedConn, Vec<HashMap<String, String>>)| {
                                 let mut u = Vec::with_capacity(20);
 
                                 // collect users from hash map
@@ -156,24 +157,62 @@ impl<T> Message for UpdateCache<T> {
 }
 
 impl<T> Handler<UpdateCache<T>> for RedisConnection
-    where T: GetSelfId + SortHash + std::fmt::Debug + 'static {
+    where T: GetSelfId + SortHash + 'static {
     type Result = ResponseFuture<(), ServiceError>;
 
     fn handle(&mut self, msg: UpdateCache<T>, _: &mut Self::Context) -> Self::Result {
+        Box::new(build_hmset(
+            self.cache.as_mut().unwrap(),
+            msg.0,
+            msg.1))
+    }
+}
+
+pub fn build_hmset<T>(
+    c: &mut redis::Client,
+    vec: Vec<T>,
+    key: String,
+) -> impl Future<Item=(), Error=ServiceError>
+    where T: GetSelfId + SortHash {
+    c.get_shared_async_connection()
+        .from_err()
+        .and_then(move |conn| {
+            let mut pipe = redis::pipe();
+            for v in vec.iter() {
+                pipe.cmd("HMSET").arg(&format!("{}:{}:set", key, v.get_self_id())).arg(v.sort_hash());
+            }
+            pipe.query_async(conn)
+                .from_err()
+                .and_then(move |(_, _): (SharedConn, ())| Ok(()))
+        })
+}
+
+pub struct AddedTopic(pub Topic, pub Category);
+
+impl Message for AddedTopic {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Handler<AddedTopic> for RedisConnection {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: AddedTopic, _: &mut Self::Context) -> Self::Result {
         Box::new(self.cache
             .as_mut()
             .unwrap()
             .get_async_connection()
-            .map_err(|_| ServiceError::BadRequest)
+            .from_err()
             .and_then(move |conn| {
-                let key = msg.1;
-                let vec = msg.0;
+                let t = msg.0;
+                let c = msg.1;
+
                 let mut pipe = redis::pipe();
-                for v in vec.iter() {
-                    pipe.cmd("HMSET").arg(&format!("{}:{}:set", key, v.get_self_id())).arg(v.sort_hash());
-                }
+                pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.get_self_id())).arg(t.sort_hash());
+                pipe.cmd("HMSET").arg(&format!("category:{}:set", c.get_self_id())).arg(c.sort_hash());
+                pipe.cmd("lpush").arg(&format!("category:{}:list", c.id)).arg(t.id);
+
                 pipe.query_async(conn)
-                    .map_err(|_| ServiceError::BadRequest)
+                    .from_err()
                     .and_then(move |(conn, _): (Conn, ())| Ok(()))
             }))
     }

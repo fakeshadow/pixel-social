@@ -1,6 +1,11 @@
-DROP TABLE users;
 DROP TABLE categories;
-DROP TABLE topics;
 DROP TABLE posts;
 DROP TABLE associates;
 DROP TABLE talks;
+DROP TABLE users;
+DROP TABLE topics;
+DROP TABLE topics1;
+DROP TABLE topics2;
+DROP TABLE topics3;
+DROP TABLE topics4;
+DROP TABLE topics5;

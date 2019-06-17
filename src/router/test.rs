@@ -1,18 +1,19 @@
-use futures::{Future, future::{Either,IntoFuture, ok as ft_ok, err as ft_err}};
+use futures::{Future, future::{Either, IntoFuture, ok as ft_ok, err as ft_err}};
 
 use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
 
 use crate::model::{
     db::{PostgresConnection, DB, CACHE},
     user::AuthRequest,
-    common::{AttachUser, GlobalGuard, PostgresPool, RedisPool,Validator},
+    common::{AttachUser, GlobalGuard, PostgresPool, RedisPool, Validator},
     topic::{TopicRequest, TopicQuery, TopicWithUser, TopicWithPost},
 };
 use crate::handler::{
     auth::UserJwt,
-    db::{GetCategories, GetTopics, GetTopic, GetUsers, GetPosts, AddTopic, UpdateTopic, Login, PreRegister,Register},
+    db::{GetTopics, GetCategories, GetTopic, GetUsers, GetPosts, AddTopic, UpdateTopic, Login, PreRegister, Register},
     cache::{UpdateCacheAsync, GetCategoriesCache, GetTopicsCache, UpdateCache},
 };
+use crate::handler::cache::AddedTopic;
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json("hello world"))
@@ -36,7 +37,10 @@ pub fn test_global_var(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(|t| HttpResponse::Ok().json(&t))
+        .and_then(move |t|
+//            let _ = db.do_send(UpdateCategory::AddedTopic(t.category_id, t.id))
+            HttpResponse::Ok().json(&t)
+        )
 }
 
 pub fn get_all_categories(
@@ -52,6 +56,7 @@ pub fn get_all_categories(
                 .and_then(|r| r)
                 .from_err()
                 .and_then(move |c| {
+                    println!("from db");
                     let res = HttpResponse::Ok().json(&c);
                     let _ = cache.do_send(UpdateCache(c, "category".to_owned()));
                     res
@@ -66,13 +71,32 @@ pub fn get_category(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
+//    db.send(GetTopics::Latest(id, page))
+//        .from_err()
+//        .and_then(|r| r)
+//        .from_err()
+//        .and_then(move |(t, ids)|
+//            db.send(GetUsers(ids))
+//                .from_err()
+//                .and_then(|r| r)
+//                .from_err()
+//                .and_then(move |u| {
+//                    let res = HttpResponse::Ok().json(&t.iter()
+//                        .map(|t| t.attach_user(&u))
+//                        .collect::<Vec<TopicWithUser>>());
+////                            let _ = cache.do_send(UpdateCache(t, "topic".to_owned()));
+////                            let _ = cache.do_send(UpdateCache(u, "user".to_owned()));
+//                    res
+//                })
+//        )
+
     cache.send(GetTopicsCache(vec![id], page))
         .from_err()
         .and_then(move |r| match r {
             Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&t.iter()
                 .map(|t| t.attach_user(&u))
                 .collect::<Vec<TopicWithUser>>()))),
-            Err(_) => Either::B(db.send(GetTopics(vec![id], page))
+            Err(_) => Either::B(db.send(GetTopics::Latest(id, page))
                 .from_err()
                 .and_then(|r| r)
                 .from_err()
@@ -87,6 +111,7 @@ pub fn get_category(
                             .collect::<Vec<TopicWithUser>>());
                         let _ = cache.do_send(UpdateCache(t, "topic".to_owned()));
                         let _ = cache.do_send(UpdateCache(u, "user".to_owned()));
+                        println!("from db");
                         res
                     })
                 ))
@@ -131,6 +156,7 @@ pub fn get_topic(
 pub fn add_topic(
     jwt: UserJwt,
     db: Data<DB>,
+    cache: Data<CACHE>,
     req: Json<TopicRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -139,8 +165,9 @@ pub fn add_topic(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(|t| {
+        .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
+//            let _ = cache.do_send(AddedTopic(t, c));
             res
         })
 }
@@ -188,7 +215,7 @@ pub fn register(
         .and_then(move |_| db
             .send(PreRegister(req.into_inner()))
             .from_err()
-            .and_then(|r|r)
+            .and_then(|r| r)
             .from_err()
             .and_then(move |req| db
                 .send(Register(req, global.get_ref().clone()))

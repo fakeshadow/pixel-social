@@ -5,7 +5,7 @@ use diesel::prelude::*;
 
 use crate::model::{
     category::{Category, CategoryUpdateRequest, CategoryQuery},
-    common::{match_id, PostgresPool, PoolConnectionPostgres, RedisPool},
+    common::{PostgresPool, PoolConnectionPostgres, RedisPool},
     errors::ServiceError,
 };
 use crate::schema::categories;
@@ -37,11 +37,11 @@ fn get_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, Se
 
 fn add_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
                 -> Result<Vec<Category>, ServiceError> {
-    let last_cid = Ok(categories::table
-        .select(categories::id).order(categories::id.desc()).limit(1).load(conn)?);
+    let last_cid: Vec<u32> = categories::table
+        .select(categories::id).order(categories::id.desc()).limit(1).load(conn)?;
 
-    /// thread will panic if the database failed to get last_cid
-    let next_cid = match_id(last_cid);
+    let next_cid = last_cid.first().unwrap_or(&0) + 1;
+
     Ok(diesel::insert_into(categories::table)
         .values(&req.make_category(&next_cid)?)
         .get_results(conn)?)

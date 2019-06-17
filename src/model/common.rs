@@ -103,45 +103,32 @@ pub trait Validator {
 // type and struct for global vars
 pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GlobalVar {
-    pub next_uid: u32,
-    pub next_pid: u32,
-    pub next_tid: u32,
+    pub last_uid: u32,
+    pub last_pid: u32,
+    pub last_tid: u32,
 }
 
 impl GlobalVar {
-    pub fn new(next_uid: u32, next_pid: u32, next_tid: u32) -> GlobalGuard {
+    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32) -> GlobalGuard {
         Arc::new(Mutex::new(GlobalVar {
-            next_uid,
-            next_pid,
-            next_tid,
+            last_uid,
+            last_pid,
+            last_tid,
         }))
     }
     pub fn next_uid(&mut self) -> u32 {
-        let id = self.next_uid;
-        self.next_uid += 1;
-        id
+        self.last_uid += 1;
+        self.last_uid
     }
     pub fn next_pid(&mut self) -> u32 {
-        let id = self.next_pid;
-        self.next_pid += 1;
-        id
+        self.last_pid += 1;
+        self.last_pid
     }
     pub fn next_tid(&mut self) -> u32 {
-        let id = self.next_tid;
-        self.next_tid += 1;
-        id
-    }
-}
-
-// helper functions
-pub fn match_id(last_id: Result<Vec<u32>, ServiceError>) -> u32 {
-    match last_id {
-        Ok(id) => {
-            if id.len() > 0 { id[0] + 1 } else { 1 }
-        }
-        Err(_) => panic!("Database error.Failed to get ids"),
+        self.last_tid += 1;
+        self.last_tid
     }
 }
 

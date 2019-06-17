@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use derive_more::Display;
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
@@ -32,6 +34,8 @@ pub enum ServiceError {
     AuthTimeout,
     #[display(fmt = "MailError")]
     MailServiceError,
+    #[display(fmt = "Internal Server Error")]
+    PARSEINT,
 }
 
 impl ResponseError for ServiceError {
@@ -50,6 +54,7 @@ impl ResponseError for ServiceError {
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::RedisError(e) => HttpResponse::InternalServerError().json(ErrorMessage::new(e)),
+            ServiceError::PARSEINT => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing int error")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
@@ -77,6 +82,16 @@ impl From<actix::MailboxError> for ServiceError {
     }
 }
 
+impl From<redis::RedisError> for ServiceError {
+    fn from(e: redis::RedisError) -> ServiceError {
+        ServiceError::BadRequestDb(DatabaseErrorMessage {
+            message: e.category().to_owned(),
+            details: Some(e.description().to_owned()),
+            hint: None,
+        })
+    }
+}
+
 impl From<BlockingError<ServiceError>> for ServiceError {
     fn from(err: BlockingError<ServiceError>) -> ServiceError {
         match err {
@@ -86,6 +101,8 @@ impl From<BlockingError<ServiceError>> for ServiceError {
     }
 }
 
+
+// ToDo: remove r2d2 redis impl
 use r2d2_redis::redis::{RedisError, ErrorKind as RedisErrorKind};
 
 impl From<RedisError> for ServiceError {
@@ -115,26 +132,24 @@ impl From<DieselError> for ServiceError {
     }
 }
 
-use r2d2::Error as R2d2Error;
-
-impl From<R2d2Error> for ServiceError {
-    fn from(_err: R2d2Error) -> ServiceError { ServiceError::InternalServerError }
+impl From<r2d2::Error> for ServiceError {
+    fn from(_err: r2d2::Error) -> ServiceError { ServiceError::InternalServerError }
 }
 
-
-use serde_json::Error as SerdeError;
-
-impl From<SerdeError> for ServiceError {
-    fn from(_err: SerdeError) -> ServiceError {
+impl From<serde_json::Error> for ServiceError {
+    fn from(_err: serde_json::Error) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
 
-use chrono::format::ParseError as ParseNavDateError;
-use std::error::Error;
+impl From<std::num::ParseIntError> for ServiceError {
+    fn from(_err: std::num::ParseIntError) -> ServiceError {
+        ServiceError::PARSEINT
+    }
+}
 
-impl From<ParseNavDateError> for ServiceError {
-    fn from(_err: ParseNavDateError) -> ServiceError {
+impl From<chrono::format::ParseError> for ServiceError {
+    fn from(_err: chrono::format::ParseError) -> ServiceError {
         ServiceError::InternalServerError
     }
 }

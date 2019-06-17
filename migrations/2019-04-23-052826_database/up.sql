@@ -40,6 +40,81 @@ CREATE TABLE topics
     is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
 );
 
+CREATE TABLE topics1
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE topics2
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE topics3
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE topics4
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE topics5
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
 CREATE TABLE posts
 (
     id              OID           NOT NULL UNIQUE PRIMARY KEY,
@@ -90,12 +165,13 @@ VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekg
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', 'category_default.png'),
-       (2, 'Announcement', 'category_default.png');
-
-INSERT INTO categories (id, name, thumbnail)
-VALUES (3, 'Armored Core', 'ac.jpg'),
+       (2, 'Announcement', 'category_default.png'),
+       (3, 'Armored Core', 'ac.jpg'),
        (4, 'Ace Combat', 'ace.jpg'),
        (5, 'Persona', 'persona.jpg');
+
+INSERT INTO topics1 (id, user_id, category_id, title, body, thumbnail)
+VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
 INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');

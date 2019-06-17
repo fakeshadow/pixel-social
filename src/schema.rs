@@ -62,6 +62,86 @@ table! {
 }
 
 table! {
+    topics1 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    topics2 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    topics3 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    topics4 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    topics5 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        category_id -> Oid,
+        title -> Varchar,
+        body -> Varchar,
+        thumbnail -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
     users (id) {
         id -> Oid,
         username -> Varchar,
@@ -85,5 +165,10 @@ allow_tables_to_appear_in_same_query!(
     posts,
     talks,
     topics,
+    topics1,
+    topics2,
+    topics3,
+    topics4,
+    topics5,
     users,
 );

@@ -108,6 +108,6 @@ pub fn load_all_users(conn: &PoolConnectionPostgres) -> Result<Vec<User>, Servic
     Ok(users::table.load::<User>(conn)?)
 }
 
-pub fn get_last_uid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
-    Ok(users::table.select(users::id).order(users::id.desc()).limit(1).load(conn)?)
+pub fn get_last_uid(conn: &PoolConnectionPostgres) -> u32 {
+    users::table.select(users::id).order(users::id.desc()).limit(1).first(conn).unwrap_or(1)
 }

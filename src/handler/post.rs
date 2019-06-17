@@ -91,6 +91,6 @@ pub fn load_all_posts_with_topic_id(conn: &PoolConnectionPostgres) -> Result<Vec
     Ok(posts::table.select((posts::topic_id, posts::id)).order((posts::topic_id.asc(), posts::id.asc())).load(conn)?)
 }
 
-pub fn get_last_pid(conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
-    Ok(posts::table.select(posts::id).order(posts::id.desc()).limit(1).load(conn)?)
+pub fn get_last_pid(conn: &PoolConnectionPostgres) -> u32 {
+    posts::table.select(posts::id).order(posts::id.desc()).limit(1).first(conn).unwrap_or(1)
 }

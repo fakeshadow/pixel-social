@@ -5,7 +5,7 @@ use crate::model::{
     errors::ServiceError,
     user::User,
     talk::{Talk, HistoryMessage, Create, Join, Delete},
-    common::{PoolConnectionPostgres, PostgresPool, match_id},
+    common::{PoolConnectionPostgres, PostgresPool},
 };
 
 use crate::handler::user::get_users_by_id;
@@ -87,9 +87,9 @@ pub fn create_talk(
     msg: &Create,
     conn: &PoolConnectionPostgres,
 ) -> Result<Talk, ServiceError> {
-    let last_id = Ok(talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?);
+    let last_id:Vec<u32> = talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?;
 
-    let id = match_id(last_id);
+    let id = last_id.first().unwrap_or(&0) + 1;
 
     let array = vec![msg.owner];
     let query = format!(
