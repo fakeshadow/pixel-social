@@ -8,4 +8,4 @@ pub mod post;
 pub mod topic;
 pub mod user;
 pub mod talk;
-pub mod db;
+pub mod actors;

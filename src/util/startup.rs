@@ -4,21 +4,21 @@ use tokio::runtime::current_thread::Runtime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::get_all_categories,
-    cache::{build_hash_set, build_list, update_meta, build_hmset},
+    db::{get_all_categories, get_topics},
+    cache::{build_hash_set, build_list, build_hmset},
     category::load_all_categories,
     post::{load_all_posts_with_topic_id, get_last_pid},
     topic::get_topic_list,
-    user::{get_last_uid, load_all_users},
+    user::{ load_all_users},
 };
 use crate::model::{
-    common::{PostgresPool, RedisPool, GlobalVar, GlobalGuard},
+    common::{PostgresPool, GlobalVar, GlobalGuard},
 };
+use crate::model::topic::Topic;
 
-// ToDo: build category ranks and topic ranks at startup;
-pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool, postgres_url: &str , redis_url: &str) -> Result<(), ()> {
+// ToDo: combine global var generate with build cache process;
+pub fn build_cache(db_pool: &PostgresPool, postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     let conn = &db_pool.get().unwrap_or_else(|_| panic!("Database is offline"));
-    let conn_cache = cache_pool.get().unwrap_or_else(|_| panic!("Cache is offline"));
 
     let mut rt: Runtime = Runtime::new().unwrap();
     let (mut c, conn_new) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
@@ -29,23 +29,28 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool, postgres_url:
     // Load all categories and make hash set.
     let p = c.prepare("SELECT * FROM categories");
     let st = rt.block_on(p).unwrap();
-    let mut vec = Vec::new();
-    let categories = rt.block_on(get_all_categories(&mut c, &st, vec)).unwrap();
+    let mut categories = Vec::new();
+    let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap();
 
-    rt.block_on(build_hmset(&mut c_cache, categories.clone(), "category".to_owned())).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    rt.block_on(build_hmset(&mut c_cache, categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
-//    build_hash_set(&categories, "category", &conn_cache).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
-
-    /// build list by last reply time desc order for each category. build category meta list with all category ids
-    let mut meta_ids = Vec::new();
+    // build list by last reply time desc order for each category. build category meta list with all category ids
+    let mut category_ids = Vec::new();
     for cat in categories.iter() {
-        meta_ids.push(cat.id);
-        let topic_list = get_topic_list(&cat.id, conn).unwrap_or_else(|_| panic!("Failed to build category lists"));
-        build_list(topic_list, &format!("category:{}", &cat.id), &conn_cache).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        category_ids.push(cat.id);
+        let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
+        let mut tids = Vec::new();
+        let mut topics = Vec::new();
+        let (topics, _): (Vec<Topic>, Vec<u32>) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let tids = topics.into_iter().map(|t| t.id).collect();
+        let key = format!("category:{}:list", &cat.id);
+        let _ = rt.block_on(build_list(&mut c_cache, tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
     }
-    update_meta(meta_ids, "category_id", &conn_cache).unwrap_or_else(|_| panic!("Failed to build category meta"));
 
-    /// Load all posts with topic id and build a list of posts for each topic
+    let _ = rt.block_on(build_list(&mut c_cache, category_ids, "rpush", "category_id:meta".to_owned())).unwrap_or_else(|_| panic!("Failed to build category lists"));
+
+    // Load all posts with topic id and build a list of posts for each topic
+    // ToDo: iter category_ids vec and get posts from every topics{i} table and update topic's reply count with last reply time, post's reply count with last reply time, category's topic,post count.
     let posts = load_all_posts_with_topic_id(&conn).unwrap_or_else(|_| panic!("Failed to load posts"));
     let mut temp = Vec::new();
     let mut index: u32 = posts[0].0;
@@ -54,19 +59,23 @@ pub fn build_cache(db_pool: &PostgresPool, cache_pool: &RedisPool, postgres_url:
         if i == index {
             temp.push(v)
         } else {
-            build_list(temp, &format!("topic:{}", index), &conn_cache).unwrap_or_else(|_| panic!("Failed to build category lists"));
+            let key = format!("topic:{}:list", &index);
+            let _ = rt.block_on(build_list(&mut c_cache, temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
             temp = Vec::new();
             index = i;
             temp.push(v);
         }
     }
-    build_list(temp, &format!("topic:{}", index), &conn_cache).unwrap_or_else(|_| panic!("Failed to build category lists"));
+    let key = format!("topic:{}:list", &index);
+    let _ = rt.block_on(build_list(&mut c_cache, temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
 
-    /// load all users and store the data in a zrange. stringify user data as member, user id as score.
+
+    // load all users and store the data in a zrange. stringify user data as member, user id as score.
     let users = load_all_users(conn).unwrap_or_else(|_| panic!("Failed to load users"));
-    build_hash_set(&users, "user", &conn_cache).unwrap_or_else(|_| panic!("Failed to update users cache"));
+    // ToDo： collect all subscribe data from users and update category subscribe count.
+    rt.block_on(build_hmset(&mut c_cache, users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
-    /// load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
+    // load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
     Ok(())
 }

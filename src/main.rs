@@ -10,12 +10,13 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::*;
-use actix_files as fs;
 use actix_web::{
     App,
     http::header,
-    HttpServer, middleware::{cors::Cors, Logger}, web,
+    HttpServer, middleware::Logger, web,
 };
+use actix_cors::Cors;
+use actix_files as fs;
 use diesel::{PgConnection, r2d2::ConnectionManager};
 use dotenv::dotenv;
 use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
@@ -29,7 +30,7 @@ mod util;
 use crate::model::talk::TalkService;
 use crate::handler::{cache::clear_cache, email::MailService};
 use crate::util::startup::{build_cache, generate_global};
-use crate::model::db::{RedisConnection, PostgresConnection};
+use crate::model::actors::{RedisConnection, PostgresConnection};
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -53,7 +54,7 @@ fn main() -> std::io::Result<()> {
         .expect("Failed to create redis pool.");
 
     let _ = clear_cache(&redis_pool);
-    let _ = build_cache(&postgres_pool, &redis_pool, &database_url, &redis_url);
+    let _ = build_cache(&postgres_pool, &database_url, &redis_url);
 
     let global_arc = generate_global(&database_url);
 
@@ -87,10 +88,11 @@ fn main() -> std::io::Result<()> {
                     .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::admin_remove_category)))
                     .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))))
             .service(web::scope("/user")
-                .service(web::resource("/register").route(web::post().to_async(router::user::register_user)))
-                .service(web::resource("/login").route(web::post().to_async(router::user::login_user)))
-                .service(web::resource("/{id}").route(web::get().to_async(router::user::get_user)))
-                .service(web::resource("").route(web::post().to_async(router::user::update_user))))
+                .service(web::resource("/register").route(web::post().to_async(router::user::register)))
+                .service(web::resource("/login").route(web::post().to_async(router::user::login)))
+                .service(web::resource("/update").route(web::post().to_async(router::user::update)))
+                .service(web::resource("/{id}").route(web::get().to_async(router::user::get)))
+            )
             .service(web::scope("/post")
                 .service(web::resource("/edit").route(web::post().to_async(router::post::update_post)))
                 .service(web::resource("/{pid}").route(web::get().to_async(router::post::get_post)))
@@ -108,8 +110,6 @@ fn main() -> std::io::Result<()> {
             .service(web::scope("/test")
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
-                .service(web::resource("/user/register").route(web::post().to_async(router::test::register)))
-                .service(web::resource("/user/login").route(web::post().to_async(router::test::login)))
                 .service(web::resource("/categories").route(web::get().to_async(router::test::get_all_categories)))
                 .service(web::resource("/categories/{category_id}/{page}").route(web::get().to_async(router::test::get_category)))
                 .service(web::resource("/topic/{topic_id}/{page}").route(web::get().to_async(router::test::get_topic)))

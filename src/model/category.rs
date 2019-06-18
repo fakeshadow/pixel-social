@@ -7,7 +7,7 @@ use crate::model::admin::AdminPrivilegeCheck;
 use crate::schema::categories;
 use crate::model::topic::TopicQuery;
 
-#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
+#[derive(Queryable, Serialize, Deserialize, Clone)]
 pub struct Category {
     pub id: u32,
     pub name: String,

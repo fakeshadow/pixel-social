@@ -3,17 +3,17 @@ use futures::{Future, future::{Either, IntoFuture, ok as ft_ok, err as ft_err}};
 use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
 
 use crate::model::{
-    db::{PostgresConnection, DB, CACHE},
-    user::AuthRequest,
+    actors::{PostgresConnection, DB, CACHE},
+    user::{AuthRequest, UpdateRequest},
     common::{AttachUser, GlobalGuard, PostgresPool, RedisPool, Validator},
     topic::{TopicRequest, TopicQuery, TopicWithUser, TopicWithPost},
 };
 use crate::handler::{
     auth::UserJwt,
-    db::{GetTopics, GetCategories, GetTopic, GetUsers, GetPosts, AddTopic, UpdateTopic, Login, PreRegister, Register},
-    cache::{UpdateCacheAsync, GetCategoriesCache, GetTopicsCache, UpdateCache},
+    user::GetUsers,
+    db::{GetTopics, GetCategories, GetTopic, GetPosts, AddTopic, UpdateTopic},
+    cache::{UpdateCacheAsync, GetCategoriesCache, GetTopicsCache, UpdateCache, AddedTopic},
 };
-use crate::handler::cache::AddedTopic;
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json("hello world"))
@@ -22,7 +22,7 @@ pub fn hello_world() -> Result<HttpResponse, Error> {
 pub fn test_global_var(
     global: Data<GlobalGuard>,
     db: Data<DB>,
-    cache: Data<RedisPool>,
+    cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = TopicRequest {
         id: None,
@@ -37,10 +37,12 @@ pub fn test_global_var(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(move |t|
-//            let _ = db.do_send(UpdateCategory::AddedTopic(t.category_id, t.id))
-            HttpResponse::Ok().json(&t)
-        )
+        .and_then(move |t| {
+            let cid = t.category_id;
+            let res = HttpResponse::Ok().json(&t);
+            let _ = cache.do_send(AddedTopic(t, cid));
+            res
+        })
 }
 
 pub fn get_all_categories(
@@ -56,9 +58,8 @@ pub fn get_all_categories(
                 .and_then(|r| r)
                 .from_err()
                 .and_then(move |c| {
-                    println!("from db");
                     let res = HttpResponse::Ok().json(&c);
-                    let _ = cache.do_send(UpdateCache(c, "category".to_owned()));
+                    let _ = cache.do_send(UpdateCache::Category(c));
                     res
                 }))
         })
@@ -71,25 +72,6 @@ pub fn get_category(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
-//    db.send(GetTopics::Latest(id, page))
-//        .from_err()
-//        .and_then(|r| r)
-//        .from_err()
-//        .and_then(move |(t, ids)|
-//            db.send(GetUsers(ids))
-//                .from_err()
-//                .and_then(|r| r)
-//                .from_err()
-//                .and_then(move |u| {
-//                    let res = HttpResponse::Ok().json(&t.iter()
-//                        .map(|t| t.attach_user(&u))
-//                        .collect::<Vec<TopicWithUser>>());
-////                            let _ = cache.do_send(UpdateCache(t, "topic".to_owned()));
-////                            let _ = cache.do_send(UpdateCache(u, "user".to_owned()));
-//                    res
-//                })
-//        )
-
     cache.send(GetTopicsCache(vec![id], page))
         .from_err()
         .and_then(move |r| match r {
@@ -101,7 +83,8 @@ pub fn get_category(
                 .and_then(|r| r)
                 .from_err()
                 // return user ids with topics for users query
-                .and_then(move |(t, ids)| db.send(GetUsers(ids))
+                .and_then(move |(t, ids)| db
+                    .send(GetUsers(ids))
                     .from_err()
                     .and_then(|r| r)
                     .from_err()
@@ -109,8 +92,8 @@ pub fn get_category(
                         let res = HttpResponse::Ok().json(&t.iter()
                             .map(|t| t.attach_user(&u))
                             .collect::<Vec<TopicWithUser>>());
-                        let _ = cache.do_send(UpdateCache(t, "topic".to_owned()));
-                        let _ = cache.do_send(UpdateCache(u, "user".to_owned()));
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::User(u));
                         println!("from db");
                         res
                     })
@@ -166,8 +149,9 @@ pub fn add_topic(
         .and_then(|r| r)
         .from_err()
         .and_then(move |t| {
+            let cid = t.category_id;
             let res = HttpResponse::Ok().json(&t);
-//            let _ = cache.do_send(AddedTopic(t, c));
+            let _ = cache.do_send(AddedTopic(t, cid));
             res
         })
 }
@@ -175,6 +159,7 @@ pub fn add_topic(
 pub fn update_topic(
     jwt: UserJwt,
     db: Data<DB>,
+    cache: Data<CACHE>,
     req: Json<TopicRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
@@ -182,50 +167,9 @@ pub fn update_topic(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(|t| {
+        .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
+            let _ = cache.do_send(UpdateCache::Topic(t));
             res
         })
-}
-
-pub fn login(
-    db: Data<DB>,
-    req: Json<AuthRequest>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.check_login()
-        .into_future()
-        .from_err()
-        .and_then(move |_| db
-            .send(Login(req.into_inner()))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(|t| HttpResponse::Ok().json(&t)))
-}
-
-pub fn register(
-    db: Data<DB>,
-    cache: Data<CACHE>,
-    global: Data<GlobalGuard>,
-    req: Json<AuthRequest>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.check_register()
-        .into_future()
-        .from_err()
-        .and_then(move |_| db
-            .send(PreRegister(req.into_inner()))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |req| db
-                .send(Register(req, global.get_ref().clone()))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |u| {
-                    let res = HttpResponse::Ok().json(&u);
-                    let _ = cache.do_send(UpdateCache(u, "user".to_owned()));
-                    res
-                }))
-        )
 }

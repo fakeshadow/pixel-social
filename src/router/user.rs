@@ -1,82 +1,112 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
-use futures::{Future, future::{Either, ok as ft_ok}};
+use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
-use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
 use crate::model::{
-    common::{GlobalGuard, PostgresPool, RedisPool},
-    user::{ToUserRef, AuthRequest, UpdateRequest},
+    actors::{DB, CACHE},
+    common::{GlobalGuard, Validator},
+    user::{AuthRequest, UpdateRequest, ToUserRef},
+};
+use crate::handler::{
+    auth::UserJwt,
+    cache::{UpdateCache, GetUsersCache},
+    user::{Login, PreRegister, Register, UpdateUser, GetUsers},
 };
 
-pub fn get_user(
+pub fn get(
     jwt: UserJwt,
-    id: Path<u32>,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    req: Path<(u32)>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    use crate::model::{user::IdToQuery, cache::IdToUserQuery};
-    id.to_query_cache()
-        .into_user(cache.get_ref())
-        .then(move |res| match res {
-            Ok(u) => Either::A(if u.id == jwt.user_id {
-                ft_ok(HttpResponse::Ok().json(u))
-            } else {
-                ft_ok(HttpResponse::Ok().json(u.to_ref()))
-            }),
+    let id = req.into_inner();
+    cache.send(GetUsersCache(vec![id])).
+        from_err()
+        .and_then(move |r| match r {
+            Ok(u) => Either::A(
+                if id == jwt.user_id {
+                    ft_ok(HttpResponse::Ok().json(u.first()))
+                } else {
+                    ft_ok(HttpResponse::Ok().json(u.first().map(|u| u.to_ref())))
+                }
+            ),
             Err(_) => Either::B(
-                id.to_query()
-                    .into_user(db.get_ref().clone(), None)
+                db.send(GetUsers(vec![id]))
+                    .from_err()
+                    .and_then(|r| r)
                     .from_err()
                     .and_then(move |u| {
-                        let res = if u.id == jwt.user_id {
-                            HttpResponse::Ok().json(&u)
+                        let res = if id == jwt.user_id {
+                            HttpResponse::Ok().json(u.first())
                         } else {
-                            HttpResponse::Ok().json(u.to_ref())
+                            HttpResponse::Ok().json(u.first().map(|u| u.to_ref()))
                         };
-                        UpdateCacheAsync::GotUser(u).handler(cache.get_ref()).then(|_| res)
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        res
                     })
             )
         })
 }
 
-pub fn register_user(
-    req: Json<AuthRequest>,
-    global: Data<GlobalGuard>,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.into_inner()
-        .into_register_query()
-        .into_user(db.get_ref().clone(), Some(global.get_ref().clone()))
-        .from_err()
-        .and_then(move |u| UpdateCacheAsync::GotUser(u)
-            .handler(&cache)
-            .then(|_| HttpResponse::Ok().finish()))
-}
-
-pub fn update_user(
+pub fn update(
     jwt: UserJwt,
+    db: Data<DB>,
+    cache: Data<CACHE>,
     req: Json<UpdateRequest>,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.into_inner()
-        .attach_id_into(Some(jwt.user_id))
-        .into_update_query()
-        .into_user(db.get_ref().clone(), None)
+    let req = req.into_inner().attach_id(Some(jwt.user_id));
+    req.check_update()
+        .into_future()
         .from_err()
-        .and_then(move |u| {
-            let res = HttpResponse::Ok().json(u.to_ref());
-            UpdateCacheAsync::GotUser(u).handler(&cache).then(|_| res)
-        })
+        .and_then(move |_| db
+            .send(UpdateUser(req))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |u| {
+                let res = HttpResponse::Ok().json(&u);
+                let _ = cache.do_send(UpdateCache::User(u));
+                res
+            }))
 }
 
-pub fn login_user(
+pub fn login(
+    db: Data<DB>,
     req: Json<AuthRequest>,
-    db: Data<PostgresPool>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.into_inner()
-        .into_login_query()
-        .into_jwt_user(db.get_ref().clone())
+    req.check_login()
+        .into_future()
         .from_err()
-        .and_then(|u| HttpResponse::Ok().json(&u))
+        .and_then(move |_| db
+            .send(Login(req.into_inner()))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(|t| HttpResponse::Ok().json(&t)))
+}
+
+pub fn register(
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    global: Data<GlobalGuard>,
+    req: Json<AuthRequest>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    req.check_register()
+        .into_future()
+        .from_err()
+        .and_then(move |_| db
+            .send(PreRegister(req.into_inner()))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |req| db
+                .send(Register(req, global.get_ref().clone()))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |u| {
+                    let res = HttpResponse::Ok().json(&u);
+                    let _ = cache.do_send(UpdateCache::User(u));
+                    res
+                }))
+        )
 }

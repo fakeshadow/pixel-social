@@ -1,13 +1,15 @@
-use actix::prelude::*;
+use actix::prelude::{Actor, Context, Addr, fut, Arbiter, Future, WrapFuture, ActorFuture, ContextFutureSpawner, AsyncContext};
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 use redis::Client as RedisClient;
 
 use crate::model::errors::ServiceError;
 
+
 pub type Conn = redis::aio::Connection;
 pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<PostgresConnection>;
 pub type CACHE = Addr<RedisConnection>;
+
 
 pub struct PostgresConnection {
     pub db: Option<Client>,
@@ -31,6 +33,7 @@ impl Actor for RedisConnection {
     type Context = Context<Self>;
 }
 
+
 impl RedisConnection {
     pub fn connect(redis_url: &str) -> CACHE {
         let client = RedisClient::open(redis_url)
@@ -43,6 +46,7 @@ impl RedisConnection {
         })
     }
 }
+
 
 impl PostgresConnection {
     pub fn connect(postgres_url: &str) -> DB {

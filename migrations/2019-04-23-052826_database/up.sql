@@ -163,9 +163,11 @@ INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, 
 VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
         'avatar_url', 9);
 
+INSERT INTO categories (id, name, thumbnail, topic_count, post_count)
+VALUES (1, 'General', 'category_default.png', 1, 1);
+
 INSERT INTO categories (id, name, thumbnail)
-VALUES (1, 'General', 'category_default.png'),
-       (2, 'Announcement', 'category_default.png'),
+VALUES (2, 'Announcement', 'category_default.png'),
        (3, 'Armored Core', 'ac.jpg'),
        (4, 'Ace Combat', 'ace.jpg'),
        (5, 'Persona', 'persona.jpg');
@@ -178,3 +180,4 @@ VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented commu
 
 INSERT INTO posts (id, user_id, topic_id, post_content)
 VALUES (1, 1, 1, 'First Reply Only to stop cache build from complaining');
+

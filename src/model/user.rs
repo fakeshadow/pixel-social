@@ -3,8 +3,6 @@ use chrono::NaiveDateTime;
 use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, errors::ServiceError};
 use crate::model::mail::Mail;
 use crate::schema::users;
-use crate::handler::user::UserQuery;
-
 
 #[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
 pub struct User {
@@ -106,16 +104,6 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
-    pub fn into_register_query(self) -> UserQuery {
-        match self.check_register() {
-            Ok(_) => UserQuery::Register(self),
-            Err(e) => UserQuery::ValidationFailed(e)
-        }
-    }
-    pub fn into_login_query(self) -> UserQuery {
-        UserQuery::Login(self)
-    }
-
     pub fn extract_email(&self) -> Result<&str, ServiceError> {
         self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequest)
     }
@@ -152,42 +140,8 @@ pub struct UpdateRequest {
     pub show_updated_at: Option<bool>,
 }
 
-#[derive(AsChangeset)]
-#[table_name = "users"]
-pub struct UpdateUser<'a> {
-    pub id: &'a u32,
-    pub username: Option<&'a str>,
-    pub avatar_url: Option<&'a str>,
-    pub signature: Option<&'a str>,
-    pub is_admin: Option<&'a u32>,
-    pub blocked: Option<&'a bool>,
-    pub show_email: Option<&'a bool>,
-    pub show_created_at: Option<&'a bool>,
-    pub show_updated_at: Option<&'a bool>,
-}
-
 impl UpdateRequest {
-    /// pass user_id from jwt for normal update user. pass none for admin update user.
-    pub fn attach_id(&mut self, id: Option<u32>) -> &Self {
-        match id {
-            Some(_) => {
-                self.id = id;
-                self.is_admin = None;
-                self.blocked = None;
-                self
-            }
-            None => {
-                self.username = None;
-                self.avatar_url = None;
-                self.signature = None;
-                self.show_email = None;
-                self.show_created_at = None;
-                self.show_updated_at = None;
-                self
-            }
-        }
-    }
-    pub fn attach_id_into(mut self, id: Option<u32>) -> Self {
+    pub fn attach_id(mut self, id: Option<u32>) -> Self {
         match id {
             Some(_) => {
                 self.id = id;
@@ -210,50 +164,14 @@ impl UpdateRequest {
     pub fn extract_id(&self) -> Result<&u32, ServiceError> {
         self.id.as_ref().ok_or(ServiceError::BadRequest)
     }
-
-    pub fn make_update(&self) -> Result<UpdateUser, ServiceError> {
-        Ok(UpdateUser {
-            id: self.extract_id()?,
-            username: self.username.as_ref().map(String::as_str),
-            avatar_url: self.avatar_url.as_ref().map(String::as_str),
-            signature: self.signature.as_ref().map(String::as_str),
-            is_admin: self.is_admin.as_ref(),
-            blocked: self.blocked.as_ref(),
-            show_email: self.show_email.as_ref(),
-            show_created_at: self.show_created_at.as_ref(),
-            show_updated_at: self.show_updated_at.as_ref(),
-        })
-    }
 }
-
-impl UpdateRequest {
-    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
-        AdminPrivilegeCheck::UpdateUserCheck(level, self)
-    }
-    pub fn into_update_query(self) -> UserQuery {
-        match self.username {
-            Some(_) => match self.check_username() {
-                Ok(_) => UserQuery::UpdateUser(self),
-                Err(e) => UserQuery::ValidationFailed(e)
-            }
-            None => UserQuery::UpdateUser(self)
-        }
-    }
-}
-
-pub trait IdToQuery {
-    fn to_query(&self) -> UserQuery;
-}
-
-impl IdToQuery for u32 {
-    fn to_query(&self) -> UserQuery { UserQuery::GetUser(*self) }
-}
-
 
 impl Validator for AuthRequest {
     fn get_username(&self) -> &str { &self.username }
     fn get_password(&self) -> &str { &self.password }
     fn get_email(&self) -> &str { self.email.as_ref().map(String::as_str).unwrap_or("") }
+
+    fn check_self_id(&self) -> Result<(), ServiceError> { Ok(()) }
 }
 
 impl Validator for UpdateRequest {
@@ -263,4 +181,8 @@ impl Validator for UpdateRequest {
     }
     fn get_password(&self) -> &str { "" }
     fn get_email(&self) -> &str { "" }
+
+    fn check_self_id(&self) -> Result<(), ServiceError> {
+        self.id.as_ref().ok_or(ServiceError::BadRequest).map(|_| ())
+    }
 }

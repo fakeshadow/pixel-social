@@ -6,7 +6,6 @@ use crate::model::{
 };
 
 pub enum AdminPrivilegeCheck<'a> {
-	UpdateUserCheck(&'a u32, &'a UpdateRequest),
 	UpdateCategoryCheck(&'a u32, &'a CategoryUpdateRequest),
 	UpdateTopicCheck(&'a u32, &'a TopicRequest),
 	UpdatePostCheck(&'a u32, &'a PostRequest),

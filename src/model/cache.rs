@@ -101,15 +101,14 @@ impl Parser for HashMap<String, String> {
         if self.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
     }
     fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
-        Ok(self.get(key).ok_or(ServiceError::InternalServerError)?.to_string())
+        self.get(key).map(|s|s.to_owned()).ok_or(ServiceError::InternalServerError)
     }
     fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
-        Ok(NaiveDateTime::parse_from_str(self.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
+        Ok(self.get(key).map(|s|NaiveDateTime::parse_from_str(s,"%Y-%m-%d %H:%M:%S%.f")).unwrap()?)
     }
     fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
         where K: FromStr {
-        Ok(self.get(key).ok_or(ServiceError::InternalServerError)?
-            .parse::<K>().map_err(|_| ServiceError::InternalServerError)?)
+        self.get(key).map(|s|s.parse::<K>().map_err(|_| ServiceError::InternalServerError)).unwrap()
     }
     fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError> {
         FromHashSet::from_hash(self)

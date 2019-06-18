@@ -10,8 +10,7 @@ use crate::util::{hash, jwt};
 
 use crate::model::{
     errors::ServiceError,
-    db::PostgresConnection,
-    user::{AuthRequest, AuthResponse, User},
+    actors::PostgresConnection,
     post::Post,
     category::Category,
     topic::{Topic, TopicRequest},
@@ -43,26 +42,36 @@ impl Handler<GetTopics> for PostgresConnection {
             GetTopics::Popular(page) => "template".to_owned()
         };
 
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&query)
-            .from_err()
-            .fold((topics, ids), move |(mut topics, mut ids), row| {
-                if let Some(t) = topic_from_msg(&Some(row)).ok() {
-                    ids.push(t.user_id);
-                    topics.push(t);
-                }
-                Ok::<_, ServiceError>((topics, ids))
-            })
-            .and_then(|(t, mut ids)| {
-                ids.sort();
-                ids.dedup();
-                Ok((t, ids))
-            })
-        )
+        Box::new(get_topics(
+            self.db.as_mut().unwrap(),
+            &query, topics,
+            ids,
+        ))
     }
 }
+
+pub fn get_topics(
+    c: &mut Client,
+    query: &str,
+    topics: Vec<Topic>,
+    ids: Vec<u32>,
+) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
+    c.simple_query(query)
+        .from_err()
+        .fold((topics, ids), move |(mut topics, mut ids), row| {
+            if let Some(t) = topic_from_msg(&Some(row)).ok() {
+                ids.push(t.user_id);
+                topics.push(t);
+            }
+            Ok::<_, ServiceError>((topics, ids))
+        })
+        .and_then(|(t, mut ids)| {
+            ids.sort();
+            ids.dedup();
+            Ok((t, ids))
+        })
+}
+
 
 pub struct GetCategories;
 
@@ -162,45 +171,6 @@ impl Handler<GetPosts> for PostgresConnection {
     }
 }
 
-pub struct GetUsers(pub Vec<u32>);
-
-impl Message for GetUsers {
-    type Result = Result<Vec<User>, ServiceError>;
-}
-
-impl Handler<GetUsers> for PostgresConnection {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
-
-    fn handle(&mut self, msg: GetUsers, _: &mut Self::Context) -> Self::Result {
-        let users = Vec::with_capacity(21);
-
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .query(self.users_by_id.as_ref().unwrap(), &[&msg.0])
-            .from_err()
-            .fold(users, move |mut users, row| {
-                users.push(User {
-                    id: row.get(0),
-                    username: row.get(1),
-                    email: row.get(2),
-                    hashed_password: "1".to_owned(),
-                    avatar_url: row.get(4),
-                    signature: row.get(5),
-                    created_at: row.get(6),
-                    updated_at: row.get(7),
-                    is_admin: row.get(8),
-                    blocked: row.get(9),
-                    show_email: row.get(10),
-                    show_created_at: row.get(11),
-                    show_updated_at: row.get(12),
-                });
-                Ok::<_, ServiceError>(users)
-            })
-        )
-    }
-}
-
 pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
 
 impl Message for AddTopic {
@@ -220,22 +190,15 @@ impl Handler<AddTopic> for PostgresConnection {
             Err(e) => return Box::new(future::err(e))
         };
 
-        let st1 = format!(
+        let query = format!(
             "INSERT INTO topics{}
             (id, user_id, category_id, thumbnail, title, body)
             VALUES ('{}', '{}', '{}', '{}', '{}', '{}')
             RETURNING *",
             t.category_id, t.id, t.user_id, t.category_id, t.thumbnail, t.title, t.body);
 
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&st1)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .from_err()
-            .and_then(|(msg, _)|
-                topic_from_msg(&msg)))
+        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
+            .and_then(|msg| topic_from_msg(&msg)))
     }
 }
 
@@ -285,116 +248,23 @@ impl Handler<UpdateTopic> for PostgresConnection {
         }
         query.push_str("RETURNING *");
 
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&query)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .from_err()
-            .and_then(|(msg, _)|
-                topic_from_msg(&msg).map(|t| vec![t]))
-        )
-    }
-}
-
-pub struct PreRegister(pub AuthRequest);
-
-impl Message for PreRegister {
-    type Result = Result<AuthRequest, ServiceError>;
-}
-
-impl Handler<PreRegister> for PostgresConnection {
-    type Result = ResponseFuture<AuthRequest, ServiceError>;
-
-    fn handle(&mut self, msg: PreRegister, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-        let query = format!(
-            "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
-
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&query)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .from_err()
-            .and_then(|(msg, _)|
-                unique_username_email_check(&msg, req))
-        )
-    }
-}
-
-pub struct Register(pub AuthRequest, pub GlobalGuard);
-
-impl Message for Register {
-    type Result = Result<Vec<User>, ServiceError>;
-}
-
-impl Handler<Register> for PostgresConnection {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
-
-    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-
-        let hash = match hash::hash_password(&req.password) {
-            Ok(hash) => hash,
-            Err(e) => return Box::new(future::err(e))
-        };
-        let id = match msg.1.lock() {
-            Ok(mut var) => var.next_uid(),
-            Err(_) => return Box::new(future::err(ServiceError::InternalServerError))
-        };
-        let u = match req.make_user(&id, &hash) {
-            Ok(u) => u,
-            Err(e) => return Box::new(future::err(e))
-        };
-        let query = format!(
-            "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
-             VALUES ('{}', '{}', '{}', '{}', '{}', '{}')
-             RETURNING *", u.id, u.username, u.email, u.hashed_password, u.avatar_url, u.signature);
-
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&query)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .from_err()
-            .and_then(move |(msg, _)|
-                user_from_msg(&msg))
-        )
-    }
-}
-
-pub struct Login(pub AuthRequest);
-
-impl Message for Login {
-    type Result = Result<AuthResponse, ServiceError>;
-}
-
-impl Handler<Login> for PostgresConnection {
-    type Result = ResponseFuture<AuthResponse, ServiceError>;
-
-    fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-        let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
-
-        Box::new(self.db
-            .as_mut()
-            .unwrap()
-            .simple_query(&query)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .from_err()
-            .and_then(move |(msg, _)|
-                auth_response_from_msg(&msg, &req.password))
-        )
+        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
+            .and_then(|msg| topic_from_msg(&msg).map(|t| vec![t])))
     }
 }
 
 // helper functions
+pub fn simple_query(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=Option<SimpleQueryMessage>, Error=ServiceError> {
+    c.simple_query(query)
+        .into_future()
+        .map_err(|(e, _)| e)
+        .from_err()
+        .and_then(|(msg, _)| Ok(msg))
+}
+
 fn topic_from_msg(
     opt: &Option<SimpleQueryMessage>
 ) -> Result<Topic, ServiceError> {
@@ -405,84 +275,6 @@ fn topic_from_msg(
         },
         None => Err(ServiceError::InternalServerError)
     }
-}
-
-fn user_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<Vec<User>, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => user_from_simple_row(row).map(|u| vec![u]),
-            _ => Err(ServiceError::InternalServerError)
-        }
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-fn auth_response_from_msg(
-    opt: &Option<SimpleQueryMessage>,
-    pass: &str,
-) -> Result<AuthResponse, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => auth_response_from_simple_row(row, pass),
-            _ => Err(ServiceError::InvalidUsername)
-        }
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-fn unique_username_email_check(
-    opt: &Option<SimpleQueryMessage>,
-    req: AuthRequest,
-) -> Result<AuthRequest, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => {
-                let row = row.get(0).ok_or(ServiceError::InternalServerError)?;
-                if row == &req.username {
-                    Err(ServiceError::UsernameTaken)
-                } else {
-                    Err(ServiceError::EmailTaken)
-                }
-            }
-            _ => Ok(req)
-        }
-        None => Err(ServiceError::BadRequest)
-    }
-}
-
-fn auth_response_from_simple_row(
-    row: &SimpleQueryRow,
-    pass: &str,
-) -> Result<AuthResponse, ServiceError> {
-    let hash = row.get(3).ok_or(ServiceError::InternalServerError)?;
-    let _ = hash::verify_password(pass, hash)?;
-
-    let user = user_from_simple_row(row)?;
-    let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
-
-    Ok(AuthResponse { token, user })
-}
-
-fn user_from_simple_row(
-    row: &SimpleQueryRow
-) -> Result<User, ServiceError> {
-    Ok(User {
-        id: row.get(0).map(|s| s.parse::<u32>()).unwrap()?,
-        username: row.get(1).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        email: row.get(2).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        hashed_password: row.get(3).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        avatar_url: row.get(4).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        signature: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-        updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-        is_admin: row.get(8).map(|s| s.parse::<u32>()).unwrap()?,
-        blocked: if row.get(9) == Some("f") { false } else { true },
-        show_email: if row.get(10) == Some("f") { false } else { true },
-        show_created_at: if row.get(11) == Some("f") { false } else { true },
-        show_updated_at: if row.get(12) == Some("f") { false } else { true },
-    })
 }
 
 fn topic_from_simple_row(

@@ -1,4 +1,3 @@
-DROP TABLE categories;
 DROP TABLE posts;
 DROP TABLE associates;
 DROP TABLE talks;
@@ -9,3 +8,4 @@ DROP TABLE topics2;
 DROP TABLE topics3;
 DROP TABLE topics4;
 DROP TABLE topics5;
+DROP TABLE categories;

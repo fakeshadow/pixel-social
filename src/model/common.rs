@@ -50,6 +50,8 @@ pub trait Validator {
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
 
+    fn check_self_id(&self) -> Result<(), ServiceError>;
+
     fn check_username(&self) -> Result<(), ServiceError> {
         let username = self.get_username();
         if validate::validate_username(username) {
@@ -82,6 +84,7 @@ pub trait Validator {
     }
 
     fn check_update(&self) -> Result<(), ServiceError> {
+        &self.check_self_id()?;
         &self.check_username()?;
         Ok(())
     }
