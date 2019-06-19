@@ -2,7 +2,6 @@ use std::error::Error;
 
 use derive_more::Display;
 use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
-use diesel::result::{DatabaseErrorKind, Error as DieselError};
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -115,27 +114,6 @@ impl From<RedisError> for ServiceError {
     }
 }
 
-impl From<DieselError> for ServiceError {
-    fn from(err: DieselError) -> ServiceError {
-        match err {
-            DieselError::DatabaseError(kind, info) => match kind {
-                DatabaseErrorKind::UniqueViolation =>
-                    ServiceError::BadRequestDb(DatabaseErrorMessage {
-                        message: info.message().to_string(),
-                        details: info.details().map(|i| i.to_string()),
-                        hint: info.hint().map(|i| i.to_string()),
-                    }),
-                _ => ServiceError::InternalServerError
-            }
-            _ => ServiceError::InternalServerError,
-        }
-    }
-}
-
-impl From<r2d2::Error> for ServiceError {
-    fn from(_err: r2d2::Error) -> ServiceError { ServiceError::InternalServerError }
-}
-
 impl From<serde_json::Error> for ServiceError {
     fn from(_err: serde_json::Error) -> ServiceError {
         ServiceError::InternalServerError
@@ -160,7 +138,6 @@ pub struct DatabaseErrorMessage {
     details: Option<String>,
     hint: Option<String>,
 }
-
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {

@@ -1,10 +1,12 @@
 use chrono::NaiveDateTime;
 
-use crate::model::{admin::AdminPrivilegeCheck, common::{GetSelfId, Validator}, errors::ServiceError};
-use crate::model::mail::Mail;
-use crate::schema::users;
+use crate::model::{
+    mail::Mail,
+    errors::ServiceError,
+    common::{GetSelfId, Validator}
+};
 
-#[derive(Queryable, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,

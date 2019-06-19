@@ -14,7 +14,7 @@ use crate::model::{
     topic::Topic,
     user::User,
     cache::{CacheQuery, FromHashSet, Parser, SortHash},
-    common::{AttachUser, get_unique_id, GetSelfId, GetUserId, PoolConnectionRedis, RedisPool},
+    common::{AttachUser, GetSelfId, PoolConnectionRedis, RedisPool},
     mail::Mail,
 };
 use crate::model::actors::{CacheService, Conn};
@@ -276,201 +276,130 @@ pub fn build_list(
 }
 
 
-impl CacheQuery {
-    pub fn into_post(self, pool: &RedisPool) -> impl Future<Item=Vec<Post>, Error=ServiceError> {
-        let pool = pool.clone();
-        block(move || match self {
-            CacheQuery::GetPost(id) => get_post(id, &pool.get()?),
-            _ => panic!("method not allowed")
-        }).from_err()
-    }
-}
 
-fn get_post(id: u32, conn: &PoolConnectionRedis) -> Result<Vec<Post>, ServiceError> {
-    from_hash_set::<Post>(&vec![id], "post", conn)
-}
-
-pub fn get_unique_users_cache<T>(vec: &Vec<T>, opt: Option<u32>, pool: RedisPool)
-                                 -> impl Future<Item=Vec<User>, Error=ServiceError>
-    where T: GetUserId {
-    let ids = get_unique_id(vec, opt);
-    block(move || Ok(from_hash_set::<User>(&ids, "user", &pool.get()?)?)).from_err()
-}
-
-/// use Parser and FromHashSet traits to convert HashMap into struct.
-fn from_hash_set<T>(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<T>, ServiceError>
-    where T: FromHashSet {
-    let vec = get_hash_set(ids, key, &conn)?;
-    if vec.len() != ids.len() { return Err(ServiceError::InternalServerError); };
-    vec.iter().map(|hash| hash.parse::<T>()).collect()
-}
-
-fn get_hash_set(ids: &Vec<u32>, key: &str, conn: &PoolConnectionRedis) -> Result<Vec<HashMap<String, String>>, ServiceError> {
-    let mut pipe = redis_r::pipe();
-    let pipe = pipe.atomic();
-
-    for id in ids {
-        pipe.hgetall(format!("{}:{}:set", key, id));
-    }
-    Ok(pipe.query(conn.deref())?)
-}
-
-pub enum UpdateCacheAsync {
-    GotTopics(Vec<Topic>),
-    GotPost(Post),
-    GotUser(User),
-    GotCategories(Vec<Category>),
-    GotTopicWithPosts(Option<Topic>, Vec<Post>),
-    AddedTopic(Category, Topic),
-    AddedPost(Category, Topic, Option<Post>, Post),
-    AddedCategory(Vec<Category>),
-    DeleteCategory(u32),
-}
-
-impl UpdateCacheAsync {
-    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
-        let pool = pool.clone();
-        block(move || match self {
-            UpdateCacheAsync::GotTopics(t) => update_hash_set(&t, "topic", pool.get()?),
-            UpdateCacheAsync::GotCategories(c) => update_hash_set(&c, "category", pool.get()?),
-            UpdateCacheAsync::GotTopicWithPosts(t, p) => got_topic_with_posts(t.as_ref(), &p, pool.get()?),
-            UpdateCacheAsync::AddedPost(c, t, p, p_new) => added_post(&t, &c, &p_new, &p, pool.get()?),
-            UpdateCacheAsync::AddedTopic(c, t) => added_topic(&t, &c, pool.get()?),
-            UpdateCacheAsync::AddedCategory(c) => added_category(&c, pool.get()?),
-            UpdateCacheAsync::GotPost(p) => Ok(pool.get()?.hset_multiple(&format!("post:{}:set", p.id), &p.sort_hash())?),
-            UpdateCacheAsync::GotUser(u) => Ok(pool.get()?.hset_multiple(&format!("user:{}:set", u.id), &u.sort_hash())?),
-            // ToDo: migrate post and topic when deleting category
-            UpdateCacheAsync::DeleteCategory(id) => Ok(redis_r::pipe()
-                .lrem("category_id:meta", 1, id)
-                .del(format!("{}:{}:set", "category", id))
-                .query(pool.get()?.deref())?),
-        }).from_err()
-    }
-}
-
-type UpdateResult = Result<(), ServiceError>;
-
-fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
-    let c = c.first().ok_or(ServiceError::InternalServerError)?;
-    Ok(redis_r::pipe().atomic()
-        .rpush("category_id:meta", c.id)
-        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-        .query(conn.deref())?)
-}
-
-fn got_topic_with_posts(t: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-    if let Some(t) = t {
-        let _ignore: Result<usize, _> = conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash());
-    }
-    update_hash_set(&p, "post", conn)
-}
-
-fn added_topic(t: &Topic, c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
-    Ok(redis_r::pipe().atomic()
-        .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-        .lpush(format!("category:{}:list", c.id), t.id)
-        .query(conn.deref())?)
-}
-
-fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-    let list_key = format!("category:{}:list", t.category_id);
-    Ok(match p_old {
-        Some(p_new) => redis_r::pipe().atomic()
-            .lrem(&list_key, 1, t.id)
-            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-            .hset_multiple(format!("post:{}:set", p_new.id), &p_new.sort_hash())
-            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-            .rpush(format!("topic:{}:list", t.id), p.id)
-            .lpush(list_key, t.id)
-            .query(conn.deref())?,
-        None => redis_r::pipe().atomic()
-            .lrem(&list_key, 1, t.id)
-            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-            .rpush(format!("topic:{}:list", t.id), p.id)
-            .lpush(list_key, t.id)
-            .query(conn.deref())?
-    })
-}
-
-fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
-    where T: GetSelfId + SortHash {
-    let mut pipe = redis_r::pipe();
-    let pipe = pipe.atomic();
-
-    for v in vec {
-        pipe.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash());
-    }
-
-    Ok(pipe.query(conn.deref())?)
-}
-
+//type UpdateResult = Result<(), ServiceError>;
+//
+//fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
+//    let c = c.first().ok_or(ServiceError::InternalServerError)?;
+//    Ok(redis_r::pipe().atomic()
+//        .rpush("category_id:meta", c.id)
+//        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+//        .query(conn.deref())?)
+//}
+//
+//fn got_topic_with_posts(t: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+//    if let Some(t) = t {
+//        let _ignore: Result<usize, _> = conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash());
+//    }
+//    update_hash_set(&p, "post", conn)
+//}
+//
+//fn added_topic(t: &Topic, c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
+//    Ok(redis_r::pipe().atomic()
+//        .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
+//        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+//        .lpush(format!("category:{}:list", c.id), t.id)
+//        .query(conn.deref())?)
+//}
+//
+//fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
+//    let list_key = format!("category:{}:list", t.category_id);
+//    Ok(match p_old {
+//        Some(p_new) => redis_r::pipe().atomic()
+//            .lrem(&list_key, 1, t.id)
+//            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
+//            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
+//            .hset_multiple(format!("post:{}:set", p_new.id), &p_new.sort_hash())
+//            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+//            .rpush(format!("topic:{}:list", t.id), p.id)
+//            .lpush(list_key, t.id)
+//            .query(conn.deref())?,
+//        None => redis_r::pipe().atomic()
+//            .lrem(&list_key, 1, t.id)
+//            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
+//            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
+//            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
+//            .rpush(format!("topic:{}:list", t.id), p.id)
+//            .lpush(list_key, t.id)
+//            .query(conn.deref())?
+//    })
+//}
+//
+//fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
+//    where T: GetSelfId + SortHash {
+//    let mut pipe = redis_r::pipe();
+//    let pipe = pipe.atomic();
+//
+//    for v in vec {
+//        pipe.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash());
+//    }
+//
+//    Ok(pipe.query(conn.deref())?)
+//}
+//
 pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
-    let conn = pool.get()?;
+    let conn = pool.get().unwrap_or_else(|_|panic!("failed to connect redis pool"));
     Ok(redis_r::cmd("flushall").query(conn.deref())?)
 }
-
-// helper for mail service
-pub enum MailCache {
-    AddActivation(Mail),
-    AddRecovery(Mail),
-    GotActivation(Mail),
-    GetActivation(Option<u32>),
-    RemoveActivation(u32),
-    RemoveRecovery(u32),
-}
-
-impl MailCache {
-    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
-        let pool = pool.clone();
-        block(move || match self {
-            MailCache::AddActivation(mail) => add_mail_cache(&mail, pool.get()?),
-            _ => panic!("method not allowed")
-        }).from_err()
-    }
-    pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
-        let string = from_mail_queue(None, conn)?;
-        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::InternalServerError)?)?))
-    }
-    pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
-        match self {
-            MailCache::GetActivation(opt) => from_mail_hash(opt, "activation", pool.get()?),
-            _ => Err(ServiceError::BadRequest)
-        }
-    }
-    pub fn remove_queue(self, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-        match self {
-            MailCache::GotActivation(mail) => del_mail_queue(mail.user_id, conn),
-            _ => Err(ServiceError::InternalServerError)
-        }
-    }
-}
-
-fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
-    let stringify = serde_json::to_string(mail)?;
-    let key = format!("activation:{}:set", mail.user_id);
-    Ok(redis_r::pipe().atomic()
-        .zadd("mail_queue", stringify, mail.user_id)
-        .hset_multiple(&key, &mail.sort_hash())
-        .expire(&key, MAIL_LIFE)
-        .query(conn.deref())?)
-}
-
-fn del_mail_queue(id: u32, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-    Ok(redis_r::cmd("zrembyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?)
-}
-
-fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<String>, ServiceError> {
-    match opt {
-        Some(id) => Ok(redis_r::cmd("zrangebyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
-        None => Ok(redis_r::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
-    }
-}
-
-fn from_mail_hash(opt: &Option<u32>, key: &str, conn: PoolConnectionRedis) -> Result<HashMap<String, String>, ServiceError> {
-    let test = opt.unwrap();
-    Ok(redis_r::cmd("hgetall").arg(format!("{}:{}:set", key, test)).query(conn.deref())?)
-}
+//
+//// helper for mail service
+//pub enum MailCache {
+//    AddActivation(Mail),
+//    AddRecovery(Mail),
+//    GotActivation(Mail),
+//    GetActivation(Option<u32>),
+//    RemoveActivation(u32),
+//    RemoveRecovery(u32),
+//}
+//
+//impl MailCache {
+//    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
+//        let pool = pool.clone();
+//        block(move || match self {
+//            MailCache::AddActivation(mail) => add_mail_cache(&mail, pool.get()?),
+//            _ => panic!("method not allowed")
+//        }).from_err()
+//    }
+//    pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
+//        let string = from_mail_queue(None, conn)?;
+//        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::InternalServerError)?)?))
+//    }
+//    pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
+//        match self {
+//            MailCache::GetActivation(opt) => from_mail_hash(opt, "activation", pool.get()?),
+//            _ => Err(ServiceError::BadRequest)
+//        }
+//    }
+//    pub fn remove_queue(self, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+//        match self {
+//            MailCache::GotActivation(mail) => del_mail_queue(mail.user_id, conn),
+//            _ => Err(ServiceError::InternalServerError)
+//        }
+//    }
+//}
+//
+//fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
+//    let stringify = serde_json::to_string(mail)?;
+//    let key = format!("activation:{}:set", mail.user_id);
+//    Ok(redis_r::pipe().atomic()
+//        .zadd("mail_queue", stringify, mail.user_id)
+//        .hset_multiple(&key, &mail.sort_hash())
+//        .expire(&key, MAIL_LIFE)
+//        .query(conn.deref())?)
+//}
+//
+//fn del_mail_queue(id: u32, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
+//    Ok(redis_r::cmd("zrembyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?)
+//}
+//
+//fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<String>, ServiceError> {
+//    match opt {
+//        Some(id) => Ok(redis_r::cmd("zrangebyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
+//        None => Ok(redis_r::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
+//    }
+//}
+//
+//fn from_mail_hash(opt: &Option<u32>, key: &str, conn: PoolConnectionRedis) -> Result<HashMap<String, String>, ServiceError> {
+//    let test = opt.unwrap();
+//    Ok(redis_r::cmd("hgetall").arg(format!("{}:{}:set", key, test)).query(conn.deref())?)
+//}

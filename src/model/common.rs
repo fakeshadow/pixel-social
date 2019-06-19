@@ -1,15 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use actix_web::{web::Data};
-use diesel::{pg::PgConnection, r2d2::{ConnectionManager, Pool as diesel_pool, PooledConnection}};
-use r2d2_redis::{r2d2::Pool as redis_pool, RedisConnectionManager};
+use r2d2_redis::{r2d2::{Pool as redis_pool, PooledConnection}, RedisConnectionManager};
 
 use crate::model::{errors::ServiceError, user::{ToUserRef, UserRef}};
 use crate::util::validation as validate;
 
-pub type PostgresPool = diesel_pool<ConnectionManager<PgConnection>>;
 pub type RedisPool = redis_pool<RedisConnectionManager>;
-pub type PoolConnectionPostgres = PooledConnection<ConnectionManager<PgConnection>>;
 pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 
 #[derive(Serialize)]
@@ -133,25 +130,4 @@ impl GlobalVar {
         self.last_tid += 1;
         self.last_tid
     }
-}
-
-/// only add topic user_id when query for the first page of a topic. Other case just pass None in
-/// capacity has to be changed along side with the limit constant in handlers.
-pub trait GetUserId {
-    fn get_user_id(&self) -> u32;
-}
-
-pub fn get_unique_id<T>(items: &Vec<T>, topic_user_id: Option<u32>) -> Vec<u32>
-    where T: GetUserId {
-    let mut result: Vec<u32> = Vec::with_capacity(21);
-
-    if let Some(user_id) = topic_user_id { result.push(user_id); }
-
-    for item in items.iter() {
-        let item_id = item.get_user_id();
-        if !result.contains(&item_id) {
-            result.push(item_id);
-        }
-    }
-    result
 }

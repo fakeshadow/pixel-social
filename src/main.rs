@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
 
 #[macro_use]
-extern crate diesel;
-#[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
@@ -17,14 +15,12 @@ use actix_web::{
 };
 use actix_cors::Cors;
 use actix_files as fs;
-use diesel::{PgConnection, r2d2::ConnectionManager};
 use dotenv::dotenv;
 use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
 
 mod handler;
 mod model;
 mod router;
-mod schema;
 mod util;
 
 use crate::model::actors::{CacheService, DatabaseService, TalkService};
@@ -40,12 +36,6 @@ fn main() -> std::io::Result<()> {
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
-
-    let manager = ConnectionManager::<PgConnection>::new(database_url.clone());
-    let postgres_pool = r2d2::Pool::builder()
-        .max_size(12)
-        .build(manager)
-        .expect("Failed to create postgres pool.");
 
     let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
     let redis_pool = redis_r2d2::Pool::builder()
@@ -68,7 +58,6 @@ fn main() -> std::io::Result<()> {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
         App::new()
-            .data(postgres_pool.clone())
             .data(redis_pool.clone())
             .data(global_arc.clone())
             .data(talk_service.clone())
@@ -85,8 +74,9 @@ fn main() -> std::io::Result<()> {
 //                .service(web::resource("/post").route(web::post().to_async(router::admin::admin_update_post)))
                 .service(web::resource("/topic").route(web::post().to_async(router::admin::update_topic)))
                 .service(web::scope("/category")
-                    .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::admin_remove_category)))
-                    .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))
+//                    .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::remove_category)))
+//                    .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))
+                    .service(web::resource("").route(web::post().to_async(router::admin::add_category)))
                 )
             )
             .service(web::scope("/user")

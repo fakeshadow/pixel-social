@@ -22,7 +22,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     // Load all categories and make hash set.
     let p = c.prepare("SELECT * FROM categories");
     let st = rt.block_on(p).unwrap();
-    let mut categories = Vec::new();
+    let categories = Vec::new();
     let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap();
 
     rt.block_on(build_hmset(&mut c_cache, categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
@@ -32,8 +32,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     for cat in categories.iter() {
         category_ids.push(cat.id);
         let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
-        let mut tids = Vec::new();
-        let mut topics = Vec::new();
+        let tids = Vec::new();
+        let topics = Vec::new();
         let (topics, _) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
         let tids = topics.into_iter().map(|t| t.id).collect();
         let key = format!("category:{}:list", &cat.id);
@@ -115,7 +115,7 @@ fn load_global(postgres_url: &str) -> (u32, u32, u32) {
             cids.push(row.get(0));
             Ok::<_, _>(cids)
         });
-    let mut cids = rt.block_on(f).unwrap();
+    let cids = rt.block_on(f).unwrap();
 
     let mut query = String::new();
     for id in cids.iter() {

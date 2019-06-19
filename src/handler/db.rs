@@ -175,6 +175,18 @@ pub fn simple_query(
         .and_then(|(msg, _)| Ok(msg))
 }
 
+pub fn category_from_msg(
+    opt: &Option<SimpleQueryMessage>
+) -> Result<Category, ServiceError> {
+    match opt {
+        Some(msg) => match msg {
+            SimpleQueryMessage::Row(row) => category_from_simple_row(row),
+            _ => Err(ServiceError::InternalServerError)
+        }
+        None => Err(ServiceError::InternalServerError)
+    }
+}
+
 pub fn user_from_msg(
     opt: &Option<SimpleQueryMessage>
 ) -> Result<User, ServiceError> {
@@ -328,41 +340,4 @@ fn category_from_simple_row(
         subscriber_count: row.get(4).map(|s| s.parse::<i32>()).unwrap()?,
         thumbnail: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
     })
-}
-
-fn category_from_row(
-    row: Option<Row>
-) -> Result<Category, ServiceError> {
-    match row {
-        Some(row) => Ok(Category {
-            id: row.get(0),
-            name: row.get(1),
-            topic_count: row.get(2),
-            post_count: row.get(3),
-            subscriber_count: row.get(4),
-            thumbnail: row.get(5),
-        }),
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-pub fn topic_from_row(
-    row: Option<Row>
-) -> Result<Topic, ServiceError> {
-    match row {
-        Some(row) => Ok(Topic {
-            id: row.get(0),
-            user_id: row.get(1),
-            category_id: row.get(2),
-            title: row.get(3),
-            body: row.get(4),
-            thumbnail: row.get(5),
-            created_at: row.get(6),
-            updated_at: row.get(7),
-            last_reply_time: row.get(8),
-            reply_count: row.get(9),
-            is_locked: row.get(10),
-        }),
-        None => Err(ServiceError::InternalServerError)
-    }
 }

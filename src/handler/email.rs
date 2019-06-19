@@ -8,7 +8,6 @@ use lettre::{
 };
 
 use crate::model::{mail::Mail, errors::ServiceError};
-use crate::handler::cache::MailCache;
 use crate::model::common::{PoolConnectionRedis, RedisPool};
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
@@ -34,22 +33,22 @@ impl MailService {
 
     fn hb(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, |act, ctx| {
-            let _ = process_mail(&act.pool);
+//            let _ = process_mail(&act.pool);
         });
     }
 }
 
-fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {
-    let conn = &pool.get()?;
-    let cache = MailCache::from_queue(conn)?;
-    match &cache {
-        MailCache::GotActivation(mail) => {
-            send_mail(mail)?;
-            cache.remove_queue(conn)
-        }
-        _ => Err(ServiceError::InternalServerError)
-    }
-}
+//fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {
+//    let conn = &pool.get()?;
+//    let cache = MailCache::from_queue(conn)?;
+//    match &cache {
+//        MailCache::GotActivation(mail) => {
+//            send_mail(mail)?;
+//            cache.remove_queue(conn)
+//        }
+//        _ => Err(ServiceError::InternalServerError)
+//    }
+//}
 
 fn send_mail(mail: &Mail) -> Result<(), ServiceError> {
     let url = env::var("SERVER_URL").expect("Server url must be set");

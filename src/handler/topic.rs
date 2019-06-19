@@ -6,12 +6,12 @@ use actix::prelude::*;
 use crate::model::{
     actors::DatabaseService,
     topic::TopicRequest,
-    common::{PoolConnectionPostgres, GlobalGuard},
+    common::GlobalGuard,
     errors::ServiceError,
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::{topic_from_msg, topic_from_row, get_topics, simple_query, get_posts};
+use crate::handler::db::{topic_from_msg, get_topics, simple_query, get_posts};
 
 const LIMIT: i64 = 20;
 

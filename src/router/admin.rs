@@ -1,92 +1,73 @@
-use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 use futures::{Future, future::Either, IntoFuture};
 
-use crate::handler::{auth::UserJwt, cache::UpdateCacheAsync};
-use crate::model::{
-    category::CategoryUpdateRequest,
-    common::{PostgresPool, RedisPool},
-    post::PostRequest,
-    topic::TopicRequest,
-    user::{ToUserRef, UpdateRequest},
-};
-
-/// Admin query will hit database directly.
-pub fn admin_modify_category(
-    jwt: UserJwt,
-    req: Json<CategoryUpdateRequest>,
-    cache: Data<RedisPool>,
-    db: Data<PostgresPool>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.to_privilege_check(&jwt.is_admin)
-        .handle_check(&db)
-        .into_future()
-        .from_err()
-        .and_then(move |_| match req.category_id {
-            Some(_) => Either::A(
-                req.into_inner()
-                    .into_update_query()
-                    .into_categories(&db)
-                    .from_err()
-                    .and_then(move |c| {
-                        let res = HttpResponse::Ok().json(&c);
-                        UpdateCacheAsync::GotCategories(c)
-                            .handler(&cache)
-                            .then(|_| res)
-                    })
-            ),
-            None => Either::B(
-                req.into_inner()
-                    .into_add_query()
-                    .into_categories(&db)
-                    .from_err()
-                    .and_then(move |c| {
-                        let res = HttpResponse::Ok().json(&c);
-                        UpdateCacheAsync::AddedCategory(c)
-                            .handler(&cache)
-                            .then(|_| res)
-                    })
-            ),
-        })
-}
-
-pub fn admin_remove_category(
-    jwt: UserJwt, id: Path<(u32)>,
-    cache: Data<RedisPool>,
-    db: Data<PostgresPool>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    // ToDo: need to add posts and topics migration along side the remove.
-    use crate::model::{admin::IdToQuery as AdminIdToQuery, category::IdToQuery};
-    id.to_privilege_check(&jwt.is_admin)
-        .handle_check(&db)
-        .into_future()
-        .from_err()
-        .and_then(move |_| id
-            .to_delete_query()
-            .into_category_id(&db))
-        .from_err()
-        .and_then(move |id|
-            UpdateCacheAsync::DeleteCategory(id)
-                .handler(&cache)
-                .then(move |_| HttpResponse::Ok().json(id)))
-}
+use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 
 use crate::model::{
     actors::{DB, CACHE},
+    post::PostRequest,
+    topic::TopicRequest,
     common::Validator,
+    category::CategoryUpdateRequest,
+    user::{ToUserRef, UpdateRequest},
 };
 use crate::handler::{
+    auth::UserJwt,
     user::UpdateUser,
+    category::ModifyCategory,
     topic::UpdateTopic,
     cache::UpdateCache,
     admin::{
+        UpdateCategoryCheck,
         UpdateTopicCheck,
         UpdateUserCheck,
     },
 };
 
+pub fn add_category(
+    jwt: UserJwt,
+    req: Json<CategoryUpdateRequest>,
+    cache: Data<CACHE>,
+    db: Data<DB>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let req = req.into_inner();
+    db.send(UpdateCategoryCheck(jwt.is_admin, req))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |r| db
+            .send(ModifyCategory::Add(r))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |c| {
+                let res = HttpResponse::Ok().json(&c);
+                let _= cache.do_send(UpdateCache::Category(c));
+                res
+            })
+        )
+}
+
+//pub fn admin_remove_category(
+//    jwt: UserJwt, id: Path<(u32)>,
+//    cache: Data<RedisPool>,
+//    db: Data<PostgresPool>,
+//) -> impl Future<Item=HttpResponse, Error=Error> {
+//    // ToDo: need to add posts and topics migration along side the remove.
+//    use crate::model::{admin::IdToQuery as AdminIdToQuery, category::IdToQuery};
+//    id.to_privilege_check(&jwt.is_admin)
+//        .handle_check(&db)
+//        .into_future()
+//        .from_err()
+//        .and_then(move |_| id
+//            .to_delete_query()
+//            .into_category_id(&db))
+//        .from_err()
+//        .and_then(move |id| HttpResponse::Ok().json(id))
+//}
+
 pub fn update_user(
     jwt: UserJwt,
-    mut req: Json<UpdateRequest>,
+    req: Json<UpdateRequest>,
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -113,7 +94,7 @@ pub fn update_user(
 
 pub fn update_topic(
     jwt: UserJwt,
-    mut req: Json<TopicRequest>,
+    req: Json<TopicRequest>,
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {

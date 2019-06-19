@@ -5,7 +5,7 @@ use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
 use crate::model::{
     actors::{DatabaseService, DB, CACHE},
     user::{AuthRequest, UpdateRequest},
-    common::{AttachUser, GlobalGuard, PostgresPool, RedisPool, Validator},
+    common::{AttachUser, GlobalGuard, Validator},
     topic::{TopicRequest, TopicWithUser, TopicWithPost},
 };
 use crate::handler::{

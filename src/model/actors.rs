@@ -122,13 +122,15 @@ impl DatabaseService {
 impl TalkService {
     pub fn connect(postgres_url: &str, redis_url: &str) -> TALK {
         let hs = connect(postgres_url, NoTls);
+        let cache = RedisClient::open(redis_url)
+            .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         TalkService::create(move |ctx| {
             let addr = TalkService {
                 sessions: HashMap::new(),
                 talks: HashMap::new(),
                 db: None,
-                cache: None,
+                cache: Some(cache),
                 get_talks: None,
             };
 

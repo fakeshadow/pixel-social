@@ -1,13 +1,11 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    admin::AdminPrivilegeCheck,
-    common::{AttachUser, GetSelfId, GetUserId},
+    common::{AttachUser, GetSelfId},
     errors::ServiceError,
     post::{Post, PostWithUser},
     user::{ToUserRef, User, UserRef},
 };
-use crate::schema::topics;
 
 #[derive(Serialize, Debug, Clone)]
 // ToDo: add field for topic visiable
@@ -25,8 +23,6 @@ pub struct Topic {
     pub is_locked: bool,
 }
 
-#[derive(Insertable, Debug)]
-#[table_name = "topics"]
 pub struct NewTopic<'a> {
     pub id: &'a u32,
     pub user_id: &'a u32,
@@ -36,8 +32,6 @@ pub struct NewTopic<'a> {
     pub body: &'a str,
 }
 
-#[derive(AsChangeset)]
-#[table_name = "topics"]
 pub struct UpdateTopic<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,
@@ -140,14 +134,3 @@ impl<'a> TopicWithPost<'a> {
         }
     }
 }
-
-impl GetUserId for Topic {
-    fn get_user_id(&self) -> u32 { self.user_id }
-}
-
-//pub enum TopicQuery {
-//    GetTopic(u32, i64),
-//    GetTopics(Vec<u32>, i64),
-//    AddTopic(TopicRequest),
-//    UpdateTopic(TopicRequest),
-//}

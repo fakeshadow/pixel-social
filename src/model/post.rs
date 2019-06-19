@@ -1,14 +1,12 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{AttachUser, GetSelfId, GetUserId},
+    common::{AttachUser, GetSelfId},
     errors::ServiceError,
     user::{ToUserRef, User, UserRef},
 };
-use crate::model::admin::AdminPrivilegeCheck;
-use crate::schema::posts;
 
-#[derive(Debug, Queryable, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Post {
     pub id: u32,
     pub user_id: u32,
@@ -22,8 +20,6 @@ pub struct Post {
     pub is_locked: bool,
 }
 
-#[derive(Insertable)]
-#[table_name = "posts"]
 pub struct NewPost<'a> {
     pub id: u32,
     pub user_id: &'a u32,
@@ -32,8 +28,6 @@ pub struct NewPost<'a> {
     pub post_content: &'a str,
 }
 
-#[derive(AsChangeset)]
-#[table_name = "posts"]
 pub struct UpdatePost<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,
@@ -63,14 +57,6 @@ impl PostRequest {
         self.user_id = id;
         self
     }
-
-    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
-        AdminPrivilegeCheck::UpdatePostCheck(level, self)
-    }
-
-    pub fn into_add_query(self) -> PostQuery { PostQuery::AddPost(self) }
-    pub fn into_update_query(self) -> PostQuery { PostQuery::UpdatePost(self) }
-
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
@@ -131,24 +117,4 @@ impl<'u, > AttachUser<'u, User> for Post {
 
 impl GetSelfId for Post {
     fn get_self_id(&self) -> &u32 { &self.id }
-}
-
-impl GetUserId for Post {
-    fn get_user_id(&self) -> u32 { self.user_id }
-}
-
-pub enum PostQuery {
-    AddPost(PostRequest),
-    UpdatePost(PostRequest),
-    GetPost(u32),
-}
-
-pub trait IdToQuery {
-    fn to_query(&self) -> PostQuery;
-}
-
-impl IdToQuery for u32 {
-    fn to_query(&self) -> PostQuery {
-        PostQuery::GetPost(*self)
-    }
 }

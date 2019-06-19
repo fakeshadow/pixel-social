@@ -2,18 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use actix::prelude::*;
 use chrono::NaiveDateTime;
-use diesel::sql_types::{VarChar, Timestamp, Bool, Oid, Array};
 
 use crate::model::{
     actors::TalkService,
     errors::ServiceError,
-    common::{PostgresPool, RedisPool},
 };
 use crate::handler::talk::*;
 
-use crate::schema::talks;
 
-#[derive(Queryable, Serialize, Hash, Eq, PartialEq, Debug)]
+#[derive(Serialize, Hash, Eq, PartialEq, Debug)]
 pub struct Talk {
     pub id: u32,
     pub name: String,
@@ -34,11 +31,9 @@ pub struct ClientMessage {
     pub session_id: u32,
 }
 
-#[derive(QueryableByName, Serialize)]
+#[derive(Serialize)]
 pub struct HistoryMessage {
-    #[sql_type = "Timestamp"]
     pub date: NaiveDateTime,
-    #[sql_type = "VarChar"]
     pub message: String,
 }
 
