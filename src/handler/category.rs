@@ -8,11 +8,12 @@ use crate::model::{
     category::{Category, CategoryUpdateRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{simple_query, category_from_msg};
+use crate::handler::db::{simple_query, category_from_msg, get_all_categories};
 
 
 const LIMIT: i64 = 20;
 
+pub struct GetCategories;
 pub enum ModifyCategory {
     Add(CategoryUpdateRequest),
     Update(CategoryUpdateRequest),
@@ -22,6 +23,21 @@ impl Message for ModifyCategory {
     type Result = Result<Vec<Category>, ServiceError>;
 }
 
+impl Message for GetCategories {
+    type Result = Result<Vec<Category>, ServiceError>;
+}
+
+impl Handler<GetCategories> for DatabaseService {
+    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+
+    fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
+        let categories = Vec::new();
+        Box::new(get_all_categories(
+            self.db.as_mut().unwrap(),
+            self.categories.as_ref().unwrap(),
+            categories))
+    }
+}
 impl Handler<ModifyCategory> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 

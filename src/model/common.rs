@@ -1,13 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use actix_web::{web::Data};
-use r2d2_redis::{r2d2::{Pool as redis_pool, PooledConnection}, RedisConnectionManager};
 
-use crate::model::{errors::ServiceError, user::{ToUserRef, UserRef}};
+use crate::model::{
+    errors::ServiceError,
+    user::{ToUserRef, UserRef}};
 use crate::util::validation as validate;
 
-pub type RedisPool = redis_pool<RedisConnectionManager>;
-pub type PoolConnectionRedis = PooledConnection<RedisConnectionManager>;
 
 #[derive(Serialize)]
 struct ResMsg<'a> {

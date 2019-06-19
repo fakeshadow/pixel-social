@@ -8,13 +8,10 @@ use lettre::{
 };
 
 use crate::model::{mail::Mail, errors::ServiceError};
-use crate::model::common::{PoolConnectionRedis, RedisPool};
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
 
-pub struct MailService {
-    pool: RedisPool,
-}
+pub struct MailService;
 
 impl Actor for MailService {
     type Context = Context<Self>;
@@ -25,10 +22,8 @@ impl Actor for MailService {
 }
 
 impl MailService {
-    pub fn init(pool: RedisPool) -> Self {
-        MailService {
-            pool,
-        }
+    pub fn init() -> Self {
+        MailService
     }
 
     fn hb(&self, ctx: &mut Context<Self>) {

@@ -5,8 +5,8 @@ use crate::handler::{
     auth::UserJwt,
     cache::{GetCategoriesCache, GetTopicsCache, UpdateCache},
     topic::GetTopics,
-    db::{GetCategories},
-    user::GetUsers
+    category::GetCategories,
+    user::GetUsers,
 };
 use crate::model::{
     actors::{DB, CACHE},
@@ -16,7 +16,7 @@ use crate::model::{
 
 pub fn get_popular(
     page: Path<(i64)>
-)-> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     // ToDo: Add get popular cache query
     ft_ok(HttpResponse::Ok().finish())
 }
@@ -47,7 +47,6 @@ pub fn get_category(
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
-
     cache.send(GetTopicsCache(vec![id], page))
         .from_err()
         .and_then(move |r| match r {

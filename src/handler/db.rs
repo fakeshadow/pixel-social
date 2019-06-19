@@ -18,24 +18,6 @@ use crate::model::{
     common::GlobalGuard,
 };
 
-pub struct GetCategories;
-
-impl Message for GetCategories {
-    type Result = Result<Vec<Category>, ServiceError>;
-}
-
-impl Handler<GetCategories> for DatabaseService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
-
-    fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        let categories = Vec::new();
-        Box::new(get_all_categories(
-            self.db.as_mut().unwrap(),
-            self.categories.as_ref().unwrap(),
-            categories))
-    }
-}
-
 pub fn get_all_categories(
     c: &mut Client,
     st: &Statement,

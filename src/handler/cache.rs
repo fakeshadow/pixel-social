@@ -2,24 +2,19 @@ use std::collections::HashMap;
 use futures::{Future, future::{err as fut_err, ok as fut_ok, Either}};
 
 use actix::prelude::*;
-
-use actix_web::{HttpResponse, web::block};
-use lazy_static::__Deref;
-use r2d2_redis::{redis as redis_r, redis::{Commands, FromRedisValue, PipelineCommands, ToRedisArgs}};
+use redis::{Client, cmd, pipe};
 
 use crate::model::{
+    actors::{CacheService, Conn, SharedConn},
     errors::ServiceError,
     category::Category,
     post::Post,
     topic::Topic,
     user::User,
     cache::{CacheQuery, FromHashSet, Parser, SortHash},
-    common::{AttachUser, GetSelfId, PoolConnectionRedis, RedisPool},
+    common::{AttachUser, GetSelfId},
     mail::Mail,
 };
-use crate::model::actors::{CacheService, Conn};
-
-use redis;
 
 const LIMIT: isize = 20;
 const MAIL_LIFE: usize = 2592000;
@@ -32,6 +27,14 @@ pub struct GetTopicsCache(pub Vec<u32>, pub i64);
 // will panic if the query more than 20 users at a time.
 pub struct GetUsersCache(pub Vec<u32>);
 
+pub struct AddedTopic(pub Topic, pub u32);
+
+pub enum UpdateCache<T> {
+    Topic(Vec<T>),
+    Post(Vec<T>),
+    User(Vec<T>),
+    Category(Vec<T>),
+}
 
 impl Message for GetCategoriesCache {
     type Result = Result<Vec<Category>, ServiceError>;
@@ -45,77 +48,8 @@ impl Message for GetUsersCache {
     type Result = Result<Vec<User>, ServiceError>;
 }
 
-
-impl Handler<GetCategoriesCache> for CacheService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
-
-    fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(get_categories_cache(self.cache.as_mut().unwrap()))
-    }
-}
-
-impl Handler<GetTopicsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
-
-    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.cache
-            .as_mut()
-            .unwrap()
-            .get_async_connection()
-            .from_err()
-            .and_then(move |conn| {
-                // get topic ids from category:id:list
-                let list_key = format!("category:{}:list", msg.0.first().unwrap_or(&0));
-                let start = (msg.1 as isize - 1) * 20;
-                redis::cmd("lrange")
-                    .arg(&list_key)
-                    .arg(start)
-                    .arg(start + LIMIT - 1)
-                    .query_async(conn)
-                    .from_err()
-            })
-            .and_then(|(conn, tids): (Conn, Vec<u32>)| get_hmset(conn, tids, "topic"))
-            .and_then(|(conn, tids, vec)| {
-                let mut t = Vec::with_capacity(20);
-                let mut uids = Vec::with_capacity(20);
-                for v in vec.iter() {
-                    if let Some(topic) = v.parse::<Topic>().ok() {
-                        uids.push(topic.user_id);
-                        t.push(topic);
-                    }
-                }
-                // abort query if the topics length doesn't match the ids' length.
-                if t.len() != tids.len() || t.len() == 0 {
-                    return Either::A(fut_err(ServiceError::InternalServerError));
-                };
-                // sort and get unique users id
-                uids.sort();
-                uids.dedup();
-                Either::B(get_users(conn, uids).and_then(move |u| Ok((t, u))))
-            })
-        )
-    }
-}
-
-impl Handler<GetUsersCache> for CacheService {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
-
-    fn handle(&mut self, msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.cache
-            .as_mut()
-            .unwrap()
-            .get_async_connection()
-            .from_err()
-            .and_then(move |conn| get_users(conn, msg.0))
-        )
-    }
-}
-
-pub enum UpdateCache<T> {
-    Topic(Vec<T>),
-    Post(Vec<T>),
-    User(Vec<T>),
-    Category(Vec<T>),
+impl Message for AddedTopic {
+    type Result = Result<(), ServiceError>;
 }
 
 impl<T> Message for UpdateCache<T> {
@@ -135,65 +69,124 @@ impl<T> Handler<UpdateCache<T>> for CacheService
         };
 
         Box::new(build_hmset(
-            self.cache.as_mut().unwrap(),
+            self.cache.as_ref().unwrap().clone(),
             vec,
             key))
     }
 }
 
-pub struct AddedTopic(pub Topic, pub u32);
+impl Handler<GetCategoriesCache> for CacheService {
+    type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
-impl Message for AddedTopic {
-    type Result = Result<(), ServiceError>;
+    fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
+        Box::new(get_categories_cache(self.cache.as_mut().unwrap().clone()))
+    }
+}
+
+impl Handler<GetUsersCache> for CacheService {
+    type Result = ResponseFuture<Vec<User>, ServiceError>;
+
+    fn handle(&mut self, msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
+        Box::new(get_users(self.cache.as_ref().unwrap().clone(), msg.0))
+    }
 }
 
 impl Handler<AddedTopic> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
     fn handle(&mut self, msg: AddedTopic, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.cache
-            .as_mut()
-            .unwrap()
-            .get_async_connection()
-            .from_err()
-            .and_then(move |conn| {
-                let t = msg.0;
-                let cid = msg.1;
+        let t = msg.0;
+        let cid = msg.1;
 
-                let mut pipe = redis::pipe();
-                pipe.atomic();
-                pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.get_self_id())).arg(t.sort_hash());
-                pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1);
-                pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(t.id);
-                pipe.query_async(conn)
-            })
+        let mut pipe = pipe();
+        pipe.atomic();
+        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.get_self_id())).arg(t.sort_hash());
+        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1);
+        pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(t.id);
+        let f = pipe
+            .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
-            .and_then(|(_, ())| Ok(())))
+            .and_then(|(_, ())| Ok(()));
+
+        Box::new(f)
     }
 }
 
-fn get_categories_cache(
-    c: &mut redis::Client
-) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
-    c.get_async_connection()
+impl Handler<GetTopicsCache> for CacheService {
+    type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
+
+    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
+        let list_key = format!("category:{}:list", msg.0.first().unwrap_or(&0));
+        let start = (msg.1 as isize - 1) * 20;
+        let f = cmd("lrange")
+            .arg(&list_key)
+            .arg(start)
+            .arg(start + LIMIT - 1)
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .and_then(|(conn, tids): (SharedConn, Vec<u32>)| get_hmset(conn, tids, "topic"))
+            .and_then(|(conn, tids, vec)| {
+                let mut t = Vec::with_capacity(20);
+                let mut uids = Vec::with_capacity(20);
+                for v in vec.iter() {
+                    if let Some(topic) = v.parse::<Topic>().ok() {
+                        uids.push(topic.user_id);
+                        t.push(topic);
+                    }
+                }
+                // abort query if the topics length doesn't match the ids' length.
+                if t.len() != tids.len() || t.len() == 0 {
+                    return Either::A(fut_err(ServiceError::InternalServerError));
+                };
+                // sort and get unique users id
+                uids.sort();
+                uids.dedup();
+                Either::B(get_users(conn, uids).and_then(move |u| Ok((t, u))))
+            });
+
+        Box::new(f)
+    }
+}
+
+// helper functions
+pub fn build_hmset<T>(
+    conn: SharedConn,
+    vec: Vec<T>,
+    key: &'static str,
+) -> impl Future<Item=(), Error=ServiceError>
+    where T: GetSelfId + SortHash {
+    let mut pipe = pipe();
+    pipe.atomic();
+    for v in vec.iter() {
+        pipe.cmd("HMSET")
+            .arg(&format!("{}:{}:set", key, v.get_self_id()))
+            .arg(v.sort_hash());
+    }
+    pipe.query_async(conn)
         .from_err()
-        .and_then(|conn| redis::cmd("lrange")
-            .arg("category_id:meta")
-            .arg(0)
-            .arg(-1)
-            .query_async(conn))
+        .and_then(|(_, ())| Ok(()))
+}
+
+pub fn build_list(
+    conn: SharedConn,
+    vec: Vec<u32>,
+    // pass lpush or rpush as cmd
+    cmd: &'static str,
+    key: String,
+) -> impl Future<Item=(), Error=ServiceError> {
+    let mut pipe = pipe();
+    pipe.atomic();
+    for v in vec.into_iter() {
+        pipe.cmd(cmd).arg(&key).arg(v);
+    }
+    pipe.query_async(conn)
         .from_err()
-        .and_then(|(conn, ids): (Conn, Vec<u32>)| get_hmset(conn, ids, "category"))
-        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| vec
-            .iter()
-            .map(|hash| hash
-                .parse::<Category>())
-            .collect::<Result<Vec<Category>, ServiceError>>())
+        .and_then(|(_, ())| Ok(()))
 }
 
 // consume connection as users usually the last query.
 pub fn get_users(
-    conn: Conn,
+    conn: SharedConn,
     uids: Vec<u32>,
 ) -> impl Future<Item=Vec<User>, Error=ServiceError> {
     get_hmset(conn, uids, "user")
@@ -213,68 +206,39 @@ pub fn get_users(
         })
 }
 
-
-// helper functions
-pub fn build_hmset<T>(
-    c: &mut redis::Client,
-    vec: Vec<T>,
-    key: &'static str,
-) -> impl Future<Item=(), Error=ServiceError>
-    where T: GetSelfId + SortHash {
-    c.get_async_connection()
-        .from_err()
-        .and_then(move |conn| {
-            let mut pipe = redis::pipe();
-            pipe.atomic();
-            for v in vec.iter() {
-                pipe.cmd("HMSET")
-                    .arg(&format!("{}:{}:set", key, v.get_self_id()))
-                    .arg(v.sort_hash());
-            }
-            pipe.query_async(conn)
-        })
-        .from_err()
-        .and_then(|(_, ())| Ok(()))
-}
-
-// return input vec in result
 fn get_hmset<T>(
-    conn: Conn,
+    conn: SharedConn,
     vec: Vec<T>,
     key: &'static str,
-) -> impl Future<Item=(Conn, Vec<T>, Vec<HashMap<String, String>>), Error=ServiceError>
+) -> impl Future<Item=(SharedConn, Vec<T>, Vec<HashMap<String, String>>), Error=ServiceError>
     where T: std::fmt::Display {
-    let mut pipe = redis::pipe();
+    let mut pipe = pipe();
     pipe.atomic();
     for v in vec.iter() {
         pipe.cmd("HGETALL").arg(&format!("{}:{}:set", key, v));
     }
     pipe.query_async(conn)
         .from_err()
-        .and_then(|(conn, hm): (Conn, Vec<HashMap<String, String>>)| Ok((conn, vec, hm)))
+        .and_then(|(conn, hm): (SharedConn, Vec<HashMap<String, String>>)| Ok((conn, vec, hm)))
 }
 
-pub fn build_list(
-    c: &mut redis::Client,
-    vec: Vec<u32>,
-    // pass lpush or rpush as cmd
-    cmd: &'static str,
-    key: String,
-) -> impl Future<Item=(), Error=ServiceError> {
-    c.get_async_connection()
-        .from_err()
-        .and_then(move |conn| {
-            let mut pipe = redis::pipe();
-            pipe.atomic();
-            for v in vec.into_iter() {
-                pipe.cmd(cmd).arg(&key).arg(v);
-            }
-            pipe.query_async(conn)
-        })
-        .from_err()
-        .and_then(|(_, ())| Ok(()))
-}
 
+fn get_categories_cache(
+    conn: SharedConn,
+) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+    cmd("lrange")
+        .arg("category_id:meta")
+        .arg(0)
+        .arg(-1)
+        .query_async(conn)
+        .from_err()
+        .and_then(|(conn, vec): (SharedConn, Vec<u32>)| get_hmset(conn, vec, "category"))
+        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| vec
+            .iter()
+            .map(|hash| hash
+                .parse::<Category>())
+            .collect::<Result<Vec<Category>, ServiceError>>())
+}
 
 
 //type UpdateResult = Result<(), ServiceError>;
@@ -337,9 +301,10 @@ pub fn build_list(
 //    Ok(pipe.query(conn.deref())?)
 //}
 //
-pub fn clear_cache(pool: &RedisPool) -> Result<(), ServiceError> {
-    let conn = pool.get().unwrap_or_else(|_|panic!("failed to connect redis pool"));
-    Ok(redis_r::cmd("flushall").query(conn.deref())?)
+pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
+    let client = Client::open(redis_url).expect("failed to connect to redis server");
+    let mut conn = client.get_connection().expect("failed to get redis connection");
+    Ok(redis::cmd("flushall").query(&mut conn)?)
 }
 //
 //// helper for mail service

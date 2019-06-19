@@ -29,7 +29,7 @@ fn default_password() -> String {
     "1".to_string()
 }
 
-/// user ref is attached to post and topic after privacy filter.
+//user ref is attached to post and topic after privacy filter.
 #[derive(Serialize)]
 pub struct UserRef<'a> {
     pub id: &'a u32,

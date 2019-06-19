@@ -14,10 +14,11 @@ use crate::model::{
 pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
 
     let mut rt = Runtime::new().unwrap();
-    let (mut c, conn_new) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     let mut c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
+    let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
-    rt.spawn(conn_new.map_err(|e| panic!("{}", e)));
+    rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     // Load all categories and make hash set.
     let p = c.prepare("SELECT * FROM categories");
@@ -25,7 +26,9 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     let categories = Vec::new();
     let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap();
 
-    rt.block_on(build_hmset(&mut c_cache, categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+
+
+    rt.block_on(build_hmset(c_cache.clone(), categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     // build list by last reply time desc order for each category. build category meta list with all category ids
     let mut category_ids = Vec::new();
@@ -37,10 +40,10 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
         let (topics, _) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
         let tids = topics.into_iter().map(|t| t.id).collect();
         let key = format!("category:{}:list", &cat.id);
-        let _ = rt.block_on(build_list(&mut c_cache, tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
     }
 
-    let _ = rt.block_on(build_list(&mut c_cache, category_ids, "rpush", "category_id:meta".to_owned())).unwrap_or_else(|_| panic!("Failed to build category lists"));
+    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "rpush", "category_id:meta".to_owned())).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // Load all posts with topic id and build a list of posts for each topic
     // ToDo: iter category_ids vec and get posts from every topics{i} table and update topic's reply count with last reply time, post's reply count with last reply time, category's topic,post count.
@@ -68,14 +71,14 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
             temp.push(v)
         } else {
             let key = format!("topic:{}:list", &index);
-            let _ = rt.block_on(build_list(&mut c_cache, temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+            let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
             temp = Vec::new();
             index = i;
             temp.push(v);
         }
     }
     let key = format!("topic:{}:list", &index);
-    let _ = rt.block_on(build_list(&mut c_cache, temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+    let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
 
 
     let p = c.prepare("SELECT * FROM users");
@@ -83,7 +86,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
 
     let users = rt.block_on(get_users_all(&mut c, &st)).unwrap_or_else(|_| panic!("Failed to load users"));
     // ToDo： collect all subscribe data from users and update category subscribe count.
-    rt.block_on(build_hmset(&mut c_cache, users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    rt.block_on(build_hmset(c_cache.clone(), users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     // load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
     Ok(())

@@ -10,7 +10,7 @@ use crate::model::{
 };
 use futures::future::IntoFuture;
 
-
+pub type SharedConn = redis::aio::SharedConnection;
 pub type Conn = redis::aio::Connection;
 pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
@@ -25,7 +25,7 @@ pub struct DatabaseService {
 }
 
 pub struct CacheService {
-    pub cache: Option<RedisClient>
+    pub cache: Option<SharedConn>
 }
 
 pub struct TalkService {
@@ -54,13 +54,22 @@ impl CacheService {
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         CacheService::create(move |ctx| {
-            CacheService {
-                cache: Some(client)
-            }
+            let addr = CacheService {
+                cache: None
+            };
+
+            client.get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
+                    fut::ok(())
+                })
+                .wait(ctx);
+            addr
         })
     }
 }
-
 
 impl DatabaseService {
     pub fn connect(postgres_url: &str) -> DB {
@@ -77,37 +86,24 @@ impl DatabaseService {
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    ctx.wait(
-                        db.prepare("SELECT * FROM posts
+                    let p1 = db.prepare("SELECT * FROM posts
                         WHERE topic_id=$1
                         ORDER BY id ASC
                         OFFSET $2
-                        LIMIT 20")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.posts_by_tid = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM users
-                         WHERE id = ANY($1)")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.users_by_id = Some(st);
-                                fut::ok(())
-                            })
-                    );
-                    ctx.wait(
-                        db.prepare("SELECT * FROM categories")
-                            .map_err(|e| panic!("{}", e))
-                            .into_actor(addr)
-                            .and_then(|st, addr, _| {
-                                addr.categories = Some(st);
-                                fut::ok(())
-                            })
+                        LIMIT 20");
+                    let p2 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                    let p3 = db.prepare("SELECT * FROM categories");
+
+                    ctx.wait(p1
+                        .join3(p2, p3)
+                        .map_err(|_| panic!("query prepare failed"))
+                        .into_actor(addr)
+                        .and_then(|(st1, st2, st3), addr, _| {
+                            addr.posts_by_tid = Some(st1);
+                            addr.users_by_id = Some(st2);
+                            addr.categories = Some(st3);
+                            fut::ok(())
+                        })
                     );
                     addr.db = Some(db);
                     Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));

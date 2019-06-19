@@ -100,20 +100,6 @@ impl From<BlockingError<ServiceError>> for ServiceError {
     }
 }
 
-
-// ToDo: remove r2d2 redis impl
-use r2d2_redis::redis::{RedisError, ErrorKind as RedisErrorKind};
-
-impl From<RedisError> for ServiceError {
-    fn from(err: RedisError) -> ServiceError {
-        match err.kind() {
-            RedisErrorKind::ResponseError => ServiceError::RedisError(err.to_string()),
-            RedisErrorKind::IoError => ServiceError::RedisError(err.to_string()),
-            _ => ServiceError::InternalServerError
-        }
-    }
-}
-
 impl From<serde_json::Error> for ServiceError {
     fn from(_err: serde_json::Error) -> ServiceError {
         ServiceError::InternalServerError

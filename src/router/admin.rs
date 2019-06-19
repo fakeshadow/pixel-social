@@ -41,7 +41,32 @@ pub fn add_category(
             .from_err()
             .and_then(move |c| {
                 let res = HttpResponse::Ok().json(&c);
-                let _= cache.do_send(UpdateCache::Category(c));
+                //ToDo: update category_id meta
+                let _ = cache.do_send(UpdateCache::Category(c));
+                res
+            })
+        )
+}
+
+pub fn update_category(
+    jwt: UserJwt,
+    req: Json<CategoryUpdateRequest>,
+    cache: Data<CACHE>,
+    db: Data<DB>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let req = req.into_inner();
+    db.send(UpdateCategoryCheck(jwt.is_admin, req))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |r| db
+            .send(ModifyCategory::Update(r))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |c| {
+                let res = HttpResponse::Ok().json(&c);
+                let _ = cache.do_send(UpdateCache::Category(c));
                 res
             })
         )

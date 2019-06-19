@@ -16,7 +16,6 @@ use actix_web::{
 use actix_cors::Cors;
 use actix_files as fs;
 use dotenv::dotenv;
-use r2d2_redis::{r2d2 as redis_r2d2, RedisConnectionManager};
 
 mod handler;
 mod model;
@@ -37,13 +36,7 @@ fn main() -> std::io::Result<()> {
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
 
-    let cache_manager = RedisConnectionManager::new(redis_url.as_str()).unwrap();
-    let redis_pool = redis_r2d2::Pool::builder()
-        .max_size(1)
-        .build(cache_manager)
-        .expect("Failed to create redis pool.");
-
-    let _ = clear_cache(&redis_pool);
+    let _ = clear_cache(&redis_url);
     let _ = build_cache(&database_url, &redis_url);
 
     let global_arc = generate_global(&database_url);
@@ -52,13 +45,13 @@ fn main() -> std::io::Result<()> {
     let talk_service = TalkService::connect(&database_url, &redis_url);
 
     // mail service is not passed into data as we add mail queue into redis cache directly.
-    let mail_service = MailService::init(redis_pool.clone()).start();
+//    let mail_service = MailService::init(redis_pool.clone()).start();
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
+
         App::new()
-            .data(redis_pool.clone())
             .data(global_arc.clone())
             .data(talk_service.clone())
             .data(db)
@@ -75,7 +68,7 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/topic").route(web::post().to_async(router::admin::update_topic)))
                 .service(web::scope("/category")
 //                    .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::remove_category)))
-//                    .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))
+                    .service(web::resource("/update").route(web::post().to_async(router::admin::update_category)))
                     .service(web::resource("").route(web::post().to_async(router::admin::add_category)))
                 )
             )
