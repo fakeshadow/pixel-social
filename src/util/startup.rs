@@ -1,30 +1,23 @@
 use actix::prelude::*;
-
-use tokio::runtime::current_thread::Runtime;
+use actix_rt::Runtime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{get_all_categories, get_topics},
-    cache::{build_hash_set, build_list, build_hmset},
-    category::load_all_categories,
-    post::{load_all_posts_with_topic_id, get_last_pid},
-    topic::get_topic_list,
-    user::{ load_all_users},
+    db::{get_all_categories, get_topics, get_users_all},
+    cache::{build_list, build_hmset},
 };
 use crate::model::{
-    common::{PostgresPool, GlobalVar, GlobalGuard},
+    common::{GlobalVar, GlobalGuard},
 };
-use crate::model::topic::Topic;
 
 // ToDo: combine global var generate with build cache process;
-pub fn build_cache(db_pool: &PostgresPool, postgres_url: &str, redis_url: &str) -> Result<(), ()> {
-    let conn = &db_pool.get().unwrap_or_else(|_| panic!("Database is offline"));
+pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
 
-    let mut rt: Runtime = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
     let (mut c, conn_new) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     let mut c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
 
-    rt.handle().spawn(conn_new.map_err(|e| panic!("{}", e))).unwrap();
+    rt.spawn(conn_new.map_err(|e| panic!("{}", e)));
 
     // Load all categories and make hash set.
     let p = c.prepare("SELECT * FROM categories");
@@ -41,7 +34,7 @@ pub fn build_cache(db_pool: &PostgresPool, postgres_url: &str, redis_url: &str) 
         let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
         let mut tids = Vec::new();
         let mut topics = Vec::new();
-        let (topics, _): (Vec<Topic>, Vec<u32>) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let (topics, _) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
         let tids = topics.into_iter().map(|t| t.id).collect();
         let key = format!("category:{}:list", &cat.id);
         let _ = rt.block_on(build_list(&mut c_cache, tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
@@ -51,7 +44,22 @@ pub fn build_cache(db_pool: &PostgresPool, postgres_url: &str, redis_url: &str) 
 
     // Load all posts with topic id and build a list of posts for each topic
     // ToDo: iter category_ids vec and get posts from every topics{i} table and update topic's reply count with last reply time, post's reply count with last reply time, category's topic,post count.
-    let posts = load_all_posts_with_topic_id(&conn).unwrap_or_else(|_| panic!("Failed to load posts"));
+//    let posts = load_all_posts_with_topic_id(&conn).unwrap_or_else(|_| panic!("Failed to load posts"));
+
+    let p = c.prepare("SELECT topic_id, id FROM posts ORDER BY topic_id ASC, id ASC");
+    let st = rt.block_on(p).unwrap();
+
+    let posts: Vec<(u32, u32)> = Vec::new();
+    let f = c
+        .query(&st, &[])
+        .map_err(|e| panic!("{}", e))
+        .fold(posts, |mut posts, row| {
+            posts.push((row.get(0), row.get(1)));
+            Ok(posts)
+        });
+
+    let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
+
     let mut temp = Vec::new();
     let mut index: u32 = posts[0].0;
     for post in posts.into_iter() {
@@ -70,13 +78,14 @@ pub fn build_cache(db_pool: &PostgresPool, postgres_url: &str, redis_url: &str) 
     let _ = rt.block_on(build_list(&mut c_cache, temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
 
 
-    // load all users and store the data in a zrange. stringify user data as member, user id as score.
-    let users = load_all_users(conn).unwrap_or_else(|_| panic!("Failed to load users"));
+    let p = c.prepare("SELECT * FROM users");
+    let st = rt.block_on(p).unwrap();
+
+    let users = rt.block_on(get_users_all(&mut c, &st)).unwrap_or_else(|_| panic!("Failed to load users"));
     // ToDo： collect all subscribe data from users and update category subscribe count.
     rt.block_on(build_hmset(&mut c_cache, users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     // load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
-
     Ok(())
 }
 
@@ -95,7 +104,7 @@ fn load_global(postgres_url: &str) -> (u32, u32, u32) {
     let mut rt: Runtime = Runtime::new().unwrap();
 
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap();
-    rt.handle().spawn(conn.map_err(|e| panic!("{}", e))).unwrap();
+    rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let p = c.prepare("SELECT id FROM categories");
     let st = rt.block_on(p).unwrap();

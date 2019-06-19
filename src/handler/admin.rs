@@ -1,4 +1,4 @@
-use futures::future::err as ft_err;
+use futures::future::{err as ft_err, IntoFuture};
 
 use actix_web::web;
 use diesel::prelude::*;
@@ -36,7 +36,6 @@ fn update_category_check(lv: &u32, req: &CategoryUpdateRequest) -> QueryResult {
 
 fn update_topic_check(lv: &u32, req: &TopicRequest) -> QueryResult {
     check_admin_level(&req.title, &lv, 3)?;
-    check_admin_level(&req.category_id, &lv, 3)?;
     check_admin_level(&req.body, &lv, 3)?;
     check_admin_level(&req.thumbnail, &lv, 3)?;
     check_admin_level(&req.is_locked, &lv, 2)
@@ -60,28 +59,32 @@ fn check_admin_level<T: Sized>(t: &Option<T>, self_admin_level: &u32, baseline_a
 use actix::prelude::*;
 
 use crate::model::{
-    actors::PostgresConnection,
+    actors::DatabaseService,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::user::get_users;
+use crate::handler::db::get_users;
 
 
-pub enum PrivilegeCheck {
-    UpdateUser(u32, UpdateRequest)
-}
+pub struct UpdateUserCheck(pub u32, pub UpdateRequest);
 
-impl Message for PrivilegeCheck {
+pub struct UpdateTopicCheck(pub u32, pub TopicRequest);
+
+
+impl Message for UpdateUserCheck {
     type Result = Result<UpdateRequest, ServiceError>;
 }
 
-impl Handler<PrivilegeCheck> for PostgresConnection {
+impl Message for UpdateTopicCheck {
+    type Result = Result<TopicRequest, ServiceError>;
+}
+
+
+impl Handler<UpdateUserCheck> for DatabaseService {
     type Result = ResponseFuture<UpdateRequest, ServiceError>;
 
-    fn handle(&mut self, msg: PrivilegeCheck, ctx: &mut Self::Context) -> Self::Result {
-        let (self_lv, req) = match msg {
-            PrivilegeCheck::UpdateUser(lv, req) => (lv, req),
-            _ => panic!("placeholder")
-        };
+    fn handle(&mut self, msg: UpdateUserCheck, ctx: &mut Self::Context) -> Self::Result {
+        let self_lv = msg.0;
+        let req = msg.1;
 
         Box::new(get_users(
             self.db.as_mut().unwrap(),
@@ -94,5 +97,15 @@ impl Handler<PrivilegeCheck> for PostgresConnection {
                 Ok(req)
             })
         )
+    }
+}
+
+impl Handler<UpdateTopicCheck> for DatabaseService {
+    type Result = ResponseFuture<TopicRequest, ServiceError>;
+
+    fn handle(&mut self, msg: UpdateTopicCheck, ctx: &mut Self::Context) -> Self::Result {
+        Box::new(update_topic_check(&msg.0, &msg.1)
+            .into_future()
+            .map(|_| msg.1))
     }
 }

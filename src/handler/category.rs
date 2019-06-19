@@ -18,7 +18,6 @@ impl CategoryQuery {
         block(move || match self {
             CategoryQuery::UpdateCategory(req) => update_category(&req, &pool.get()?),
             CategoryQuery::AddCategory(req) => add_category(&req, &pool.get()?),
-            CategoryQuery::GetAllCategories => get_all_categories(&pool.get()?),
             _ => panic!("method not allowed")
         }).from_err()
     }
@@ -29,10 +28,6 @@ impl CategoryQuery {
             _ => panic!("only category delete query can use into_delete method")
         }).from_err()
     }
-}
-
-fn get_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, ServiceError> {
-    Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }
 
 fn add_category(req: &CategoryUpdateRequest, conn: &PoolConnectionPostgres)
@@ -58,25 +53,4 @@ fn delete_category(id: &u32, conn: &PoolConnectionPostgres)
                    -> Result<u32, ServiceError> {
     diesel::delete(categories::table.find(id)).execute(conn)?;
     Ok(*id)
-}
-
-//helper functions
-pub fn update_category_post_count(id: &u32, conn: &PoolConnectionPostgres) -> Result<Category, ServiceError> {
-    Ok(diesel::update(categories::table.find(id))
-        .set(categories::post_count.eq(categories::post_count + 1)).get_result(conn)?)
-}
-
-pub fn update_category_topic_count(id: &u32, conn: &PoolConnectionPostgres) -> Result<Category, ServiceError> {
-    Ok(diesel::update(categories::table.find(id))
-        .set(categories::topic_count.eq(categories::topic_count + 1)).get_result(conn)?)
-}
-
-pub fn update_category_sub_count(id: &u32, conn: &PoolConnectionPostgres) -> Result<Category, ServiceError> {
-    Ok(diesel::update(categories::table.find(id))
-        .set(categories::subscriber_count.eq(categories::subscriber_count + 1)).get_result(conn)?)
-}
-
-pub fn load_all_categories(conn: &PoolConnectionPostgres) -> Result<Vec<Category>, ServiceError> {
-// ToDo: update category data on startup
-    Ok(categories::table.order(categories::id.asc()).load::<Category>(conn)?)
 }

@@ -1,103 +1,159 @@
-use futures::Future;
+use std::fmt::Write;
+use futures::{Future, future::err as ft_err};
 
-use actix_web::web::block;
-use diesel::prelude::*;
-use chrono::NaiveDateTime;
+use actix::prelude::*;
 
-use crate::handler::{
-    category::update_category_topic_count,
-    post::get_posts_by_topic_id,
-    user::get_unique_users,
-};
 use crate::model::{
-    common::{PoolConnectionPostgres, PostgresPool, GlobalGuard},
+    actors::DatabaseService,
+    topic::TopicRequest,
+    common::{PoolConnectionPostgres, GlobalGuard},
     errors::ServiceError,
+    topic::Topic,
     post::Post,
-    category::Category,
-    topic::{Topic, TopicQuery, TopicRequest},
 };
-use crate::schema::topics;
+use crate::handler::db::{topic_from_msg, topic_from_row, get_topics, simple_query, get_posts};
 
 const LIMIT: i64 = 20;
 
-impl TopicQuery {
-    pub fn into_topic_with_post(self, pool: &PostgresPool)
-                                -> impl Future<Item=(Option<Topic>, Vec<Post>), Error=ServiceError> {
-        let pool = pool.clone();
-        block(move || match self {
-            TopicQuery::GetTopic(id, page) => get_topic(&id, &page, &pool.get()?),
-            _ => panic!("Only getting topic query can use into_topic_with_post method")
-        }).from_err()
+pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
+
+pub struct UpdateTopic(pub TopicRequest);
+
+pub struct GetTopicWithPost(pub u32, pub u32, pub i64);
+
+pub enum GetTopics {
+    Latest(u32, i64),
+    Popular(i64),
+}
+
+impl Message for AddTopic {
+    type Result = Result<(Topic), ServiceError>;
+}
+
+impl Message for UpdateTopic {
+    type Result = Result<Vec<Topic>, ServiceError>;
+}
+
+impl Message for GetTopicWithPost {
+    type Result = Result<((Vec<Topic>, Vec<u32>), (Vec<Post>, Vec<u32>)), ServiceError>;
+}
+
+impl Message for GetTopics {
+    type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
+}
+
+
+impl Handler<GetTopicWithPost> for DatabaseService {
+    type Result = ResponseFuture<((Vec<Topic>, Vec<u32>), (Vec<Post>, Vec<u32>)), ServiceError>;
+
+    fn handle(&mut self, msg: GetTopicWithPost, _: &mut Self::Context) -> Self::Result {
+        let cid = msg.0;
+        let tid = msg.1;
+        let page = msg.2;
+
+        let topic = Vec::with_capacity(1);
+        let posts = Vec::with_capacity(20);
+
+        let queryt = format!("SELECT * FROM topics{} WHERE id = '{}'", cid, tid);
+
+        let ft =
+            get_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
+        let fp =
+            get_posts(self.db.as_mut().unwrap(), self.posts_by_tid.as_ref().unwrap(), tid, page);
+
+        Box::new(ft.join(fp))
     }
-    pub fn into_topic_with_category(self, pool: PostgresPool, opt: Option<GlobalGuard>)
-                                    -> impl Future<Item=(Category, Topic), Error=ServiceError> {
-        block(move || match self {
-            TopicQuery::AddTopic(req) => add_topic(&req, &pool.get()?, opt),
-            _ => panic!("Only modify topic query can use into_topic method")
-        }).from_err()
+}
+
+impl Handler<AddTopic> for DatabaseService {
+    type Result = ResponseFuture<(Topic), ServiceError>;
+
+    fn handle(&mut self, msg: AddTopic, _: &mut Self::Context) -> Self::Result {
+        let id = match msg.1.lock() {
+            Ok(mut var) => var.next_tid(),
+            Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
+        };
+        let t = match msg.0.make_topic(&id) {
+            Ok(t) => t,
+            Err(e) => return Box::new(ft_err(e))
+        };
+
+        let query = format!(
+            "INSERT INTO topics{}
+            (id, user_id, category_id, thumbnail, title, body)
+            VALUES ('{}', '{}', '{}', '{}', '{}', '{}')
+            RETURNING *",
+            t.category_id, t.id, t.user_id, t.category_id, t.thumbnail, t.title, t.body);
+
+        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
+            .and_then(|msg| topic_from_msg(&msg)))
     }
-    pub fn into_topics(self, pool: &PostgresPool)
-                       -> impl Future<Item=Vec<Topic>, Error=ServiceError> {
-        let pool = pool.clone();
-        block(move || match self {
-            TopicQuery::UpdateTopic(req) => update_topic(&req, &pool.get()?),
-            TopicQuery::GetTopics(ids, page) => get_topics_by_category_id(&ids, &page, &pool.get()?),
-            _ => panic!("Only getting topics query can use into_topics method")
-        }).from_err()
+}
+
+//ToDo: add query for moving topic to other table.
+impl Handler<UpdateTopic> for DatabaseService {
+    type Result = ResponseFuture<Vec<Topic>, ServiceError>;
+
+    fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
+        let t = match msg.0.make_update() {
+            Ok(t) => t,
+            Err(e) => return Box::new(ft_err(e))
+        };
+
+        let mut query = String::new();
+
+        let _ = write!(&mut query, "UPDATE topics{} SET", t.category_id);
+
+        if let Some(s) = t.title {
+            let _ = write!(&mut query, " title='{}',", s);
+        }
+        if let Some(s) = t.body {
+            let _ = write!(&mut query, " body='{}',", s);
+        }
+        if let Some(s) = t.thumbnail {
+            let _ = write!(&mut query, " thumbnail='{}',", s);
+        }
+        if let Some(s) = t.is_locked {
+            let _ = write!(&mut query, " is_locked='{}',", s);
+        }
+        // update update_at or return err as the query is empty.
+        if query.ends_with(",") {
+            let _ = write!(&mut query, " updated_at=DEFAULT");
+        } else {
+            return Box::new(ft_err(ServiceError::BadRequest));
+        }
+
+        let _ = write!(&mut query, " WHERE id='{}' ", t.id);
+        if let Some(s) = t.user_id {
+            let _ = write!(&mut query, "AND user_id='{}' ", s);
+        }
+        query.push_str("RETURNING *");
+
+        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
+            .and_then(|msg| topic_from_msg(&msg).map(|t| vec![t])))
     }
 }
 
-fn get_topic(id: &u32, page: &i64, conn: &PoolConnectionPostgres)
-             -> Result<(Option<Topic>, Vec<Post>), ServiceError> {
-    let posts = get_posts_by_topic_id(id, (page - 1) * 20, conn)?;
-    let topic = if page == &1 {
-        Some(topics::table.find(&id).first::<Topic>(conn)?)
-    } else { None };
-    Ok((topic, posts))
-}
+impl Handler<GetTopics> for DatabaseService {
+    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
-fn add_topic(req: &TopicRequest, conn: &PoolConnectionPostgres, global: Option<GlobalGuard>)
-             -> Result<(Category, Topic), ServiceError> {
-    // ToDo: Test if category_id can be null or out of range
-    let category = update_category_topic_count(req.extract_category_id()?, conn)?;
+    fn handle(&mut self, msg: GetTopics, ctx: &mut Self::Context) -> Self::Result {
+        let topics = Vec::with_capacity(20);
+        let ids: Vec<u32> = Vec::with_capacity(20);
 
-    let id: u32 = global.unwrap().lock()
-        .map(|mut var| var.next_tid())
-        .map_err(|_| ServiceError::InternalServerError)?;
-    let topic = diesel::insert_into(topics::table)
-        .values(&req.make_topic(&id)?)
-        .get_result::<Topic>(conn)?;
-    Ok((category, topic))
-}
+        let query = match msg {
+            GetTopics::Latest(id, page) => format!(
+                "SELECT * FROM topics{}
+                ORDER BY last_reply_time DESC
+                OFFSET {}
+                LIMIT 20", id, ((page - 1) * 20)),
+            GetTopics::Popular(page) => "template".to_owned()
+        };
 
-fn update_topic(req: &TopicRequest, conn: &PoolConnectionPostgres) -> Result<Vec<Topic>, ServiceError> {
-    let topic_id = req.extract_self_id()?;
-
-    let topic = match req.user_id {
-        Some(_user_id) => diesel::update(topics::table
-            .filter(topics::id.eq(&topic_id).and(topics::user_id.eq(_user_id))))
-            .set(req.make_update()?).get_results(conn)?,
-        None => diesel::update(topics::table
-            .find(&topic_id))
-            .set(req.make_update()?).get_results(conn)?
-    };
-    Ok(topic)
-}
-
-pub fn update_topic_reply_count(id: &u32, now: &NaiveDateTime, conn: &PoolConnectionPostgres) -> Result<Topic, ServiceError> {
-    Ok(diesel::update(topics::table
-        .filter(topics::id.eq(&id)))
-        .set((topics::last_reply_time.eq(&now), topics::reply_count.eq(topics::reply_count + 1)))
-        .get_result(conn)?)
-}
-
-pub fn get_topics_by_category_id(ids: &Vec<u32>, page: &i64, conn: &PoolConnectionPostgres) -> Result<Vec<Topic>, ServiceError> {
-    Ok(topics::table
-        .filter(topics::category_id.eq_any(ids))
-        .order(topics::last_reply_time.desc()).limit(LIMIT).offset((page - 1) * LIMIT).load::<Topic>(conn)?)
-}
-
-pub fn get_topic_list(cid: &u32, conn: &PoolConnectionPostgres) -> Result<Vec<u32>, ServiceError> {
-    Ok(topics::table.select(topics::id)
-        .filter(topics::category_id.eq(&cid)).order(topics::last_reply_time.desc()).load::<u32>(conn)?)
+        Box::new(get_topics(
+            self.db.as_mut().unwrap(),
+            &query, topics,
+            ids,
+        ))
+    }
 }

@@ -85,8 +85,6 @@ impl<'a> GetSelfId for UserRef<'a> {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-#[derive(Insertable)]
-#[table_name = "users"]
 pub struct NewUser<'a> {
     pub id: &'a u32,
     pub username: &'a str,
@@ -159,10 +157,6 @@ impl UpdateRequest {
                 self
             }
         }
-    }
-
-    pub fn extract_id(&self) -> Result<&u32, ServiceError> {
-        self.id.as_ref().ok_or(ServiceError::BadRequest)
     }
 }
 

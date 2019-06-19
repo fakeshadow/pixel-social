@@ -5,7 +5,6 @@ use crate::model::{
 };
 use crate::model::admin::AdminPrivilegeCheck;
 use crate::schema::categories;
-use crate::model::topic::TopicQuery;
 
 #[derive(Queryable, Serialize, Deserialize, Clone)]
 pub struct Category {
@@ -42,13 +41,6 @@ pub struct CategoryRequest {
     pub page: i64,
 }
 
-impl CategoryRequest {
-    pub fn to_query(&self) -> TopicQuery {
-        TopicQuery::GetTopics(
-            self.categories.iter().map(|i| *i).collect(),
-            self.page)
-    }
-}
 
 #[derive(Deserialize)]
 pub struct CategoryUpdateRequest {
@@ -86,18 +78,6 @@ pub enum CategoryQuery {
     UpdateCategory(CategoryUpdateRequest),
     DeleteCategory(u32),
 }
-
-
-pub trait PathToQuery {
-    fn to_query(&self) -> TopicQuery;
-}
-
-impl PathToQuery for (u32, i64) {
-    fn to_query(&self) -> TopicQuery {
-        TopicQuery::GetTopics(vec![self.0], self.1)
-    }
-}
-
 
 pub trait IdToQuery {
     fn to_delete_query(&self) -> CategoryQuery;

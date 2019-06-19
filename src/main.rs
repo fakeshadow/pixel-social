@@ -27,10 +27,10 @@ mod router;
 mod schema;
 mod util;
 
-use crate::model::talk::TalkService;
+use crate::model::actors::{CacheService, DatabaseService, TalkService};
 use crate::handler::{cache::clear_cache, email::MailService};
 use crate::util::startup::{build_cache, generate_global};
-use crate::model::actors::{RedisConnection, PostgresConnection};
+
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -54,19 +54,19 @@ fn main() -> std::io::Result<()> {
         .expect("Failed to create redis pool.");
 
     let _ = clear_cache(&redis_pool);
-    let _ = build_cache(&postgres_pool, &database_url, &redis_url);
+    let _ = build_cache(&database_url, &redis_url);
 
     let global_arc = generate_global(&database_url);
 
     let sys = System::new("PixelShare");
-    let talk_service = TalkService::init(postgres_pool.clone(), redis_pool.clone()).start();
+    let talk_service = TalkService::connect(&database_url, &redis_url);
 
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::init(redis_pool.clone()).start();
 
     HttpServer::new(move || {
-        let db = PostgresConnection::connect(&database_url);
-        let cache = RedisConnection::connect(&redis_url);
+        let db = DatabaseService::connect(&database_url);
+        let cache = CacheService::connect(&redis_url);
         App::new()
             .data(postgres_pool.clone())
             .data(redis_pool.clone())
@@ -81,12 +81,14 @@ fn main() -> std::io::Result<()> {
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT, header::CONTENT_TYPE])
                 .max_age(3600))
             .service(web::scope("/admin")
-                .service(web::resource("/user").route(web::post().to_async(router::admin::admin_update_user)))
-                .service(web::resource("/post").route(web::post().to_async(router::admin::admin_update_post)))
-                .service(web::resource("/topic").route(web::post().to_async(router::admin::admin_update_topic)))
+                .service(web::resource("/user").route(web::post().to_async(router::admin::update_user)))
+//                .service(web::resource("/post").route(web::post().to_async(router::admin::admin_update_post)))
+                .service(web::resource("/topic").route(web::post().to_async(router::admin::update_topic)))
                 .service(web::scope("/category")
                     .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::admin_remove_category)))
-                    .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))))
+                    .service(web::resource("/update").route(web::post().to_async(router::admin::admin_modify_category)))
+                )
+            )
             .service(web::scope("/user")
                 .service(web::resource("/register").route(web::post().to_async(router::user::register)))
                 .service(web::resource("/login").route(web::post().to_async(router::user::login)))
@@ -94,30 +96,25 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/{id}").route(web::get().to_async(router::user::get)))
             )
             .service(web::scope("/post")
-                .service(web::resource("/edit").route(web::post().to_async(router::post::update_post)))
-                .service(web::resource("/{pid}").route(web::get().to_async(router::post::get_post)))
-                .service(web::resource("").route(web::post().to_async(router::post::add_post))))
+                .service(web::resource("/update").route(web::post().to_async(router::post::update)))
+                .service(web::resource("/{pid}").route(web::get().to_async(router::post::get)))
+                .service(web::resource("").route(web::post().to_async(router::post::add)))
+            )
             .service(web::scope("/topic")
-                .service(web::resource("/edit").route(web::post().to_async(router::topic::update_topic)))
-                .service(web::resource("/{topic_id}/{page}").route(web::get().to_async(router::topic::get_topic)))
-                .service(web::resource("").route(web::post().to_async(router::topic::add_topic))))
+                .service(web::resource("/update").route(web::post().to_async(router::topic::update)))
+                .service(web::resource("/{category_id}/{topic_id}/{page}").route(web::get().to_async(router::topic::get)))
+                .service(web::resource("").route(web::post().to_async(router::topic::add)))
+            )
             .service(web::scope("/categories")
                 .service(web::resource("/popular/{page}").route(web::get().to_async(router::category::get_popular)))
                 .service(web::resource("/{category_id}/{page}").route(web::get().to_async(router::category::get_category)))
-                .service(web::resource("")
-                    .route(web::get().to_async(router::category::get_all_categories))
-                    .route(web::post().to_async(router::category::get_categories))))
+                .service(web::resource("").route(web::get().to_async(router::category::get_all_categories)))
+            )
             .service(web::scope("/test")
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
-                .service(web::resource("/categories").route(web::get().to_async(router::test::get_all_categories)))
-                .service(web::resource("/categories/{category_id}/{page}").route(web::get().to_async(router::test::get_category)))
-                .service(web::resource("/topic/{topic_id}/{page}").route(web::get().to_async(router::test::get_topic)))
-                .service(web::resource("/topic").route(web::post().to_async(router::test::add_topic)))
-                .service(web::resource("/topic/update").route(web::post().to_async(router::test::update_topic)))
             )
-            .service(web::scope("/upload")
-                .service(web::resource("").route(web::post().to_async(router::stream::upload_file))))
+            .service(web::resource("/upload").route(web::post().to_async(router::stream::upload_file)))
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(fs::Files::new("/public", "./public"))
     }).bind(format!("{}:{}", &server_ip, &server_port))?.start();

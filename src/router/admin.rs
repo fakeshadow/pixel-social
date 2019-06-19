@@ -70,13 +70,21 @@ pub fn admin_remove_category(
                 .then(move |_| HttpResponse::Ok().json(id)))
 }
 
-use crate::model::common::Validator;
-use crate::model::actors::{DB, CACHE};
-use crate::handler::user::UpdateUser;
-use crate::handler::cache::UpdateCache;
-use crate::handler::admin::PrivilegeCheck;
+use crate::model::{
+    actors::{DB, CACHE},
+    common::Validator,
+};
+use crate::handler::{
+    user::UpdateUser,
+    topic::UpdateTopic,
+    cache::UpdateCache,
+    admin::{
+        UpdateTopicCheck,
+        UpdateUserCheck,
+    },
+};
 
-pub fn admin_update_user(
+pub fn update_user(
     jwt: UserJwt,
     mut req: Json<UpdateRequest>,
     cache: Data<CACHE>,
@@ -87,7 +95,7 @@ pub fn admin_update_user(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(PrivilegeCheck::UpdateUser(jwt.is_admin, req))
+            .send(UpdateUserCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -103,46 +111,47 @@ pub fn admin_update_user(
                 })))
 }
 
-pub fn admin_update_topic(
+pub fn update_topic(
     jwt: UserJwt,
     mut req: Json<TopicRequest>,
-    cache: Data<RedisPool>,
-    db: Data<PostgresPool>,
+    cache: Data<CACHE>,
+    db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.attach_user_id(None)
-        .to_privilege_check(&jwt.is_admin)
-        .handle_check(&db)
-        .into_future()
+    let req = req.into_inner().attach_user_id_into(None);
+    db.send(UpdateTopicCheck(jwt.is_admin, req))
         .from_err()
-        .and_then(move |_| req
-            .into_inner()
-            .into_update_query()
-            .into_topics(&db))
+        .and_then(|r| r)
         .from_err()
-        .and_then(move |t| {
-            let res = HttpResponse::Ok().json(&t);
-            UpdateCacheAsync::GotTopics(t).handler(&cache).then(|_| res)
-        })
+        .and_then(move |r| db
+            .send(UpdateTopic(r))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |t| {
+                let res = HttpResponse::Ok().json(&t);
+                let _ = cache.do_send(UpdateCache::Topic(t));
+                res
+            }))
 }
 
-pub fn admin_update_post(
-    jwt: UserJwt,
-    mut req: Json<PostRequest>,
-    cache: Data<RedisPool>,
-    db: Data<PostgresPool>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.attach_user_id(None)
-        .to_privilege_check(&jwt.is_admin)
-        .handle_check(&db)
-        .into_future()
-        .from_err()
-        .and_then(move |_| req
-            .into_inner()
-            .into_update_query()
-            .into_post(db.get_ref().clone()))
-        .from_err()
-        .and_then(move |p| {
-            let res = HttpResponse::Ok().json(&p);
-            UpdateCacheAsync::GotPost(p).handler(&cache).then(|_| res)
-        })
-}
+//pub fn admin_update_post(
+//    jwt: UserJwt,
+//    mut req: Json<PostRequest>,
+//    cache: Data<RedisPool>,
+//    db: Data<PostgresPool>,
+//) -> impl Future<Item=HttpResponse, Error=Error> {
+//    req.attach_user_id(None)
+//        .to_privilege_check(&jwt.is_admin)
+//        .handle_check(&db)
+//        .into_future()
+//        .from_err()
+//        .and_then(move |_| req
+//            .into_inner()
+//            .into_update_query()
+//            .into_post(db.get_ref().clone()))
+//        .from_err()
+//        .and_then(move |p| {
+//            let res = HttpResponse::Ok().json(&p);
+//            UpdateCacheAsync::GotPost(p).handler(&cache).then(|_| res)
+//        })
+//}

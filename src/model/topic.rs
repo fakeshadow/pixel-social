@@ -9,7 +9,8 @@ use crate::model::{
 };
 use crate::schema::topics;
 
-#[derive(Queryable, Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
+// ToDo: add field for topic visiable
 pub struct Topic {
     pub id: u32,
     pub user_id: u32,
@@ -40,7 +41,7 @@ pub struct NewTopic<'a> {
 pub struct UpdateTopic<'a> {
     pub id: &'a u32,
     pub user_id: Option<&'a u32>,
-    pub category_id: Option<&'a u32>,
+    pub category_id: &'a u32,
     pub title: Option<&'a str>,
     pub body: Option<&'a str>,
     pub thumbnail: Option<&'a str>,
@@ -51,7 +52,7 @@ pub struct UpdateTopic<'a> {
 pub struct TopicRequest {
     pub id: Option<u32>,
     pub user_id: Option<u32>,
-    pub category_id: Option<u32>,
+    pub category_id: u32,
     pub title: Option<String>,
     pub body: Option<String>,
     pub thumbnail: Option<String>,
@@ -59,35 +60,20 @@ pub struct TopicRequest {
 }
 
 impl TopicRequest {
-    pub fn attach_user_id(&mut self, id: Option<u32>) -> &Self {
-        self.user_id = id;
-        self
-    }
     pub fn attach_user_id_into(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
 
-    pub fn to_privilege_check<'a>(&'a self, level: &'a u32) -> AdminPrivilegeCheck<'a> {
-        AdminPrivilegeCheck::UpdateTopicCheck(level, self)
-    }
-
-    pub fn into_add_query(self) -> TopicQuery { TopicQuery::AddTopic(self) }
-    pub fn into_update_query(self) -> TopicQuery { TopicQuery::UpdateTopic(self) }
-
-
     pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
         Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
-    }
-    pub fn extract_category_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.category_id.as_ref().ok_or(ServiceError::BadRequest)?)
     }
 
     pub fn make_topic<'a>(&'a self, id: &'a u32) -> Result<NewTopic<'a>, ServiceError> {
         Ok(NewTopic {
             id,
             user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequest)?,
-            category_id: self.extract_category_id()?,
+            category_id: &self.category_id,
             thumbnail: self.thumbnail.as_ref().map(String::as_str).unwrap_or(""),
             title: self.title.as_ref().ok_or(ServiceError::BadRequest)?,
             body: self.body.as_ref().ok_or(ServiceError::BadRequest)?,
@@ -98,7 +84,7 @@ impl TopicRequest {
             Some(_) => Ok(UpdateTopic {
                 id: self.extract_self_id()?,
                 user_id: self.user_id.as_ref(),
-                category_id: None,
+                category_id: &self.category_id,
                 title: self.title.as_ref().map(String::as_str),
                 body: self.body.as_ref().map(String::as_str),
                 thumbnail: self.thumbnail.as_ref().map(String::as_str),
@@ -107,7 +93,7 @@ impl TopicRequest {
             None => Ok(UpdateTopic {
                 id: self.extract_self_id()?,
                 user_id: None,
-                category_id: self.category_id.as_ref(),
+                category_id: &self.category_id,
                 title: self.title.as_ref().map(String::as_str),
                 body: self.body.as_ref().map(String::as_str),
                 thumbnail: self.thumbnail.as_ref().map(String::as_str),
@@ -159,19 +145,9 @@ impl GetUserId for Topic {
     fn get_user_id(&self) -> u32 { self.user_id }
 }
 
-pub enum TopicQuery {
-    GetTopic(u32, i64),
-    GetTopics(Vec<u32>, i64),
-    AddTopic(TopicRequest),
-    UpdateTopic(TopicRequest),
-}
-
-pub trait PathToQuery {
-    fn to_query(&self) -> TopicQuery;
-}
-
-impl PathToQuery for (u32, i64) {
-    fn to_query(&self) -> TopicQuery {
-        TopicQuery::GetTopic(self.0, self.1)
-    }
-}
+//pub enum TopicQuery {
+//    GetTopic(u32, i64),
+//    GetTopics(Vec<u32>, i64),
+//    AddTopic(TopicRequest),
+//    UpdateTopic(TopicRequest),
+//}

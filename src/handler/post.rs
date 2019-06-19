@@ -1,96 +1,114 @@
-use futures::Future;
+use std::fmt::Write;
+use futures::{Future, future::err as ft_err};
 
-use actix_web::{HttpResponse, web::block};
-use diesel::prelude::*;
-use chrono::Utc;
+use actix::prelude::*;
 
 use crate::handler::{
-    category::update_category_post_count,
-    topic::update_topic_reply_count,
+    db::{simple_query, post_from_msg},
 };
 use crate::model::{
+    actors::DatabaseService,
     errors::ServiceError,
-    common::{AttachUser, GlobalGuard, PoolConnectionPostgres, PostgresPool},
-    topic::Topic,
-    category::Category,
-    post::{Post, PostQuery, PostRequest},
+    common::GlobalGuard,
+    post::{Post, PostRequest},
 };
-use crate::schema::posts;
 
 const LIMIT: i64 = 20;
 
-impl PostQuery {
-    pub fn into_post(self, pool: PostgresPool) -> impl Future<Item=Post, Error=ServiceError> {
-        block(move || match self {
-            PostQuery::GetPost(id) => get_post(&id, &pool.get()?),
-            PostQuery::UpdatePost(req) => update_post(&req, &pool.get()?),
-            _ => panic!("method not allowed")
-        }).from_err()
+pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
+
+pub struct GetPost(pub u32);
+
+
+impl Message for ModifyPost {
+    type Result = Result<Vec<Post>, ServiceError>;
+}
+
+impl Message for GetPost {
+    type Result = Result<Vec<Post>, ServiceError>;
+}
+
+
+impl Handler<ModifyPost> for DatabaseService {
+    type Result = ResponseFuture<Vec<Post>, ServiceError>;
+
+    fn handle(&mut self, msg: ModifyPost, _: &mut Self::Context) -> Self::Result {
+        let query = match msg.1 {
+            Some(g) => {
+                let id = match g.lock() {
+                    Ok(mut var) => var.next_pid(),
+                    Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
+                };
+
+                let p = match msg.0.make_post(id) {
+                    Ok(p) => p,
+                    Err(e) => return Box::new(ft_err(e))
+                };
+                match p.post_id {
+                    Some(to_pid) => format!("INSERT INTO posts
+                            (id, user_id, topic_id, post_id, post_content)
+                            VALUES ('{}', '{}', '{}', '{}', '{}')
+                            RETURNING *", p.id, p.user_id, p.topic_id, to_pid, p.post_content),
+                    None => format!("INSERT INTO posts
+                            (id, user_id, topic_id, post_content)
+                            VALUES ('{}', '{}', '{}', '{}')
+                            RETURNING *", p.id, p.user_id, p.topic_id, p.post_content),
+                }
+            }
+            None => {
+                let p = match msg.0.make_update() {
+                    Ok(p) => p,
+                    Err(e) => return Box::new(ft_err(e))
+                };
+                let mut query = "UPDATE posts SET".to_owned();
+
+                if let Some(s) = p.topic_id {
+                    let _ = write!(&mut query, " topic_id='{}',", s);
+                }
+                if let Some(s) = p.post_id {
+                    let _ = write!(&mut query, " post_id='{}',", s);
+                }
+                if let Some(s) = p.post_content {
+                    let _ = write!(&mut query, " post_content='{}',", s);
+                }
+                if let Some(s) = p.is_locked {
+                    let _ = write!(&mut query, " is_locked='{}',", s);
+                }
+
+                if query.ends_with(",") {
+                    let _ = write!(&mut query, " updated_at = DEFAULT Where id='{}'", p.id);
+                } else {
+                    return Box::new(ft_err(ServiceError::BadRequest));
+                }
+
+                if let Some(s) = p.user_id {
+                    let _ = write!(&mut query, " AND user_id='{}'", s);
+                }
+                query.push_str(" RETURNING *");
+
+                query
+            }
+        };
+
+        Box::new(simple_query(
+            self.db.as_mut().unwrap(),
+            &query)
+            .and_then(|msg| post_from_msg(&msg).map(|p| vec![p]))
+        )
     }
-    pub fn into_add_post(self, pool: PostgresPool, opt: Option<GlobalGuard>)
-                         -> impl Future<Item=(Category, Topic, Option<Post>, Post), Error=ServiceError> {
-        block(move || match self {
-            PostQuery::AddPost(mut req) => add_post(&mut req, &pool.get()?, opt),
-            _ => panic!("method not allowed")
-        }).from_err()
+}
+
+impl Handler<GetPost> for DatabaseService {
+    type Result = ResponseFuture<Vec<Post>, ServiceError>;
+
+    fn handle(&mut self, msg: GetPost, _: &mut Self::Context) -> Self::Result {
+        let query = format!("SELECT * FROM posts
+        WHERE id='{}'", msg.0);
+
+        Box::new(simple_query(
+            self.db.as_mut().unwrap(),
+            &query)
+            .and_then(|msg| post_from_msg(&msg).map(|p| vec![p]))
+        )
     }
-}
-
-fn get_post(id: &u32, conn: &PoolConnectionPostgres) -> Result<Post, ServiceError> {
-    Ok(posts::table.find(&id).first::<Post>(conn)?)
-}
-
-fn update_post(req: &PostRequest, conn: &PoolConnectionPostgres) -> Result<Post, ServiceError> {
-    let post_self_id = req.extract_self_id()?;
-
-    let post: Post = match req.user_id {
-        Some(_user_id) => diesel::update(posts::table
-            .filter(posts::id.eq(&post_self_id).and(posts::user_id.eq(_user_id))))
-            .set(req.make_update()?).get_result(conn)?,
-        None => diesel::update(posts::table
-            .filter(posts::id.eq(&post_self_id)))
-            .set(req.make_update()?).get_result(conn)?
-    };
-    Ok(post)
-}
-
-fn add_post(
-    req: &mut PostRequest,
-    conn: &PoolConnectionPostgres,
-    global: Option<GlobalGuard>,
-) -> Result<(Category, Topic, Option<Post>, Post), ServiceError> {
-    let topic_id = req.extract_topic_id()?;
-
-    // ToDo: in case possible time region problem.
-    let now = Utc::now().naive_local();
-
-    let post = match req.post_id {
-        Some(pid) => Some(diesel::update(posts::table
-            .filter(posts::id.eq(&pid).and(posts::topic_id.eq(&topic_id))))
-            .set((posts::last_reply_time.eq(&now), posts::reply_count.eq(posts::reply_count + 1)))
-            .get_result(conn)?),
-        None => None
-    };
-    let topic = update_topic_reply_count(topic_id, &now, conn)?;
-
-    let id: u32 = global.unwrap().lock()
-        .map(|mut var| var.next_pid())
-        .map_err(|_| ServiceError::InternalServerError)?;
-    let post_new = diesel::insert_into(posts::table).values(&req.make_post(&id, &now)?).get_result(conn)?;
-    let category = update_category_post_count(&topic.category_id, conn)?;
-
-    Ok((category, topic, post, post_new))
-}
-
-/// helper query functions
-pub fn get_posts_by_topic_id(id: &u32, offset: i64, conn: &PoolConnectionPostgres) -> Result<Vec<Post>, ServiceError> {
-    Ok(posts::table.filter(posts::topic_id.eq(&id)).order(posts::id.asc()).limit(LIMIT).offset(offset).load::<Post>(conn)?)
-}
-
-pub fn load_all_posts_with_topic_id(conn: &PoolConnectionPostgres) -> Result<Vec<(u32, u32)>, ServiceError> {
-    Ok(posts::table.select((posts::topic_id, posts::id)).order((posts::topic_id.asc(), posts::id.asc())).load(conn)?)
-}
-
-pub fn get_last_pid(conn: &PoolConnectionPostgres) -> u32 {
-    posts::table.select(posts::id).order(posts::id.desc()).limit(1).first(conn).unwrap_or(1)
 }

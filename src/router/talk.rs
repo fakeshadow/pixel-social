@@ -4,7 +4,10 @@ use actix::prelude::*;
 use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
 use actix_web_actors::ws;
 
-use crate::model::talk;
+use crate::model::{
+    actors::TALK,
+    talk
+};
 use crate::handler::auth::UserJwt;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -14,7 +17,7 @@ pub fn talk(
 //    jwt: UserJwt,
 req: HttpRequest,
 stream: Payload,
-srv: Data<Addr<talk::TalkService>>,
+srv: Data<TALK>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
@@ -30,7 +33,7 @@ srv: Data<Addr<talk::TalkService>>,
 struct WsChatSession {
     id: u32,
     hb: Instant,
-    addr: Addr<talk::TalkService>,
+    addr: TALK,
 }
 
 impl Actor for WsChatSession {

@@ -3,91 +3,76 @@ use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCacheAsync, get_unique_users_cache},
-    user::get_unique_users};
+    cache::{GetCategoriesCache, GetTopicsCache, UpdateCache},
+    topic::GetTopics,
+    db::{GetCategories},
+    user::GetUsers
+};
 use crate::model::{
+    actors::{DB, CACHE},
     topic::TopicWithUser,
-    cache::CacheQuery,
-    category::{CategoryRequest, CategoryQuery},
-    common::{PostgresPool, RedisPool, AttachUser},
+    common::AttachUser,
 };
 
-pub fn get_all_categories(
-    cache: Data<RedisPool>,
-    db: Data<PostgresPool>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    CacheQuery::GetAllCategories
-        .into_categories(&cache)
-        .then(move |r| match r {
-            Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
-            Err(_) => Either::B(CategoryQuery::GetAllCategories
-                .into_categories(&db)
-                .from_err()
-                .and_then(move |c| {
-                    let res = HttpResponse::Ok().json(&c);
-                    UpdateCacheAsync::GotCategories(c).handler(&cache).then(|_| res)
-                })
-            )
-        })
-}
-
-pub fn get_popular(page: Path<(i64)>, cache: Data<RedisPool>, db: Data<PostgresPool>)
-                   -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn get_popular(
+    page: Path<(i64)>
+)-> impl Future<Item=HttpResponse, Error=Error> {
     // ToDo: Add get popular cache query
     ft_ok(HttpResponse::Ok().finish())
 }
 
-pub fn get_category(
-    req: Path<(u32, i64)>,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
+pub fn get_all_categories(
+    db: Data<DB>,
+    cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    use crate::model::{category::PathToQuery, cache::PathToTopicsQuery};
-    req.to_query_cache()
-        .into_topics(cache.get_ref().clone())
-        .then(move |r| match r {
-            Ok(t) => Either::A(
-                get_unique_users_cache(&t, None, cache.get_ref().clone())
-                    .from_err()
-                    .and_then(move |u|
-                        HttpResponse::Ok().json(&t
-                            .iter()
-                            .map(|t| t.attach_user(&u))
-                            .collect::<Vec<TopicWithUser>>()))),
-            Err(_) => Either::B(
-                req.to_query()
-                    .into_topics(&db)
-                    .from_err()
-                    .and_then(move |t|
-                        get_unique_users(&t, None, &db)
-                            .from_err()
-                            .and_then(move |u| {
-                                let res = HttpResponse::Ok().json(&t
-                                    .iter()
-                                    .map(|t| t.attach_user(&u))
-                                    .collect::<Vec<TopicWithUser>>());
-                                UpdateCacheAsync::GotTopics(t).handler(&cache).then(|_| res)
-                            })
-                    )
-            )
+    cache.send(GetCategoriesCache)
+        .from_err()
+        .and_then(move |r| match r {
+            Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
+            Err(_) => Either::B(db.send(GetCategories)
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |c| {
+                    let res = HttpResponse::Ok().json(&c);
+                    let _ = cache.do_send(UpdateCache::Category(c));
+                    res
+                }))
         })
 }
 
-pub fn get_categories(
-    req: Json<CategoryRequest>,
-    db: Data<PostgresPool>,
-    cache: Data<RedisPool>,
+pub fn get_category(
+    req: Path<(u32, i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.to_query()
-        .into_topics(&db)
+    let (id, page) = req.into_inner();
+
+    cache.send(GetTopicsCache(vec![id], page))
         .from_err()
-        .and_then(move |t|
-            get_unique_users(&t, None, &db)
+        .and_then(move |r| match r {
+            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&t.iter()
+                .map(|t| t.attach_user(&u))
+                .collect::<Vec<TopicWithUser>>()))),
+            Err(_) => Either::B(db.send(GetTopics::Latest(id, page))
                 .from_err()
-                .and_then(move |u| {
-                    HttpResponse::Ok().json(&t
-                        .iter()
-                        .map(|t| t.attach_user(&u))
-                        .collect::<Vec<TopicWithUser>>())
-                }))
+                .and_then(|r| r)
+                .from_err()
+                // return user ids with topics for users query
+                .and_then(move |(t, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(&t.iter()
+                            .map(|t| t.attach_user(&u))
+                            .collect::<Vec<TopicWithUser>>());
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        println!("from db");
+                        res
+                    })
+                ))
+        })
 }

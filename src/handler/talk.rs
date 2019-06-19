@@ -1,16 +1,41 @@
+use std::collections::HashMap;
+
 use chrono::NaiveDateTime;
 use diesel::{sql_query, prelude::*};
 
 use crate::model::{
+    actors::TalkService,
     errors::ServiceError,
     user::User,
-    talk::{Talk, HistoryMessage, Create, Join, Delete},
+    talk::{Talk, SessionMessage, HistoryMessage, Create, Join, Delete},
     common::{PoolConnectionPostgres, PostgresPool},
 };
 
-use crate::handler::user::get_users_by_id;
 use crate::schema::talks;
 
+
+impl TalkService {
+    pub fn send_message_many(&self, id: u32, msg: &str) {
+        if let Some(talk) = self.talks.get(&id) {
+            talk.users.iter().map(|id| self.send_message(id, msg));
+        }
+    }
+
+    pub fn send_talk_members(&self, session_id: u32, talk_id: u32) {
+        if let Some(addr) = self.sessions.get(&session_id) {
+            let msg = "placeholder".to_owned();
+            addr.do_send(SessionMessage(msg));
+        }
+    }
+
+    pub fn send_message(&self, session_id: &u32, msg: &str) {
+        if let Some(addr) = self.sessions.get(&session_id) {
+            let _ = addr.do_send(SessionMessage(msg.to_owned()));
+        }
+    }
+}
+
+// ToDo: remove diesel
 pub fn get_history(
     table: &str,
     id: u32,
@@ -38,8 +63,7 @@ pub fn get_talk_members(
     id: u32,
     conn: &PoolConnectionPostgres,
 ) -> Result<Vec<User>, ServiceError> {
-    let ids = talks::table.find(id).select(talks::users).first::<Vec<u32>>(conn)?;
-    get_users_by_id(&ids, conn)
+    Err(ServiceError::Unauthorized)
 }
 
 pub fn remove_talk_member(
@@ -87,7 +111,7 @@ pub fn create_talk(
     msg: &Create,
     conn: &PoolConnectionPostgres,
 ) -> Result<Talk, ServiceError> {
-    let last_id:Vec<u32> = talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?;
+    let last_id: Vec<u32> = talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?;
 
     let id = last_id.first().unwrap_or(&0) + 1;
 
