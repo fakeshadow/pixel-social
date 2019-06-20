@@ -46,22 +46,6 @@ table! {
 }
 
 table! {
-    topics (id) {
-        id -> Oid,
-        user_id -> Oid,
-        category_id -> Oid,
-        title -> Varchar,
-        body -> Varchar,
-        thumbnail -> Varchar,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        last_reply_time -> Timestamp,
-        reply_count -> Int4,
-        is_locked -> Bool,
-    }
-}
-
-table! {
     topics1 (id) {
         id -> Oid,
         user_id -> Oid,
@@ -164,7 +148,6 @@ allow_tables_to_appear_in_same_query!(
     categories,
     posts,
     talks,
-    topics,
     topics1,
     topics2,
     topics3,

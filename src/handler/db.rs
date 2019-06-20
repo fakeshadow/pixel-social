@@ -16,7 +16,46 @@ use crate::model::{
     category::Category,
     topic::{Topic, TopicRequest},
     common::GlobalGuard,
+    talk::Talk,
 };
+
+pub fn get_single_row<T>(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=T, Error=ServiceError>
+    where T: std::str::FromStr {
+    simple_query(c, query)
+        .and_then(move |msg| single_row_from_msg(0, &msg))
+}
+
+pub fn create_talk(
+    c: &mut Client,
+    query1: &str,
+    query2: &str,
+) -> impl Future<Item=((), Talk), Error=ServiceError> {
+    let f1 = simple_query(c, query1)
+        .and_then(|_| Ok(()));
+    let f2 = simple_query(c, query2)
+        .and_then(|msg| talk_from_msg(&msg));
+
+    f1.join(f2)
+}
+
+pub fn query_post(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=Post, Error=ServiceError> {
+    simple_query(c, &query)
+        .and_then(|msg| post_from_msg(&msg))
+}
+
+pub fn add_topic(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=Topic, Error=ServiceError> {
+    simple_query(c, &query)
+        .and_then(|msg| topic_from_msg(&msg))
+}
 
 pub fn get_all_categories(
     c: &mut Client,
@@ -37,7 +76,6 @@ pub fn get_all_categories(
             Ok::<_, ServiceError>(categories)
         })
 }
-
 
 pub fn get_posts(
     c: &mut Client,
@@ -66,7 +104,6 @@ pub fn get_posts(
             Ok::<_, ServiceError>((posts, ids))
         })
 }
-
 
 pub fn get_users(
     c: &mut Client,
@@ -198,6 +235,17 @@ pub fn single_row_from_msg<T>(
     }
 }
 
+fn talk_from_msg(
+    opt: &Option<SimpleQueryMessage>
+) -> Result<Talk, ServiceError> {
+    match opt {
+        Some(msg) => match msg {
+            SimpleQueryMessage::Row(row) => talk_from_simple_row(row),
+            _ => Err(ServiceError::InternalServerError)
+        }
+        None => Err(ServiceError::InternalServerError)
+    }
+}
 
 pub fn category_from_msg(
     opt: &Option<SimpleQueryMessage>
@@ -235,7 +283,7 @@ pub fn topic_from_msg(
     }
 }
 
-pub fn post_from_msg(
+fn post_from_msg(
     opt: &Option<SimpleQueryMessage>
 ) -> Result<Post, ServiceError> {
     match opt {
@@ -246,7 +294,6 @@ pub fn post_from_msg(
         None => Err(ServiceError::InternalServerError)
     }
 }
-
 
 pub fn auth_response_from_msg(
     opt: &Option<SimpleQueryMessage>,
@@ -292,6 +339,19 @@ fn auth_response_from_simple_row(
     let token = jwt::JwtPayLoad::new(user.id, user.is_admin).sign()?;
 
     Ok(AuthResponse { token, user })
+}
+
+fn talk_from_simple_row(
+    row: &SimpleQueryRow
+) -> Result<Talk, ServiceError> {
+    Ok(Talk {
+        id: row.get(0).map(|s| s.parse::<u32>()).unwrap()?,
+        name: row.get(1).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        description: row.get(2).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        owner: row.get(3).map(|s| s.parse::<u32>()).unwrap()?,
+        admin: vec![],
+        users: vec![],
+    })
 }
 
 fn user_from_simple_row(

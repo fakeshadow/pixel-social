@@ -8,6 +8,7 @@ use crate::model::{
     errors::ServiceError,
 };
 use crate::handler::talk::*;
+use crate::handler::db::{create_talk, simple_query, get_single_row};
 
 #[derive(Serialize, Hash, Eq, PartialEq, Debug)]
 pub struct Talk {
@@ -45,13 +46,6 @@ pub struct Connect {
 #[derive(Message)]
 pub struct Disconnect {
     pub session_id: u32,
-}
-
-#[derive(Message, Deserialize, Clone)]
-pub struct Create {
-    pub name: String,
-    pub description: String,
-    pub owner: u32,
 }
 
 #[derive(Message)]
@@ -117,13 +111,58 @@ impl Handler<Disconnect> for TalkService {
     }
 }
 
-impl Handler<Create> for TalkService {
-    type Result = ();
+pub struct GetLastTalkId;
 
-    fn handle(&mut self, msg: Create, _: &mut Context<Self>) -> Self::Result {
-        //ToDo: Create talk table here.
-        let string = "placeholder";
-        self.send_message(&msg.owner, string)
+#[derive(Deserialize, Clone)]
+pub struct Create {
+    pub talk_id: Option<u32>,
+    pub name: String,
+    pub description: String,
+    pub owner: u32,
+}
+
+impl Message for GetLastTalkId {
+    type Result = Result<u32, ServiceError>;
+}
+
+impl Message for Create {
+    type Result = Result<String, ServiceError>;
+}
+
+impl Handler<GetLastTalkId> for TalkService {
+    type Result = ResponseFuture<u32, ServiceError>;
+
+    fn handle(&mut self, _: GetLastTalkId, _: &mut Context<Self>) -> Self::Result {
+        let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
+        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query))
+    }
+}
+
+impl Handler<Create> for TalkService {
+    type Result = ResponseFuture<String, ServiceError>;
+
+    fn handle(&mut self, msg: Create, ctx: &mut Context<Self>) -> Self::Result {
+        let id = msg.talk_id.unwrap();
+        let query1 =
+            format!("INSERT INTO talks
+                    (id, name, description, owner, admin, users)
+                    VALUES ({}, '{}', '{}', {}, ARRAY {}, ARRAY {})",
+                    id,
+                    msg.name,
+                    msg.description,
+                    msg.owner,
+                    id,
+                    id);
+        let query2 =
+            format!("CREATE TABLE talk{}
+                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))",
+                    id);
+        let f = create_talk(self.db.as_mut().unwrap(), &query1, &query2)
+            .and_then(|(_, t)| {
+                let s = serde_json::to_string(&t)?;
+                Ok(s)
+            });
+        Box::new(f)
     }
 }
 

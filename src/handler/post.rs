@@ -3,9 +3,7 @@ use futures::{Future, future::err as ft_err};
 
 use actix::prelude::*;
 
-use crate::handler::{
-    db::{simple_query, post_from_msg},
-};
+use crate::handler::db::query_post;
 use crate::model::{
     actors::DatabaseService,
     errors::ServiceError,
@@ -45,11 +43,11 @@ impl Handler<ModifyPost> for DatabaseService {
                 match p.post_id {
                     Some(to_pid) => format!("INSERT INTO posts
                             (id, user_id, topic_id, post_id, post_content)
-                            VALUES ('{}', '{}', '{}', '{}', '{}')
+                            VALUES ({}, {}, {}, {}, '{}')
                             RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), to_pid, p.post_content.unwrap()),
                     None => format!("INSERT INTO posts
                             (id, user_id, topic_id, post_content)
-                            VALUES ('{}', '{}', '{}', '{}')
+                            VALUES ({}, {}, {}, '{}')
                             RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), p.post_content.unwrap()),
                 }
             }
@@ -59,26 +57,26 @@ impl Handler<ModifyPost> for DatabaseService {
                 let mut query = "UPDATE posts SET".to_owned();
 
                 if let Some(s) = p.topic_id {
-                    let _ = write!(&mut query, " topic_id='{}',", s);
+                    let _ = write!(&mut query, " topic_id={},", s);
                 }
                 if let Some(s) = p.post_id {
-                    let _ = write!(&mut query, " post_id='{}',", s);
+                    let _ = write!(&mut query, " post_id={},", s);
                 }
                 if let Some(s) = p.post_content {
                     let _ = write!(&mut query, " post_content='{}',", s);
                 }
                 if let Some(s) = p.is_locked {
-                    let _ = write!(&mut query, " is_locked='{}',", s);
+                    let _ = write!(&mut query, " is_locked={},", s);
                 }
 
                 if query.ends_with(",") {
-                    let _ = write!(&mut query, " updated_at = DEFAULT Where id='{}'", p.id.unwrap());
+                    let _ = write!(&mut query, " updated_at = DEFAULT Where id={}", p.id.unwrap());
                 } else {
                     return Box::new(ft_err(ServiceError::BadRequest));
                 }
 
                 if let Some(s) = p.user_id {
-                    let _ = write!(&mut query, " AND user_id='{}'", s);
+                    let _ = write!(&mut query, " AND user_id={}", s);
                 }
                 query.push_str(" RETURNING *");
 
@@ -86,11 +84,7 @@ impl Handler<ModifyPost> for DatabaseService {
             }
         };
 
-        Box::new(simple_query(
-            self.db.as_mut().unwrap(),
-            &query)
-            .and_then(|msg| post_from_msg(&msg).map(|p| vec![p]))
-        )
+        Box::new(query_post(self.db.as_mut().unwrap(), &query).map(|p| vec![p]))
     }
 }
 
@@ -111,14 +105,10 @@ impl Handler<GetPosts> for DatabaseService {
         }
         query.push_str("}')");
 
-        Box::new(simple_query(
-            self.db.as_mut().unwrap(),
-            &query)
-            .and_then(|msg| post_from_msg(&msg)
-                .map(|p| {
-                    let ids = vec![p.user_id];
-                    (vec![p], ids)
-                }))
-        )
+        Box::new(query_post(self.db.as_mut().unwrap(), &query)
+            .map(|p| {
+                let ids = vec![p.user_id];
+                (vec![p], ids)
+            }))
     }
 }

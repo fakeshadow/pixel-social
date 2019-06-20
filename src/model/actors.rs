@@ -129,6 +129,7 @@ impl CacheService {
 
 impl TalkService {
     pub fn connect(postgres_url: &str, redis_url: &str) -> TALK {
+        println!("talkservice");
         let hs = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));

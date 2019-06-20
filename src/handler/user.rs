@@ -97,7 +97,7 @@ impl Handler<Register> for DatabaseService {
         };
         let query = format!(
             "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
-             VALUES ('{}', '{}', '{}', '{}', '{}', '{}')
+             VALUES ({}, '{}', '{}', '{}', '{}', '{}')
              RETURNING *", u.id, u.username, u.email, u.hashed_password, u.avatar_url, u.signature);
 
         Box::new(simple_query(self.db.as_mut().unwrap(), &query)
@@ -136,22 +136,22 @@ impl Handler<UpdateUser> for DatabaseService {
             let _ = write!(&mut query, " signature='{}',", s);
         }
         if let Some(s) = u.show_created_at.as_ref() {
-            let _ = write!(&mut query, " show_created_at='{}',", s);
+            let _ = write!(&mut query, " show_created_at={},", s);
         }
         if let Some(s) = u.show_email.as_ref() {
-            let _ = write!(&mut query, " show_email='{}',", s);
+            let _ = write!(&mut query, " show_email={},", s);
         }
         if let Some(s) = u.show_updated_at.as_ref() {
-            let _ = write!(&mut query, " show_updated_at='{}',", s);
+            let _ = write!(&mut query, " show_updated_at={},", s);
         }
         if let Some(s) = u.is_admin.as_ref() {
-            let _ = write!(&mut query, " is_admin='{}',", s);
+            let _ = write!(&mut query, " is_admin={},", s);
         }
         if let Some(s) = u.blocked.as_ref() {
-            let _ = write!(&mut query, " blocked='{}',", s);
+            let _ = write!(&mut query, " blocked={},", s);
         }
         if query.ends_with(",") {
-            let _ = write!(&mut query, " updated_at=DEFAULT WHERE id='{}' RETURNING *", u.id.unwrap());
+            let _ = write!(&mut query, " updated_at=DEFAULT WHERE id={} RETURNING *", u.id.unwrap());
         } else {
             return Box::new(future::err(ServiceError::BadRequest));
         }

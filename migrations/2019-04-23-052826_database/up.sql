@@ -25,21 +25,6 @@ CREATE TABLE categories
     thumbnail        VARCHAR(256) NOT NULL
 );
 
-CREATE TABLE topics
-(
-    id              OID           NOT NULL UNIQUE PRIMARY KEY,
-    user_id         OID           NOT NULL,
-    category_id     OID           NOT NULL,
-    title           VARCHAR(1024) NOT NULL,
-    body            VARCHAR(1024) NOT NULL,
-    thumbnail       VARCHAR(1024) NOT NULL,
-    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reply_count     INTEGER       NOT NULL DEFAULT 0,
-    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
-);
-
 CREATE TABLE topics1
 (
     id              OID           NOT NULL UNIQUE PRIMARY KEY,
@@ -156,7 +141,6 @@ CREATE UNIQUE INDEX talks_name ON talks (name);
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 
-
 --Placeholder data below.Safe to delete
 --admin password is 1234asdf
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)
@@ -173,9 +157,6 @@ VALUES (2, 'Announcement', 'category_default.png'),
        (5, 'Persona', 'persona.jpg');
 
 INSERT INTO topics1 (id, user_id, category_id, title, body, thumbnail)
-VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
-
-INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
 INSERT INTO posts (id, user_id, topic_id, post_content)

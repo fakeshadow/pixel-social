@@ -22,21 +22,21 @@ use crate::model::{
     },
 };
 use crate::handler::auth::UserJwt;
+use crate::model::talk::GetLastTalkId;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn talk(
-//    jwt: UserJwt,
-req: HttpRequest,
-stream: Payload,
-srv: Data<TALK>,
+    req: HttpRequest,
+    stream: Payload,
+    talk: Data<TALK>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
         WsChatSession {
             id: 0,
             hb: Instant::now(),
-            addr: srv.get_ref().clone(),
+            addr: talk.get_ref().clone(),
         },
         &req,
         stream,
@@ -172,7 +172,23 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     match msg {
                         Ok(mut msg) => {
                             msg.owner = session.id;
-                            session.addr.do_send(msg)
+                            session.addr
+                                .send(GetLastTalkId)
+                                .into_actor(session)
+                                .then(|r, session, ctx| {
+                                    match r {
+                                        Ok(r) => match r {
+                                            Ok(id) => {
+                                                msg.talk_id = Some(id);
+                                                session.addr.do_send(msg);
+                                            }
+                                            Err(_) => ctx.text("!!! failed to get new talk id")
+                                        },
+                                        Err(_) => ctx.text("!!! actor error")
+                                    }
+                                    fut::ok(())
+                                })
+                                .wait(ctx)
                         }
                         Err(_) => ctx.text("!!! parsing error")
                     }

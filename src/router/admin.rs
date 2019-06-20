@@ -135,41 +135,49 @@ pub fn update_topic(
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_user_id(None);
-    db.send(UpdateTopicCheck(jwt.is_admin, req))
+    req.make_update()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |r| db
-            .send(UpdateTopic(r))
+        .and_then(move |req| db
+            .send(UpdateTopicCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |t| {
-                let res = HttpResponse::Ok().json(&t);
-                let _ = cache.do_send(UpdateCache::Topic(t));
-                res
-            }))
+            .and_then(move |r| db
+                .send(UpdateTopic(r))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |t| {
+                    let res = HttpResponse::Ok().json(&t);
+                    let _ = cache.do_send(UpdateCache::Topic(t));
+                    res
+                })))
 }
 
-pub fn admin_update_post(
+pub fn update_post(
     jwt: UserJwt,
     req: Json<PostRequest>,
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_user_id(None);
-    db.send(UpdatePostCheck(jwt.is_admin, req))
+    req.make_update()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |r| db
-            .send(ModifyPost(r, None))
+        .and_then(move |req| db
+            .send(UpdatePostCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |p| {
-                let res = HttpResponse::Ok().json(&p);
-                let _ = cache.do_send(UpdateCache::Post(p));
-                res
-            }))
+            .and_then(move |r| db
+                .send(ModifyPost(r, None))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |p| {
+                    let res = HttpResponse::Ok().json(&p);
+                    let _ = cache.do_send(UpdateCache::Post(p));
+                    res
+                })))
 }

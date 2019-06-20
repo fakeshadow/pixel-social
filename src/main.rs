@@ -49,15 +49,14 @@ fn main() -> std::io::Result<()> {
     let global_arc = generate_global(&database_url);
 
     let sys = System::new("PixelShare");
-    let talk_service = TalkService::connect(&database_url, &redis_url);
 
+    let talk_service = TalkService::connect(&database_url, &redis_url);
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let mail_service = MailService::connect(&redis_url);
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
-
         App::new()
             .data(global_arc.clone())
             .data(talk_service.clone())
@@ -71,7 +70,7 @@ fn main() -> std::io::Result<()> {
                 .max_age(3600))
             .service(web::scope("/admin")
                 .service(web::resource("/user").route(web::post().to_async(router::admin::update_user)))
-//                .service(web::resource("/post").route(web::post().to_async(router::admin::admin_update_post)))
+                .service(web::resource("/post").route(web::post().to_async(router::admin::update_post)))
                 .service(web::resource("/topic").route(web::post().to_async(router::admin::update_topic)))
                 .service(web::scope("/category")
 //                    .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::remove_category)))

@@ -11,7 +11,7 @@ use crate::model::{
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::{topic_from_msg, get_topics, simple_query, get_posts, get_topics_test};
+use crate::handler::db::{get_topics, get_posts, add_topic};
 
 const LIMIT: i64 = 20;
 
@@ -27,7 +27,7 @@ pub enum GetTopics {
 }
 
 impl Message for AddTopic {
-    type Result = Result<(Topic), ServiceError>;
+    type Result = Result<Topic, ServiceError>;
 }
 
 impl Message for UpdateTopic {
@@ -54,7 +54,7 @@ impl Handler<GetTopicWithPost> for DatabaseService {
         let topic = Vec::with_capacity(1);
         let posts = Vec::with_capacity(20);
 
-        let queryt = format!("SELECT * FROM topics{} WHERE id = '{}'", cid, tid);
+        let queryt = format!("SELECT * FROM topics{} WHERE id = {}", cid, tid);
 
         let ft =
             get_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
@@ -66,7 +66,7 @@ impl Handler<GetTopicWithPost> for DatabaseService {
 }
 
 impl Handler<AddTopic> for DatabaseService {
-    type Result = ResponseFuture<(Topic), ServiceError>;
+    type Result = ResponseFuture<Topic, ServiceError>;
 
     fn handle(&mut self, msg: AddTopic, _: &mut Self::Context) -> Self::Result {
         let id = match msg.1.lock() {
@@ -78,7 +78,7 @@ impl Handler<AddTopic> for DatabaseService {
         let query = format!(
             "INSERT INTO topics{}
             (id, user_id, category_id, thumbnail, title, body)
-            VALUES ('{}', '{}', '{}', '{}', '{}', '{}')
+            VALUES ({}, {}, {}, '{}', '{}', '{}')
             RETURNING *",
             t.category_id,
             id,
@@ -88,8 +88,7 @@ impl Handler<AddTopic> for DatabaseService {
             t.title.unwrap(),
             t.body.unwrap());
 
-        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
-            .and_then(|msg| topic_from_msg(&msg)))
+        Box::new(add_topic(self.db.as_mut().unwrap(), &query))
     }
 }
 
@@ -113,7 +112,7 @@ impl Handler<UpdateTopic> for DatabaseService {
             let _ = write!(&mut query, " thumbnail='{}',", s);
         }
         if let Some(s) = t.is_locked {
-            let _ = write!(&mut query, " is_locked='{}',", s);
+            let _ = write!(&mut query, " is_locked={},", s);
         }
         // update update_at or return err as the query is empty.
         if query.ends_with(",") {
@@ -122,19 +121,13 @@ impl Handler<UpdateTopic> for DatabaseService {
             return Box::new(ft_err(ServiceError::BadRequest));
         }
 
-        let _ = write!(&mut query, " WHERE id='{}' ", t.id.unwrap());
+        let _ = write!(&mut query, " WHERE id={} ", t.id.unwrap());
         if let Some(s) = t.user_id {
-            let _ = write!(&mut query, "AND user_id='{}' ", s);
+            let _ = write!(&mut query, "AND user_id={} ", s);
         }
         query.push_str("RETURNING *");
 
-        let f = simple_query(
-            self.db.as_mut().unwrap(),
-            &query)
-            .and_then(|msg| topic_from_msg(&msg)
-                .map(|t| vec![t]));
-
-        Box::new(f)
+        Box::new(add_topic(self.db.as_mut().unwrap(), &query).map(|t|vec![t]))
     }
 }
 
@@ -153,11 +146,7 @@ impl Handler<GetTopics> for DatabaseService {
                 LIMIT 20", id, ((page - 1) * 20)),
             GetTopics::Popular(page) => "template".to_owned()
         };
-        let f = get_topics(
-            self.db.as_mut().unwrap(),
-            &query, topics,
-            ids);
 
-        Box::new(f)
+        Box::new(get_topics(self.db.as_mut().unwrap(), &query, topics, ids))
     }
 }

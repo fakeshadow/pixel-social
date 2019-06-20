@@ -2,7 +2,6 @@ DROP TABLE posts;
 DROP TABLE associates;
 DROP TABLE talks;
 DROP TABLE users;
-DROP TABLE topics;
 DROP TABLE topics1;
 DROP TABLE topics2;
 DROP TABLE topics3;

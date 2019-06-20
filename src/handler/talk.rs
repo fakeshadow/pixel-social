@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fmt::Write;
+use futures::{Future, future, IntoFuture};
 
 use chrono::NaiveDateTime;
 
@@ -29,9 +31,14 @@ impl TalkService {
             let _ = addr.do_send(SessionMessage(msg.to_owned()));
         }
     }
+
+    pub fn send_message_test(&self, session_id: u32, msg: String) {
+        if let Some(addr) = self.sessions.get(&session_id) {
+            let _ = addr.do_send(SessionMessage(msg));
+        }
+    }
 }
 
-// ToDo: remove diesel
 //pub fn get_history(
 //    table: &str,
 //    id: u32,

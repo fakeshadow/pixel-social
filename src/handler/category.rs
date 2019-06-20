@@ -8,7 +8,7 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{simple_query, category_from_msg, get_all_categories, single_row_from_msg};
+use crate::handler::db::{simple_query, category_from_msg, get_all_categories, single_row_from_msg, get_single_row};
 
 
 const LIMIT: i64 = 20;
@@ -54,11 +54,7 @@ impl Handler<GetLastCategoryId> for DatabaseService {
 
     fn handle(&mut self, _: GetLastCategoryId, _: &mut Self::Context) -> Self::Result {
         let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
-
-        let f =
-            simple_query(self.db.as_mut().unwrap(), query)
-                .and_then(|m| single_row_from_msg::<u32>(0, &m));
-        Box::new(f)
+        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query))
     }
 }
 
