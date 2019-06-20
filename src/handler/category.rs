@@ -5,21 +5,31 @@ use actix::prelude::*;
 
 use crate::model::{
     actors::DatabaseService,
-    category::{Category, CategoryUpdateRequest},
+    category::{Category, CategoryRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{simple_query, category_from_msg, get_all_categories};
+use crate::handler::db::{simple_query, category_from_msg, get_all_categories, single_row_from_msg};
 
 
 const LIMIT: i64 = 20;
 
 pub struct GetCategories;
-pub enum ModifyCategory {
-    Add(CategoryUpdateRequest),
-    Update(CategoryUpdateRequest),
+
+pub struct GetLastCategoryId;
+
+pub struct AddCategory(pub CategoryRequest);
+
+pub struct UpdateCategory(pub CategoryRequest);
+
+impl Message for GetLastCategoryId {
+    type Result = Result<u32, ServiceError>;
 }
 
-impl Message for ModifyCategory {
+impl Message for AddCategory {
+    type Result = Result<Vec<Category>, ServiceError>;
+}
+
+impl Message for UpdateCategory {
     type Result = Result<Vec<Category>, ServiceError>;
 }
 
@@ -38,45 +48,64 @@ impl Handler<GetCategories> for DatabaseService {
             categories))
     }
 }
-impl Handler<ModifyCategory> for DatabaseService {
+
+impl Handler<GetLastCategoryId> for DatabaseService {
+    type Result = ResponseFuture<u32, ServiceError>;
+
+    fn handle(&mut self, _: GetLastCategoryId, _: &mut Self::Context) -> Self::Result {
+        let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
+
+        let f =
+            simple_query(self.db.as_mut().unwrap(), query)
+                .and_then(|m| single_row_from_msg::<u32>(0, &m));
+        Box::new(f)
+    }
+}
+
+impl Handler<AddCategory> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
-    fn handle(&mut self, msg: ModifyCategory, _: &mut Self::Context) -> Self::Result {
-        let query = match msg {
-            ModifyCategory::Add(req) => {
-                let c = match req.make_category(&1) {
-                    Ok(c) => c,
-                    Err(e) => return Box::new(ft_err(e))
-                };
+    fn handle(&mut self, msg: AddCategory, _: &mut Self::Context) -> Self::Result {
+        let c = msg.0;
 
-                format!("INSERT INTO categories
-                (id, name, thumbnail)
-                VALUES ('{}', '{}', '{}')
-                RETURNING *", c.id, c.name, c.thumbnail)
-            }
-            ModifyCategory::Update(req) => {
-                let c = match req.make_update() {
-                    Ok(c) => c,
-                    Err(e) => return Box::new(ft_err(e))
-                };
+        let query = format!("INSERT INTO categories
+            (id, name, thumbnail)
+            VALUES ('{}', '{}', '{}')
+            RETURNING *", c.id.unwrap(), c.name.unwrap(), c.thumbnail.unwrap());
 
-                let mut query = String::new();
-                query.push_str("UPDATE categories SET");
-                if let Some(s) = c.thumbnail {
-                    let _ = write!(&mut query, " thumbnail='{}',", s);
-                }
-                if let Some(s) = c.name {
-                    let _ = write!(&mut query, " name='{}',", s);
-                }
-                if query.ends_with(",") {
-                    query.remove(query.len() - 1);
-                    let _ = write!(&mut query, " WHERE id='{}' RETURNING *", c.id);
-                } else {
-                    return Box::new(ft_err(ServiceError::BadRequest));
-                }
-                query
-            }
+        let f = simple_query(
+            self.db.as_mut().unwrap(),
+            query.as_str())
+            .and_then(|msg| category_from_msg(&msg).map(|c| vec![c]));
+
+        Box::new(f)
+    }
+}
+
+impl Handler<UpdateCategory> for DatabaseService {
+    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+
+    fn handle(&mut self, msg: UpdateCategory, _: &mut Self::Context) -> Self::Result {
+        let c = match msg.0.make_update() {
+            Ok(c) => c,
+            Err(e) => return Box::new(ft_err(e))
         };
+
+        let mut query = String::new();
+        query.push_str("UPDATE categories SET");
+        if let Some(s) = c.thumbnail {
+            let _ = write!(&mut query, " thumbnail='{}',", s);
+        }
+        if let Some(s) = c.name {
+            let _ = write!(&mut query, " name='{}',", s);
+        }
+        if query.ends_with(",") {
+            query.remove(query.len() - 1);
+            let _ = write!(&mut query, " WHERE id='{}' RETURNING *", c.id.unwrap());
+        } else {
+            return Box::new(ft_err(ServiceError::BadRequest));
+        };
+
         Box::new(simple_query(
             self.db.as_mut().unwrap(),
             query.as_str())

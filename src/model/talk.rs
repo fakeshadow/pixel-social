@@ -9,7 +9,6 @@ use crate::model::{
 };
 use crate::handler::talk::*;
 
-
 #[derive(Serialize, Hash, Eq, PartialEq, Debug)]
 pub struct Talk {
     pub id: u32,

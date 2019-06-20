@@ -7,16 +7,18 @@ use crate::model::{
     post::PostRequest,
     topic::TopicRequest,
     common::Validator,
-    category::CategoryUpdateRequest,
+    category::CategoryRequest,
     user::{ToUserRef, UpdateRequest},
 };
 use crate::handler::{
     auth::UserJwt,
     user::UpdateUser,
-    category::ModifyCategory,
+    category::{UpdateCategory, AddCategory, GetLastCategoryId},
+    post::ModifyPost,
     topic::UpdateTopic,
     cache::UpdateCache,
     admin::{
+        UpdatePostCheck,
         UpdateCategoryCheck,
         UpdateTopicCheck,
         UpdateUserCheck,
@@ -25,7 +27,7 @@ use crate::handler::{
 
 pub fn add_category(
     jwt: UserJwt,
-    req: Json<CategoryUpdateRequest>,
+    req: Json<CategoryRequest>,
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -34,23 +36,30 @@ pub fn add_category(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(move |r| db
-            .send(ModifyCategory::Add(r))
+        .and_then(move |req| db
+            .send(GetLastCategoryId)
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |c| {
-                let res = HttpResponse::Ok().json(&c);
-                //ToDo: update category_id meta
-                let _ = cache.do_send(UpdateCache::Category(c));
-                res
-            })
-        )
+            .and_then(|cid| req.make_category(cid))
+            .from_err()
+            .and_then(move |req| db
+                .send(AddCategory(req))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |c| {
+                    let res = HttpResponse::Ok().json(&c);
+                    //ToDo: update category_id meta
+                    let _ = cache.do_send(UpdateCache::Category(c));
+                    res
+                })
+            ))
 }
 
 pub fn update_category(
     jwt: UserJwt,
-    req: Json<CategoryUpdateRequest>,
+    req: Json<CategoryRequest>,
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -59,8 +68,10 @@ pub fn update_category(
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(move |r| db
-            .send(ModifyCategory::Update(r))
+        .and_then(move |req| req.make_update())
+        .from_err()
+        .and_then(move |req| db
+            .send(UpdateCategory(req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -123,7 +134,7 @@ pub fn update_topic(
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id_into(None);
+    let req = req.into_inner().attach_user_id(None);
     db.send(UpdateTopicCheck(jwt.is_admin, req))
         .from_err()
         .and_then(|r| r)
@@ -140,24 +151,25 @@ pub fn update_topic(
             }))
 }
 
-//pub fn admin_update_post(
-//    jwt: UserJwt,
-//    mut req: Json<PostRequest>,
-//    cache: Data<RedisPool>,
-//    db: Data<PostgresPool>,
-//) -> impl Future<Item=HttpResponse, Error=Error> {
-//    req.attach_user_id(None)
-//        .to_privilege_check(&jwt.is_admin)
-//        .handle_check(&db)
-//        .into_future()
-//        .from_err()
-//        .and_then(move |_| req
-//            .into_inner()
-//            .into_update_query()
-//            .into_post(db.get_ref().clone()))
-//        .from_err()
-//        .and_then(move |p| {
-//            let res = HttpResponse::Ok().json(&p);
-//            UpdateCacheAsync::GotPost(p).handler(&cache).then(|_| res)
-//        })
-//}
+pub fn admin_update_post(
+    jwt: UserJwt,
+    req: Json<PostRequest>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let req = req.into_inner().attach_user_id(None);
+    db.send(UpdatePostCheck(jwt.is_admin, req))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |r| db
+            .send(ModifyPost(r, None))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |p| {
+                let res = HttpResponse::Ok().json(&p);
+                let _ = cache.do_send(UpdateCache::Post(p));
+                res
+            }))
+}

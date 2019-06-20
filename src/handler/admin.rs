@@ -5,7 +5,7 @@ use actix::prelude::*;
 use crate::model::{
     actors::DatabaseService,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
-    category::CategoryUpdateRequest,
+    category::CategoryRequest,
     errors::ServiceError,
     post::PostRequest,
     topic::TopicRequest,
@@ -17,7 +17,9 @@ pub struct UpdateUserCheck(pub u32, pub UpdateRequest);
 
 pub struct UpdateTopicCheck(pub u32, pub TopicRequest);
 
-pub struct UpdateCategoryCheck(pub u32, pub CategoryUpdateRequest);
+pub struct UpdatePostCheck(pub u32, pub PostRequest);
+
+pub struct UpdateCategoryCheck(pub u32, pub CategoryRequest);
 
 
 impl Message for UpdateUserCheck {
@@ -28,8 +30,12 @@ impl Message for UpdateTopicCheck {
     type Result = Result<TopicRequest, ServiceError>;
 }
 
+impl Message for UpdatePostCheck {
+    type Result = Result<PostRequest, ServiceError>;
+}
+
 impl Message for UpdateCategoryCheck {
-    type Result = Result<CategoryUpdateRequest, ServiceError>;
+    type Result = Result<CategoryRequest, ServiceError>;
 }
 
 
@@ -65,7 +71,7 @@ impl Handler<UpdateTopicCheck> for DatabaseService {
 }
 
 impl Handler<UpdateCategoryCheck> for DatabaseService {
-    type Result = ResponseFuture<CategoryUpdateRequest, ServiceError>;
+    type Result = ResponseFuture<CategoryRequest, ServiceError>;
 
     fn handle(&mut self, msg: UpdateCategoryCheck, ctx: &mut Self::Context) -> Self::Result {
         Box::new(update_category_check(&msg.0, &msg.1)
@@ -74,12 +80,22 @@ impl Handler<UpdateCategoryCheck> for DatabaseService {
     }
 }
 
+impl Handler<UpdatePostCheck> for DatabaseService {
+    type Result = ResponseFuture<PostRequest, ServiceError>;
+
+    fn handle(&mut self, msg: UpdatePostCheck, ctx: &mut Self::Context) -> Self::Result {
+        Box::new(update_post_check(&msg.0, &msg.1)
+            .into_future()
+            .map(|_| msg.1))
+    }
+}
+
 
 type QueryResult = Result<(), ServiceError>;
 
-fn update_category_check(lv: &u32, req: &CategoryUpdateRequest) -> QueryResult {
-    check_admin_level(&req.category_name, &lv, 3)?;
-    check_admin_level(&req.category_thumbnail, &lv, 3)
+fn update_category_check(lv: &u32, req: &CategoryRequest) -> QueryResult {
+    check_admin_level(&req.name, &lv, 3)?;
+    check_admin_level(&req.thumbnail, &lv, 3)
 }
 
 fn update_topic_check(lv: &u32, req: &TopicRequest) -> QueryResult {

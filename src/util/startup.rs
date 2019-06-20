@@ -15,7 +15,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
 
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
-    let mut c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
+    let c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
     let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
     rt.spawn(conn.map_err(|e| panic!("{}", e)));

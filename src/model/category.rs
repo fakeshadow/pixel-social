@@ -13,42 +13,31 @@ pub struct Category {
     pub thumbnail: String,
 }
 
+#[derive(Deserialize)]
+pub struct CategoryRequest {
+    pub id: Option<u32>,
+    pub name: Option<String>,
+    pub thumbnail: Option<String>,
+}
+
 impl GetSelfId for Category {
     fn get_self_id(&self) -> &u32 { &self.id }
 }
 
-pub struct NewCategory<'a> {
-    pub id: &'a u32,
-    pub name: &'a str,
-    pub thumbnail: &'a str,
-}
-
-pub struct UpdateCategory<'a> {
-    pub id: u32,
-    pub name: Option<&'a str>,
-    pub thumbnail: Option<&'a str>,
-}
-
-#[derive(Deserialize)]
-pub struct CategoryUpdateRequest {
-    pub category_id: Option<u32>,
-    pub category_name: Option<String>,
-    pub category_thumbnail: Option<String>,
-}
-
-impl CategoryUpdateRequest {
-    pub fn make_category<'a>(&'a self, id: &'a u32) -> Result<NewCategory<'a>, ServiceError> {
-        Ok(NewCategory {
-            id,
-            name: self.category_name.as_ref().ok_or(ServiceError::BadRequest)?,
-            thumbnail: self.category_thumbnail.as_ref().ok_or(ServiceError::BadRequest)?,
-        })
+impl CategoryRequest {
+    pub fn make_category(mut self, id: u32) -> Result<Self, ServiceError> {
+        if self.name.is_none() || self.thumbnail.is_none() {
+            Err(ServiceError::BadRequest)
+        } else {
+            self.id = Some(id);
+            Ok(self)
+        }
     }
-    pub fn make_update(&self) -> Result<UpdateCategory, ServiceError> {
-        Ok(UpdateCategory {
-            id: self.category_id.ok_or(ServiceError::BadRequest)?,
-            name: self.category_name.as_ref().map(String::as_str),
-            thumbnail: self.category_thumbnail.as_ref().map(String::as_str),
-        })
+    pub fn make_update(self) -> Result<Self, ServiceError> {
+        if self.id.is_none() {
+            Err(ServiceError::BadRequest)
+        } else {
+            Ok(self)
+        }
     }
 }

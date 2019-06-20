@@ -6,7 +6,20 @@ use actix_web_actors::ws;
 
 use crate::model::{
     actors::TALK,
-    talk
+    talk::{
+        Connect,
+        Disconnect,
+        Create,
+        Join,
+        Delete,
+        GetHistory,
+        GetTalks,
+        GetRoomMembers,
+        Remove,
+        Admin,
+        ClientMessage,
+        SessionMessage,
+    },
 };
 use crate::handler::auth::UserJwt;
 
@@ -44,7 +57,7 @@ impl Actor for WsChatSession {
 
         let addr = ctx.address();
         self.addr
-            .send(talk::Connect {
+            .send(Connect {
                 session_id: self.id,
                 addr: addr.recipient(),
             })
@@ -60,7 +73,7 @@ impl Actor for WsChatSession {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(talk::Disconnect { session_id: self.id });
+        self.addr.do_send(Disconnect { session_id: self.id });
         Running::Stop
     }
 }
@@ -91,7 +104,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
         } else {
             match v[0] {
                 "/msg" => {
-                    let msg: Result<talk::ClientMessage, _> = serde_json::from_str(v[1]);
+                    let msg: Result<ClientMessage, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.session_id = session.id;
@@ -101,7 +114,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     }
                 }
                 "/history" => {
-                    let msg: Result<talk::GetHistory, _> = serde_json::from_str(v[1]);
+                    let msg: Result<GetHistory, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.session_id = session.id;
@@ -113,7 +126,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 /// get users of one talk from talk_id
                 "/users" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
-                    let _ = session.addr.do_send(talk::GetRoomMembers {
+                    let _ = session.addr.do_send(GetRoomMembers {
                         session_id: session.id,
                         talk_id,
                     });
@@ -121,7 +134,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 /// request talk_id 0 to get all talks details.
                 "/talks" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
-                    let _ = session.addr.do_send(talk::GetTalks {
+                    let _ = session.addr.do_send(GetTalks {
                         session_id: session.id,
                         talk_id,
                     });
@@ -129,13 +142,13 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 "/join" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
                     session.id = 1;
-                    session.addr.do_send(talk::Join {
+                    session.addr.do_send(Join {
                         talk_id,
                         session_id: session.id,
                     });
                 }
                 "/remove" => {
-                    let msg: Result<talk::Remove, _> = serde_json::from_str(v[1]);
+                    let msg: Result<Remove, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.session_id = session.id;
@@ -145,7 +158,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     }
                 }
                 "/admin" => {
-                    let msg: Result<talk::Admin, _> = serde_json::from_str(v[1]);
+                    let msg: Result<Admin, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.session_id = session.id;
@@ -155,7 +168,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                     }
                 }
                 "/create" => {
-                    let msg: Result<talk::Create, _> = serde_json::from_str(v[1]);
+                    let msg: Result<Create, _> = serde_json::from_str(v[1]);
                     match msg {
                         Ok(mut msg) => {
                             msg.owner = session.id;
@@ -166,7 +179,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 }
                 "/delete" => {
                     let talk_id = v[1].parse::<u32>().unwrap_or(0);
-                    session.addr.do_send(talk::Delete {
+                    session.addr.do_send(Delete {
                         session_id: session.id,
                         talk_id,
                     });
@@ -181,7 +194,7 @@ impl WsChatSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                act.addr.do_send(talk::Disconnect { session_id: act.id });
+                act.addr.do_send(Disconnect { session_id: act.id });
                 ctx.stop();
                 return;
             }
@@ -190,10 +203,10 @@ impl WsChatSession {
     }
 }
 
-impl Handler<talk::SessionMessage> for WsChatSession {
+impl Handler<SessionMessage> for WsChatSession {
     type Result = ();
 
-    fn handle(&mut self, msg: talk::SessionMessage, ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: SessionMessage, ctx: &mut Self::Context) {
         ctx.text(msg.0);
     }
 }

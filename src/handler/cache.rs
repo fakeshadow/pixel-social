@@ -11,7 +11,7 @@ use crate::model::{
     post::Post,
     topic::Topic,
     user::User,
-    cache::{CacheQuery, FromHashSet, Parser, SortHash},
+    cache::{FromHashSet, Parser, SortHash},
     common::{AttachUser, GetSelfId},
     mail::Mail,
 };
@@ -23,6 +23,8 @@ const MAIL_LIFE: usize = 2592000;
 pub struct GetCategoriesCache;
 
 pub struct GetTopicsCache(pub Vec<u32>, pub i64);
+
+pub struct GetPostsCache(pub Vec<u32>);
 
 // will panic if the query more than 20 users at a time.
 pub struct GetUsersCache(pub Vec<u32>);
@@ -42,6 +44,10 @@ impl Message for GetCategoriesCache {
 
 impl Message for GetTopicsCache {
     type Result = Result<(Vec<Topic>, Vec<User>), ServiceError>;
+}
+
+impl Message for GetPostsCache {
+    type Result = Result<(Vec<Post>, Vec<User>), ServiceError>;
 }
 
 impl Message for GetUsersCache {
@@ -148,6 +154,70 @@ impl Handler<GetTopicsCache> for CacheService {
     }
 }
 
+impl Handler<GetPostsCache> for CacheService {
+    type Result = ResponseFuture<(Vec<Post>, Vec<User>), ServiceError>;
+
+    fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
+        Box::new(get_hmset(self.cache.as_ref().unwrap().clone(), msg.0, "post")
+            .and_then(|(conn, pids, vec): (_, Vec<u32>, Vec<HashMap<String, String>>)| {
+                let mut p = Vec::with_capacity(20);
+                let mut uids = Vec::with_capacity(20);
+                for v in vec.iter() {
+                    if let Some(post) = v.parse::<Post>().ok() {
+                        uids.push(post.user_id);
+                        p.push(post);
+                    }
+                }
+                if p.len() != pids.len() || p.len() == 0 {
+                    return Either::A(fut_err(ServiceError::InternalServerError));
+                };
+                // sort and get unique users id
+                uids.sort();
+                uids.dedup();
+                Either::B(get_users(conn, uids).and_then(move |u| Ok((p, u))))
+            }))
+    }
+}
+
+fn get_categories_cache(
+    conn: SharedConn,
+) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+    cmd("lrange")
+        .arg("category_id:meta")
+        .arg(0)
+        .arg(-1)
+        .query_async(conn)
+        .from_err()
+        .and_then(|(conn, vec): (_, Vec<u32>)| get_hmset(conn, vec, "category"))
+        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| vec
+            .iter()
+            .map(|hash| hash
+                .parse::<Category>())
+            .collect::<Result<Vec<Category>, ServiceError>>())
+}
+
+// consume connection as users usually the last query.
+pub fn get_users(
+    conn: SharedConn,
+    uids: Vec<u32>,
+) -> impl Future<Item=Vec<User>, Error=ServiceError> {
+    get_hmset(conn, uids, "user")
+        .and_then(move |(_, uids, vec)| {
+            let mut u = Vec::with_capacity(21);
+            // collect users from hash map
+            for v in vec.iter() {
+                if let Some(user) = v.parse::<User>().ok() {
+                    u.push(user);
+                }
+            };
+            // abort
+            if u.len() != uids.len() || u.len() == 0 {
+                return Err(ServiceError::InternalServerError);
+            };
+            Ok(u)
+        })
+}
+
 // helper functions
 pub fn build_hmset<T>(
     conn: SharedConn,
@@ -184,28 +254,6 @@ pub fn build_list(
         .and_then(|(_, ())| Ok(()))
 }
 
-// consume connection as users usually the last query.
-pub fn get_users(
-    conn: SharedConn,
-    uids: Vec<u32>,
-) -> impl Future<Item=Vec<User>, Error=ServiceError> {
-    get_hmset(conn, uids, "user")
-        .and_then(move |(_, uids, vec)| {
-            let mut u = Vec::with_capacity(21);
-            // collect users from hash map
-            for v in vec.iter() {
-                if let Some(user) = v.parse::<User>().ok() {
-                    u.push(user);
-                }
-            };
-            // abort
-            if u.len() != uids.len() || u.len() == 0 {
-                return Err(ServiceError::InternalServerError);
-            };
-            Ok(u)
-        })
-}
-
 fn get_hmset<T>(
     conn: SharedConn,
     vec: Vec<T>,
@@ -219,30 +267,9 @@ fn get_hmset<T>(
     }
     pipe.query_async(conn)
         .from_err()
-        .and_then(|(conn, hm): (SharedConn, Vec<HashMap<String, String>>)| Ok((conn, vec, hm)))
+        .and_then(|(conn, hm)| Ok((conn, vec, hm)))
 }
 
-
-fn get_categories_cache(
-    conn: SharedConn,
-) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
-    cmd("lrange")
-        .arg("category_id:meta")
-        .arg(0)
-        .arg(-1)
-        .query_async(conn)
-        .from_err()
-        .and_then(|(conn, vec): (SharedConn, Vec<u32>)| get_hmset(conn, vec, "category"))
-        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| vec
-            .iter()
-            .map(|hash| hash
-                .parse::<Category>())
-            .collect::<Result<Vec<Category>, ServiceError>>())
-}
-
-
-//type UpdateResult = Result<(), ServiceError>;
-//
 //fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
 //    let c = c.first().ok_or(ServiceError::InternalServerError)?;
 //    Ok(redis_r::pipe().atomic()
@@ -250,22 +277,6 @@ fn get_categories_cache(
 //        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
 //        .query(conn.deref())?)
 //}
-//
-//fn got_topic_with_posts(t: Option<&Topic>, p: &Vec<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-//    if let Some(t) = t {
-//        let _ignore: Result<usize, _> = conn.hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash());
-//    }
-//    update_hash_set(&p, "post", conn)
-//}
-//
-//fn added_topic(t: &Topic, c: &Category, conn: PoolConnectionRedis) -> UpdateResult {
-//    Ok(redis_r::pipe().atomic()
-//        .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-//        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-//        .lpush(format!("category:{}:list", c.id), t.id)
-//        .query(conn.deref())?)
-//}
-//
 //fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
 //    let list_key = format!("category:{}:list", t.category_id);
 //    Ok(match p_old {
@@ -288,61 +299,7 @@ fn get_categories_cache(
 //            .query(conn.deref())?
 //    })
 //}
-//
-//fn update_hash_set<T>(vec: &Vec<T>, key: &str, conn: PoolConnectionRedis) -> UpdateResult
-//    where T: GetSelfId + SortHash {
-//    let mut pipe = redis_r::pipe();
-//    let pipe = pipe.atomic();
-//
-//    for v in vec {
-//        pipe.hset_multiple(&format!("{}:{}:set", key, v.get_self_id()), &v.sort_hash());
-//    }
-//
-//    Ok(pipe.query(conn.deref())?)
-//}
-//
-pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
-    let client = Client::open(redis_url).expect("failed to connect to redis server");
-    let mut conn = client.get_connection().expect("failed to get redis connection");
-    Ok(redis::cmd("flushall").query(&mut conn)?)
-}
-//
-//// helper for mail service
-//pub enum MailCache {
-//    AddActivation(Mail),
-//    AddRecovery(Mail),
-//    GotActivation(Mail),
-//    GetActivation(Option<u32>),
-//    RemoveActivation(u32),
-//    RemoveRecovery(u32),
-//}
-//
-//impl MailCache {
-//    pub fn handler(self, pool: &RedisPool) -> impl Future<Item=(), Error=ServiceError> {
-//        let pool = pool.clone();
-//        block(move || match self {
-//            MailCache::AddActivation(mail) => add_mail_cache(&mail, pool.get()?),
-//            _ => panic!("method not allowed")
-//        }).from_err()
-//    }
-//    pub fn from_queue(conn: &PoolConnectionRedis) -> Result<Self, ServiceError> {
-//        let string = from_mail_queue(None, conn)?;
-//        Ok(MailCache::GotActivation(serde_json::from_str(string.first().ok_or(ServiceError::InternalServerError)?)?))
-//    }
-//    pub fn get_mail_hash(&self, pool: &RedisPool) -> Result<HashMap<String, String>, ServiceError> {
-//        match self {
-//            MailCache::GetActivation(opt) => from_mail_hash(opt, "activation", pool.get()?),
-//            _ => Err(ServiceError::BadRequest)
-//        }
-//    }
-//    pub fn remove_queue(self, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-//        match self {
-//            MailCache::GotActivation(mail) => del_mail_queue(mail.user_id, conn),
-//            _ => Err(ServiceError::InternalServerError)
-//        }
-//    }
-//}
-//
+
 //fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
 //    let stringify = serde_json::to_string(mail)?;
 //    let key = format!("activation:{}:set", mail.user_id);
@@ -352,19 +309,43 @@ pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
 //        .expire(&key, MAIL_LIFE)
 //        .query(conn.deref())?)
 //}
-//
-//fn del_mail_queue(id: u32, conn: &PoolConnectionRedis) -> Result<(), ServiceError> {
-//    Ok(redis_r::cmd("zrembyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?)
-//}
-//
-//fn from_mail_queue(opt: Option<u32>, conn: &PoolConnectionRedis) -> Result<Vec<String>, ServiceError> {
-//    match opt {
-//        Some(id) => Ok(redis_r::cmd("zrangebyscore").arg("mail_queue").arg(id).arg(id).query(conn.deref())?),
-//        None => Ok(redis_r::cmd("zrange").arg("mail_queue").arg(0).arg(1).query(conn.deref())?)
-//    }
-//}
-//
 //fn from_mail_hash(opt: &Option<u32>, key: &str, conn: PoolConnectionRedis) -> Result<HashMap<String, String>, ServiceError> {
 //    let test = opt.unwrap();
 //    Ok(redis_r::cmd("hgetall").arg(format!("{}:{}:set", key, test)).query(conn.deref())?)
 //}
+
+pub fn from_mail_queue(
+    conn: SharedConn
+) -> impl Future<Item=(SharedConn, Mail), Error=ServiceError> {
+    cmd("zrange")
+        .arg("mail_queue")
+        .arg(0)
+        .arg(1)
+        .query_async(conn)
+        .from_err()
+        .and_then(|(conn, s): (_, Vec<String>)| s
+            .first()
+            .ok_or(ServiceError::MailServiceError)
+            .map(|s| Ok(serde_json::from_str(s)?))
+            .and_then(|r| r)
+            .map(|m| (conn, m))
+        )
+}
+
+pub fn remove_mail_queue(
+    conn: SharedConn
+) -> impl Future<Item=(), Error=ServiceError> {
+    cmd("zrembyscore")
+        .arg("mail_queue")
+        .arg(0)
+        .arg(1)
+        .query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
+}
+
+pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
+    let client = Client::open(redis_url).expect("failed to connect to redis server");
+    let mut conn = client.get_connection().expect("failed to get redis connection");
+    Ok(redis::cmd("flushall").query(&mut conn)?)
+}

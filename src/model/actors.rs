@@ -15,7 +15,7 @@ pub type Conn = redis::aio::Connection;
 pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;
-
+pub type MAIL = Addr<MailService>;
 
 pub struct DatabaseService {
     pub db: Option<Client>,
@@ -36,6 +36,10 @@ pub struct TalkService {
     pub get_talks: Option<Statement>,
 }
 
+pub struct MailService {
+    pub cache: Option<SharedConn>
+}
+
 impl Actor for DatabaseService {
     type Context = Context<Self>;
 }
@@ -48,26 +52,11 @@ impl Actor for TalkService {
     type Context = Context<Self>;
 }
 
-impl CacheService {
-    pub fn connect(redis_url: &str) -> CACHE {
-        let client = RedisClient::open(redis_url)
-            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+impl Actor for MailService {
+    type Context = Context<Self>;
 
-        CacheService::create(move |ctx| {
-            let addr = CacheService {
-                cache: None
-            };
-
-            client.get_shared_async_connection()
-                .map_err(|_| panic!("failed to get redis connection"))
-                .into_actor(&addr)
-                .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
-                    fut::ok(())
-                })
-                .wait(ctx);
-            addr
-        })
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb(ctx);
     }
 }
 
@@ -115,6 +104,29 @@ impl DatabaseService {
     }
 }
 
+impl CacheService {
+    pub fn connect(redis_url: &str) -> CACHE {
+        let client = RedisClient::open(redis_url)
+            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+
+        CacheService::create(move |ctx| {
+            let addr = CacheService {
+                cache: None
+            };
+
+            client.get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
+                    fut::ok(())
+                })
+                .wait(ctx);
+            addr
+        })
+    }
+}
+
 impl TalkService {
     pub fn connect(postgres_url: &str, redis_url: &str) -> TALK {
         let hs = connect(postgres_url, NoTls);
@@ -144,6 +156,28 @@ impl TalkService {
 
                     addr.db = Some(db);
                     Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));
+                    fut::ok(())
+                })
+                .wait(ctx);
+            addr
+        })
+    }
+}
+
+impl MailService {
+    pub fn connect(redis_url: &str) -> MAIL {
+        let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
+
+        MailService::create(move |ctx| {
+            let addr = MailService {
+                cache: None
+            };
+
+            client.get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
                     fut::ok(())
                 })
                 .wait(ctx);

@@ -6,7 +6,7 @@ use crate::model::{
     user::{ToUserRef, User, UserRef},
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Post {
     pub id: u32,
     pub user_id: u32,
@@ -20,23 +20,6 @@ pub struct Post {
     pub is_locked: bool,
 }
 
-pub struct NewPost<'a> {
-    pub id: u32,
-    pub user_id: &'a u32,
-    pub topic_id: &'a u32,
-    pub post_id: Option<&'a u32>,
-    pub post_content: &'a str,
-}
-
-pub struct UpdatePost<'a> {
-    pub id: &'a u32,
-    pub user_id: Option<&'a u32>,
-    pub topic_id: Option<&'a u32>,
-    pub post_id: Option<&'a u32>,
-    pub post_content: Option<&'a str>,
-    pub is_locked: Option<&'a bool>,
-}
-
 #[derive(Deserialize)]
 pub struct PostRequest {
     pub id: Option<u32>,
@@ -48,52 +31,30 @@ pub struct PostRequest {
 }
 
 impl PostRequest {
-    /// pass user_id from jwt token as option for regular user updating post. pass none for admin user
-    pub fn attach_user_id(&mut self, id: Option<u32>) -> &Self {
+    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
-    pub fn attach_user_id_into(mut self, id: Option<u32>) -> Self {
-        self.user_id = id;
-        self
-    }
-    pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
-    }
 
-    pub fn extract_topic_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.topic_id.as_ref().ok_or(ServiceError::BadRequest)?)
-    }
-
-    pub fn make_post(&self, id: u32) -> Result<NewPost, ServiceError> {
-        Ok(NewPost {
-            id,
-            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequest)?,
-            topic_id: self.extract_topic_id()?,
-            post_id: self.post_id.as_ref(),
-            post_content: self.post_content.as_ref().ok_or(ServiceError::BadRequest)?,
-        })
-    }
-
-    pub fn make_update(&self) -> Result<UpdatePost, ServiceError> {
-        match self.user_id {
-            Some(_id) => Ok(UpdatePost {
-                id: self.extract_self_id()?,
-                user_id: self.user_id.as_ref(),
-                topic_id: None,
-                post_id: None,
-                post_content: self.post_content.as_ref().map(String::as_str),
-                is_locked: None,
-            }),
-            None => Ok(UpdatePost {
-                id: self.extract_self_id()?,
-                user_id: None,
-                topic_id: self.topic_id.as_ref(),
-                post_id: self.post_id.as_ref(),
-                post_content: self.post_content.as_ref().map(String::as_str),
-                is_locked: self.is_locked.as_ref(),
-            })
+    pub fn make_new(self) -> Result<Self, ServiceError> {
+        if self.topic_id.is_none() ||
+            self.post_content.is_none() {
+            Err(ServiceError::BadRequest)
+        } else {
+            Ok(self)
         }
+    }
+
+    pub fn make_update(mut self) -> Result<Self, ServiceError> {
+        if self.id.is_none() {
+            return Err(ServiceError::BadRequest);
+        }
+        if let Some(uid) = self.user_id {
+            self.topic_id = None;
+            self.post_id = None;
+            self.is_locked = None;
+        }
+        Ok(self)
     }
 }
 

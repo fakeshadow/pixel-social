@@ -1,49 +1,49 @@
-use actix::prelude::*;
-
 use std::{env, time::Duration};
 
+use actix::prelude::*;
+use redis::cmd;
 use lettre::{
-    EmailAddress, Envelope, SendableEmail, smtp::{authentication::{Credentials, Mechanism}, ConnectionReuseParameters, extension::ClientId}, SmtpClient,
+    EmailAddress,
+    Envelope,
+    SendableEmail,
+    SmtpClient,
     Transport,
+    smtp::{
+        ConnectionReuseParameters,
+        extension::ClientId,
+        authentication::{Credentials, Mechanism},
+    },
 };
 
-use crate::model::{mail::Mail, errors::ServiceError};
+use crate::model::{
+    mail::Mail,
+    errors::ServiceError,
+    actors::{
+        SharedConn,
+        MailService,
+    },
+};
+use crate::handler::cache::{from_mail_queue, remove_mail_queue};
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
 
-pub struct MailService;
-
-impl Actor for MailService {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.hb(ctx);
-    }
-}
-
 impl MailService {
-    pub fn init() -> Self {
-        MailService
-    }
-
-    fn hb(&self, ctx: &mut Context<Self>) {
-        ctx.run_interval(MAIL_TIME_GAP, |act, ctx| {
-//            let _ = process_mail(&act.pool);
+    pub fn hb(&self, ctx: &mut Context<Self>) {
+        ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
+//            let _ = process_mail(act.cache.as_ref().unwrap().clone());
         });
     }
 }
 
-//fn process_mail(pool: &RedisPool) -> Result<(), ServiceError> {
-//    let conn = &pool.get()?;
-//    let cache = MailCache::from_queue(conn)?;
-//    match &cache {
-//        MailCache::GotActivation(mail) => {
-//            send_mail(mail)?;
-//            cache.remove_queue(conn)
-//        }
-//        _ => Err(ServiceError::InternalServerError)
-//    }
-//}
+fn process_mail(
+    conn: SharedConn
+) -> impl Future<Item=(), Error=ServiceError> {
+    from_mail_queue(conn)
+        .and_then(|(conn, m)| {
+            let _ = send_mail(&m);
+            remove_mail_queue(conn)
+        })
+}
 
 fn send_mail(mail: &Mail) -> Result<(), ServiceError> {
     let url = env::var("SERVER_URL").expect("Server url must be set");

@@ -1,5 +1,5 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
-use futures::{Future, future::Either};
+use futures::{Future, future::{IntoFuture, Either}};
 
 use crate::model::{
     actors::{DB, CACHE},
@@ -10,7 +10,7 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     user::GetUsers,
-    topic::{AddTopic, UpdateTopic,GetTopicWithPost},
+    topic::{AddTopic, UpdateTopic, GetTopicWithPost},
     cache::{AddedTopic, UpdateCache},
 };
 
@@ -48,17 +48,21 @@ pub fn add(
     req: Json<TopicRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
-    db.send(AddTopic(req, global.get_ref().clone()))
+    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
+    req.make_new()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |t| {
-            let cid = t.category_id;
-            let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(AddedTopic(t, cid));
-            res
-        })
+        .and_then(move |req| db
+            .send(AddTopic(req, global.get_ref().clone()))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |t| {
+                let cid = t.category_id;
+                let res = HttpResponse::Ok().json(&t);
+                let _ = cache.do_send(AddedTopic(t, cid));
+                res
+            }))
 }
 
 pub fn update(
@@ -67,14 +71,18 @@ pub fn update(
     cache: Data<CACHE>,
     req: Json<TopicRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
-    db.send(UpdateTopic(req))
+    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
+    req.make_update()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |t| {
-            let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(UpdateCache::Topic(t));
-            res
-        })
+        .and_then(move |req| db
+            .send(UpdateTopic(req))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |t| {
+                let res = HttpResponse::Ok().json(&t);
+                let _ = cache.do_send(UpdateCache::Topic(t));
+                res
+            }))
 }

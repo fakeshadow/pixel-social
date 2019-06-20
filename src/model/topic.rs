@@ -23,25 +23,6 @@ pub struct Topic {
     pub is_locked: bool,
 }
 
-pub struct NewTopic<'a> {
-    pub id: &'a u32,
-    pub user_id: &'a u32,
-    pub category_id: &'a u32,
-    pub thumbnail: &'a str,
-    pub title: &'a str,
-    pub body: &'a str,
-}
-
-pub struct UpdateTopic<'a> {
-    pub id: &'a u32,
-    pub user_id: Option<&'a u32>,
-    pub category_id: &'a u32,
-    pub title: Option<&'a str>,
-    pub body: Option<&'a str>,
-    pub thumbnail: Option<&'a str>,
-    pub is_locked: Option<&'a bool>,
-}
-
 #[derive(Deserialize)]
 pub struct TopicRequest {
     pub id: Option<u32>,
@@ -54,46 +35,27 @@ pub struct TopicRequest {
 }
 
 impl TopicRequest {
-    pub fn attach_user_id_into(mut self, id: Option<u32>) -> Self {
+    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
-
-    pub fn extract_self_id(&self) -> Result<&u32, ServiceError> {
-        Ok(self.id.as_ref().ok_or(ServiceError::BadRequest)?)
-    }
-
-    pub fn make_topic<'a>(&'a self, id: &'a u32) -> Result<NewTopic<'a>, ServiceError> {
-        Ok(NewTopic {
-            id,
-            user_id: self.user_id.as_ref().ok_or(ServiceError::BadRequest)?,
-            category_id: &self.category_id,
-            thumbnail: self.thumbnail.as_ref().map(String::as_str).unwrap_or(""),
-            title: self.title.as_ref().ok_or(ServiceError::BadRequest)?,
-            body: self.body.as_ref().ok_or(ServiceError::BadRequest)?,
-        })
-    }
-    pub fn make_update(&self) -> Result<UpdateTopic, ServiceError> {
-        match self.user_id {
-            Some(_) => Ok(UpdateTopic {
-                id: self.extract_self_id()?,
-                user_id: self.user_id.as_ref(),
-                category_id: &self.category_id,
-                title: self.title.as_ref().map(String::as_str),
-                body: self.body.as_ref().map(String::as_str),
-                thumbnail: self.thumbnail.as_ref().map(String::as_str),
-                is_locked: None,
-            }),
-            None => Ok(UpdateTopic {
-                id: self.extract_self_id()?,
-                user_id: None,
-                category_id: &self.category_id,
-                title: self.title.as_ref().map(String::as_str),
-                body: self.body.as_ref().map(String::as_str),
-                thumbnail: self.thumbnail.as_ref().map(String::as_str),
-                is_locked: self.is_locked.as_ref(),
-            })
+    pub fn make_new(self) -> Result<Self, ServiceError> {
+        if self.title.is_none() ||
+            self.body.is_none() ||
+            self.thumbnail.is_none() {
+            Err(ServiceError::BadRequest)
+        } else {
+            Ok(self)
         }
+    }
+    pub fn make_update(mut self) -> Result<Self, ServiceError> {
+        if self.id.is_none() {
+            return Err(ServiceError::BadRequest);
+        }
+        if let Some(id) = self.user_id {
+            self.is_locked = None;
+        }
+        Ok(self)
     }
 }
 

@@ -3,13 +3,16 @@ use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
     auth::UserJwt,
-    post::{GetPost, ModifyPost},
-    cache::UpdateCache};
+    user::GetUsers,
+    post::{GetPosts, ModifyPost},
+    cache::{UpdateCache, GetPostsCache},
+};
 use crate::model::{
     actors::{DB, CACHE},
     common::{GlobalGuard, AttachUser},
-    post::PostRequest,
+    post::{PostRequest, PostWithUser},
 };
+use futures::future::IntoFuture;
 
 pub fn add(
     jwt: UserJwt,
@@ -18,17 +21,21 @@ pub fn add(
     req: Json<PostRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
+    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
     // ToDo: Add trigger before inserting. Make post_id null if the topic doesn't contain target post
-    db.send(ModifyPost(req, Some(global.get_ref().clone())))
+    req.make_new()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |p| {
-            let res = HttpResponse::Ok().json(&p);
-            let _ = cache.do_send(UpdateCache::Post(p));
-            res
-        })
+        .and_then(move |req| db
+            .send(ModifyPost(req, Some(global.get_ref().clone())))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |p| {
+                let res = HttpResponse::Ok().json(&p);
+                let _ = cache.do_send(UpdateCache::Post(p));
+                res
+            }))
 }
 
 pub fn update(
@@ -36,18 +43,21 @@ pub fn update(
     req: Json<PostRequest>,
     db: Data<DB>,
     cache: Data<CACHE>,
-    global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id_into(Some(jwt.user_id));
-    db.send(ModifyPost(req, None))
+    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
+    req.make_update()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |p| {
-            let res = HttpResponse::Ok().json(&p);
-            let _ = cache.do_send(UpdateCache::Post(p));
-            res
-        })
+        .and_then(move |req| db
+            .send(ModifyPost(req, None))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |p| {
+                let res = HttpResponse::Ok().json(&p);
+                let _ = cache.do_send(UpdateCache::Post(p));
+                res
+            }))
 }
 
 pub fn get(
@@ -55,12 +65,32 @@ pub fn get(
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    db.send(GetPost(id.into_inner()))
+    let id = id.into_inner();
+    cache.send(GetPostsCache(vec![id]))
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(|p| {
-            let res = HttpResponse::Ok().json(&p);
-            res
+        .and_then(move |r| match r {
+            Ok((p, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&p
+                .iter()
+                .map(|p| p.attach_user(&u))
+                .collect::<Vec<PostWithUser>>()))),
+            Err(_) => Either::B(db
+                .send(GetPosts(vec![id]))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |(p, ids)| {
+                    db.send(GetUsers(ids))
+                        .from_err()
+                        .and_then(|r| r)
+                        .from_err()
+                        .and_then(move |u| {
+                            let res = HttpResponse::Ok().json(&p
+                                .iter()
+                                .map(|p| p.attach_user(&u))
+                                .collect::<Vec<PostWithUser>>());
+                            let _ = cache.do_send(UpdateCache::Post(p));
+                            res
+                        })
+                }))
         })
 }

@@ -112,7 +112,6 @@ impl AuthRequest {
         Ok(NewUser {
             id,
             username: &self.username,
-            // ToDo: In case validator failed and cause unwrap panic.
             email: self.extract_email()?,
             hashed_password,
             avatar_url: "",

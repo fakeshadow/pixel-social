@@ -17,15 +17,15 @@ const LIMIT: i64 = 20;
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
 
-pub struct GetPost(pub u32);
+pub struct GetPosts(pub Vec<u32>);
 
 
 impl Message for ModifyPost {
     type Result = Result<Vec<Post>, ServiceError>;
 }
 
-impl Message for GetPost {
-    type Result = Result<Vec<Post>, ServiceError>;
+impl Message for GetPosts {
+    type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
 }
 
 
@@ -40,26 +40,22 @@ impl Handler<ModifyPost> for DatabaseService {
                     Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
                 };
 
-                let p = match msg.0.make_post(id) {
-                    Ok(p) => p,
-                    Err(e) => return Box::new(ft_err(e))
-                };
+                let p = msg.0;
+
                 match p.post_id {
                     Some(to_pid) => format!("INSERT INTO posts
                             (id, user_id, topic_id, post_id, post_content)
                             VALUES ('{}', '{}', '{}', '{}', '{}')
-                            RETURNING *", p.id, p.user_id, p.topic_id, to_pid, p.post_content),
+                            RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), to_pid, p.post_content.unwrap()),
                     None => format!("INSERT INTO posts
                             (id, user_id, topic_id, post_content)
                             VALUES ('{}', '{}', '{}', '{}')
-                            RETURNING *", p.id, p.user_id, p.topic_id, p.post_content),
+                            RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), p.post_content.unwrap()),
                 }
             }
             None => {
-                let p = match msg.0.make_update() {
-                    Ok(p) => p,
-                    Err(e) => return Box::new(ft_err(e))
-                };
+                let p = msg.0;
+
                 let mut query = "UPDATE posts SET".to_owned();
 
                 if let Some(s) = p.topic_id {
@@ -76,7 +72,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 }
 
                 if query.ends_with(",") {
-                    let _ = write!(&mut query, " updated_at = DEFAULT Where id='{}'", p.id);
+                    let _ = write!(&mut query, " updated_at = DEFAULT Where id='{}'", p.id.unwrap());
                 } else {
                     return Box::new(ft_err(ServiceError::BadRequest));
                 }
@@ -98,17 +94,31 @@ impl Handler<ModifyPost> for DatabaseService {
     }
 }
 
-impl Handler<GetPost> for DatabaseService {
-    type Result = ResponseFuture<Vec<Post>, ServiceError>;
+impl Handler<GetPosts> for DatabaseService {
+    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
 
-    fn handle(&mut self, msg: GetPost, _: &mut Self::Context) -> Self::Result {
-        let query = format!("SELECT * FROM posts
-        WHERE id='{}'", msg.0);
+    fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
+        let mut query = "SELECT * FROM posts
+        WHERE id= ANY('{".to_owned();
+
+        let len = msg.0.len();
+        for (i, p) in msg.0.iter().enumerate() {
+            if i < len - 1 {
+                let _ = write!(&mut query, "{},", p);
+            } else {
+                let _ = write!(&mut query, "{}", p);
+            }
+        }
+        query.push_str("}')");
 
         Box::new(simple_query(
             self.db.as_mut().unwrap(),
             &query)
-            .and_then(|msg| post_from_msg(&msg).map(|p| vec![p]))
+            .and_then(|msg| post_from_msg(&msg)
+                .map(|p| {
+                    let ids = vec![p.user_id];
+                    (vec![p], ids)
+                }))
         )
     }
 }

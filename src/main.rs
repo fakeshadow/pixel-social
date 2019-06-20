@@ -22,9 +22,16 @@ mod model;
 mod router;
 mod util;
 
-use crate::model::actors::{CacheService, DatabaseService, TalkService};
-use crate::handler::{cache::clear_cache, email::MailService};
-use crate::util::startup::{build_cache, generate_global};
+use crate::{
+    handler::cache::clear_cache,
+    model::actors::{
+        CacheService, DatabaseService, TalkService, MailService,
+    },
+    util::startup::{
+        build_cache,
+        generate_global,
+    },
+};
 
 
 fn main() -> std::io::Result<()> {
@@ -45,7 +52,7 @@ fn main() -> std::io::Result<()> {
     let talk_service = TalkService::connect(&database_url, &redis_url);
 
     // mail service is not passed into data as we add mail queue into redis cache directly.
-//    let mail_service = MailService::init(redis_pool.clone()).start();
+    let mail_service = MailService::connect(&redis_url);
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);

@@ -21,7 +21,7 @@ use crate::model::{
 pub fn get_all_categories(
     c: &mut Client,
     st: &Statement,
-    mut categories: Vec<Category>,
+    categories: Vec<Category>,
 ) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
     c.query(st, &[])
         .from_err()
@@ -145,6 +145,29 @@ pub fn get_topics(
         })
 }
 
+pub fn get_topics_test(
+    mut c: Client,
+    query: &str,
+    topics: Vec<Topic>,
+    ids: Vec<u32>,
+) -> impl Future<Item=(Client, Vec<Topic>, Vec<u32>), Error=ServiceError> {
+    c.simple_query(query)
+        .from_err()
+        .fold((topics, ids), move |(mut topics, mut ids), row| {
+            if let Some(t) = topic_from_msg(&Some(row)).ok() {
+                ids.push(t.user_id);
+                topics.push(t);
+            }
+            Ok::<_, ServiceError>((topics, ids))
+        })
+        .and_then(|(t, mut ids)| {
+            ids.sort();
+            ids.dedup();
+            Ok((c, t, ids))
+        })
+}
+
+
 // helper functions
 pub fn simple_query(
     c: &mut Client,
@@ -156,6 +179,25 @@ pub fn simple_query(
         .from_err()
         .and_then(|(msg, _)| Ok(msg))
 }
+
+pub fn single_row_from_msg<T>(
+    index: usize,
+    opt: &Option<SimpleQueryMessage>,
+) -> Result<T, ServiceError>
+    where T: std::str::FromStr {
+    match opt {
+        Some(msg) => match msg {
+            SimpleQueryMessage::Row(row) => row
+                .get(index)
+                .map(|s| s.parse::<T>())
+                .unwrap()
+                .map_err(|_| ServiceError::PARSEINT),
+            _ => Err(ServiceError::InternalServerError)
+        }
+        None => Err(ServiceError::InternalServerError)
+    }
+}
+
 
 pub fn category_from_msg(
     opt: &Option<SimpleQueryMessage>
