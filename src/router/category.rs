@@ -69,7 +69,6 @@ pub fn get_category(
                             .collect::<Vec<TopicWithUser>>());
                         let _ = cache.do_send(UpdateCache::Topic(t));
                         let _ = cache.do_send(UpdateCache::User(u));
-                        println!("from db");
                         res
                     })
                 ))

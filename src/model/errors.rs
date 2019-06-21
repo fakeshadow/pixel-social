@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use derive_more::Display;
-use actix_web::{error::BlockingError, error::ResponseError, HttpResponse};
+use actix_web::{error::ResponseError, HttpResponse};
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -38,7 +38,7 @@ pub enum ServiceError {
 }
 
 impl ResponseError for ServiceError {
-    fn error_response(&self) -> HttpResponse {
+    fn render_response(&self) -> HttpResponse {
         match self {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
@@ -56,9 +56,6 @@ impl ResponseError for ServiceError {
             ServiceError::PARSEINT => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing int error")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
-    }
-    fn render_response(&self) -> HttpResponse {
-        self.error_response()
     }
 }
 
@@ -91,22 +88,11 @@ impl From<redis::RedisError> for ServiceError {
     }
 }
 
-impl From<BlockingError<ServiceError>> for ServiceError {
-    fn from(err: BlockingError<ServiceError>) -> ServiceError {
-        match err {
-            BlockingError::Error(e) => e,
-            _ => ServiceError::InternalServerError
-        }
-    }
-}
-
 impl From<serde_json::Error> for ServiceError {
     fn from(_err: serde_json::Error) -> ServiceError {
         ServiceError::InternalServerError
     }
 }
-
-
 
 impl From<std::num::ParseIntError> for ServiceError {
     fn from(_err: std::num::ParseIntError) -> ServiceError {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use futures::{Future, future::{err as fut_err, ok as fut_ok, Either}};
+use futures::{Future, future, future::{err as fut_err, ok as fut_ok, Either}};
 
 use actix::prelude::*;
 use redis::{Client, cmd, pipe};
@@ -24,6 +24,8 @@ pub struct GetCategoriesCache;
 
 pub struct GetTopicsCache(pub Vec<u32>, pub i64);
 
+pub struct GetTopicCache(pub u32, pub i64);
+
 pub struct GetPostsCache(pub Vec<u32>);
 
 // will panic if the query more than 20 users at a time.
@@ -44,6 +46,10 @@ impl Message for GetCategoriesCache {
 
 impl Message for GetTopicsCache {
     type Result = Result<(Vec<Topic>, Vec<User>), ServiceError>;
+}
+
+impl Message for GetTopicCache {
+    type Result = Result<(Topic, Vec<Post>, Vec<User>), ServiceError>;
 }
 
 impl Message for GetPostsCache {
@@ -141,7 +147,7 @@ impl Handler<GetTopicsCache> for CacheService {
                     }
                 }
                 // abort query if the topics length doesn't match the ids' length.
-                if t.len() != tids.len() || t.len() == 0 {
+                if t.len() != tids.len() {
                     return Either::A(fut_err(ServiceError::InternalServerError));
                 };
                 // sort and get unique users id
@@ -150,6 +156,60 @@ impl Handler<GetTopicsCache> for CacheService {
                 Either::B(get_users(conn, uids).and_then(move |u| Ok((t, u))))
             });
 
+        Box::new(f)
+    }
+}
+
+impl Handler<GetTopicCache> for CacheService {
+    type Result = ResponseFuture<(Topic, Vec<Post>, Vec<User>), ServiceError>;
+
+    fn handle(&mut self, msg: GetTopicCache, _: &mut Self::Context) -> Self::Result {
+        let tid = msg.0;
+        let page = msg.1;
+
+        let list_key = format!("topic:{}:list", tid);
+        let start = (page as isize - 1) * 20;
+        let f1 =
+            get_hmset(self.cache.as_ref().unwrap().clone(), vec![tid], "topic")
+                .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| {
+                    let t = vec
+                        .first()
+                        .ok_or(ServiceError::InternalServerError)?
+                        .parse::<Topic>()?;
+                    Ok(t)
+                });
+        let f2 = cmd("lrange")
+            .arg(&list_key)
+            .arg(start)
+            .arg(start + LIMIT - 1)
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .and_then(|(conn, pids): (SharedConn, Vec<u32>)| get_hmset(conn, pids, "post"))
+            .and_then(|(conn, pids, vec): (SharedConn, Vec<u32>, Vec<HashMap<String, String>>)| {
+                let mut p = Vec::with_capacity(20);
+                let mut uids = Vec::with_capacity(20);
+                for v in vec.iter() {
+                    if let Some(topic) = v.parse::<Post>().ok() {
+                        uids.push(topic.user_id);
+                        p.push(topic);
+                    }
+                }
+                // abort query if the topics length doesn't match the ids' length.
+                //  if p.len() != pids.len() || p.len() == 0
+                if p.len() != pids.len() {
+                    return Err(ServiceError::InternalServerError);
+                };
+                Ok((p, uids, conn))
+            });
+
+        let f = f1
+            .join(f2)
+            .and_then(|(t, (p, mut uids, conn)): (Topic, (Vec<Post>, Vec<u32>, SharedConn))| {
+                uids.push(t.user_id);
+                uids.sort();
+                uids.dedup();
+                get_users(conn, uids).and_then(|u| Ok((t, p, u)))
+            });
         Box::new(f)
     }
 }

@@ -26,8 +26,6 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     let categories = Vec::new();
     let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap();
 
-
-
     rt.block_on(build_hmset(c_cache.clone(), categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     // build list by last reply time desc order for each category. build category meta list with all category ids
@@ -79,7 +77,6 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(), ()> {
     }
     let key = format!("topic:{}:list", &index);
     let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
-
 
     let p = c.prepare("SELECT * FROM users");
     let st = rt.block_on(p).unwrap();

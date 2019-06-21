@@ -1,16 +1,19 @@
 use std::collections::HashMap;
 use std::fmt::Write;
-use futures::{Future, future, IntoFuture};
+use futures::{Future, future::{err as ft_err, ok as ft_ok}, IntoFuture};
 
+use actix::prelude::*;
 use chrono::NaiveDateTime;
 
 use crate::model::{
     actors::TalkService,
     errors::ServiceError,
     user::User,
-    talk::{Talk, SessionMessage, HistoryMessage, Create, Join, Delete},
+    talk::{Talk, SessionMessage, Delete},
 };
-
+use crate::handler::{
+    db::{create_talk, get_single_row, simple_query}
+};
 
 impl TalkService {
     pub fn send_message_many(&self, id: u32, msg: &str) {
@@ -19,49 +22,228 @@ impl TalkService {
         }
     }
 
-    pub fn send_talk_members(&self, session_id: u32, talk_id: u32) {
-        if let Some(addr) = self.sessions.get(&session_id) {
-            let msg = "placeholder".to_owned();
-            addr.do_send(SessionMessage(msg));
-        }
-    }
-
     pub fn send_message(&self, session_id: &u32, msg: &str) {
         if let Some(addr) = self.sessions.get(&session_id) {
             let _ = addr.do_send(SessionMessage(msg.to_owned()));
         }
     }
+}
 
-    pub fn send_message_test(&self, session_id: u32, msg: String) {
-        if let Some(addr) = self.sessions.get(&session_id) {
-            let _ = addr.do_send(SessionMessage(msg));
+#[derive(Serialize)]
+struct HistoryMessage {
+    pub date: NaiveDateTime,
+    pub message: String,
+}
+
+#[derive(Message)]
+pub struct Connect {
+    pub session_id: u32,
+    pub addr: Recipient<SessionMessage>,
+}
+
+pub struct GetLastTalkId;
+
+#[derive(Deserialize, Clone)]
+pub struct Create {
+    pub talk_id: Option<u32>,
+    pub name: String,
+    pub description: String,
+    pub owner: u32,
+}
+
+pub struct Join {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+#[derive(Message)]
+pub struct GetTalks {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+// pass Some(talk_id) in json for public message, pass None for private message
+#[derive(Deserialize)]
+pub struct ClientMessage {
+    pub msg: String,
+    pub talk_id: Option<u32>,
+    pub session_id: u32,
+}
+
+pub struct GetRoomMembers {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+/// pass talk id for talk public messages. pass none for private history message.
+#[derive(Deserialize)]
+pub struct GetHistory {
+    pub time: String,
+    pub talk_id: Option<u32>,
+    pub session_id: u32,
+}
+
+impl Message for GetLastTalkId {
+    type Result = Result<u32, ServiceError>;
+}
+
+impl Message for Create {
+    type Result = Result<String, ServiceError>;
+}
+
+impl Message for Join {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Message for ClientMessage {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Message for GetRoomMembers {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Message for GetHistory {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Handler<GetRoomMembers> for TalkService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: GetRoomMembers, _: &mut Context<Self>) -> Self::Result {
+        match self.sessions.get(&msg.session_id) {
+            Some(addr) => {
+                let msg = "placeholder".to_owned();
+                addr.do_send(SessionMessage(msg));
+                Box::new(ft_ok(()))
+            }
+            None => Box::new(ft_err(ServiceError::BadRequest))
         }
     }
 }
 
-//pub fn get_history(
-//    table: &str,
-//    id: u32,
-//    time: &NaiveDateTime,
-//    conn: &PoolConnectionPostgres,
-//) -> Result<Vec<HistoryMessage>, ServiceError> {
-//    // ToDo: in case the query failed to get message history
-//    let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 40", table, id, time);
-//    Ok(sql_query(query).load(conn)?)
-//}
-//
-//pub fn insert_message(
-//    table: &str,
-//    id: &u32,
-//    msg: &str,
-//    pool: &PostgresPool,
-//) -> Result<(), ServiceError> {
-//    let conn = &pool.get()?;
-//    let query = format!("INSERT INTO {}{} (message) VALUES ({})", table, id, msg);
-//    let _ = sql_query(query).execute(conn)?;
-//    Ok(())
-//}
-//
+impl Handler<ClientMessage> for TalkService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: ClientMessage, _: &mut Context<Self>) -> Self::Result {
+        // ToDo: batch insert messages to database.
+        match msg.talk_id {
+            Some(id) => {
+                let _ = self.send_message_many(id, &msg.msg);
+                let query = format!("INSERT INTO talk{} (message) VALUES ({})", &id, &msg.msg);
+                let f = simple_query(self.db.as_mut().unwrap(), &query).map(|_| ());
+                Box::new(f)
+            }
+            None => {
+                let _ = self.send_message(&msg.session_id, &msg.msg);
+                let query = format!("INSERT INTO private{} (message) VALUES ({})", &msg.session_id, &msg.msg);
+                //ToDo : if the message insert failed because table not exist then try to creat the table and insert again.
+                let f = simple_query(self.db.as_mut().unwrap(), &query).map(|_| ());
+                Box::new(f)
+            }
+        }
+    }
+}
+
+impl Handler<GetLastTalkId> for TalkService {
+    type Result = ResponseFuture<u32, ServiceError>;
+
+    fn handle(&mut self, _: GetLastTalkId, _: &mut Context<Self>) -> Self::Result {
+        let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
+        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query))
+    }
+}
+
+impl Handler<Connect> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Connect, ctx: &mut Context<Self>) -> Self::Result {
+        self.sessions.insert(msg.session_id, msg.addr);
+        self.send_message(&msg.session_id, "Authentication success");
+    }
+}
+
+impl Handler<Create> for TalkService {
+    type Result = ResponseFuture<String, ServiceError>;
+
+    fn handle(&mut self, msg: Create, ctx: &mut Context<Self>) -> Self::Result {
+        let id = msg.talk_id.unwrap();
+
+        //ToDo: in case query1 array failed.
+        let query1 =
+            format!("INSERT INTO talks
+                    (id, name, description, owner, admin, users)
+                    VALUES ({}, '{}', '{}', {}, ARRAY {}, ARRAY {})",
+                    id,
+                    msg.name,
+                    msg.description,
+                    msg.owner,
+                    id,
+                    id);
+        let query2 =
+            format!("CREATE TABLE talk{}
+                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))",
+                    id);
+        let f = create_talk(self.db.as_mut().unwrap(), &query1, &query2)
+            .and_then(|(_, t)| {
+                let s = serde_json::to_string(&t)?;
+                Ok(s)
+            });
+        Box::new(f)
+    }
+}
+
+impl Handler<Join> for TalkService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: Join, ctx: &mut Context<Self>) -> Self::Result {
+        if let Some(talk) = self.talks.get(&msg.talk_id) {
+            if talk.users.contains(&msg.session_id) {
+                self.send_message(&msg.session_id, "Already joined");
+                return Box::new(ft_err(ServiceError::BadRequest));
+            };
+            // ToDo: in case sql failed.
+            let query = format!("UPDATE talks SET users=array_append(users, '{}') WHERE id={}", &msg.session_id, &msg.talk_id);
+            return Box::new(simple_query(self.db.as_mut().unwrap(), &query).map(|_| ()));
+        }
+        Box::new(ft_err(ServiceError::BadRequest))
+    }
+}
+
+impl Handler<GetTalks> for TalkService {
+    type Result = ();
+    fn handle(&mut self, msg: GetTalks, _: &mut Context<Self>) {
+        let talks = match msg.session_id {
+            0 => self.talks.iter().map(|(_, t)| t).collect(),
+            _ => self.talks.get(&msg.talk_id).map(|t| vec![t]).unwrap_or(vec![])
+        };
+        let string = serde_json::to_string(&talks).unwrap_or("!!! Stringify error".to_owned());
+        self.send_message(&msg.session_id, &string);
+    }
+}
+
+impl Handler<GetHistory> for TalkService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
+        if let Some(addr) = self.sessions.get(&msg.session_id) {
+            let table = match msg.talk_id {
+                Some(id) => "talk",
+                None => "private"
+            };
+            let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f").unwrap();
+
+            let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 20", table, msg.session_id, time);
+            let addr = addr.clone();
+
+
+            return Box::new(ft_err(ServiceError::BadRequest));
+        }
+
+
+        Box::new(ft_err(ServiceError::BadRequest))
+    }
+}
 //pub fn get_talk_members(
 //    id: u32,
 //    conn: &PoolConnectionPostgres,
@@ -110,39 +292,6 @@ impl TalkService {
 //    Ok(())
 //}
 //
-//pub fn create_talk(
-//    msg: &Create,
-//    conn: &PoolConnectionPostgres,
-//) -> Result<Talk, ServiceError> {
-//    let last_id: Vec<u32> = talks::table.select(talks::id).order(talks::id.desc()).limit(1).load(conn)?;
-//
-//    let id = last_id.first().unwrap_or(&0) + 1;
-//
-//    let array = vec![msg.owner];
-//    let query = format!(
-//        "INSERT INTO talks
-//        (id, name, description, owner, admin, users)
-//        VALUES ({}, '{}', '{}', {}, ARRAY {:?}, ARRAY {:?})",
-//        id,
-//        msg.name,
-//        msg.description,
-//        msg.owner,
-//        &array,
-//        &array);
-//
-//    let _ = sql_query(query).execute(conn)?;
-//
-//    let query = format!(
-//        "CREATE TABLE talk{}
-//        (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))",
-//        id);
-//
-//    let _ = sql_query(query).execute(conn)?;
-//
-//    // ToDo: fix problem getting returned talk when inserting.
-//    Ok(talks::table.find(id).first::<Talk>(conn)?)
-//}
-//
 //pub fn remove_talk(
 //    msg: &Delete,
 //    conn: &PoolConnectionPostgres,
@@ -152,20 +301,6 @@ impl TalkService {
 //    Ok(())
 //}
 //
-//pub fn join_talk(
-//    msg: &Join,
-//    conn: &PoolConnectionPostgres,
-//) -> Result<(), ServiceError> {
-//    let mut users = talks::table.find(msg.talk_id).select(talks::users).first::<Vec<u32>>(conn)?;
-//
-//    users.push(msg.talk_id);
-//    users.sort();
-//
-//    let _ = diesel::update(talks::table.find(msg.talk_id))
-//        .set(talks::users.eq(users))
-//        .execute(conn)?;
-//    Ok(())
-//}
 //
 //pub fn load_all_talks(
 //    conn: &PoolConnectionPostgres
