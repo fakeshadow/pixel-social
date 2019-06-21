@@ -24,7 +24,11 @@ pub trait GetSelfCategory {
 }
 
 pub trait GetSelfId {
-    fn get_self_id(&self) -> &u32;
+    fn self_id(&self) -> &u32;
+}
+
+pub trait GetUserId {
+    fn get_user_id(&self) -> u32;
 }
 
 pub trait AttachUser<'u, T>
@@ -34,7 +38,7 @@ pub trait AttachUser<'u, T>
     fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output;
     fn make_field(&self, users: &'u Vec<T>) -> Option<UserRef<'u>> {
         users.iter()
-            .filter(|u| u.get_self_id() == self.self_user_id())
+            .filter(|u| u.self_id() == self.self_user_id())
             .map(|u| u.to_ref())
             .next()
     }

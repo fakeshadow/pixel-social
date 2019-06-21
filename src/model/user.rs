@@ -80,11 +80,11 @@ impl ToUserRef for User {
 }
 
 impl GetSelfId for User {
-    fn get_self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 { &self.id }
 }
 
 impl<'a> GetSelfId for UserRef<'a> {
-    fn get_self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 { &self.id }
 }
 
 pub struct NewUser<'a> {

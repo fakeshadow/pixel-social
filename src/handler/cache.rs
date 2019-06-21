@@ -15,6 +15,7 @@ use crate::model::{
     common::{AttachUser, GetSelfId},
     mail::Mail,
 };
+use crate::model::common::GetUserId;
 
 const LIMIT: isize = 20;
 const MAIL_LIFE: usize = 2592000;
@@ -112,7 +113,7 @@ impl Handler<AddedTopic> for CacheService {
 
         let mut pipe = pipe();
         pipe.atomic();
-        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.get_self_id())).arg(t.sort_hash());
+        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.self_id())).arg(t.sort_hash());
         pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1);
         pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(t.id);
         let f = pipe
@@ -127,35 +128,22 @@ impl Handler<AddedTopic> for CacheService {
 impl Handler<GetTopicsCache> for CacheService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
 
-    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        let list_key = format!("category:{}:list", msg.0.first().unwrap_or(&0));
-        let start = (msg.1 as isize - 1) * 20;
-        let f = cmd("lrange")
-            .arg(&list_key)
-            .arg(start)
-            .arg(start + LIMIT - 1)
-            .query_async(self.cache.as_ref().unwrap().clone())
-            .from_err()
-            .and_then(|(conn, tids): (SharedConn, Vec<u32>)| get_hmset(conn, tids, "topic"))
-            .and_then(|(conn, tids, vec)| {
-                let mut t = Vec::with_capacity(20);
-                let mut uids = Vec::with_capacity(20);
-                for v in vec.iter() {
-                    if let Some(topic) = v.parse::<Topic>().ok() {
-                        uids.push(topic.user_id);
-                        t.push(topic);
-                    }
-                }
-                // abort query if the topics length doesn't match the ids' length.
-                if t.len() != tids.len() {
-                    return Either::A(fut_err(ServiceError::InternalServerError));
-                };
-                // sort and get unique users id
-                uids.sort();
-                uids.dedup();
-                Either::B(get_users(conn, uids).and_then(move |u| Ok((t, u))))
-            });
+    fn handle(&mut self, mut msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
+        let id = msg.0.pop().unwrap_or(0);
+        let page = msg.1;
 
+        let f =
+            topics_posts_from_list(
+                id,
+                page,
+                "category",
+                "topic",
+                self.cache.as_ref().unwrap().clone())
+                .and_then(|(t, mut uids, conn)| {
+                    uids.sort();
+                    uids.dedup();
+                    get_users(conn, uids).map(|u| (t, u))
+                });
         Box::new(f)
     }
 }
@@ -167,8 +155,6 @@ impl Handler<GetTopicCache> for CacheService {
         let tid = msg.0;
         let page = msg.1;
 
-        let list_key = format!("topic:{}:list", tid);
-        let start = (page as isize - 1) * 20;
         let f1 =
             get_hmset(self.cache.as_ref().unwrap().clone(), vec![tid], "topic")
                 .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| {
@@ -178,29 +164,14 @@ impl Handler<GetTopicCache> for CacheService {
                         .parse::<Topic>()?;
                     Ok(t)
                 });
-        let f2 = cmd("lrange")
-            .arg(&list_key)
-            .arg(start)
-            .arg(start + LIMIT - 1)
-            .query_async(self.cache.as_ref().unwrap().clone())
-            .from_err()
-            .and_then(|(conn, pids): (SharedConn, Vec<u32>)| get_hmset(conn, pids, "post"))
-            .and_then(|(conn, pids, vec): (SharedConn, Vec<u32>, Vec<HashMap<String, String>>)| {
-                let mut p = Vec::with_capacity(20);
-                let mut uids = Vec::with_capacity(20);
-                for v in vec.iter() {
-                    if let Some(topic) = v.parse::<Post>().ok() {
-                        uids.push(topic.user_id);
-                        p.push(topic);
-                    }
-                }
-                // abort query if the topics length doesn't match the ids' length.
-                //  if p.len() != pids.len() || p.len() == 0
-                if p.len() != pids.len() {
-                    return Err(ServiceError::InternalServerError);
-                };
-                Ok((p, uids, conn))
-            });
+
+        let f2 =
+            topics_posts_from_list(
+                tid,
+                page,
+                "topic",
+                "post",
+                self.cache.as_ref().unwrap().clone());
 
         let f = f1
             .join(f2)
@@ -208,7 +179,7 @@ impl Handler<GetTopicCache> for CacheService {
                 uids.push(t.user_id);
                 uids.sort();
                 uids.dedup();
-                get_users(conn, uids).and_then(|u| Ok((t, p, u)))
+                get_users(conn, uids).map(|u| (t, p, u))
             });
         Box::new(f)
     }
@@ -218,25 +189,60 @@ impl Handler<GetPostsCache> for CacheService {
     type Result = ResponseFuture<(Vec<Post>, Vec<User>), ServiceError>;
 
     fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(get_hmset(self.cache.as_ref().unwrap().clone(), msg.0, "post")
-            .and_then(|(conn, pids, vec): (_, Vec<u32>, Vec<HashMap<String, String>>)| {
-                let mut p = Vec::with_capacity(20);
-                let mut uids = Vec::with_capacity(20);
-                for v in vec.iter() {
-                    if let Some(post) = v.parse::<Post>().ok() {
-                        uids.push(post.user_id);
-                        p.push(post);
-                    }
-                }
-                if p.len() != pids.len() || p.len() == 0 {
-                    return Either::A(fut_err(ServiceError::InternalServerError));
-                };
-                // sort and get unique users id
-                uids.sort();
-                uids.dedup();
-                Either::B(get_users(conn, uids).and_then(move |u| Ok((p, u))))
-            }))
+        let f =
+            from_hmsets(self.cache.as_ref().unwrap().clone(), msg.0, "post")
+                .and_then(|(p, mut uids, conn)| {
+                    uids.sort();
+                    uids.dedup();
+                    get_users(conn, uids).map(|u| (p, u))
+                });
+        Box::new(f)
     }
+}
+
+fn topics_posts_from_list<T>(
+    id: u32,
+    page: i64,
+    list_key: &str,
+    set_key: &'static str,
+    conn: SharedConn,
+) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
+    where T: GetUserId + FromHashSet {
+    let list_key = format!("{}:{}:list", list_key, id);
+    let start = (page as isize - 1) * 20;
+
+    cmd("lrange")
+        .arg(&list_key)
+        .arg(start)
+        .arg(start + LIMIT - 1)
+        .query_async(conn)
+        .from_err()
+        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| from_hmsets(conn, ids, set_key))
+}
+
+fn from_hmsets<T>(
+    conn: SharedConn,
+    ids: Vec<u32>,
+    set_key: &'static str,
+) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
+    where T: GetUserId + FromHashSet {
+    get_hmset(conn, ids, set_key)
+        .and_then(|(conn, ids, vec): (SharedConn, Vec<u32>, Vec<HashMap<String, String>>)| {
+            let mut res: Vec<T> = Vec::with_capacity(20);
+            let mut uids: Vec<u32> = Vec::with_capacity(21);
+            for v in vec.iter() {
+                if let Some(t) = v.parse::<T>().ok() {
+                    uids.push(t.get_user_id());
+                    res.push(t);
+                }
+            }
+            // abort query if the topics length doesn't match the ids' length.
+            //  if p.len() != pids.len() || p.len() == 0
+            if res.len() != ids.len() {
+                return Err(ServiceError::InternalServerError);
+            };
+            Ok((res, uids, conn))
+        })
 }
 
 fn get_categories_cache(
@@ -289,7 +295,7 @@ pub fn build_hmset<T>(
     pipe.atomic();
     for v in vec.iter() {
         pipe.cmd("HMSET")
-            .arg(&format!("{}:{}:set", key, v.get_self_id()))
+            .arg(&format!("{}:{}:set", key, v.self_id()))
             .arg(v.sort_hash());
     }
     pipe.query_async(conn)

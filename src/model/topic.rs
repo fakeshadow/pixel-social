@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{AttachUser, GetSelfId},
+    common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
     post::{Post, PostWithUser},
     user::{ToUserRef, User, UserRef},
@@ -60,7 +60,11 @@ impl TopicRequest {
 }
 
 impl GetSelfId for Topic {
-    fn get_self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 { &self.id }
+}
+
+impl GetUserId for Topic {
+    fn get_user_id(&self) -> u32 { self.user_id }
 }
 
 impl<'u, T> AttachUser<'u, T> for Topic
@@ -80,6 +84,12 @@ pub struct TopicWithUser<'a> {
     #[serde(flatten)]
     pub topic: &'a Topic,
     pub user: Option<UserRef<'a>>,
+}
+
+impl<'a> TopicWithUser<'a> {
+    pub fn new(t: &'a Vec<Topic>, u: &'a Vec<User>) -> Vec<Self> {
+        t.iter().map(|t| t.attach_user(&u)).collect()
+    }
 }
 
 #[derive(Serialize)]

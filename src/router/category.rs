@@ -50,9 +50,7 @@ pub fn get_category(
     cache.send(GetTopicsCache(vec![id], page))
         .from_err()
         .and_then(move |r| match r {
-            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&t.iter()
-                .map(|t| t.attach_user(&u))
-                .collect::<Vec<TopicWithUser>>()))),
+            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
             Err(_) => Either::B(db.send(GetTopics::Latest(id, page))
                 .from_err()
                 .and_then(|r| r)
@@ -64,9 +62,7 @@ pub fn get_category(
                     .and_then(|r| r)
                     .from_err()
                     .and_then(move |u| {
-                        let res = HttpResponse::Ok().json(&t.iter()
-                            .map(|t| t.attach_user(&u))
-                            .collect::<Vec<TopicWithUser>>());
+                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
                         let _ = cache.do_send(UpdateCache::Topic(t));
                         let _ = cache.do_send(UpdateCache::User(u));
                         res

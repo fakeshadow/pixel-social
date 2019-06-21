@@ -26,7 +26,6 @@ pub fn get(
         .and_then(move |r| match r {
             Ok((t, p, u)) => {
                 let topic = if page == 1 { Some(&t) } else { None };
-                println!("from cache");
                 Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
             }
             Err(_) => Either::B(db

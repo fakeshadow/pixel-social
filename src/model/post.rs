@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{AttachUser, GetSelfId},
+    common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
     user::{ToUserRef, User, UserRef},
 };
@@ -77,5 +77,9 @@ impl<'u, > AttachUser<'u, User> for Post {
 }
 
 impl GetSelfId for Post {
-    fn get_self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 { &self.id }
+}
+
+impl GetUserId for Post {
+    fn get_user_id(&self) -> u32 { self.user_id }
 }
