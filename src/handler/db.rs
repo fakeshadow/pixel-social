@@ -79,28 +79,17 @@ pub fn get_all_categories(
 
 pub fn get_posts(
     c: &mut Client,
-    st: &Statement,
-    id: u32,
-    page: i64,
+    query: &str,
 ) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ServiceError> {
     let posts = Vec::with_capacity(20);
     let ids: Vec<u32> = Vec::with_capacity(20);
-    c.query(st, &[&id, &((page - 1) * 20)])
+    c.simple_query(&query)
         .from_err()
         .fold((posts, ids), move |(mut posts, mut ids), row| {
-            ids.push(row.get(1));
-            posts.push(Post {
-                id: row.get(0),
-                user_id: row.get(1),
-                topic_id: row.get(2),
-                post_id: row.get(3),
-                post_content: row.get(4),
-                created_at: row.get(5),
-                updated_at: row.get(6),
-                last_reply_time: row.get(7),
-                reply_count: row.get(8),
-                is_locked: row.get(9),
-            });
+            if let Some(p) = post_from_msg(&Some(row)).ok() {
+                ids.push(p.user_id);
+                posts.push(p);
+            }
             Ok::<_, ServiceError>((posts, ids))
         })
 }
@@ -182,29 +171,6 @@ pub fn get_topics(
         })
 }
 
-pub fn get_topics_test(
-    mut c: Client,
-    query: &str,
-    topics: Vec<Topic>,
-    ids: Vec<u32>,
-) -> impl Future<Item=(Client, Vec<Topic>, Vec<u32>), Error=ServiceError> {
-    c.simple_query(query)
-        .from_err()
-        .fold((topics, ids), move |(mut topics, mut ids), row| {
-            if let Some(t) = topic_from_msg(&Some(row)).ok() {
-                ids.push(t.user_id);
-                topics.push(t);
-            }
-            Ok::<_, ServiceError>((topics, ids))
-        })
-        .and_then(|(t, mut ids)| {
-            ids.sort();
-            ids.dedup();
-            Ok((c, t, ids))
-        })
-}
-
-
 // helper functions
 pub fn simple_query(
     c: &mut Client,
@@ -235,7 +201,7 @@ pub fn single_row_from_msg<T>(
     }
 }
 
-fn talk_from_msg(
+pub fn talk_from_msg(
     opt: &Option<SimpleQueryMessage>
 ) -> Result<Talk, ServiceError> {
     match opt {
@@ -377,7 +343,7 @@ fn user_from_simple_row(
 fn post_from_simple_row(
     row: &SimpleQueryRow
 ) -> Result<Post, ServiceError> {
-    let post_id = match row.get(3) {
+    let post_id = match row.get(4) {
         Some(s) => s.parse::<u32>().ok(),
         None => None
     };
@@ -385,13 +351,14 @@ fn post_from_simple_row(
         id: row.get(0).map(|s| s.parse::<u32>()).unwrap()?,
         user_id: row.get(1).map(|s| s.parse::<u32>()).unwrap()?,
         topic_id: row.get(2).map(|s| s.parse::<u32>()).unwrap()?,
+        category_id: row.get(3).map(|s| s.parse::<u32>()).unwrap()?,
         post_id,
-        post_content: row.get(4).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        created_at: row.get(5).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-        updated_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-        last_reply_time: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-        reply_count: row.get(8).map(|s| s.parse::<i32>()).unwrap()?,
-        is_locked: if row.get(9) == Some("f") { false } else { true },
+        post_content: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
+        updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
+        last_reply_time: row.get(8).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
+        reply_count: row.get(9).map(|s| s.parse::<i32>()).unwrap()?,
+        is_locked: if row.get(10) == Some("f") { false } else { true },
     })
 }
 

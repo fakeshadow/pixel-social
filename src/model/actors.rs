@@ -8,7 +8,7 @@ use crate::model::{
     talk::{SessionMessage, Talk},
     errors::ServiceError,
 };
-use futures::future::IntoFuture;
+use crate::handler::db::talk_from_msg;
 
 pub type SharedConn = redis::aio::SharedConnection;
 pub type Conn = redis::aio::Connection;
@@ -20,7 +20,6 @@ pub type MAIL = Addr<MailService>;
 pub struct DatabaseService {
     pub db: Option<Client>,
     pub categories: Option<Statement>,
-    pub posts_by_tid: Option<Statement>,
     pub users_by_id: Option<Statement>,
 }
 
@@ -33,7 +32,6 @@ pub struct TalkService {
     pub talks: HashMap<u32, Talk>,
     pub db: Option<Client>,
     pub cache: Option<RedisClient>,
-    pub get_talks: Option<Statement>,
 }
 
 pub struct MailService {
@@ -68,29 +66,22 @@ impl DatabaseService {
             let addr = DatabaseService {
                 db: None,
                 categories: None,
-                posts_by_tid: None,
                 users_by_id: None,
             };
 
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("SELECT * FROM posts
-                        WHERE topic_id=$1
-                        ORDER BY id ASC
-                        OFFSET $2
-                        LIMIT 20");
-                    let p2 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
-                    let p3 = db.prepare("SELECT * FROM categories");
+                    let p1 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                    let p2 = db.prepare("SELECT * FROM categories");
 
                     ctx.wait(p1
-                        .join3(p2, p3)
+                        .join(p2)
                         .map_err(|_| panic!("query prepare failed"))
                         .into_actor(addr)
-                        .and_then(|(st1, st2, st3), addr, _| {
-                            addr.posts_by_tid = Some(st1);
-                            addr.users_by_id = Some(st2);
-                            addr.categories = Some(st3);
+                        .and_then(|(st1, st2), addr, _| {
+                            addr.users_by_id = Some(st1);
+                            addr.categories = Some(st2);
                             fut::ok(())
                         })
                     );
@@ -139,18 +130,19 @@ impl TalkService {
                 talks: HashMap::new(),
                 db: None,
                 cache: Some(cache),
-                get_talks: None,
             };
 
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
                     ctx.wait(db
-                        .prepare("SELECT * FROM talks")
+                        .simple_query("SELECT * FROM talks")
                         .map_err(|e| panic!("{}", e))
                         .into_actor(addr)
-                        .and_then(|st, addr, _| {
-                            addr.get_talks = Some(st);
+                        .fold((), |_, row, addr, _, | {
+                            if let Some(t) = talk_from_msg(&Some(row)).ok() {
+                                addr.talks.insert(t.id, t);
+                            };
                             fut::ok(())
                         }));
 

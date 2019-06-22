@@ -57,6 +57,7 @@ impl SortHash for Post {
         vec![("id", self.id.to_string()),
              ("user_id", self.user_id.to_string()),
              ("topic_id", self.topic_id.to_string()),
+             ("category_id", self.category_id.to_string()),
              ("post_id", self.post_id.unwrap_or(0).to_string()),
              ("post_content", self.post_content.to_owned()),
              ("created_at", self.created_at.to_string()),
@@ -101,14 +102,14 @@ impl Parser for HashMap<String, String> {
         if self.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
     }
     fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
-        self.get(key).map(|s|s.to_owned()).ok_or(ServiceError::InternalServerError)
+        self.get(key).map(|s| s.to_owned()).ok_or(ServiceError::InternalServerError)
     }
     fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
-        Ok(self.get(key).map(|s|NaiveDateTime::parse_from_str(s,"%Y-%m-%d %H:%M:%S%.f")).unwrap()?)
+        Ok(self.get(key).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?)
     }
     fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
         where K: FromStr {
-        self.get(key).map(|s|s.parse::<K>().map_err(|_| ServiceError::InternalServerError)).unwrap()
+        self.get(key).map(|s| s.parse::<K>().map_err(|_| ServiceError::InternalServerError)).unwrap()
     }
     fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError> {
         FromHashSet::from_hash(self)
@@ -131,6 +132,7 @@ impl FromHashSet for Post {
             id: hash.parse_other::<u32>("id")?,
             user_id: hash.parse_other::<u32>("user_id")?,
             topic_id: hash.parse_other::<u32>("topic_id")?,
+            category_id: hash.parse_other::<u32>("category_id")?,
             post_id,
             post_content: hash.parse_string("post_content")?,
             created_at: hash.parse_date("created_at")?,

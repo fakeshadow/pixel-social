@@ -42,6 +42,7 @@ impl Handler<GetCategories> for DatabaseService {
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
         let categories = Vec::new();
+
         Box::new(get_all_categories(
             self.db.as_mut().unwrap(),
             self.categories.as_ref().unwrap(),

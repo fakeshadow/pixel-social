@@ -41,8 +41,6 @@ pub struct Connect {
     pub addr: Recipient<SessionMessage>,
 }
 
-pub struct GetLastTalkId;
-
 #[derive(Deserialize, Clone)]
 pub struct Create {
     pub talk_id: Option<u32>,
@@ -83,12 +81,8 @@ pub struct GetHistory {
     pub session_id: u32,
 }
 
-impl Message for GetLastTalkId {
-    type Result = Result<u32, ServiceError>;
-}
-
 impl Message for Create {
-    type Result = Result<String, ServiceError>;
+    type Result = Result<(), ServiceError>;
 }
 
 impl Message for Join {
@@ -145,15 +139,6 @@ impl Handler<ClientMessage> for TalkService {
     }
 }
 
-impl Handler<GetLastTalkId> for TalkService {
-    type Result = ResponseFuture<u32, ServiceError>;
-
-    fn handle(&mut self, _: GetLastTalkId, _: &mut Context<Self>) -> Self::Result {
-        let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
-        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query))
-    }
-}
-
 impl Handler<Connect> for TalkService {
     type Result = ();
 
@@ -164,10 +149,12 @@ impl Handler<Connect> for TalkService {
 }
 
 impl Handler<Create> for TalkService {
-    type Result = ResponseFuture<String, ServiceError>;
+    type Result = ResponseActFuture<Self, (), ServiceError>;
 
-    fn handle(&mut self, msg: Create, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Create, _: &mut Context<Self>) -> Self::Result {
         let id = msg.talk_id.unwrap();
+
+        let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
 
         //ToDo: in case query1 array failed.
         let query1 =
@@ -182,31 +169,57 @@ impl Handler<Create> for TalkService {
                     id);
         let query2 =
             format!("CREATE TABLE talk{}
-                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(512))",
+                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(1024))",
                     id);
-        let f = create_talk(self.db.as_mut().unwrap(), &query1, &query2)
-            .and_then(|(_, t)| {
-                let s = serde_json::to_string(&t)?;
-                Ok(s)
-            });
+        let f =
+            get_single_row::<u32>(self.db.as_mut().unwrap(), query)
+                .into_actor(self)
+                .and_then(move |cid, act, _|
+                    create_talk(act.db.as_mut().unwrap(), &query1, &query2)
+                        .into_actor(act)
+                        .and_then(move |(_, t), actt, _| {
+                            let s = serde_json::to_string(&t)
+                                .unwrap_or("!!! Talk Creation success".to_owned());
+                            actt.send_message(&msg.owner, &s);
+                            fut::ok(())
+                        }));
+
         Box::new(f)
     }
 }
 
 impl Handler<Join> for TalkService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ResponseActFuture<Self, (), ServiceError>;
 
     fn handle(&mut self, msg: Join, ctx: &mut Context<Self>) -> Self::Result {
-        if let Some(talk) = self.talks.get(&msg.talk_id) {
-            if talk.users.contains(&msg.session_id) {
-                self.send_message(&msg.session_id, "Already joined");
-                return Box::new(ft_err(ServiceError::BadRequest));
-            };
-            // ToDo: in case sql failed.
-            let query = format!("UPDATE talks SET users=array_append(users, '{}') WHERE id={}", &msg.session_id, &msg.talk_id);
-            return Box::new(simple_query(self.db.as_mut().unwrap(), &query).map(|_| ()));
+        match self.talks.get(&msg.talk_id) {
+            Some(talk) => {
+                if talk.users.contains(&msg.session_id) {
+                    self.send_message(&msg.session_id, "Already joined");
+                    return Box::new(fut::err(ServiceError::BadRequest));
+                };
+                // ToDo: in case sql failed.
+                let query = format!("UPDATE talks SET users=array_append(users, '{}') WHERE id={}", &msg.session_id, &msg.talk_id);
+                let f = simple_query(self.db.as_mut().unwrap(), &query)
+                    .map(|_| ())
+                    .into_actor(self)
+                    .then(move |r, act, _| match r {
+                        Ok(_) => {
+                            act.send_message(&msg.session_id, "!! Joined");
+                            fut::ok(())
+                        }
+                        Err(_) => {
+                            act.send_message(&msg.session_id, "!!! Joined failed");
+                            fut::ok(())
+                        }
+                    });
+                Box::new(f)
+            }
+            None => {
+                self.send_message(&msg.session_id, "!!! Talk not found");
+                Box::new(fut::err(ServiceError::BadRequest))
+            }
         }
-        Box::new(ft_err(ServiceError::BadRequest))
     }
 }
 
@@ -236,7 +249,6 @@ impl Handler<GetHistory> for TalkService {
             let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 20", table, msg.session_id, time);
             let addr = addr.clone();
 
-
             return Box::new(ft_err(ServiceError::BadRequest));
         }
 
@@ -244,6 +256,8 @@ impl Handler<GetHistory> for TalkService {
         Box::new(ft_err(ServiceError::BadRequest))
     }
 }
+
+
 //pub fn get_talk_members(
 //    id: u32,
 //    conn: &PoolConnectionPostgres,

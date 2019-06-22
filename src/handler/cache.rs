@@ -32,7 +32,9 @@ pub struct GetPostsCache(pub Vec<u32>);
 // will panic if the query more than 20 users at a time.
 pub struct GetUsersCache(pub Vec<u32>);
 
-pub struct AddedTopic(pub Topic, pub u32);
+pub struct AddedTopic(pub Topic);
+
+pub struct AddedPost(pub Post, pub u32);
 
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
@@ -62,6 +64,10 @@ impl Message for GetUsersCache {
 }
 
 impl Message for AddedTopic {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Message for AddedPost {
     type Result = Result<(), ServiceError>;
 }
 
@@ -109,13 +115,12 @@ impl Handler<AddedTopic> for CacheService {
 
     fn handle(&mut self, msg: AddedTopic, _: &mut Self::Context) -> Self::Result {
         let t = msg.0;
-        let cid = msg.1;
 
         let mut pipe = pipe();
         pipe.atomic();
         pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.self_id())).arg(t.sort_hash());
-        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1);
-        pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(t.id);
+        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", t.category_id)).arg("topic_count").arg(1);
+        pipe.cmd("lpush").arg(&format!("category:{}:list", t.category_id)).arg(t.id);
         let f = pipe
             .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
@@ -124,6 +129,34 @@ impl Handler<AddedTopic> for CacheService {
         Box::new(f)
     }
 }
+
+impl Handler<AddedPost> for CacheService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: AddedPost, _: &mut Self::Context) -> Self::Result {
+        let p = msg.0;
+        let cid = msg.1;
+
+        let mut pipe = pipe();
+        pipe.atomic();
+
+        pipe.cmd("HMSET").arg(&format!("post:{}:set", p.id)).arg(p.sort_hash());
+        pipe.cmd("rpush").arg(&format!("topic:{}:list", p.topic_id)).arg(p.id);
+        pipe.cmd("HINCRBY").arg(&format!("topic:{}:set", p.topic_id)).arg("reply_count").arg(1);
+
+        if let Some(_) = p.post_id {
+            pipe.cmd("HINCRBY").arg(&format!("post:{}:set", p.id)).arg("reply_count").arg(1);
+        }
+
+        let f = pipe
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .and_then(|(_, ())| Ok(()));
+
+        Box::new(f)
+    }
+}
+
 
 impl Handler<GetTopicsCache> for CacheService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;

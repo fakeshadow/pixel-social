@@ -20,10 +20,75 @@ table! {
 }
 
 table! {
-    posts (id) {
+    posts1 (id) {
         id -> Oid,
         user_id -> Oid,
         topic_id -> Oid,
+        category_id -> Oid,
+        post_id -> Nullable<Oid>,
+        post_content -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    posts2 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        topic_id -> Oid,
+        category_id -> Oid,
+        post_id -> Nullable<Oid>,
+        post_content -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    posts3 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        topic_id -> Oid,
+        category_id -> Oid,
+        post_id -> Nullable<Oid>,
+        post_content -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    posts4 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        topic_id -> Oid,
+        category_id -> Oid,
+        post_id -> Nullable<Oid>,
+        post_content -> Varchar,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        last_reply_time -> Timestamp,
+        reply_count -> Int4,
+        is_locked -> Bool,
+    }
+}
+
+table! {
+    posts5 (id) {
+        id -> Oid,
+        user_id -> Oid,
+        topic_id -> Oid,
+        category_id -> Oid,
         post_id -> Nullable<Oid>,
         post_content -> Varchar,
         created_at -> Timestamp,
@@ -146,7 +211,11 @@ table! {
 allow_tables_to_appear_in_same_query!(
     associates,
     categories,
-    posts,
+    posts1,
+    posts2,
+    posts3,
+    posts4,
+    posts5,
     talks,
     topics1,
     topics2,

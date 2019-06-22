@@ -11,6 +11,7 @@ pub struct Post {
     pub id: u32,
     pub user_id: u32,
     pub topic_id: u32,
+    pub category_id: u32,
     pub post_id: Option<u32>,
     pub post_content: String,
     pub created_at: NaiveDateTime,
@@ -25,6 +26,7 @@ pub struct PostRequest {
     pub id: Option<u32>,
     pub user_id: Option<u32>,
     pub topic_id: Option<u32>,
+    pub category_id: Option<u32>,
     pub post_id: Option<u32>,
     pub post_content: Option<String>,
     pub is_locked: Option<bool>,
@@ -38,6 +40,7 @@ impl PostRequest {
 
     pub fn make_new(self) -> Result<Self, ServiceError> {
         if self.topic_id.is_none() ||
+            self.category_id.is_none() ||
             self.post_content.is_none() {
             Err(ServiceError::BadRequest)
         } else {
@@ -51,6 +54,7 @@ impl PostRequest {
         }
         if let Some(uid) = self.user_id {
             self.topic_id = None;
+            self.category_id = None;
             self.post_id = None;
             self.is_locked = None;
         }

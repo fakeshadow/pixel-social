@@ -27,10 +27,7 @@ use crate::{
     model::actors::{
         CacheService, DatabaseService, TalkService, MailService,
     },
-    util::startup::{
-        build_cache,
-        generate_global,
-    },
+    util::startup::build_cache,
 };
 
 
@@ -44,9 +41,8 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
 
     let _ = clear_cache(&redis_url);
-    let _ = build_cache(&database_url, &redis_url);
 
-    let global_arc = generate_global(&database_url);
+    let global_arc = build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 

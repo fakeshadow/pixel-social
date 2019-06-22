@@ -35,7 +35,7 @@ impl Message for UpdateTopic {
 }
 
 impl Message for GetTopicWithPost {
-    type Result = Result<((Vec<Topic>, Vec<u32>), (Vec<Post>, Vec<u32>)), ServiceError>;
+    type Result = Result<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
 }
 
 impl Message for GetTopics {
@@ -44,7 +44,7 @@ impl Message for GetTopics {
 
 
 impl Handler<GetTopicWithPost> for DatabaseService {
-    type Result = ResponseFuture<((Vec<Topic>, Vec<u32>), (Vec<Post>, Vec<u32>)), ServiceError>;
+    type Result = ResponseFuture<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicWithPost, _: &mut Self::Context) -> Self::Result {
         let cid = msg.0;
@@ -56,12 +56,30 @@ impl Handler<GetTopicWithPost> for DatabaseService {
 
         let queryt = format!("SELECT * FROM topics{} WHERE id = {}", cid, tid);
 
+        let queryp =
+            format!("SELECT * FROM posts{}
+                   WHERE topic_id={}
+                   ORDER BY id ASC
+                   OFFSET {}
+                   LIMIT {}", cid, tid, (page - 1) * 20, LIMIT);
+
         let ft =
             get_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
         let fp =
-            get_posts(self.db.as_mut().unwrap(), self.posts_by_tid.as_ref().unwrap(), tid, page);
+            get_posts(self.db.as_mut().unwrap(), &queryp);
 
-        Box::new(ft.join(fp))
+        let f = ft
+            .join(fp)
+            .map(|((t, mut tids), (p, mut ids))| {
+                if let Some(id) = tids.pop() {
+                    ids.push(id);
+                }
+                ids.sort();
+                ids.dedup();
+                (t, p, ids)
+            });
+
+        Box::new(f)
     }
 }
 
@@ -127,7 +145,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(add_topic(self.db.as_mut().unwrap(), &query).map(|t|vec![t]))
+        Box::new(add_topic(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
     }
 }
 
@@ -147,6 +165,8 @@ impl Handler<GetTopics> for DatabaseService {
             GetTopics::Popular(page) => "template".to_owned()
         };
 
-        Box::new(get_topics(self.db.as_mut().unwrap(), &query, topics, ids))
+        let f = get_topics(self.db.as_mut().unwrap(), &query, topics, ids);
+
+        Box::new(f)
     }
 }

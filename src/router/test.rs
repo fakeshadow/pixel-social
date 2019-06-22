@@ -39,7 +39,7 @@ pub fn test_global_var(
         .and_then(move |t| {
             let cid = t.category_id;
             let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(AddedTopic(t, cid));
+            let _ = cache.do_send(AddedTopic(t));
             res
         })
 }

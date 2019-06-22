@@ -25,6 +25,7 @@ CREATE TABLE categories
     thumbnail        VARCHAR(256) NOT NULL
 );
 
+-- topics[N] N is category_id
 CREATE TABLE topics1
 (
     id              OID           NOT NULL UNIQUE PRIMARY KEY,
@@ -100,11 +101,13 @@ CREATE TABLE topics5
     is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
 );
 
-CREATE TABLE posts
+-- posts[N] N is category_id
+CREATE TABLE posts1
 (
     id              OID           NOT NULL UNIQUE PRIMARY KEY,
     user_id         OID           NOT NULL,
     topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
     post_id         OID,
     post_content    VARCHAR(1024) NOT NULL,
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -113,6 +116,67 @@ CREATE TABLE posts
     reply_count     INTEGER       NOT NULL DEFAULT 0,
     is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
 );
+
+CREATE TABLE posts2
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    post_id         OID,
+    post_content    VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE posts3
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    post_id         OID,
+    post_content    VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE posts4
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    post_id         OID,
+    post_content    VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE posts5
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    post_id         OID,
+    post_content    VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+
 
 CREATE TABLE associates
 (
@@ -159,6 +223,81 @@ VALUES (2, 'Announcement', 'category_default.png'),
 INSERT INTO topics1 (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
-INSERT INTO posts (id, user_id, topic_id, post_content)
-VALUES (1, 1, 1, 'First Reply Only to stop cache build from complaining');
+INSERT INTO posts1 (id, user_id, topic_id, category_id, post_content)
+VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');
 
+
+-- CREATE RULE added_topic AS ON INSERT TO topics1
+--     DO UPDATE categories
+--        SET topic_count = topic_count + 1
+--     -- add last reply time here
+--        WHERE id = 1;
+--
+
+-- CREATE OR REPLACE FUNCTION added_reply() RETURNS trigger AS
+-- $added_reply$
+-- BEGIN
+--     UPDATE categories
+--     SET topic_count = topic_count + 1
+--     WHERE id = 1;
+--     RETURN NULL;
+-- END;
+-- $added_reply$ LANGUAGE plpgsql;
+--
+-- CREATE TRIGGER added_reply
+--     AFTER INSERT
+--     ON topics1
+--     FOR EACH ROW
+-- EXECUTE PROCEDURE added_reply();
+
+
+-- ToDo: generate triggers using dynamic methods
+-- reject illegal post_id ,topic_id
+-- update category and topic table
+CREATE OR REPLACE FUNCTION adding_post1() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics1 WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts1 WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        NEW.post_id = NULL;
+    END IF;
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION adding_post2() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics2 WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts2 WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        NEW.post_id = NULL;
+    END IF;
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_post1
+    BEFORE INSERT
+    ON posts1
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post1();
+
+CREATE TRIGGER adding_post2
+    BEFORE INSERT
+    ON posts2
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post2();

@@ -19,7 +19,6 @@ use crate::handler::{
     auth::UserJwt,
     talk::{
         Connect,
-        GetLastTalkId,
         GetRoomMembers,
         Create,
         GetTalks,
@@ -231,23 +230,7 @@ fn create_talk(
     match serde_json::from_str::<Create>(string) {
         Ok(mut msg) => {
             msg.owner = session.id;
-            session.addr
-                .send(GetLastTalkId)
-                .into_actor(session)
-                .then(|r, session, ctx| {
-                    match r {
-                        Ok(r) => match r {
-                            Ok(id) => {
-                                msg.talk_id = Some(id);
-                                let _ = session.addr.do_send(msg);
-                            }
-                            Err(_) => ctx.text("!!! Get new talk_id failed")
-                        },
-                        Err(_) => ctx.text("!!! Actor error")
-                    }
-                    fut::ok(())
-                })
-                .wait(ctx)
+            session.addr.do_send(msg);
         }
         Err(_) => ctx.text("!!! Query parsing error")
     }
@@ -260,22 +243,10 @@ fn join_talk(
 ) {
     match string.parse::<u32>() {
         Ok(talk_id) => session.addr
-            .send(Join {
+            .do_send(Join {
                 talk_id,
                 session_id: session.id,
-            })
-            .into_actor(session)
-            .then(|r, session, ctx| {
-                match r {
-                    Ok(r) => match r {
-                        Ok(_) => ctx.text("!!! Join talk success"),
-                        Err(_) => ctx.text("!!! Join talk failed")
-                    },
-                    Err(_) => ctx.text("!!! Actor error")
-                }
-                fut::ok(())
-            })
-            .wait(ctx),
+            }),
         Err(_) => ctx.text("!!! Query parsing error")
     }
 }

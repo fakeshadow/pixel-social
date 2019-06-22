@@ -40,15 +40,22 @@ impl Handler<ModifyPost> for DatabaseService {
 
                 let p = msg.0;
 
+                let cid = p.category_id.unwrap();
+                let uid = p.user_id.unwrap();
+                let tid = p.topic_id.unwrap();
+                let content = p.post_content.unwrap();
+
                 match p.post_id {
-                    Some(to_pid) => format!("INSERT INTO posts
-                            (id, user_id, topic_id, post_id, post_content)
+                    Some(to_pid) => {
+                        format!("INSERT INTO posts{}
+                            (id, user_id, topic_id,category_id, post_id, post_content)
+                            VALUES ({}, {}, {}, {}, {}, '{}')
+                            RETURNING *", cid, id, uid, tid, cid, to_pid, &content)
+                    }
+                    None => format!("INSERT INTO posts{}
+                            (id, user_id, topic_id,category_id, post_content)
                             VALUES ({}, {}, {}, {}, '{}')
-                            RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), to_pid, p.post_content.unwrap()),
-                    None => format!("INSERT INTO posts
-                            (id, user_id, topic_id, post_content)
-                            VALUES ({}, {}, {}, '{}')
-                            RETURNING *", id, p.user_id.unwrap(), p.topic_id.unwrap(), p.post_content.unwrap()),
+                            RETURNING *", cid, id, uid, tid, cid, &content),
                 }
             }
             None => {
@@ -92,6 +99,8 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
+
+
         let mut query = "SELECT * FROM posts
         WHERE id= ANY('{".to_owned();
 
@@ -112,3 +121,4 @@ impl Handler<GetPosts> for DatabaseService {
             }))
     }
 }
+
