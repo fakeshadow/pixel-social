@@ -3,12 +3,13 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{get_all_categories, get_topics, get_users_all},
+    db::{get_all_categories, query_topics, get_users_all},
     cache::{build_list, build_hmset},
 };
 use crate::model::{
     common::{GlobalVar, GlobalGuard},
 };
+use crate::handler::db::simple_query;
 
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, ()> {
@@ -37,7 +38,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
         let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
         let tids = Vec::new();
         let topics = Vec::new();
-        let (topics, _) = rt.block_on(get_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let (topics, _) = rt.block_on(query_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
         let tids = topics.into_iter().map(|t| {
             if t.id > last_tid { last_tid = t.id };
             t.id
@@ -114,18 +115,18 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     Ok(GlobalVar::new(last_uid, last_pid, last_tid))
 }
 
-pub fn create_table(postgres_url: &str) -> Result<(), ()> {
+pub fn create_table(postgres_url: &str) {
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let p = c.prepare("SELECT * FROM categories");
-    let st = rt.block_on(p).unwrap();
-    let categories = Vec::new();
-    if let Some(v) = rt.block_on(get_all_categories(&mut c, &st, categories)).ok() {
-        return Ok(());
+    if let Some(st) = rt.block_on(p).ok() {
+        let categories = Vec::new();
+        if let Some(v) = rt.block_on(get_all_categories(&mut c, &st, categories)).ok() {
+            return;
+        }
     }
-
     // create default table
     let mut query = "
 CREATE TABLE users
@@ -180,7 +181,7 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 ".to_owned();
 
     // create repeated default table
-    for i in 1u32..5 {
+    for i in 1u32..6 {
         query.push_str(&format!("
 CREATE TABLE topics{}
 (
@@ -213,7 +214,7 @@ CREATE TABLE posts{}
     }
 
     // create trigger for inserting topic
-    for i in 1u32..5 {
+    for i in 1u32..6 {
         query.push_str(&format!("
 CREATE OR REPLACE FUNCTION adding_topic{}() RETURNS trigger AS
 $added_reply$
@@ -232,7 +233,7 @@ EXECUTE PROCEDURE adding_topic{}();", i, i, i, i, i))
     }
 
     // create trigger for inserting post
-    for i in 1u32..5 {
+    for i in 1u32..6 {
         query.push_str(&format!("
 CREATE OR REPLACE FUNCTION adding_post{}() RETURNS trigger AS
 $adding_post$
@@ -278,8 +279,8 @@ VALUES (2, 'Announcement', 'category_default.png'),
        (4, 'Ace Combat', 'ace.jpg'),
        (5, 'Persona', 'persona.jpg');
 
-INSERT INTO topics1 (id, user_id, category_id, title, body, thumbnail)
-VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
+INSERT INTO topics1 (id, user_id, category_id, reply_count, title, body, thumbnail)
+VALUES (1, 1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
 INSERT INTO posts1 (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
@@ -287,6 +288,31 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
     let f = c.simple_query(&query).into_future();
 
     let _ = rt.block_on(f).unwrap_or_else(|_| panic!("fail to create default tables"));
+}
 
-    Ok(())
+pub fn drop_table(postgres_url: &str) {
+    let mut query = "
+DROP TABLE IF EXISTS associates;
+DROP TABLE IF EXISTS talks;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS categories;".to_owned();
+
+    for i in 1..6u32 {
+        query.push_str(&format!("
+DROP TRIGGER IF EXISTS adding_post{} ON posts{};
+DROP FUNCTION IF EXISTS adding_post{}();
+DROP TRIGGER IF EXISTS adding_topic{} ON topics{};
+DROP FUNCTION IF EXISTS adding_topic{}();
+DROP TABLE IF EXISTS topics{};
+DROP TABLE IF EXISTS posts{};", i, i, i, i, i, i, i, i))
+    }
+
+    let mut rt = Runtime::new().unwrap();
+    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+    rt.spawn(conn.map_err(|e| panic!("{}", e)));
+
+    let _ = rt.block_on(simple_query(&mut c, &query).and_then(|_| {
+        println!("all tables have been drop");
+        Ok(())
+    })).expect("failed to clear db");
 }

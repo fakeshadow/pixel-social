@@ -47,6 +47,7 @@ pub fn get_category(
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
+
     cache.send(GetTopicsCache(vec![id], page))
         .from_err()
         .and_then(move |r| match r {

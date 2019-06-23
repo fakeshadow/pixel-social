@@ -8,13 +8,12 @@
 
 #### Setup:
 `Backend:`<br>
-1. install `diesel cli` with `cargo install diesel_cli --no-default-features --features postgres`<br>
-*. go to postgreSQL install folder and run pg_env.bat if you encounter libpg.dll error when installing diesel cli
-2. Make change to `.env` file to match your environment.<br>
+1. Make change to `.env` file to match your environment.<br>
 *. make changes to cors setting if you encounter the issue.
-3. `diesel setup` and `diesel migration run` to init database
-4. `cargo build --release`<br>
-5. run the compiled `pixel_rs` bin file to start the server
+2. `cargo build --release`<br>
+3. run the compiled `pixel_rs` in target/release folder to start the server<br>
+*. run `pixel_rs BUILD_TABLES true` to generate dummy tables.<br>
+*. run `pixel_rs DROP_TABLES true` to drop all tables.
     
 `Web Frontend:`<br>
 1. `pub get` to get dependencies

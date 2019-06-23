@@ -11,7 +11,7 @@ use crate::model::{
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::{get_topics, get_posts, add_topic};
+use crate::handler::db::{query_topics, query_posts, query_topic};
 
 const LIMIT: i64 = 20;
 
@@ -64,9 +64,9 @@ impl Handler<GetTopicWithPost> for DatabaseService {
                    LIMIT {}", cid, tid, (page - 1) * 20, LIMIT);
 
         let ft =
-            get_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
+            query_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
         let fp =
-            get_posts(self.db.as_mut().unwrap(), &queryp);
+            query_posts(self.db.as_mut().unwrap(), &queryp);
 
         let f = ft
             .join(fp)
@@ -106,7 +106,7 @@ impl Handler<AddTopic> for DatabaseService {
             t.title.unwrap(),
             t.body.unwrap());
 
-        Box::new(add_topic(self.db.as_mut().unwrap(), &query))
+        Box::new(query_topic(self.db.as_mut().unwrap(), &query))
     }
 }
 
@@ -145,7 +145,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(add_topic(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
+        Box::new(query_topic(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
     }
 }
 
@@ -165,7 +165,7 @@ impl Handler<GetTopics> for DatabaseService {
             GetTopics::Popular(page) => "template".to_owned()
         };
 
-        let f = get_topics(self.db.as_mut().unwrap(), &query, topics, ids);
+        let f = query_topics(self.db.as_mut().unwrap(), &query, topics, ids);
 
         Box::new(f)
     }

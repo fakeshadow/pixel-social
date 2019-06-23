@@ -18,14 +18,16 @@ use crate::model::{
     common::GlobalGuard,
     talk::Talk,
 };
+use crate::model::common::GetUserId;
 
 pub fn get_single_row<T>(
     c: &mut Client,
     query: &str,
+    index: usize
 ) -> impl Future<Item=T, Error=ServiceError>
     where T: std::str::FromStr {
     simple_query(c, query)
-        .and_then(move |msg| single_row_from_msg(0, &msg))
+        .and_then(move |msg| single_row_from_msg(index, &msg))
 }
 
 pub fn create_talk(
@@ -33,28 +35,65 @@ pub fn create_talk(
     query1: &str,
     query2: &str,
 ) -> impl Future<Item=((), Talk), Error=ServiceError> {
-    let f1 = simple_query(c, query1)
-        .and_then(|_| Ok(()));
-    let f2 = simple_query(c, query2)
-        .and_then(|msg| talk_from_msg(&msg));
+    simple_query(c, query1)
+        .map(|_| ())
+        .join(query_talk(c, query2))
+}
 
-    f1.join(f2)
+pub fn query_posts(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ServiceError> {
+    general_simple_query_fold(c, query, post_from_simple_row)
+}
+
+pub fn query_topics(
+    c: &mut Client,
+    query: &str,
+    topics: Vec<Topic>,
+    ids: Vec<u32>,
+) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
+    general_simple_query_fold(c, query, topic_from_simple_row)
+        .map(|(t, mut ids)| {
+            ids.sort();
+            ids.dedup();
+            (t, ids)
+        })
+}
+
+pub fn query_user(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=User, Error=ServiceError> {
+    general_simple_query(c, query, user_from_simple_row)
+}
+
+pub fn query_talk(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=Talk, Error=ServiceError> {
+    general_simple_query(c, query, talk_from_simple_row)
 }
 
 pub fn query_post(
     c: &mut Client,
     query: &str,
 ) -> impl Future<Item=Post, Error=ServiceError> {
-    simple_query(c, &query)
-        .and_then(|msg| post_from_msg(&msg))
+    general_simple_query(c, query, post_from_simple_row)
 }
 
-pub fn add_topic(
+pub fn query_topic(
     c: &mut Client,
     query: &str,
 ) -> impl Future<Item=Topic, Error=ServiceError> {
-    simple_query(c, &query)
-        .and_then(|msg| topic_from_msg(&msg))
+    general_simple_query(c, query, topic_from_simple_row)
+}
+
+pub fn query_category(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=Category, Error=ServiceError> {
+    general_simple_query(c, query, category_from_simple_row)
 }
 
 pub fn get_all_categories(
@@ -74,23 +113,6 @@ pub fn get_all_categories(
                 thumbnail: row.get(5),
             });
             Ok::<_, ServiceError>(categories)
-        })
-}
-
-pub fn get_posts(
-    c: &mut Client,
-    query: &str,
-) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ServiceError> {
-    let posts = Vec::with_capacity(20);
-    let ids: Vec<u32> = Vec::with_capacity(20);
-    c.simple_query(&query)
-        .from_err()
-        .fold((posts, ids), move |(mut posts, mut ids), row| {
-            if let Some(p) = post_from_msg(&Some(row)).ok() {
-                ids.push(p.user_id);
-                posts.push(p);
-            }
-            Ok::<_, ServiceError>((posts, ids))
         })
 }
 
@@ -149,29 +171,46 @@ pub fn get_users_all(
         })
 }
 
-pub fn get_topics(
+// helper functions
+pub fn general_simple_query<T>(
     c: &mut Client,
     query: &str,
-    topics: Vec<Topic>,
-    ids: Vec<u32>,
-) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
-    c.simple_query(query)
-        .from_err()
-        .fold((topics, ids), move |(mut topics, mut ids), row| {
-            if let Some(t) = topic_from_msg(&Some(row)).ok() {
-                ids.push(t.user_id);
-                topics.push(t);
+    e: fn(&SimpleQueryRow) -> Result<T, ServiceError>,
+) -> impl Future<Item=T, Error=ServiceError> {
+    simple_query(c, &query)
+        .and_then(move |opt| match opt {
+            Some(msg) => match msg {
+                SimpleQueryMessage::Row(row) => e(&row),
+                _ => Err(ServiceError::InternalServerError)
             }
-            Ok::<_, ServiceError>((topics, ids))
-        })
-        .map(|(t, mut ids)| {
-            ids.sort();
-            ids.dedup();
-            (t, ids)
+            None => Err(ServiceError::BadRequest)
         })
 }
 
-// helper functions
+pub fn general_simple_query_fold<T>(
+    c: &mut Client,
+    query: &str,
+    e: fn(&SimpleQueryRow) -> Result<T, ServiceError>,
+) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ServiceError>
+    where T: GetUserId {
+    let vec = Vec::with_capacity(20);
+    let ids: Vec<u32> = Vec::with_capacity(21);
+    c.simple_query(&query)
+        .from_err()
+        .fold((vec, ids), move |(mut vec, mut ids), row| {
+            match row {
+                SimpleQueryMessage::Row(row) => {
+                    if let Some(v) = e(&row).ok() {
+                        ids.push(v.get_user_id());
+                        vec.push(v);
+                    }
+                }
+                _ => ()
+            }
+            Ok::<(Vec<T>, Vec<u32>), ServiceError>((vec, ids))
+        })
+}
+
 pub fn simple_query(
     c: &mut Client,
     query: &str,
@@ -209,54 +248,6 @@ pub fn talk_from_msg(
             SimpleQueryMessage::Row(row) => talk_from_simple_row(row),
             _ => Err(ServiceError::InternalServerError)
         }
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-pub fn category_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<Category, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => category_from_simple_row(row),
-            _ => Err(ServiceError::InternalServerError)
-        }
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-pub fn user_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<User, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => user_from_simple_row(row),
-            _ => Err(ServiceError::InternalServerError)
-        }
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-pub fn topic_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<Topic, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => topic_from_simple_row(row),
-            _ => Err(ServiceError::BadRequest)
-        },
-        None => Err(ServiceError::InternalServerError)
-    }
-}
-
-fn post_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<Post, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => post_from_simple_row(row),
-            _ => Err(ServiceError::BadRequest)
-        },
         None => Err(ServiceError::InternalServerError)
     }
 }

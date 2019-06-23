@@ -8,7 +8,7 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{simple_query, category_from_msg, get_all_categories, single_row_from_msg, get_single_row};
+use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category};
 
 
 const LIMIT: i64 = 20;
@@ -55,7 +55,7 @@ impl Handler<GetLastCategoryId> for DatabaseService {
 
     fn handle(&mut self, _: GetLastCategoryId, _: &mut Self::Context) -> Self::Result {
         let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
-        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query))
+        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0))
     }
 }
 
@@ -70,12 +70,8 @@ impl Handler<AddCategory> for DatabaseService {
             VALUES ('{}', '{}', '{}')
             RETURNING *", c.id.unwrap(), c.name.unwrap(), c.thumbnail.unwrap());
 
-        let f = simple_query(
-            self.db.as_mut().unwrap(),
-            query.as_str())
-            .and_then(|msg| category_from_msg(&msg).map(|c| vec![c]));
-
-        Box::new(f)
+        Box::new(query_category(self.db.as_mut().unwrap(), query.as_str())
+            .map(|c| vec![c]))
     }
 }
 
@@ -103,10 +99,7 @@ impl Handler<UpdateCategory> for DatabaseService {
             return Box::new(ft_err(ServiceError::BadRequest));
         };
 
-        Box::new(simple_query(
-            self.db.as_mut().unwrap(),
-            query.as_str())
-            .and_then(|msg| category_from_msg(&msg).map(|c| vec![c]))
-        )
+        Box::new(query_category(self.db.as_mut().unwrap(), query.as_str())
+            .map(|c| vec![c]))
     }
 }

@@ -172,7 +172,7 @@ impl Handler<Create> for TalkService {
                     (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(1024))",
                     id);
         let f =
-            get_single_row::<u32>(self.db.as_mut().unwrap(), query)
+            get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
                 .into_actor(self)
                 .and_then(move |cid, act, _|
                     create_talk(act.db.as_mut().unwrap(), &query1, &query2)

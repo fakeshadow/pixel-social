@@ -29,15 +29,13 @@ use crate::{
     },
     util::startup::{
         create_table,
+        drop_table,
         build_cache,
     },
 };
 
-
 fn main() -> std::io::Result<()> {
     dotenv().ok();
-
-
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let redis_url = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_owned());
@@ -45,8 +43,15 @@ fn main() -> std::io::Result<()> {
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
 
-    // create or update database tables
-    let _ = create_table(&database_url);
+    // create or clear database tables
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() > 2 && &args[1] == "DROP_TABLES" && &args[2] == "true" {
+        drop_table(&database_url)
+    }
+    if args.len() > 2 && &args[1] == "BUILD_TABLES" && &args[2] == "true" {
+        create_table(&database_url);
+    };
 
     let _ = clear_cache(&redis_url);
 
