@@ -1,18 +1,17 @@
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
-use futures::{Future, future::{Either, ok as ft_ok}};
+use futures::{Future, future::{Either, ok as ft_ok, IntoFuture}};
 
 use crate::handler::{
     auth::UserJwt,
     user::GetUsers,
     post::{GetPosts, ModifyPost},
-    cache::{UpdateCache, GetPostsCache},
+    cache::{UpdateCache, GetPostsCache, AddedPost},
 };
 use crate::model::{
     actors::{DB, CACHE},
     common::{GlobalGuard, AttachUser},
     post::{PostRequest, PostWithUser},
 };
-use futures::future::IntoFuture;
 
 pub fn add(
     jwt: UserJwt,
@@ -33,7 +32,7 @@ pub fn add(
             .from_err()
             .and_then(move |p| {
                 let res = HttpResponse::Ok().json(&p);
-                let _ = cache.do_send(UpdateCache::Post(p));
+                let _ = cache.do_send(AddedPost(p));
                 res
             }))
 }

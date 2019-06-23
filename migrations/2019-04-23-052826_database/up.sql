@@ -25,7 +25,6 @@ CREATE TABLE categories
     thumbnail        VARCHAR(256) NOT NULL
 );
 
--- topics[N] N is category_id
 CREATE TABLE topics1
 (
     id              OID           NOT NULL UNIQUE PRIMARY KEY,
@@ -226,29 +225,86 @@ VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented commu
 INSERT INTO posts1 (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');
 
+CREATE OR REPLACE FUNCTION adding_topic1() RETURNS trigger AS
+$added_reply$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = 1;
+    RETURN NULL;
+END;
+$added_reply$ LANGUAGE plpgsql;
 
--- CREATE RULE added_topic AS ON INSERT TO topics1
---     DO UPDATE categories
---        SET topic_count = topic_count + 1
---     -- add last reply time here
---        WHERE id = 1;
---
+CREATE TRIGGER adding_topic1
+    AFTER INSERT
+    ON topics1
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic1();
 
--- CREATE OR REPLACE FUNCTION added_reply() RETURNS trigger AS
--- $added_reply$
--- BEGIN
---     UPDATE categories
---     SET topic_count = topic_count + 1
---     WHERE id = 1;
---     RETURN NULL;
--- END;
--- $added_reply$ LANGUAGE plpgsql;
---
--- CREATE TRIGGER added_reply
---     AFTER INSERT
---     ON topics1
---     FOR EACH ROW
--- EXECUTE PROCEDURE added_reply();
+CREATE OR REPLACE FUNCTION adding_topic2() RETURNS trigger AS
+$added_reply$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = 2;
+    RETURN NULL;
+END;
+$added_reply$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_topic2
+    AFTER INSERT
+    ON topics2
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic2();
+
+CREATE OR REPLACE FUNCTION adding_topic3() RETURNS trigger AS
+$added_reply$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = 3;
+    RETURN NULL;
+END;
+$added_reply$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_topic3
+    AFTER INSERT
+    ON topics3
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic3();
+
+CREATE OR REPLACE FUNCTION adding_topic4() RETURNS trigger AS
+$added_reply$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = 4;
+    RETURN NULL;
+END;
+$added_reply$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_topic4
+    AFTER INSERT
+    ON topics4
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic4();
+
+
+CREATE OR REPLACE FUNCTION adding_topic5() RETURNS trigger AS
+$added_reply$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = 5;
+    RETURN NULL;
+END;
+$added_reply$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_topic5
+    AFTER INSERT
+    ON topics5
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic5();
 
 
 -- ToDo: generate triggers using dynamic methods
@@ -268,6 +324,11 @@ BEGIN
     UPDATE categories
     SET post_count = post_count + 1
     WHERE id = NEW.category_id;
+    UPDATE topics1
+    SET reply_count     = reply_count + 1,
+        last_reply_time = DEFAULT
+    WHERE id = NEW.topic_id;
+
     RETURN NEW;
 END;
 $adding_post$ LANGUAGE plpgsql;
@@ -286,6 +347,76 @@ BEGIN
     UPDATE categories
     SET post_count = post_count + 1
     WHERE id = NEW.category_id;
+    UPDATE topics2
+    SET reply_count     = reply_count + 1,
+        last_reply_time = DEFAULT
+    WHERE id = NEW.topic_id;
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION adding_post3() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics3 WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts3 WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        NEW.post_id = NULL;
+    END IF;
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+    UPDATE topics3
+    SET reply_count     = reply_count + 1,
+        last_reply_time = DEFAULT
+    WHERE id = NEW.topic_id;
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION adding_post4() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics4 WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts4 WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        NEW.post_id = NULL;
+    END IF;
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+    UPDATE topics4
+    SET reply_count     = reply_count + 1,
+        last_reply_time = DEFAULT
+    WHERE id = NEW.topic_id;
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION adding_post5() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics5 WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts5 WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        NEW.post_id = NULL;
+    END IF;
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+    UPDATE topics5
+    SET reply_count     = reply_count + 1,
+        last_reply_time = DEFAULT
+    WHERE id = NEW.topic_id;
     RETURN NEW;
 END;
 $adding_post$ LANGUAGE plpgsql;
@@ -301,3 +432,21 @@ CREATE TRIGGER adding_post2
     ON posts2
     FOR EACH ROW
 EXECUTE PROCEDURE adding_post2();
+
+CREATE TRIGGER adding_post3
+    BEFORE INSERT
+    ON posts3
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post3();
+
+CREATE TRIGGER adding_post4
+    BEFORE INSERT
+    ON posts4
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post4();
+
+CREATE TRIGGER adding_post5
+    BEFORE INSERT
+    ON posts5
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post5();

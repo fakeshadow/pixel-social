@@ -14,14 +14,12 @@ use crate::model::{
 const LIMIT: i64 = 20;
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
-
 pub struct GetPosts(pub Vec<u32>);
 
 
 impl Message for ModifyPost {
     type Result = Result<Vec<Post>, ServiceError>;
 }
-
 impl Message for GetPosts {
     type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
 }
@@ -40,7 +38,7 @@ impl Handler<ModifyPost> for DatabaseService {
 
                 let p = msg.0;
 
-                let cid = p.category_id.unwrap();
+                let cid = p.category_id;
                 let uid = p.user_id.unwrap();
                 let tid = p.topic_id.unwrap();
                 let content = p.post_content.unwrap();
@@ -61,7 +59,7 @@ impl Handler<ModifyPost> for DatabaseService {
             None => {
                 let p = msg.0;
 
-                let mut query = "UPDATE posts SET".to_owned();
+                let mut query = format!("UPDATE posts{} SET", p.category_id);
 
                 if let Some(s) = p.topic_id {
                     let _ = write!(&mut query, " topic_id={},", s);

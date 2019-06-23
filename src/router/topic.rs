@@ -20,52 +20,34 @@ pub fn get(
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (cid, tid, page) = req.into_inner();
-    db
-        .send(GetTopicWithPost(cid, tid, page))
+    cache.send(GetTopicCache(tid, page))
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |(t, p, ids)| db
-            .send(GetUsers(ids))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                // include topic when querying first page.
-                let topic = if page == 1 { t.first() } else { None };
-                let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
-                res
-            })
-        )
-
-//    cache.send(GetTopicCache(tid, page))
-//        .from_err()
-//        .and_then(move |r| match r {
-//            Err(_) => Either::B(db
-//                .send(GetTopicWithPost(cid, tid, page))
-//                .from_err()
-//                .and_then(|r| r)
-//                .from_err()
-//                .and_then(move |(t, p, ids)| db
-//                    .send(GetUsers(ids))
-//                    .from_err()
-//                    .and_then(|r| r)
-//                    .from_err()
-//                    .and_then(move |u| {
-//                        // include topic when querying first page.
-//                        let topic = if page == 1 { t.first() } else { None };
-//                        let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
-//                        let _ = cache.do_send(UpdateCache::Topic(t));
-//                        let _ = cache.do_send(UpdateCache::Post(p));
-//                        let _ = cache.do_send(UpdateCache::User(u));
-//                        res
-//                    })
-//                )),
-//            Ok((t, p, u)) => {
-//                let topic = if page == 1 { Some(&t) } else { None };
-//                Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
-//            }
-//        })
+        .and_then(move |r| match r {
+            Err(_) => Either::B(db
+                .send(GetTopicWithPost(cid, tid, page))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |(t, p, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        // include topic when querying first page.
+                        let topic = if page == 1 { t.first() } else { None };
+                        let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::Post(p));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        res
+                    })
+                )),
+            Ok((t, p, u)) => {
+                let topic = if page == 1 { Some(&t) } else { None };
+                Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
+            }
+        })
 }
 
 pub fn add(

@@ -164,10 +164,10 @@ pub fn get_topics(
             }
             Ok::<_, ServiceError>((topics, ids))
         })
-        .and_then(|(t, mut ids)| {
+        .map(|(t, mut ids)| {
             ids.sort();
             ids.dedup();
-            Ok((t, ids))
+            (t, ids)
         })
 }
 
@@ -180,7 +180,7 @@ pub fn simple_query(
         .into_future()
         .map_err(|(e, _)| e)
         .from_err()
-        .and_then(|(msg, _)| Ok(msg))
+        .map(|(msg, _)| msg)
 }
 
 pub fn single_row_from_msg<T>(

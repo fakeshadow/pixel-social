@@ -105,11 +105,11 @@ impl Parser for HashMap<String, String> {
         self.get(key).map(|s| s.to_owned()).ok_or(ServiceError::InternalServerError)
     }
     fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
-        Ok(self.get(key).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?)
+        Ok(NaiveDateTime::parse_from_str(self.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
     }
     fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
         where K: FromStr {
-        self.get(key).map(|s| s.parse::<K>().map_err(|_| ServiceError::InternalServerError)).unwrap()
+        self.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSEINT)
     }
     fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError> {
         FromHashSet::from_hash(self)

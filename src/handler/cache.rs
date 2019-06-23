@@ -12,10 +12,9 @@ use crate::model::{
     topic::Topic,
     user::User,
     cache::{FromHashSet, Parser, SortHash},
-    common::{AttachUser, GetSelfId},
+    common::{AttachUser, GetSelfId,GetUserId},
     mail::Mail,
 };
-use crate::model::common::GetUserId;
 
 const LIMIT: isize = 20;
 const MAIL_LIFE: usize = 2592000;
@@ -34,7 +33,7 @@ pub struct GetUsersCache(pub Vec<u32>);
 
 pub struct AddedTopic(pub Topic);
 
-pub struct AddedPost(pub Post, pub u32);
+pub struct AddedPost(pub Vec<Post>);
 
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
@@ -124,7 +123,7 @@ impl Handler<AddedTopic> for CacheService {
         let f = pipe
             .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
-            .and_then(|(_, ())| Ok(()));
+            .map(|(_, ())| ());
 
         Box::new(f)
     }
@@ -134,24 +133,24 @@ impl Handler<AddedPost> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
     fn handle(&mut self, msg: AddedPost, _: &mut Self::Context) -> Self::Result {
-        let p = msg.0;
-        let cid = msg.1;
-
+        let p = msg.0.first().unwrap();
         let mut pipe = pipe();
         pipe.atomic();
-
-        pipe.cmd("HMSET").arg(&format!("post:{}:set", p.id)).arg(p.sort_hash());
+        pipe.cmd("lrem").arg(&format!("category:{}:list", p.category_id)).arg(1).arg(p.topic_id);
+        pipe.cmd("lpush").arg(&format!("category:{}:list", p.category_id)).arg(p.topic_id);
         pipe.cmd("rpush").arg(&format!("topic:{}:list", p.topic_id)).arg(p.id);
+        pipe.cmd("HMSET").arg(&format!("post:{}:set", p.id)).arg(p.sort_hash());
+        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", p.category_id)).arg("post_count").arg(1);
         pipe.cmd("HINCRBY").arg(&format!("topic:{}:set", p.topic_id)).arg("reply_count").arg(1);
 
-        if let Some(_) = p.post_id {
-            pipe.cmd("HINCRBY").arg(&format!("post:{}:set", p.id)).arg("reply_count").arg(1);
+        if let Some(id) = p.post_id {
+            pipe.cmd("HINCRBY").arg(&format!("post:{}:set", id)).arg("reply_count").arg(1);
         }
 
         let f = pipe
             .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
-            .and_then(|(_, ())| Ok(()));
+            .map(|(_, ())| ());
 
         Box::new(f)
     }
@@ -333,7 +332,7 @@ pub fn build_hmset<T>(
     }
     pipe.query_async(conn)
         .from_err()
-        .and_then(|(_, ())| Ok(()))
+        .map(|(_, ())| ())
 }
 
 pub fn build_list(
@@ -350,7 +349,7 @@ pub fn build_list(
     }
     pipe.query_async(conn)
         .from_err()
-        .and_then(|(_, ())| Ok(()))
+        .map(|(_, ())| ())
 }
 
 fn get_hmset<T>(
@@ -366,7 +365,7 @@ fn get_hmset<T>(
     }
     pipe.query_async(conn)
         .from_err()
-        .and_then(|(conn, hm)| Ok((conn, vec, hm)))
+        .map(|(conn, hm)| (conn, vec, hm))
 }
 
 //fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
@@ -375,28 +374,6 @@ fn get_hmset<T>(
 //        .rpush("category_id:meta", c.id)
 //        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
 //        .query(conn.deref())?)
-//}
-//fn added_post(t: &Topic, c: &Category, p: &Post, p_old: &Option<Post>, conn: PoolConnectionRedis) -> UpdateResult {
-//    let list_key = format!("category:{}:list", t.category_id);
-//    Ok(match p_old {
-//        Some(p_new) => redis_r::pipe().atomic()
-//            .lrem(&list_key, 1, t.id)
-//            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-//            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-//            .hset_multiple(format!("post:{}:set", p_new.id), &p_new.sort_hash())
-//            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-//            .rpush(format!("topic:{}:list", t.id), p.id)
-//            .lpush(list_key, t.id)
-//            .query(conn.deref())?,
-//        None => redis_r::pipe().atomic()
-//            .lrem(&list_key, 1, t.id)
-//            .hset_multiple(format!("topic:{}:set", t.id), &t.sort_hash())
-//            .hset_multiple(format!("post:{}:set", p.id), &p.sort_hash())
-//            .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-//            .rpush(format!("topic:{}:list", t.id), p.id)
-//            .lpush(list_key, t.id)
-//            .query(conn.deref())?
-//    })
 //}
 
 //fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
