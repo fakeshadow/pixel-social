@@ -31,7 +31,7 @@ pub struct TalkService {
     pub sessions: HashMap<u32, Recipient<SessionMessage>>,
     pub talks: HashMap<u32, Talk>,
     pub db: Option<Client>,
-    pub cache: Option<RedisClient>,
+    pub cache: Option<SharedConn>,
 }
 
 pub struct MailService {
@@ -129,8 +129,17 @@ impl TalkService {
                 sessions: HashMap::new(),
                 talks: HashMap::new(),
                 db: None,
-                cache: Some(cache),
+                cache: None,
             };
+
+            cache.get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
+                    fut::ok(())
+                })
+                .wait(ctx);
 
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)

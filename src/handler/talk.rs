@@ -12,17 +12,19 @@ use crate::model::{
     talk::{Talk, SessionMessage, Delete},
 };
 use crate::handler::{
-    db::{create_talk, get_single_row, simple_query}
+    db::{create_talk, get_single_row, simple_query},
+    cache::get_users,
 };
+use crate::handler::db::query_talk;
 
 impl TalkService {
-    pub fn send_message_many(&self, id: u32, msg: &str) {
+    fn send_message_many(&self, id: u32, msg: &str) {
         if let Some(talk) = self.talks.get(&id) {
             talk.users.iter().map(|id| self.send_message(id, msg));
         }
     }
 
-    pub fn send_message(&self, session_id: &u32, msg: &str) {
+    fn send_message(&self, session_id: &u32, msg: &str) {
         if let Some(addr) = self.sessions.get(&session_id) {
             let _ = addr.do_send(SessionMessage(msg.to_owned()));
         }
@@ -43,7 +45,6 @@ pub struct Connect {
 
 #[derive(Deserialize, Clone)]
 pub struct Create {
-    pub talk_id: Option<u32>,
     pub name: String,
     pub description: String,
     pub owner: u32,
@@ -52,6 +53,17 @@ pub struct Create {
 pub struct Join {
     pub session_id: u32,
     pub talk_id: u32,
+}
+
+#[derive(Deserialize)]
+pub struct RemoveUser {
+    pub session_id: u32,
+    user_id: u32,
+    talk_id: u32,
+}
+
+impl Message for RemoveUser {
+    type Result = Result<(), ServiceError>;
 }
 
 #[derive(Message)]
@@ -68,7 +80,7 @@ pub struct ClientMessage {
     pub session_id: u32,
 }
 
-pub struct GetRoomMembers {
+pub struct GetTalkUsers {
     pub session_id: u32,
     pub talk_id: u32,
 }
@@ -93,27 +105,12 @@ impl Message for ClientMessage {
     type Result = Result<(), ServiceError>;
 }
 
-impl Message for GetRoomMembers {
+impl Message for GetTalkUsers {
     type Result = Result<(), ServiceError>;
 }
 
 impl Message for GetHistory {
     type Result = Result<(), ServiceError>;
-}
-
-impl Handler<GetRoomMembers> for TalkService {
-    type Result = ResponseFuture<(), ServiceError>;
-
-    fn handle(&mut self, msg: GetRoomMembers, _: &mut Context<Self>) -> Self::Result {
-        match self.sessions.get(&msg.session_id) {
-            Some(addr) => {
-                let msg = "placeholder".to_owned();
-                addr.do_send(SessionMessage(msg));
-                Box::new(ft_ok(()))
-            }
-            None => Box::new(ft_err(ServiceError::BadRequest))
-        }
-    }
 }
 
 impl Handler<ClientMessage> for TalkService {
@@ -152,38 +149,32 @@ impl Handler<Create> for TalkService {
     type Result = ResponseActFuture<Self, (), ServiceError>;
 
     fn handle(&mut self, msg: Create, _: &mut Context<Self>) -> Self::Result {
-        let id = msg.talk_id.unwrap();
-
         let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
 
-        //ToDo: in case query1 array failed.
-        let query1 =
-            format!("INSERT INTO talks
-                    (id, name, description, owner, admin, users)
-                    VALUES ({}, '{}', '{}', {}, ARRAY {}, ARRAY {})",
-                    id,
-                    msg.name,
-                    msg.description,
-                    msg.owner,
-                    id,
-                    id);
-        let query2 =
-            format!("CREATE TABLE talk{}
-                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(1024))",
-                    id);
         let f =
             get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
                 .into_actor(self)
-                .and_then(move |cid, act, _|
+                .and_then(move |cid, act, _| {
+                    //ToDo: in case query1 array failed.
+                    let query1 = format!("
+                    INSERT INTO talks
+                    (id, name, description, owner, admin, users)
+                    VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])", cid, msg.name, msg.description, msg.owner, cid, cid);
+
+                    let query2 = format!("
+                    CREATE TABLE talk{}
+                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(1024))", cid);
+
                     create_talk(act.db.as_mut().unwrap(), &query1, &query2)
                         .into_actor(act)
-                        .and_then(move |(_, t), actt, _| {
+                        .and_then(move |(_, t), act, _| {
                             let s = serde_json::to_string(&t)
-                                .unwrap_or("!!! Talk Creation success".to_owned());
-                            actt.send_message(&msg.owner, &s);
+                                .unwrap_or("!!! Stringify Error. But Talk Creation is success".to_owned());
+                            act.talks.insert(t.id, t);
+                            act.send_message(&msg.owner, &s);
                             fut::ok(())
-                        }));
-
+                        })
+                });
         Box::new(f)
     }
 }
@@ -205,6 +196,7 @@ impl Handler<Join> for TalkService {
                     .into_actor(self)
                     .then(move |r, act, _| match r {
                         Ok(_) => {
+                            act.talks.get_mut(&msg.talk_id).unwrap().users.push(msg.session_id);
                             act.send_message(&msg.session_id, "!! Joined");
                             fut::ok(())
                         }
@@ -247,38 +239,89 @@ impl Handler<GetHistory> for TalkService {
             let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f").unwrap();
 
             let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 20", table, msg.session_id, time);
+            //ToDo: query db and get messages.
             let addr = addr.clone();
 
             return Box::new(ft_err(ServiceError::BadRequest));
         }
 
-
         Box::new(ft_err(ServiceError::BadRequest))
     }
 }
 
+impl Handler<GetTalkUsers> for TalkService {
+    type Result = ResponseActFuture<Self, (), ServiceError>;
 
-//pub fn get_talk_members(
-//    id: u32,
-//    conn: &PoolConnectionPostgres,
-//) -> Result<Vec<User>, ServiceError> {
-//    Err(ServiceError::Unauthorized)
-//}
-//
-//pub fn remove_talk_member(
-//    id: u32,
-//    talk_id: u32,
-//    pool: &PostgresPool,
-//) -> Result<(), ServiceError> {
-//    let conn = &pool.get()?;
-//    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::users).first::<Vec<u32>>(conn)?;
-//    ids = remove_id(id, ids)?;
-//
-//    let _ = diesel::update(talks::table.find(talk_id)).set(talks::users.eq(ids)).execute(conn)?;
-//
-//    Ok(())
-//}
-//
+    fn handle(&mut self, msg: GetTalkUsers, _: &mut Context<Self>) -> Self::Result {
+        if let Some(_) = self.sessions.get(&msg.session_id) {
+            if let Some(talk) = self.talks.get(&msg.talk_id) {
+                let f = get_users(self.cache.as_ref().unwrap().clone(), talk.users.clone())
+                    .into_actor(self)
+                    .and_then(move |u, act, _| {
+                        let string = serde_json::to_string(&u)
+                            .unwrap_or("failed to serialize users".to_owned());
+
+                        act.send_message(&msg.session_id, &string);
+                        fut::ok(())
+                    });
+
+                return Box::new(f);
+            }
+            self.send_message(&msg.session_id, "!!! Bad request.Talk not found");
+            return Box::new(fut::err(ServiceError::BadRequest));
+        }
+        self.send_message(&msg.session_id, "!!! Bad request.Session not found");
+        Box::new(fut::err(ServiceError::BadRequest))
+    }
+}
+
+impl Handler<RemoveUser> for TalkService {
+    type Result = ResponseActFuture<Self, (), ServiceError>;
+
+    fn handle(&mut self, msg: RemoveUser, _: &mut Context<Self>) -> Self::Result {
+        let id = msg.session_id;
+        let tid = msg.talk_id;
+        let uid = msg.user_id;
+
+        if let Some(talk) = self.talks.get(&tid) {
+            if !talk.users.contains(&uid) {
+                self.send_message(&id, "!!! Target user not found in talk");
+                return Box::new(fut::err(ServiceError::BadRequest));
+            }
+
+            let other_is_admin = talk.admin.contains(&uid);
+            let other_is_owner = talk.owner == uid;
+            let is_admin = talk.admin.contains(&id);
+            let is_owner = talk.owner == id;
+
+            let query = if is_owner && other_is_admin {
+                format!("UPDATE talks SET admin=array_remove(admin, {}), users=array_remove(users, {})
+                WHERE id={} AND owner={}", uid, uid, tid, id)
+            } else if (is_admin || is_owner) && !other_is_admin && !other_is_owner {
+                format!("UPDATE talks SET users=array_remove(users, {})
+                WHERE id={}", uid, tid)
+            } else {
+                self.send_message(&id, "!!! Unauthorized");
+                return Box::new(fut::err(ServiceError::Unauthorized));
+            };
+
+            let f = query_talk(self.db.as_mut().unwrap(), &query)
+                .into_actor(self)
+                .and_then(move |t, act, _| {
+                    let s = serde_json::to_string(&t).unwrap_or("!!! Stringify Error.But user removal success".to_owned());
+
+                    act.talks.insert(t.id, t);
+                    act.send_message_many(tid, &s);
+                    fut::ok(())
+                });
+            return Box::new(f);
+        }
+
+        self.send_message(&id, "!!! Talk not found");
+        Box::new(fut::err(ServiceError::BadRequest))
+    }
+}
+
 //pub fn add_admin(
 //    id: u32,
 //    talk_id: u32,
@@ -290,36 +333,6 @@ impl Handler<GetHistory> for TalkService {
 //    ids.sort();
 //    let _ = diesel::update(talks::table.find(talk_id)).set(talks::admin.eq(ids)).execute(conn)?;
 //    Ok(())
-//}
-//
-//pub fn remove_admin(
-//    id: u32,
-//    talk_id: u32,
-//    pool: &PostgresPool,
-//) -> Result<(), ServiceError> {
-//    let conn = &pool.get()?;
-//    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::admin).first::<Vec<u32>>(conn)?;
-//    ids = remove_id(id, ids)?;
-//
-//    let _ = diesel::update(talks::table.find(talk_id)).set(talks::admin.eq(ids)).execute(conn)?;
-//
-//    Ok(())
-//}
-//
-//pub fn remove_talk(
-//    msg: &Delete,
-//    conn: &PoolConnectionPostgres,
-//) -> Result<(), ServiceError> {
-//    let query = format!("DROP TABLE talk{}", msg.talk_id);
-//    sql_query(query).execute(conn)?;
-//    Ok(())
-//}
-//
-//
-//pub fn load_all_talks(
-//    conn: &PoolConnectionPostgres
-//) -> Result<Vec<Talk>, ServiceError> {
-//    Ok(talks::table.load::<Talk>(conn)?)
 //}
 //
 //pub fn remove_id(

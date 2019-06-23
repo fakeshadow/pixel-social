@@ -10,7 +10,6 @@ use crate::model::{
     talk::{
         Disconnect,
         Delete,
-        Remove,
         Admin,
         SessionMessage,
     },
@@ -19,10 +18,11 @@ use crate::handler::{
     auth::UserJwt,
     talk::{
         Connect,
-        GetRoomMembers,
+        GetTalkUsers,
         Create,
         GetTalks,
         Join,
+        RemoveUser,
         ClientMessage,
         GetHistory,
     },
@@ -140,7 +140,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
                 }
                 Err(_) => ctx.text("!!! Query parsing error")
             }
-            "/remove" => match serde_json::from_str::<Remove>(v[1]) {
+            "/remove" => match serde_json::from_str::<RemoveUser>(v[1]) {
                 Ok(mut msg) => {
                     msg.session_id = session.id;
                     session.addr.do_send(msg)
@@ -200,7 +200,7 @@ fn get_talk_users(
 ) {
     match string.parse::<u32>() {
         Ok(talk_id) => session.addr
-            .do_send(GetRoomMembers {
+            .do_send(GetTalkUsers {
                 session_id: session.id,
                 talk_id,
             }),

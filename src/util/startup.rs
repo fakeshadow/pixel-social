@@ -3,13 +3,16 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{get_all_categories, query_topics, get_users_all},
+    db::{get_all_categories, query_topics, get_users_all, simple_query},
     cache::{build_list, build_hmset},
 };
 use crate::model::{
-    common::{GlobalVar, GlobalGuard},
+    common::{
+        GlobalVar,
+        GlobalGuard,
+        create_topics_posts_table_sql,
+    }
 };
-use crate::handler::db::simple_query;
 
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, ()> {
@@ -168,6 +171,7 @@ CREATE TABLE talks
     id          OID          NOT NULL UNIQUE PRIMARY KEY,
     name        VARCHAR(128) NOT NULL UNIQUE,
     description VARCHAR(128) NOT NULL,
+    secret      VARCHAR(128) NOT NULL DEFAULT '1',
     owner       OID          NOT NULL,
     admin       OID[]        NOT NULL,
     users       OID[]        NOT NULL
@@ -182,86 +186,7 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 
     // create repeated default table
     for i in 1u32..6 {
-        query.push_str(&format!("
-CREATE TABLE topics{}
-(
-    id              OID           NOT NULL UNIQUE PRIMARY KEY,
-    user_id         OID           NOT NULL,
-    category_id     OID           NOT NULL,
-    title           VARCHAR(1024) NOT NULL,
-    body            VARCHAR(1024) NOT NULL,
-    thumbnail       VARCHAR(1024) NOT NULL,
-    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reply_count     INTEGER       NOT NULL DEFAULT 0,
-    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
-);
-CREATE TABLE posts{}
-(
-    id              OID           NOT NULL UNIQUE PRIMARY KEY,
-    user_id         OID           NOT NULL,
-    topic_id        OID           NOT NULL,
-    category_id     OID           NOT NULL,
-    post_id         OID,
-    post_content    VARCHAR(1024) NOT NULL,
-    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    reply_count     INTEGER       NOT NULL DEFAULT 0,
-    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
-);", i, i))
-    }
-
-    // create trigger for inserting topic
-    for i in 1u32..6 {
-        query.push_str(&format!("
-CREATE OR REPLACE FUNCTION adding_topic{}() RETURNS trigger AS
-$added_reply$
-BEGIN
-    UPDATE categories
-    SET topic_count = topic_count + 1
-    WHERE id = {};
-    RETURN NULL;
-END;
-$added_reply$ LANGUAGE plpgsql;
-CREATE TRIGGER adding_topic{}
-    AFTER INSERT
-    ON topics{}
-    FOR EACH ROW
-EXECUTE PROCEDURE adding_topic{}();", i, i, i, i, i))
-    }
-
-    // create trigger for inserting post
-    for i in 1u32..6 {
-        query.push_str(&format!("
-CREATE OR REPLACE FUNCTION adding_post{}() RETURNS trigger AS
-$adding_post$
-BEGIN
-    IF NOT EXISTS(SELECT id FROM topics{} WHERE id = NEW.topic_id)
-    THEN
-        RETURN NULL;
-    END IF;
-    IF NEW.post_id IS NOT NULL AND NOT EXISTS(SELECT id FROM posts{} WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
-    THEN
-        NEW.post_id = NULL;
-    END IF;
-    UPDATE categories
-    SET post_count = post_count + 1
-    WHERE id = NEW.category_id;
-    UPDATE topics{}
-    SET reply_count     = reply_count + 1,
-        last_reply_time = DEFAULT
-    WHERE id = NEW.topic_id;
-    RETURN NEW;
-END;
-$adding_post$ LANGUAGE plpgsql;
-
-CREATE TRIGGER adding_post{}
-    BEFORE INSERT
-    ON posts{}
-    FOR EACH ROW
-EXECUTE PROCEDURE adding_post{}();", i, i, i, i, i, i, i))
+        create_topics_posts_table_sql(&mut query, i);
     }
 
     // insert dummy data.default adminuser password is 1234asdf
@@ -279,6 +204,9 @@ VALUES (2, 'Announcement', 'category_default.png'),
        (4, 'Ace Combat', 'ace.jpg'),
        (5, 'Persona', 'persona.jpg');
 
+INSERT INTO talks (id, name, description, owner, admin, users)
+VALUES (1, 'test123', 'test123', 1, ARRAY [1, 2, 3], ARRAY [1, 2, 3]);
+
 INSERT INTO topics1 (id, user_id, category_id, reply_count, title, body, thumbnail)
 VALUES (1, 1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
@@ -291,13 +219,23 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 }
 
 pub fn drop_table(postgres_url: &str) {
+    let mut rt = Runtime::new().unwrap();
+    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+    rt.spawn(conn.map_err(|e| panic!("{}", e)));
+
+    let p = c.prepare("SELECT * FROM categories");
+    let st = rt.block_on(p).expect("failed to prepare statement");
+    let categories = Vec::new();
+    let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap_or_else(|_| panic!("failed to get categories"));
+
     let mut query = "
 DROP TABLE IF EXISTS associates;
 DROP TABLE IF EXISTS talks;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS categories;".to_owned();
 
-    for i in 1..6u32 {
+    for c in categories.iter() {
+        let i = c.id;
         query.push_str(&format!("
 DROP TRIGGER IF EXISTS adding_post{} ON posts{};
 DROP FUNCTION IF EXISTS adding_post{}();
@@ -307,12 +245,8 @@ DROP TABLE IF EXISTS topics{};
 DROP TABLE IF EXISTS posts{};", i, i, i, i, i, i, i, i))
     }
 
-    let mut rt = Runtime::new().unwrap();
-    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
-    rt.spawn(conn.map_err(|e| panic!("{}", e)));
-
     let _ = rt.block_on(simple_query(&mut c, &query).and_then(|_| {
-        println!("all tables have been drop");
+        println!("All tables have been drop. pixel_rs exited");
         Ok(())
     })).expect("failed to clear db");
 }

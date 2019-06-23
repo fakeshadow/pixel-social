@@ -12,7 +12,6 @@ use crate::model::{
 };
 use crate::handler::db::get_users;
 
-
 pub struct UpdateUserCheck(pub u32, pub UpdateRequest);
 
 pub struct UpdateTopicCheck(pub u32, pub TopicRequest);

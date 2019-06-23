@@ -12,7 +12,7 @@ use crate::model::{
     topic::Topic,
     user::User,
     cache::{FromHashSet, Parser, SortHash},
-    common::{AttachUser, GetSelfId,GetUserId},
+    common::{AttachUser, GetSelfId, GetUserId},
     mail::Mail,
 };
 
@@ -34,6 +34,8 @@ pub struct GetUsersCache(pub Vec<u32>);
 pub struct AddedTopic(pub Topic);
 
 pub struct AddedPost(pub Vec<Post>);
+
+pub struct AddedCategory(pub Category);
 
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
@@ -69,6 +71,11 @@ impl Message for AddedTopic {
 impl Message for AddedPost {
     type Result = Result<(), ServiceError>;
 }
+
+impl Message for AddedCategory {
+    type Result = Result<(), ServiceError>;
+}
+
 
 impl<T> Message for UpdateCache<T> {
     type Result = Result<(), ServiceError>;
@@ -156,6 +163,23 @@ impl Handler<AddedPost> for CacheService {
     }
 }
 
+impl Handler<AddedCategory> for CacheService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: AddedCategory, _: &mut Self::Context) -> Self::Result {
+        let c = msg.0;
+        let mut pipe = pipe();
+        pipe.atomic();
+        pipe.cmd("rpush").arg("category_id:meta").arg(c.id);
+        pipe.cmd("HMSET").arg(&format!("category:{}:set", c.id)).arg(c.sort_hash());
+        let f = pipe
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .map(|(_, ())| ());
+
+        Box::new(f)
+    }
+}
 
 impl Handler<GetTopicsCache> for CacheService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
@@ -301,7 +325,7 @@ pub fn get_users(
 ) -> impl Future<Item=Vec<User>, Error=ServiceError> {
     get_hmset(conn, uids, "user")
         .and_then(move |(_, uids, vec)| {
-            let mut u = Vec::with_capacity(21);
+            let mut u = Vec::new();
             // collect users from hash map
             for v in vec.iter() {
                 if let Some(user) = v.parse::<User>().ok() {
@@ -367,14 +391,6 @@ fn get_hmset<T>(
         .from_err()
         .map(|(conn, hm)| (conn, vec, hm))
 }
-
-//fn added_category(c: &Vec<Category>, conn: PoolConnectionRedis) -> UpdateResult {
-//    let c = c.first().ok_or(ServiceError::InternalServerError)?;
-//    Ok(redis_r::pipe().atomic()
-//        .rpush("category_id:meta", c.id)
-//        .hset_multiple(format!("category:{}:set", c.id), &c.sort_hash())
-//        .query(conn.deref())?)
-//}
 
 //fn add_mail_cache(mail: &Mail, conn: PoolConnectionRedis) -> Result<(), ServiceError> {
 //    let stringify = serde_json::to_string(mail)?;

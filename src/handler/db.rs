@@ -305,7 +305,8 @@ fn talk_from_simple_row(
         id: row.get(0).map(|s| s.parse::<u32>()).unwrap()?,
         name: row.get(1).ok_or(ServiceError::InternalServerError)?.to_owned(),
         description: row.get(2).ok_or(ServiceError::InternalServerError)?.to_owned(),
-        owner: row.get(3).map(|s| s.parse::<u32>()).unwrap()?,
+        secret: row.get(3).ok_or(ServiceError::InternalServerError)?.to_owned(),
+        owner: row.get(4).map(|s| s.parse::<u32>()).unwrap()?,
         admin: vec![],
         users: vec![],
     })

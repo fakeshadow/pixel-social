@@ -13,10 +13,10 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     user::UpdateUser,
-    category::{UpdateCategory, AddCategory, GetLastCategoryId},
+    category::{UpdateCategory, AddCategory},
     post::ModifyPost,
     topic::UpdateTopic,
-    cache::UpdateCache,
+    cache::{UpdateCache, AddedCategory},
     admin::{
         UpdatePostCheck,
         UpdateCategoryCheck,
@@ -37,24 +37,15 @@ pub fn add_category(
         .and_then(|r| r)
         .from_err()
         .and_then(move |req| db
-            .send(GetLastCategoryId)
+            .send(AddCategory(req))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(|cid| req.make_category(cid))
-            .from_err()
-            .and_then(move |req| db
-                .send(AddCategory(req))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |c| {
-                    let res = HttpResponse::Ok().json(&c);
-                    //ToDo: update category_id meta
-                    let _ = cache.do_send(UpdateCache::Category(c));
-                    res
-                })
-            ))
+            .and_then(move |c| {
+                let res = HttpResponse::Ok().json(&c);
+                let _ = cache.do_send(AddedCategory(c));
+                res
+            }))
 }
 
 pub fn update_category(

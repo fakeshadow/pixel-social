@@ -6,27 +6,22 @@ use actix::prelude::*;
 use crate::model::{
     actors::DatabaseService,
     category::{Category, CategoryRequest},
+    common::create_topics_posts_table_sql,
     errors::ServiceError,
 };
-use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category};
+use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category, simple_query};
 
 
 const LIMIT: i64 = 20;
 
 pub struct GetCategories;
 
-pub struct GetLastCategoryId;
-
 pub struct AddCategory(pub CategoryRequest);
 
 pub struct UpdateCategory(pub CategoryRequest);
 
-impl Message for GetLastCategoryId {
-    type Result = Result<u32, ServiceError>;
-}
-
 impl Message for AddCategory {
-    type Result = Result<Vec<Category>, ServiceError>;
+    type Result = Result<Category, ServiceError>;
 }
 
 impl Message for UpdateCategory {
@@ -50,28 +45,37 @@ impl Handler<GetCategories> for DatabaseService {
     }
 }
 
-impl Handler<GetLastCategoryId> for DatabaseService {
-    type Result = ResponseFuture<u32, ServiceError>;
-
-    fn handle(&mut self, _: GetLastCategoryId, _: &mut Self::Context) -> Self::Result {
-        let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
-        Box::new(get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0))
-    }
-}
-
 impl Handler<AddCategory> for DatabaseService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+    type Result = ResponseActFuture<Self, Category, ServiceError>;
 
     fn handle(&mut self, msg: AddCategory, _: &mut Self::Context) -> Self::Result {
         let c = msg.0;
 
-        let query = format!("INSERT INTO categories
-            (id, name, thumbnail)
-            VALUES ('{}', '{}', '{}')
-            RETURNING *", c.id.unwrap(), c.name.unwrap(), c.thumbnail.unwrap());
+        let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
 
-        Box::new(query_category(self.db.as_mut().unwrap(), query.as_str())
-            .map(|c| vec![c]))
+        let f = get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
+            .into_actor(self)
+            .and_then(move |cid, addr, _| {
+                let cid = cid + 1;
+                let queryc = format!("INSERT INTO categories
+                                            (id, name, thumbnail)
+                                            VALUES ('{}', '{}', '{}')
+                                            RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
+
+                let mut queryt = String::new();
+                create_topics_posts_table_sql(&mut queryt, cid);
+
+                let db = addr.db.as_mut().unwrap();
+                let f1 =
+                    query_category(db, queryc.as_str());
+                let f2 =
+                    simple_query(db, queryt.as_str());
+                f1.join(f2)
+                    .map(|(c, _)| c)
+                    .into_actor(addr)
+            });
+
+        Box::new(f)
     }
 }
 

@@ -47,7 +47,8 @@ fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() > 2 && &args[1] == "DROP_TABLES" && &args[2] == "true" {
-        drop_table(&database_url)
+        drop_table(&database_url);
+        std::process::exit(1);
     }
     if args.len() > 2 && &args[1] == "BUILD_TABLES" && &args[2] == "true" {
         create_table(&database_url);
