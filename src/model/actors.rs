@@ -11,7 +11,6 @@ use crate::model::{
 use crate::handler::db::talk_from_msg;
 
 pub type SharedConn = redis::aio::SharedConnection;
-pub type Conn = redis::aio::Connection;
 pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;

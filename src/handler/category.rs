@@ -11,14 +11,17 @@ use crate::model::{
 };
 use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category, simple_query};
 
-
-const LIMIT: i64 = 20;
-
 pub struct GetCategories;
 
 pub struct AddCategory(pub CategoryRequest);
 
 pub struct UpdateCategory(pub CategoryRequest);
+
+pub struct RemoveCategory(pub u32);
+
+impl Message for GetCategories {
+    type Result = Result<Vec<Category>, ServiceError>;
+}
 
 impl Message for AddCategory {
     type Result = Result<Category, ServiceError>;
@@ -28,9 +31,22 @@ impl Message for UpdateCategory {
     type Result = Result<Vec<Category>, ServiceError>;
 }
 
-impl Message for GetCategories {
-    type Result = Result<Vec<Category>, ServiceError>;
+impl Message for RemoveCategory {
+    type Result = Result<(), ServiceError>;
 }
+
+impl Handler<RemoveCategory> for DatabaseService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: RemoveCategory, _: &mut Self::Context) -> Self::Result {
+        let query = format!("
+        DELETE FROM talks
+        WHERE id={}", msg.0);
+
+        Box::new(simple_query(self.db.as_mut().unwrap(), &query).map(|_| ()))
+    }
+}
+
 
 impl Handler<GetCategories> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
@@ -51,16 +67,17 @@ impl Handler<AddCategory> for DatabaseService {
     fn handle(&mut self, msg: AddCategory, _: &mut Self::Context) -> Self::Result {
         let c = msg.0;
 
-        let query = "SELECT id FROM categories ORDER BY id DESC LIMIT 1";
+        let query = "SELECT id() FROM categories ORDER BY id DESC LIMIT 1";
 
         let f = get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
             .into_actor(self)
             .and_then(move |cid, addr, _| {
                 let cid = cid + 1;
-                let queryc = format!("INSERT INTO categories
-                                            (id, name, thumbnail)
-                                            VALUES ('{}', '{}', '{}')
-                                            RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
+                let queryc = format!("
+                    INSERT INTO categories
+                    (id, name, thumbnail)
+                    VALUES ('{}', '{}', '{}')
+                    RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
                 let mut queryt = String::new();
                 create_topics_posts_table_sql(&mut queryt, cid);
@@ -83,10 +100,7 @@ impl Handler<UpdateCategory> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
     fn handle(&mut self, msg: UpdateCategory, _: &mut Self::Context) -> Self::Result {
-        let c = match msg.0.make_update() {
-            Ok(c) => c,
-            Err(e) => return Box::new(ft_err(e))
-        };
+        let c = msg.0;
 
         let mut query = String::new();
         query.push_str("UPDATE categories SET");

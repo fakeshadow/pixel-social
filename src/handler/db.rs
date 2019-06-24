@@ -50,8 +50,6 @@ pub fn query_posts(
 pub fn query_topics(
     c: &mut Client,
     query: &str,
-    topics: Vec<Topic>,
-    ids: Vec<u32>,
 ) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
     general_simple_query_fold(c, query, topic_from_simple_row)
         .map(|(t, mut ids)| {

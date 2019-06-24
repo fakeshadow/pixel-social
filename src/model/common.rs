@@ -4,20 +4,9 @@ use actix_web::{web::Data};
 
 use crate::model::{
     errors::ServiceError,
-    user::{ToUserRef, UserRef}};
+    user::{ToUserRef, UserRef},
+};
 use crate::util::validation as validate;
-
-
-#[derive(Serialize)]
-struct ResMsg<'a> {
-    message: &'a str,
-}
-
-impl<'a> ResMsg<'a> {
-    pub fn new(msg: &'a str) -> Self {
-        ResMsg { message: msg }
-    }
-}
 
 pub trait GetSelfCategory {
     fn get_self_category(&self) -> &u32;
@@ -205,5 +194,10 @@ CREATE TRIGGER adding_post{}
     BEFORE INSERT
     ON posts{}
     FOR EACH ROW
-EXECUTE PROCEDURE adding_post{}();", cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid));
+EXECUTE PROCEDURE adding_post{}();
+
+CREATE INDEX topic_time_order{} ON topics{} (last_reply_time DESC);
+CREATE INDEX topic_reply_order{} ON topics{} (reply_count DESC);
+CREATE INDEX post_reply_order{} ON posts{} (reply_count DESC);
+", cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid, cid));
 }

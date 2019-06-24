@@ -58,10 +58,10 @@ pub fn add(
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.make_new()
+    req.check_new()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(AddTopic(req, global.get_ref().clone()))
             .from_err()
             .and_then(|r| r)
@@ -79,11 +79,11 @@ pub fn update(
     cache: Data<CACHE>,
     req: Json<TopicRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.make_update()
+    let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
+    req.check_update()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(UpdateTopic(req))
             .from_err()
             .and_then(|r| r)

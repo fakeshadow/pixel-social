@@ -11,15 +11,14 @@ use crate::model::{
     post::{Post, PostRequest},
 };
 
-const LIMIT: i64 = 20;
-
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
-pub struct GetPosts(pub Vec<u32>);
 
+pub struct GetPosts(pub Vec<u32>);
 
 impl Message for ModifyPost {
     type Result = Result<Vec<Post>, ServiceError>;
 }
+
 impl Message for GetPosts {
     type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
 }
@@ -97,8 +96,6 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
-
-
         let mut query = "SELECT * FROM posts
         WHERE id= ANY('{".to_owned();
 

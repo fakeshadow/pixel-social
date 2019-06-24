@@ -13,10 +13,10 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     user::UpdateUser,
-    category::{UpdateCategory, AddCategory},
+    category::{UpdateCategory, AddCategory, RemoveCategory},
     post::ModifyPost,
     topic::UpdateTopic,
-    cache::{UpdateCache, AddedCategory},
+    cache::{UpdateCache, AddedCategory, RemoveCategoryCache},
     admin::{
         UpdatePostCheck,
         UpdateCategoryCheck,
@@ -24,7 +24,6 @@ use crate::handler::{
         UpdateUserCheck,
     },
 };
-
 pub fn add_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
@@ -32,20 +31,24 @@ pub fn add_category(
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
-    db.send(UpdateCategoryCheck(jwt.is_admin, req))
+    req.check_new()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |req| db
-            .send(AddCategory(req))
+        .and_then(move |_| db
+            .send(UpdateCategoryCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |c| {
-                let res = HttpResponse::Ok().json(&c);
-                let _ = cache.do_send(AddedCategory(c));
-                res
-            }))
+            .and_then(move |req|
+                db.send(AddCategory(req))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |c| {
+                        let res = HttpResponse::Ok().json(&c);
+                        let _ = cache.do_send(AddedCategory(c));
+                        res
+                    })))
 }
 
 pub fn update_category(
@@ -55,42 +58,47 @@ pub fn update_category(
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
-    db.send(UpdateCategoryCheck(jwt.is_admin, req))
+    req.check_update()
+        .into_future()
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |req| req.make_update())
-        .from_err()
-        .and_then(move |req| db
-            .send(UpdateCategory(req))
+        .and_then(move |_| db
+            .send(UpdateCategoryCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |c| {
-                let res = HttpResponse::Ok().json(&c);
-                let _ = cache.do_send(UpdateCache::Category(c));
-                res
-            })
-        )
+            .and_then(move |req|
+                db.send(UpdateCategory(req))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |c| {
+                        let res = HttpResponse::Ok().json(&c);
+                        let _ = cache.do_send(UpdateCache::Category(c));
+                        res
+                    })))
 }
 
-//pub fn admin_remove_category(
-//    jwt: UserJwt, id: Path<(u32)>,
-//    cache: Data<RedisPool>,
-//    db: Data<PostgresPool>,
-//) -> impl Future<Item=HttpResponse, Error=Error> {
-//    // ToDo: need to add posts and topics migration along side the remove.
-//    use crate::model::{admin::IdToQuery as AdminIdToQuery, category::IdToQuery};
-//    id.to_privilege_check(&jwt.is_admin)
-//        .handle_check(&db)
-//        .into_future()
-//        .from_err()
-//        .and_then(move |_| id
-//            .to_delete_query()
-//            .into_category_id(&db))
-//        .from_err()
-//        .and_then(move |id| HttpResponse::Ok().json(id))
-//}
+pub fn remove_category(
+    jwt: UserJwt,
+    id: Path<(u32)>,
+    cache: Data<CACHE>,
+    db: Data<DB>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let id = id.into_inner();
+    //ToDo: add admin check
+    db.send(RemoveCategory(id))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |_| cache
+            .send(RemoveCategoryCache(id))
+            .from_err()
+            // ToDo: add retry if the delete of categories failed.
+            .and_then(|r| r)
+            .from_err()
+            .and_then(|_| HttpResponse::Ok().finish())
+        )
+}
 
 pub fn update_user(
     jwt: UserJwt,
@@ -125,11 +133,11 @@ pub fn update_topic(
     cache: Data<CACHE>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(None);
-    req.make_update()
+    let mut req = req.into_inner().attach_user_id(None);
+    req.check_update()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(UpdateTopicCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)
@@ -152,11 +160,11 @@ pub fn update_post(
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(None);
-    req.make_update()
+    let mut req = req.into_inner().attach_user_id(None);
+    req.check_update()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(UpdatePostCheck(jwt.is_admin, req))
             .from_err()
             .and_then(|r| r)

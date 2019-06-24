@@ -2,6 +2,7 @@ use std::fmt::Write;
 use futures::{Future, future::err as ft_err};
 
 use actix::prelude::*;
+use chrono::{NaiveDateTime, Utc};
 
 use crate::model::{
     actors::DatabaseService,
@@ -23,7 +24,7 @@ pub struct GetTopicWithPost(pub u32, pub u32, pub i64);
 
 pub enum GetTopics {
     Latest(u32, i64),
-    Popular(i64),
+    Popular(u32, i64),
 }
 
 impl Message for AddTopic {
@@ -51,9 +52,6 @@ impl Handler<GetTopicWithPost> for DatabaseService {
         let tid = msg.1;
         let page = msg.2;
 
-        let topic = Vec::with_capacity(1);
-        let posts = Vec::with_capacity(20);
-
         let queryt = format!("SELECT * FROM topics{} WHERE id = {}", cid, tid);
 
         let queryp =
@@ -64,7 +62,7 @@ impl Handler<GetTopicWithPost> for DatabaseService {
                    LIMIT {}", cid, tid, (page - 1) * 20, LIMIT);
 
         let ft =
-            query_topics(self.db.as_mut().unwrap(), &queryt, topic, posts);
+            query_topics(self.db.as_mut().unwrap(), &queryt);
         let fp =
             query_posts(self.db.as_mut().unwrap(), &queryp);
 
@@ -152,20 +150,27 @@ impl Handler<UpdateTopic> for DatabaseService {
 impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
-    fn handle(&mut self, msg: GetTopics, ctx: &mut Self::Context) -> Self::Result {
-        let topics = Vec::with_capacity(20);
-        let ids: Vec<u32> = Vec::with_capacity(20);
-
+    fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
         let query = match msg {
             GetTopics::Latest(id, page) => format!(
                 "SELECT * FROM topics{}
                 ORDER BY last_reply_time DESC
                 OFFSET {}
                 LIMIT 20", id, ((page - 1) * 20)),
-            GetTopics::Popular(page) => "template".to_owned()
+            GetTopics::Popular(id, page) => {
+                let now = Utc::now().timestamp() - 86400;
+                let now = NaiveDateTime::from_timestamp(now,0);
+
+                format!(
+                "SELECT * FROM topics{}
+                WHERE last_reply_time > '{}'
+                ORDER BY reply_count DESC
+                OFFSET {}
+                LIMIT 20", id, &now, ((page - 1) * 20))
+            }
         };
 
-        let f = query_topics(self.db.as_mut().unwrap(), &query, topics, ids);
+        let f = query_topics(self.db.as_mut().unwrap(), &query);
 
         Box::new(f)
     }

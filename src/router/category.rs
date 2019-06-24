@@ -41,7 +41,7 @@ pub fn get_all_categories(
         })
 }
 
-pub fn get_category(
+pub fn get_category_latest(
     req: Path<(u32, i64)>,
     db: Data<DB>,
     cache: Data<CACHE>,
@@ -70,4 +70,30 @@ pub fn get_category(
                     })
                 ))
         })
+}
+
+pub fn get_category_popular(
+    req: Path<(u32, i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let (id, page) = req.into_inner();
+
+    db.send(GetTopics::Popular(id, page))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        // return user ids with topics for users query
+        .and_then(move |(t, ids)| db
+            .send(GetUsers(ids))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |u| {
+                let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+//                let _ = cache.do_send(UpdateCache::Topic(t));
+//                let _ = cache.do_send(UpdateCache::User(u));
+                res
+            })
+        )
 }

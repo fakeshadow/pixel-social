@@ -5,7 +5,7 @@ use actix::prelude::*;
 use redis::{Client, cmd, pipe};
 
 use crate::model::{
-    actors::{CacheService, Conn, SharedConn},
+    actors::{CacheService, SharedConn},
     errors::ServiceError,
     category::Category,
     post::Post,
@@ -36,6 +36,8 @@ pub struct AddedTopic(pub Topic);
 pub struct AddedPost(pub Vec<Post>);
 
 pub struct AddedCategory(pub Category);
+
+pub struct RemoveCategoryCache(pub u32);
 
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
@@ -76,6 +78,9 @@ impl Message for AddedCategory {
     type Result = Result<(), ServiceError>;
 }
 
+impl Message for RemoveCategoryCache {
+    type Result = Result<(), ServiceError>;
+}
 
 impl<T> Message for UpdateCache<T> {
     type Result = Result<(), ServiceError>;
@@ -255,6 +260,28 @@ impl Handler<GetPostsCache> for CacheService {
         Box::new(f)
     }
 }
+
+impl Handler<RemoveCategoryCache> for CacheService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: RemoveCategoryCache, _: &mut Self::Context) -> Self::Result {
+        let key = format!("category:{}:set", msg.0);
+        let fields = ["id", "name", "topic_count", "post_count", "subscriber_count", "thumbnail"];
+
+        let mut pipe = pipe();
+        pipe.atomic();
+        pipe.cmd("lrem").arg(1).arg("category_id:meta");
+
+        for f in fields.to_vec() {
+            pipe.cmd("hdel").arg(&key).arg(f);
+        }
+
+        Box::new(pipe.query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .map(|(_, _): (_, usize)| ()))
+    }
+}
+
 
 fn topics_posts_from_list<T>(
     id: u32,

@@ -21,10 +21,6 @@ pub enum ServiceError {
     InvalidPassword,
     #[display(fmt = "BadRequest")]
     InvalidEmail,
-    //    #[display(fmt = "BadRequest")]
-//    NotFound,
-    #[display(fmt = "RedisError: {}", _0)]
-    RedisError(String),
     #[display(fmt = "Forbidden")]
     WrongPwd,
     #[display(fmt = "Forbidden")]
@@ -48,11 +44,9 @@ impl ResponseError for ServiceError {
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
             ServiceError::InvalidPassword => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password")),
             ServiceError::InvalidEmail => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Email")),
-//            ServiceError::NotFound => HttpResponse::NotFound().json(ErrorMessage::new("Not found")),
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::RedisError(e) => HttpResponse::InternalServerError().json(ErrorMessage::new(e)),
             ServiceError::PARSEINT => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing int error")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }

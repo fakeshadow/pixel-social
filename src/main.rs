@@ -46,13 +46,15 @@ fn main() -> std::io::Result<()> {
     // create or clear database tables
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 2 && &args[1] == "DROP_TABLES" && &args[2] == "true" {
-        drop_table(&database_url);
-        std::process::exit(1);
+    for arg in args.iter() {
+        if arg == "drop" {
+            drop_table(&database_url);
+            std::process::exit(1);
+        }
+        if arg == "build" {
+            create_table(&database_url);
+        }
     }
-    if args.len() > 2 && &args[1] == "BUILD_TABLES" && &args[2] == "true" {
-        create_table(&database_url);
-    };
 
     let _ = clear_cache(&redis_url);
 
@@ -83,7 +85,7 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/post").route(web::post().to_async(router::admin::update_post)))
                 .service(web::resource("/topic").route(web::post().to_async(router::admin::update_topic)))
                 .service(web::scope("/category")
-//                    .service(web::resource("/delete/{category_id}").route(web::get().to_async(router::admin::remove_category)))
+                    .service(web::resource("/remove/{category_id}").route(web::get().to_async(router::admin::remove_category)))
                     .service(web::resource("/update").route(web::post().to_async(router::admin::update_category)))
                     .service(web::resource("").route(web::post().to_async(router::admin::add_category)))
                 )
@@ -105,8 +107,8 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("").route(web::post().to_async(router::topic::add)))
             )
             .service(web::scope("/categories")
-                .service(web::resource("/popular/{page}").route(web::get().to_async(router::category::get_popular)))
-                .service(web::resource("/{category_id}/{page}").route(web::get().to_async(router::category::get_category)))
+                .service(web::resource("/popular/{category_id}/{page}").route(web::get().to_async(router::category::get_category_popular)))
+                .service(web::resource("/{category_id}/{page}").route(web::get().to_async(router::category::get_category_latest)))
                 .service(web::resource("").route(web::get().to_async(router::category::get_all_categories)))
             )
             .service(web::scope("/test")

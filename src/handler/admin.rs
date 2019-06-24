@@ -41,7 +41,7 @@ impl Message for UpdateCategoryCheck {
 impl Handler<UpdateUserCheck> for DatabaseService {
     type Result = ResponseFuture<UpdateRequest, ServiceError>;
 
-    fn handle(&mut self, msg: UpdateUserCheck, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateUserCheck, _: &mut Self::Context) -> Self::Result {
         let self_lv = msg.0;
         let req = msg.1;
 
@@ -62,7 +62,7 @@ impl Handler<UpdateUserCheck> for DatabaseService {
 impl Handler<UpdateTopicCheck> for DatabaseService {
     type Result = ResponseFuture<TopicRequest, ServiceError>;
 
-    fn handle(&mut self, msg: UpdateTopicCheck, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateTopicCheck, _: &mut Self::Context) -> Self::Result {
         Box::new(update_topic_check(&msg.0, &msg.1)
             .into_future()
             .map(|_| msg.1))
@@ -72,7 +72,7 @@ impl Handler<UpdateTopicCheck> for DatabaseService {
 impl Handler<UpdateCategoryCheck> for DatabaseService {
     type Result = ResponseFuture<CategoryRequest, ServiceError>;
 
-    fn handle(&mut self, msg: UpdateCategoryCheck, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateCategoryCheck, _: &mut Self::Context) -> Self::Result {
         Box::new(update_category_check(&msg.0, &msg.1)
             .into_future()
             .map(|_| msg.1))
@@ -82,7 +82,7 @@ impl Handler<UpdateCategoryCheck> for DatabaseService {
 impl Handler<UpdatePostCheck> for DatabaseService {
     type Result = ResponseFuture<PostRequest, ServiceError>;
 
-    fn handle(&mut self, msg: UpdatePostCheck, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdatePostCheck, _: &mut Self::Context) -> Self::Result {
         Box::new(update_post_check(&msg.0, &msg.1)
             .into_future()
             .map(|_| msg.1))

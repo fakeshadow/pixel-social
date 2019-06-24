@@ -12,8 +12,8 @@
 *. make changes to cors setting if you encounter the issue.
 2. `cargo build --release`<br>
 3. run the compiled `pixel_rs` in target/release folder to start the server<br>
-*. run `pixel_rs BUILD_TABLES true` to generate dummy tables.<br>
-*. run `pixel_rs DROP_TABLES true` to drop all tables.
+*. run `pixel_rs build` to generate dummy tables.<br>
+*. run `pixel_rs drop` to drop all tables.
     
 `Web Frontend:`<br>
 1. `pub get` to get dependencies

@@ -39,13 +39,12 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     for cat in categories.iter() {
         category_ids.push(cat.id);
         let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
-        let tids = Vec::new();
-        let topics = Vec::new();
-        let (topics, _) = rt.block_on(query_topics(&mut c, &query, topics, tids)).unwrap_or_else(|_| panic!("Failed to build category lists"));
-        let tids = topics.into_iter().map(|t| {
-            if t.id > last_tid { last_tid = t.id };
-            t.id
-        }).collect();
+        let (_, tids) = rt.block_on(query_topics(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+
+        for tid in tids.clone().into_iter() {
+            if tid > last_tid { last_tid = tid };
+        }
+
         let key = format!("category:{}:list", &cat.id);
         let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
     }
@@ -126,7 +125,7 @@ pub fn create_table(postgres_url: &str) {
     let p = c.prepare("SELECT * FROM categories");
     if let Some(st) = rt.block_on(p).ok() {
         let categories = Vec::new();
-        if let Some(v) = rt.block_on(get_all_categories(&mut c, &st, categories)).ok() {
+        if let Some(_) = rt.block_on(get_all_categories(&mut c, &st, categories)).ok() {
             return;
         }
     }
@@ -215,7 +214,10 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
     let f = c.simple_query(&query).into_future();
 
-    let _ = rt.block_on(f).unwrap_or_else(|_| panic!("fail to create default tables"));
+    let _ = rt.block_on(f).and_then(|_| {
+        println!("dummy tables generated");
+        Ok(())
+    }).unwrap_or_else(|_| panic!("fail to create default tables"));
 }
 
 pub fn drop_table(postgres_url: &str) {
@@ -241,8 +243,11 @@ DROP TRIGGER IF EXISTS adding_post{} ON posts{};
 DROP FUNCTION IF EXISTS adding_post{}();
 DROP TRIGGER IF EXISTS adding_topic{} ON topics{};
 DROP FUNCTION IF EXISTS adding_topic{}();
+DROP INDEX IF EXISTS topic_time_order{};
+DROP INDEX IF EXISTS topic_reply_order{};
+DROP INDEX IF EXISTS post_reply_order{};
 DROP TABLE IF EXISTS topics{};
-DROP TABLE IF EXISTS posts{};", i, i, i, i, i, i, i, i))
+DROP TABLE IF EXISTS posts{};", i, i, i, i, i, i, i, i, i, i, i))
     }
 
     let _ = rt.block_on(simple_query(&mut c, &query).and_then(|_| {

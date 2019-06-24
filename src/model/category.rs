@@ -25,19 +25,18 @@ impl GetSelfId for Category {
 }
 
 impl CategoryRequest {
-    pub fn make_category(mut self, id: u32) -> Result<Self, ServiceError> {
+    pub fn check_new(&self) -> Result<(), ServiceError> {
         if self.name.is_none() || self.thumbnail.is_none() {
             Err(ServiceError::BadRequest)
         } else {
-            self.id = Some(id);
-            Ok(self)
+            Ok(())
         }
     }
-    pub fn make_update(self) -> Result<Self, ServiceError> {
+    pub fn check_update(&self) -> Result<(), ServiceError> {
         if self.id.is_none() {
             Err(ServiceError::BadRequest)
         } else {
-            Ok(self)
+            Ok(())
         }
     }
 }

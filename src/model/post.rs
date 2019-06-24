@@ -38,25 +38,25 @@ impl PostRequest {
         self
     }
 
-    pub fn make_new(self) -> Result<Self, ServiceError> {
+    pub fn check_new(&self) -> Result<(), ServiceError> {
         if self.topic_id.is_none() ||
             self.post_content.is_none() {
             Err(ServiceError::BadRequest)
         } else {
-            Ok(self)
+            Ok(())
         }
     }
 
-    pub fn make_update(mut self) -> Result<Self, ServiceError> {
+    pub fn check_update(&mut self) -> Result<(), ServiceError> {
         if self.id.is_none() {
             return Err(ServiceError::BadRequest);
         }
-        if let Some(uid) = self.user_id {
+        if let Some(_) = self.user_id {
             self.topic_id = None;
             self.post_id = None;
             self.is_locked = None;
         }
-        Ok(self)
+        Ok(())
     }
 }
 

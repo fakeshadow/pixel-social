@@ -30,22 +30,11 @@ pub struct SessionMessage(pub String);
 
 
 #[derive(Message)]
-pub struct Disconnect {
-    pub session_id: u32,
-}
-
-#[derive(Message)]
 pub struct Delete {
     pub session_id: u32,
     pub talk_id: u32,
 }
 
-#[derive(Message, Deserialize)]
-pub struct Remove {
-    pub session_id: u32,
-    pub user_id: u32,
-    pub talk_id: u32,
-}
 
 #[derive(Message, Deserialize)]
 pub struct Admin {
@@ -53,41 +42,6 @@ pub struct Admin {
     pub remove: Option<u32>,
     pub talk_id: u32,
     pub session_id: u32,
-}
-
-impl Handler<Disconnect> for TalkService {
-    type Result = ();
-
-    fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
-        self.sessions.remove(&msg.session_id);
-    }
-}
-
-impl Handler<Remove> for TalkService {
-    type Result = ();
-
-    fn handle(&mut self, msg: Remove, _: &mut Context<Self>) {
-        let string = match self.talks.get_mut(&msg.talk_id) {
-            Some(talk) => {
-                let (index, _) = talk.users
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, uid)| *uid == &msg.user_id)
-                    .next()
-                    .unwrap_or((0, &0));
-
-                if index > 0 && talk.owner == msg.session_id {
-                    //ToDo: remove user id from database here.
-                    ""
-                } else {
-                    "!!! Wrong user id"
-                }
-            }
-            None => "!!! Wrong talk id"
-        };
-
-//        self.send_message(&msg.session_id, string);
-    }
 }
 
 impl Handler<Delete> for TalkService {
@@ -100,35 +54,6 @@ impl Handler<Delete> for TalkService {
 
 //            self.send_message(&msg.session_id, string);
         }
-    }
-}
-
-impl Handler<Admin> for TalkService {
-    type Result = ();
-
-    fn handle(&mut self, msg: Admin, _: &mut Context<Self>) {
-        let string = match self.talks.get_mut(&msg.talk_id) {
-            Some(talk) => {
-                let (typ, id, can_update) = match msg.add {
-                    Some(id) => ("add", id, !talk.admin.contains(&id)),
-                    None => {
-                        let id = msg.remove.unwrap_or(0);
-                        ("remove", id, talk.admin.contains(&id))
-                    }
-                };
-                if &talk.owner == &msg.session_id && can_update {
-                    match typ {
-                        //ToDo: add or remove admin to database here.
-                        "add" => "placeholder",
-                        _ => "placeholder"
-                    }
-                } else {
-                    "!!! Parsing failed"
-                }
-            }
-            None => "!!! Wrong talk"
-        };
-//        self.send_message(&msg.session_id, string);
     }
 }
 

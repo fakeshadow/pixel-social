@@ -3,14 +3,13 @@ use std::time::{Duration, Instant};
 use actix::prelude::*;
 use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
 use actix_web_actors::ws;
+use serde::Deserialize;
 
 use crate::util::jwt::JwtPayLoad;
 use crate::model::{
-    actors::TALK,
+    actors::{TALK, TalkService},
     talk::{
-        Disconnect,
         Delete,
-        Admin,
         SessionMessage,
     },
 };
@@ -18,10 +17,12 @@ use crate::handler::{
     auth::UserJwt,
     talk::{
         Connect,
+        Disconnect,
         GetTalkUsers,
         Create,
         GetTalks,
         Join,
+        Admin,
         RemoveUser,
         ClientMessage,
         GetHistory,
@@ -126,49 +127,64 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
         }
     } else {
         match v[0] {
-            "/msg" => match serde_json::from_str::<ClientMessage>(v[1]) {
-                Ok(mut msg) => {
-                    msg.session_id = session.id;
-                    session.addr.do_send(msg);
-                }
-                Err(_) => ctx.text("!!! Query parsing error")
-            }
-            "/history" => match serde_json::from_str::<GetHistory>(v[1]) {
-                Ok(mut msg) => {
-                    msg.session_id = session.id;
-                    session.addr.do_send(msg)
-                }
-                Err(_) => ctx.text("!!! Query parsing error")
-            }
-            "/remove" => match serde_json::from_str::<RemoveUser>(v[1]) {
-                Ok(mut msg) => {
-                    msg.session_id = session.id;
-                    session.addr.do_send(msg)
-                }
-                Err(_) => ctx.text("!!! Query parsing error")
-            }
-            "/admin" => match serde_json::from_str::<Admin>(v[1]) {
-                Ok(mut msg) => {
-                    msg.session_id = session.id;
-                    session.addr.do_send(msg)
-                }
-                Err(_) => ctx.text("!!! Query parsing error")
-            }
+            "/msg" => general_msg_handler::<ClientMessage>(session, v[1], ctx),
+            "/history" => general_msg_handler::<GetHistory>(session, v[1], ctx),
+            "/remove" => general_msg_handler::<RemoveUser>(session, v[1], ctx),
+            "/admin" => general_msg_handler::<Admin>(session, v[1], ctx),
             // request talk_id 0 to get all talks details.
             "/talks" => get_talks(session, v[1], ctx),
             // get users of one talk from talk_id
             "/users" => get_talk_users(session, v[1], ctx),
             "/join" => join_talk(session, v[1], ctx),
             "/create" => create_talk(session, v[1], ctx),
-            "/delete" => {
-                let talk_id = v[1].parse::<u32>().unwrap_or(0);
-                session.addr.do_send(Delete {
-                    session_id: session.id,
-                    talk_id,
-                });
-            }
+            "/delete" => delete_talk(session, v[1], ctx),
             _ => ctx.text("!!! Unknown command")
         }
+    }
+}
+
+pub trait AttachSessionId {
+    fn attach_session_id(&mut self, id: u32);
+}
+
+impl AttachSessionId for Admin {
+    fn attach_session_id(&mut self, id: u32) {
+        self.session_id = id;
+    }
+}
+
+impl AttachSessionId for RemoveUser {
+    fn attach_session_id(&mut self, id: u32) {
+        self.session_id = id;
+    }
+}
+
+impl AttachSessionId for GetHistory {
+    fn attach_session_id(&mut self, id: u32) {
+        self.session_id = id;
+    }
+}
+
+impl AttachSessionId for ClientMessage {
+    fn attach_session_id(&mut self, id: u32) {
+        self.session_id = id;
+    }
+}
+
+fn general_msg_handler<'a, T>(
+    session: &mut WsChatSession,
+    text: &'a str,
+    ctx: &mut ws::WebsocketContext<WsChatSession>,
+) where T: AttachSessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
+        <T as Message>::Result: std::marker::Send,
+        TalkService: Handler<T> {
+    let r: Result<T, _> = serde_json::from_str::<T>(text);
+    match r {
+        Ok(mut msg) => {
+            msg.attach_session_id(session.id);
+            session.addr.do_send(msg)
+        }
+        Err(_) => ctx.text("!!! Query parsing error")
     }
 }
 
@@ -234,6 +250,18 @@ fn create_talk(
         }
         Err(_) => ctx.text("!!! Query parsing error")
     }
+}
+
+fn delete_talk(
+    session: &mut WsChatSession,
+    string: &str,
+    ctx: &mut ws::WebsocketContext<WsChatSession>,
+) {
+    let talk_id = string.parse::<u32>().unwrap_or(0);
+    session.addr.do_send(Delete {
+        session_id: session.id,
+        talk_id,
+    });
 }
 
 fn join_talk(

@@ -22,10 +22,10 @@ pub fn add(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_user_id(Some(jwt.user_id));
     // ToDo: Add trigger before inserting. Make post_id null if the topic doesn't contain target post
-    req.make_new()
+    req.check_new()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(ModifyPost(req, Some(global.get_ref().clone())))
             .from_err()
             .and_then(|r| r)
@@ -43,11 +43,11 @@ pub fn update(
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.make_update()
+    let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
+    req.check_update()
         .into_future()
         .from_err()
-        .and_then(move |req| db
+        .and_then(move |_| db
             .send(ModifyPost(req, None))
             .from_err()
             .and_then(|r| r)

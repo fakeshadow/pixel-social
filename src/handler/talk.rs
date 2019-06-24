@@ -12,15 +12,14 @@ use crate::model::{
     talk::{Talk, SessionMessage, Delete},
 };
 use crate::handler::{
-    db::{create_talk, get_single_row, simple_query},
+    db::{create_talk, get_single_row, simple_query ,query_talk},
     cache::get_users,
 };
-use crate::handler::db::query_talk;
 
 impl TalkService {
     fn send_message_many(&self, id: u32, msg: &str) {
         if let Some(talk) = self.talks.get(&id) {
-            talk.users.iter().map(|id| self.send_message(id, msg));
+            talk.users.iter().for_each(|id| self.send_message(id, msg));
         }
     }
 
@@ -41,6 +40,11 @@ struct HistoryMessage {
 pub struct Connect {
     pub session_id: u32,
     pub addr: Recipient<SessionMessage>,
+}
+
+#[derive(Message)]
+pub struct Disconnect {
+    pub session_id: u32,
 }
 
 #[derive(Deserialize, Clone)]
@@ -85,11 +89,19 @@ pub struct GetTalkUsers {
     pub talk_id: u32,
 }
 
-/// pass talk id for talk public messages. pass none for private history message.
+// pass talk id for talk public messages. pass none for private history message.
 #[derive(Deserialize)]
 pub struct GetHistory {
     pub time: String,
     pub talk_id: Option<u32>,
+    pub session_id: u32,
+}
+
+#[derive(Deserialize)]
+pub struct Admin {
+    pub add: Option<u32>,
+    pub remove: Option<u32>,
+    pub talk_id: u32,
     pub session_id: u32,
 }
 
@@ -111,6 +123,18 @@ impl Message for GetTalkUsers {
 
 impl Message for GetHistory {
     type Result = Result<(), ServiceError>;
+}
+
+impl Message for Admin {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Handler<Disconnect> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
+        self.sessions.remove(&msg.session_id);
+    }
 }
 
 impl Handler<ClientMessage> for TalkService {
@@ -139,7 +163,7 @@ impl Handler<ClientMessage> for TalkService {
 impl Handler<Connect> for TalkService {
     type Result = ();
 
-    fn handle(&mut self, msg: Connect, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Connect, _: &mut Context<Self>) -> Self::Result {
         self.sessions.insert(msg.session_id, msg.addr);
         self.send_message(&msg.session_id, "Authentication success");
     }
@@ -182,7 +206,7 @@ impl Handler<Create> for TalkService {
 impl Handler<Join> for TalkService {
     type Result = ResponseActFuture<Self, (), ServiceError>;
 
-    fn handle(&mut self, msg: Join, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: Join, _: &mut Context<Self>) -> Self::Result {
         match self.talks.get(&msg.talk_id) {
             Some(talk) => {
                 if talk.users.contains(&msg.session_id) {
@@ -233,7 +257,7 @@ impl Handler<GetHistory> for TalkService {
     fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
         if let Some(addr) = self.sessions.get(&msg.session_id) {
             let table = match msg.talk_id {
-                Some(id) => "talk",
+                Some(_) => "talk",
                 None => "private"
             };
             let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f").unwrap();
@@ -322,29 +346,55 @@ impl Handler<RemoveUser> for TalkService {
     }
 }
 
-//pub fn add_admin(
-//    id: u32,
-//    talk_id: u32,
-//    pool: &PostgresPool,
-//) -> Result<(), ServiceError> {
-//    let conn = &pool.get()?;
-//    let mut ids: Vec<u32> = talks::table.find(talk_id).select(talks::admin).first::<Vec<u32>>(conn)?;
-//    ids.push(id);
-//    ids.sort();
-//    let _ = diesel::update(talks::table.find(talk_id)).set(talks::admin.eq(ids)).execute(conn)?;
-//    Ok(())
-//}
-//
-//pub fn remove_id(
-//    id: u32,
-//    mut ids: Vec<u32>,
-//) -> Result<Vec<u32>, ServiceError> {
-//    let (index, _) = ids
-//        .iter()
-//        .enumerate()
-//        .filter(|(i, uid)| *uid == &id)
-//        .next()
-//        .ok_or(ServiceError::InternalServerError)?;
-//    ids.remove(index);
-//    Ok(ids)
-//}
+impl Handler<Admin> for TalkService {
+    type Result = ResponseActFuture<Self, (), ServiceError>;
+
+    fn handle(&mut self, msg: Admin, _: &mut Context<Self>) -> Self::Result {
+        let tid = msg.talk_id;
+        let id = msg.session_id;
+
+        match self.talks.get(&tid) {
+            Some(t) => {
+                let mut query = "UPDATE talks SET admin=".to_owned();
+
+                if let Some(uid) = msg.add {
+                    if t.admin.contains(&uid) {
+                        self.send_message(&id, "!!! User is admin already");
+                        return Box::new(fut::err(ServiceError::BadRequest));
+                    }
+                    let _ = write!(&mut query, "array_append(admin, {})", uid);
+                }
+
+                if let Some(uid) = msg.remove {
+                    if !t.admin.contains(&uid) {
+                        self.send_message(&id, "!!! User is not admin");
+                        return Box::new(fut::err(ServiceError::BadRequest));
+                    }
+                    let _ = write!(&mut query, "array_remove(admin, {})", uid);
+                }
+
+                if query.ends_with("=") {
+                    self.send_message(&id, "!!! Empty request");
+                    return Box::new(fut::err(ServiceError::BadRequest));
+                } else {
+                    query.push_str(&format!(" WHERE id={}", tid));
+                }
+
+                let f = query_talk(self.db.as_mut().unwrap(), &query)
+                    .into_actor(self)
+                    .and_then(move |t, act, _| {
+                        let s = serde_json::to_string(&t)
+                            .unwrap_or("!!! Stringify Error.But admin query success".to_owned());
+                        act.talks.insert(t.id, t);
+                        act.send_message(&id, &s);
+                        fut::ok(())
+                    });
+                Box::new(f)
+            }
+            None => {
+                self.send_message(&id, "!!! Bad Request");
+                Box::new(fut::err((ServiceError::BadRequest)))
+            }
+        }
+    }
+}

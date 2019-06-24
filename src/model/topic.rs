@@ -39,23 +39,23 @@ impl TopicRequest {
         self.user_id = id;
         self
     }
-    pub fn make_new(self) -> Result<Self, ServiceError> {
+    pub fn check_new(&self) -> Result<(), ServiceError> {
         if self.title.is_none() ||
             self.body.is_none() ||
             self.thumbnail.is_none() {
             Err(ServiceError::BadRequest)
         } else {
-            Ok(self)
+            Ok(())
         }
     }
-    pub fn make_update(mut self) -> Result<Self, ServiceError> {
+    pub fn check_update(&mut self) -> Result<(), ServiceError> {
         if self.id.is_none() {
             return Err(ServiceError::BadRequest);
         }
-        if let Some(id) = self.user_id {
+        if let Some(_) = self.user_id {
             self.is_locked = None;
         }
-        Ok(self)
+        Ok(())
     }
 }
 
