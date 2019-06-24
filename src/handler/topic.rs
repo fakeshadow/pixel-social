@@ -20,11 +20,11 @@ pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
 
 pub struct UpdateTopic(pub TopicRequest);
 
-pub struct GetTopicWithPost(pub u32, pub u32, pub i64);
+pub struct GetTopicWithPost(pub u32, pub i64);
 
 pub enum GetTopics {
     Latest(u32, i64),
-    Popular(u32, i64),
+    Popular(i64),
 }
 
 impl Message for AddTopic {
@@ -48,18 +48,17 @@ impl Handler<GetTopicWithPost> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicWithPost, _: &mut Self::Context) -> Self::Result {
-        let cid = msg.0;
-        let tid = msg.1;
-        let page = msg.2;
+        let tid = msg.0;
+        let page = msg.1;
 
-        let queryt = format!("SELECT * FROM topics{} WHERE id = {}", cid, tid);
+        let queryt = format!("SELECT * FROM topics WHERE id = {}", tid);
 
         let queryp =
-            format!("SELECT * FROM posts{}
-                   WHERE topic_id={}
+            format!("SELECT * FROM posts
+                   WHERE topic_id = {}
                    ORDER BY id ASC
                    OFFSET {}
-                   LIMIT {}", cid, tid, (page - 1) * 20, LIMIT);
+                   LIMIT {}", tid, (page - 1) * LIMIT, LIMIT);
 
         let ft =
             query_topics(self.db.as_mut().unwrap(), &queryt);
@@ -92,17 +91,18 @@ impl Handler<AddTopic> for DatabaseService {
         let t = msg.0;
 
         let query = format!(
-            "INSERT INTO topics{}
-            (id, user_id, category_id, thumbnail, title, body)
-            VALUES ({}, {}, {}, '{}', '{}', '{}')
+            "INSERT INTO topics
+            (id, user_id, category_id, thumbnail, title, body, created_at)
+            VALUES ({}, {}, {}, '{}', '{}', '{}', '{}')
             RETURNING *",
-            t.category_id,
             id,
             t.user_id.unwrap(),
             t.category_id,
             t.thumbnail.unwrap(),
             t.title.unwrap(),
-            t.body.unwrap());
+            t.body.unwrap(),
+            Utc::now().naive_local()
+        );
 
         Box::new(query_topic(self.db.as_mut().unwrap(), &query))
     }
@@ -114,9 +114,7 @@ impl Handler<UpdateTopic> for DatabaseService {
 
     fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
         let t = msg.0;
-        let mut query = String::new();
-
-        let _ = write!(&mut query, "UPDATE topics{} SET", t.category_id);
+        let mut query = String::from("UPDATE topics SET");
 
         if let Some(s) = t.title {
             let _ = write!(&mut query, " title='{}',", s);
@@ -153,20 +151,21 @@ impl Handler<GetTopics> for DatabaseService {
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
         let query = match msg {
             GetTopics::Latest(id, page) => format!(
-                "SELECT * FROM topics{}
+                "SELECT * FROM topics
+                WHERE category_id = {}
                 ORDER BY last_reply_time DESC
                 OFFSET {}
                 LIMIT 20", id, ((page - 1) * 20)),
-            GetTopics::Popular(id, page) => {
+            GetTopics::Popular(page) => {
                 let now = Utc::now().timestamp() - 86400;
-                let now = NaiveDateTime::from_timestamp(now,0);
+                let now = NaiveDateTime::from_timestamp(now, 0);
 
                 format!(
-                "SELECT * FROM topics{}
+                    "SELECT * FROM topics
                 WHERE last_reply_time > '{}'
                 ORDER BY reply_count DESC
                 OFFSET {}
-                LIMIT 20", id, &now, ((page - 1) * 20))
+                LIMIT 20", &now, ((page - 1) * 20))
             }
         };
 

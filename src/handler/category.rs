@@ -6,7 +6,6 @@ use actix::prelude::*;
 use crate::model::{
     actors::DatabaseService,
     category::{Category, CategoryRequest},
-    common::create_topics_posts_table_sql,
     errors::ServiceError,
 };
 use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category, simple_query};
@@ -73,22 +72,13 @@ impl Handler<AddCategory> for DatabaseService {
             .into_actor(self)
             .and_then(move |cid, addr, _| {
                 let cid = cid + 1;
-                let queryc = format!("
+                let query = format!("
                     INSERT INTO categories
                     (id, name, thumbnail)
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                let mut queryt = String::new();
-                create_topics_posts_table_sql(&mut queryt, cid);
-
-                let db = addr.db.as_mut().unwrap();
-                let f1 =
-                    query_category(db, queryc.as_str());
-                let f2 =
-                    simple_query(db, queryt.as_str());
-                f1.join(f2)
-                    .map(|(c, _)| c)
+                query_category(addr.db.as_mut().unwrap(), &query)
                     .into_actor(addr)
             });
 

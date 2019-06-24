@@ -10,7 +10,6 @@ use crate::model::{
     common::{
         GlobalVar,
         GlobalGuard,
-        create_topics_posts_table_sql,
     }
 };
 
@@ -33,16 +32,17 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
 
     // build list by last reply time desc order for each category. build category meta list with all category ids
 
-
     let mut last_tid = 1;
     let mut category_ids = Vec::new();
     for cat in categories.iter() {
         category_ids.push(cat.id);
-        let query = format!("SELECT * FROM topics{} ORDER BY last_reply_time DESC", cat.id);
-        let (_, tids) = rt.block_on(query_topics(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY last_reply_time DESC", cat.id);
+        let (t, _) = rt.block_on(query_topics(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
-        for tid in tids.clone().into_iter() {
-            if tid > last_tid { last_tid = tid };
+        let mut tids = Vec::new();
+        for t in t.clone().into_iter() {
+            tids.push(t.id);
+            if t.id > last_tid { last_tid = t.id };
         }
 
         let key = format!("category:{}:list", &cat.id);
@@ -55,49 +55,47 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     // ToDo: iter category_ids vec and get posts from every topics{i} table and update topic's reply count with last reply time, post's reply count with last reply time, category's topic,post count.
 
     let mut last_pid = 1;
-    for cat in categories.iter() {
-        let query = format!("SELECT topic_id, id FROM posts{} ORDER BY topic_id ASC, id ASC", cat.id);
-        let posts: Vec<(u32, u32)> = Vec::new();
-        let f = c
-            .simple_query(&query)
-            .map_err(|e| panic!("{}", e))
-            .fold(posts, |mut posts, row| {
-                match row {
-                    SimpleQueryMessage::Row(row) => {
-                        if let Some(tid) = row.get(0).unwrap().parse::<u32>().ok() {
-                            if let Some(pid) = row.get(1).unwrap().parse::<u32>().ok() {
-                                posts.push((tid, pid));
-                            }
+    let query = "SELECT topic_id, id FROM posts ORDER BY topic_id ASC, id ASC";
+    let posts: Vec<(u32, u32)> = Vec::new();
+    let f = c
+        .simple_query(query)
+        .map_err(|e| panic!("{}", e))
+        .fold(posts, |mut posts, row| {
+            match row {
+                SimpleQueryMessage::Row(row) => {
+                    if let Some(tid) = row.get(0).unwrap().parse::<u32>().ok() {
+                        if let Some(pid) = row.get(1).unwrap().parse::<u32>().ok() {
+                            posts.push((tid, pid));
                         }
                     }
-                    _ => ()
                 }
-                Ok(posts)
-            });
-
-        let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
-
-        if posts.len() > 0 {
-            let mut temp = Vec::new();
-            let mut index: u32 = posts[0].0;
-            for post in posts.into_iter() {
-                let (i, v) = post;
-
-                if v > last_pid { last_pid = v };
-
-                if i == index {
-                    temp.push(v)
-                } else {
-                    let key = format!("topic:{}:list", &index);
-                    let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
-                    temp = Vec::new();
-                    index = i;
-                    temp.push(v);
-                }
+                _ => ()
             }
-            let key = format!("topic:{}:list", &index);
-            let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+            Ok(posts)
+        });
+
+    let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
+
+    if posts.len() > 0 {
+        let mut temp = Vec::new();
+        let mut index: u32 = posts[0].0;
+        for post in posts.into_iter() {
+            let (i, v) = post;
+
+            if v > last_pid { last_pid = v };
+
+            if i == index {
+                temp.push(v)
+            } else {
+                let key = format!("topic:{}:list", &index);
+                let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+                temp = Vec::new();
+                index = i;
+                temp.push(v);
+            }
         }
+        let key = format!("topic:{}:list", &index);
+        let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
     }
 
     let p = c.prepare("SELECT * FROM users");
@@ -156,6 +154,34 @@ CREATE TABLE categories
     subscriber_count INTEGER      NOT NULL DEFAULT 0,
     thumbnail        VARCHAR(256) NOT NULL
 );
+CREATE TABLE topics
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    title           VARCHAR(1024) NOT NULL,
+    body            VARCHAR(1024) NOT NULL,
+    thumbnail       VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
+CREATE TABLE posts
+(
+    id              OID           NOT NULL UNIQUE PRIMARY KEY,
+    user_id         OID           NOT NULL,
+    topic_id        OID           NOT NULL,
+    category_id     OID           NOT NULL,
+    post_id         OID,
+    post_content    VARCHAR(1024) NOT NULL,
+    created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reply_count     INTEGER       NOT NULL DEFAULT 0,
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+);
 CREATE TABLE associates
 (
     id               OID       NOT NULL UNIQUE PRIMARY KEY,
@@ -175,18 +201,71 @@ CREATE TABLE talks
     admin       OID[]        NOT NULL,
     users       OID[]        NOT NULL
 );
+
+CREATE INDEX topic_time_order ON topics (last_reply_time DESC);
+CREATE INDEX topic_reply_order ON topics (reply_count DESC);
+CREATE INDEX post_reply_order ON posts (reply_count DESC);
+CREATE INDEX post_category_belong ON topics (category_id);
+CREATE INDEX post_topic_belong ON posts (topic_id);
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
 CREATE UNIQUE INDEX categories_name ON categories (name);
 CREATE UNIQUE INDEX talks_name ON talks (name);
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
-".to_owned();
 
-    // create repeated default table
-    for i in 1u32..6 {
-        create_topics_posts_table_sql(&mut query, i);
-    }
+CREATE OR REPLACE FUNCTION adding_topic() RETURNS trigger AS
+$adding_topic$
+BEGIN
+    UPDATE categories
+    SET topic_count = topic_count + 1
+    WHERE id = NEW.category_id;
+    RETURN NULL;
+END;
+$adding_topic$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_topic
+    AFTER INSERT
+    ON topics
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_topic();
+
+CREATE OR REPLACE FUNCTION adding_post() RETURNS trigger AS
+$adding_post$
+BEGIN
+    IF NOT EXISTS(SELECT id FROM topics WHERE id = NEW.topic_id)
+    THEN
+        RETURN NULL;
+    END IF;
+
+    IF NEW.post_id IS NOT NULL AND EXISTS(SELECT id FROM posts WHERE id = NEW.post_id AND topic_id = NEW.topic_id)
+    THEN
+        UPDATE posts
+        SET reply_count     = reply_count + 1,
+            last_reply_time = NEW.created_at
+        WHERE id = NEW.post_id;
+    ELSE
+        NEW.post_id = NULL;
+    END IF;
+
+    UPDATE categories
+    SET post_count = post_count + 1
+    WHERE id = NEW.category_id;
+
+    UPDATE topics
+    SET reply_count     = reply_count + 1,
+        last_reply_time = NEW.created_at
+    WHERE id = NEW.topic_id;
+
+    RETURN NEW;
+END;
+$adding_post$ LANGUAGE plpgsql;
+
+CREATE TRIGGER adding_post
+    BEFORE INSERT
+    ON posts
+    FOR EACH ROW
+EXECUTE PROCEDURE adding_post();".to_owned();
 
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
@@ -194,8 +273,8 @@ INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, 
 VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
         'avatar_url', 9);
 
-INSERT INTO categories (id, name, thumbnail, topic_count, post_count)
-VALUES (1, 'General', 'category_default.png', 1, 1);
+INSERT INTO categories (id, name, thumbnail)
+VALUES (1, 'General', 'category_default.png');
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (2, 'Announcement', 'category_default.png'),
@@ -206,10 +285,10 @@ VALUES (2, 'Announcement', 'category_default.png'),
 INSERT INTO talks (id, name, description, owner, admin, users)
 VALUES (1, 'test123', 'test123', 1, ARRAY [1, 2, 3], ARRAY [1, 2, 3]);
 
-INSERT INTO topics1 (id, user_id, category_id, reply_count, title, body, thumbnail)
-VALUES (1, 1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
+INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
+VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');
 
-INSERT INTO posts1 (id, user_id, topic_id, category_id, post_content)
+INSERT INTO posts (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
     let f = c.simple_query(&query).into_future();
@@ -230,27 +309,24 @@ pub fn drop_table(postgres_url: &str) {
     let categories = Vec::new();
     let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap_or_else(|_| panic!("failed to get categories"));
 
-    let mut query = "
+    let query = "
 DROP TABLE IF EXISTS associates;
 DROP TABLE IF EXISTS talks;
 DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS categories;".to_owned();
+DROP TABLE IF EXISTS categories;
+DROP TRIGGER IF EXISTS adding_post ON posts;
+DROP FUNCTION IF EXISTS adding_post();
+DROP TRIGGER IF EXISTS adding_topic ON topics;
+DROP FUNCTION IF EXISTS adding_topic();
+DROP INDEX IF EXISTS topic_time_order;
+DROP INDEX IF EXISTS topic_reply_order;
+DROP INDEX IF EXISTS post_reply_order;
+DROP INDEX IF EXISTS post_category_belong;
+DROP INDEX IF EXISTS post_topic_belong;
+DROP TABLE IF EXISTS topics;
+DROP TABLE IF EXISTS posts;";
 
-    for c in categories.iter() {
-        let i = c.id;
-        query.push_str(&format!("
-DROP TRIGGER IF EXISTS adding_post{} ON posts{};
-DROP FUNCTION IF EXISTS adding_post{}();
-DROP TRIGGER IF EXISTS adding_topic{} ON topics{};
-DROP FUNCTION IF EXISTS adding_topic{}();
-DROP INDEX IF EXISTS topic_time_order{};
-DROP INDEX IF EXISTS topic_reply_order{};
-DROP INDEX IF EXISTS post_reply_order{};
-DROP TABLE IF EXISTS topics{};
-DROP TABLE IF EXISTS posts{};", i, i, i, i, i, i, i, i, i, i, i))
-    }
-
-    let _ = rt.block_on(simple_query(&mut c, &query).and_then(|_| {
+    let _ = rt.block_on(simple_query(&mut c, query).and_then(|_| {
         println!("All tables have been drop. pixel_rs exited");
         Ok(())
     })).expect("failed to clear db");

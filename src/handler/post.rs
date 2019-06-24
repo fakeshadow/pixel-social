@@ -2,6 +2,7 @@ use std::fmt::Write;
 use futures::{Future, future::err as ft_err};
 
 use actix::prelude::*;
+use chrono::Utc;
 
 use crate::handler::db::query_post;
 use crate::model::{
@@ -41,24 +42,25 @@ impl Handler<ModifyPost> for DatabaseService {
                 let uid = p.user_id.unwrap();
                 let tid = p.topic_id.unwrap();
                 let content = p.post_content.unwrap();
+                let now = Utc::now().naive_local();
 
                 match p.post_id {
                     Some(to_pid) => {
-                        format!("INSERT INTO posts{}
-                            (id, user_id, topic_id,category_id, post_id, post_content)
-                            VALUES ({}, {}, {}, {}, {}, '{}')
-                            RETURNING *", cid, id, uid, tid, cid, to_pid, &content)
+                        format!("INSERT INTO posts
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at)
+                            VALUES ({}, {}, {}, {}, {}, '{}', '{}')
+                            RETURNING *", id, uid, tid, cid, to_pid, &content, &now)
                     }
-                    None => format!("INSERT INTO posts{}
-                            (id, user_id, topic_id,category_id, post_content)
-                            VALUES ({}, {}, {}, {}, '{}')
-                            RETURNING *", cid, id, uid, tid, cid, &content),
+                    None => format!("INSERT INTO posts
+                            (id, user_id, topic_id, category_id, post_content, created_at)
+                            VALUES ({}, {}, {}, {}, '{}', '{}')
+                            RETURNING *", id, uid, tid, cid, &content, &now),
                 }
             }
             None => {
                 let p = msg.0;
 
-                let mut query = format!("UPDATE posts{} SET", p.category_id);
+                let mut query = String::from("UPDATE posts SET");
 
                 if let Some(s) = p.topic_id {
                     let _ = write!(&mut query, " topic_id={},", s);
@@ -74,7 +76,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 }
 
                 if query.ends_with(",") {
-                    let _ = write!(&mut query, " updated_at = DEFAULT Where id={}", p.id.unwrap());
+                    let _ = write!(&mut query, " updated_at = DEFAULT WHERE id={}", p.id.unwrap());
                 } else {
                     return Box::new(ft_err(ServiceError::BadRequest));
                 }
