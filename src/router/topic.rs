@@ -10,19 +10,18 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     user::GetUsers,
-    topic::{AddTopic, UpdateTopic, GetTopicWithPost},
+    topic::{AddTopic, UpdateTopic, GetTopicWithPosts},
     cache::{AddedTopic, UpdateCache, GetTopicCache},
 };
 
-pub fn get(
+pub fn get_oldest(
     req: Path<(u32, i64)>,
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (tid, page) = req.into_inner();
 
-    db
-        .send(GetTopicWithPost(tid, page))
+    db.send(GetTopicWithPosts::Oldest(tid, page))
         .from_err()
         .and_then(|r| r)
         .from_err()
@@ -35,19 +34,18 @@ pub fn get(
                 // include topic when querying first page.
                 let topic = if page == 1 { t.first() } else { None };
                 let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
-                let _ = cache.do_send(UpdateCache::Topic(t));
-                let _ = cache.do_send(UpdateCache::Post(p));
-                let _ = cache.do_send(UpdateCache::User(u));
+//                let _ = cache.do_send(UpdateCache::Topic(t));
+//                let _ = cache.do_send(UpdateCache::Post(p));
+//                let _ = cache.do_send(UpdateCache::User(u));
                 res
             })
         )
-
 
 //    cache.send(GetTopicCache(tid, page))
 //        .from_err()
 //        .and_then(move |r| match r {
 //            Err(_) => Either::B(db
-//                .send(GetTopicWithPost(tid, page))
+//                .send(GetTopicWithPosts::Oldest(tid, page))
 //                .from_err()
 //                .and_then(|r| r)
 //                .from_err()
@@ -71,6 +69,34 @@ pub fn get(
 //                Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
 //            }
 //        })
+}
+
+pub fn get_popular(
+    req: Path<(u32, i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let (tid, page) = req.into_inner();
+
+    db.send(GetTopicWithPosts::Popular(tid, page))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |(t, p, ids)| db
+            .send(GetUsers(ids))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |u| {
+                // include topic when querying first page.
+                let topic = if page == 1 { t.first() } else { None };
+                let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
+//                let _ = cache.do_send(UpdateCache::Topic(t));
+//                let _ = cache.do_send(UpdateCache::Post(p));
+//                let _ = cache.do_send(UpdateCache::User(u));
+                res
+            })
+        )
 }
 
 pub fn add(

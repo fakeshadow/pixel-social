@@ -47,14 +47,14 @@ impl Handler<ModifyPost> for DatabaseService {
                 match p.post_id {
                     Some(to_pid) => {
                         format!("INSERT INTO posts
-                            (id, user_id, topic_id, category_id, post_id, post_content, created_at)
-                            VALUES ({}, {}, {}, {}, {}, '{}', '{}')
-                            RETURNING *", id, uid, tid, cid, to_pid, &content, &now)
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at, last_reply_time)
+                            VALUES ({}, {}, {}, {}, {}, '{}', '{}', '{}', '{}')
+                            RETURNING *", id, uid, tid, cid, to_pid, &content, &now, &now, &now)
                     }
                     None => format!("INSERT INTO posts
-                            (id, user_id, topic_id, category_id, post_content, created_at)
-                            VALUES ({}, {}, {}, {}, '{}', '{}')
-                            RETURNING *", id, uid, tid, cid, &content, &now),
+                            (id, user_id, topic_id, category_id, post_content, created_at, updated_at, last_reply_time)
+                            VALUES ({}, {}, {}, {}, '{}', '{}', '{}', '{}')
+                            RETURNING *", id, uid, tid, cid, &content, &now, &now, &now),
                 }
             }
             None => {

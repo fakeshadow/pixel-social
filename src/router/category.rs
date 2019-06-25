@@ -14,13 +14,6 @@ use crate::model::{
     common::AttachUser,
 };
 
-pub fn get_popular(
-    page: Path<(i64)>
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    // ToDo: Add get popular cache query
-    ft_ok(HttpResponse::Ok().finish())
-}
-
 pub fn get_all_categories(
     db: Data<DB>,
     cache: Data<CACHE>,
@@ -60,13 +53,13 @@ pub fn get_category_latest(
             .from_err()
             .and_then(move |u| {
                 let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-                let _ = cache.do_send(UpdateCache::Topic(t));
-                let _ = cache.do_send(UpdateCache::User(u));
+//                let _ = cache.do_send(UpdateCache::Topic(t));
+//                let _ = cache.do_send(UpdateCache::User(u));
                 res
             })
         )
 
-//    cache.send(GetTopicsCache(vec![id], page))
+//    cache.send(GetTopicsCache::Latest(vec![id], page))
 //        .from_err()
 //        .and_then(move |r| match r {
 //            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
@@ -97,7 +90,7 @@ pub fn get_category_popular(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
-    db.send(GetTopics::Popular(page))
+    db.send(GetTopics::Popular(id, page))
         .from_err()
         .and_then(|r| r)
         .from_err()
@@ -109,9 +102,32 @@ pub fn get_category_popular(
             .from_err()
             .and_then(move |u| {
                 let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-//                let _ = cache.do_send(UpdateCache::Topic(t));
-//                let _ = cache.do_send(UpdateCache::User(u));
+                let _ = cache.do_send(UpdateCache::Topic(t));
+                let _ = cache.do_send(UpdateCache::User(u));
                 res
             })
         )
+
+//    cache.send(GetTopicsCache::Popular(vec![id], page))
+//        .from_err()
+//        .and_then(move |r| match r {
+//            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
+//            Err(_) => Either::B(db.send(GetTopics::Popular(id, page))
+//                .from_err()
+//                .and_then(|r| r)
+//                .from_err()
+//                // return user ids with topics for users query
+//                .and_then(move |(t, ids)| db
+//                    .send(GetUsers(ids))
+//                    .from_err()
+//                    .and_then(|r| r)
+//                    .from_err()
+//                    .and_then(move |u| {
+//                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+//                        let _ = cache.do_send(UpdateCache::Topic(t));
+//                        let _ = cache.do_send(UpdateCache::User(u));
+//                        res
+//                    })
+//                ))
+//        })
 }

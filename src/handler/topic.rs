@@ -20,11 +20,15 @@ pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
 
 pub struct UpdateTopic(pub TopicRequest);
 
-pub struct GetTopicWithPost(pub u32, pub i64);
+pub enum GetTopicWithPosts {
+    Oldest(u32, i64),
+    Popular(u32, i64),
+}
 
 pub enum GetTopics {
     Latest(u32, i64),
-    Popular(i64),
+    Popular(u32, i64),
+    PopularAll(i64),
 }
 
 impl Message for AddTopic {
@@ -35,7 +39,7 @@ impl Message for UpdateTopic {
     type Result = Result<Vec<Topic>, ServiceError>;
 }
 
-impl Message for GetTopicWithPost {
+impl Message for GetTopicWithPosts {
     type Result = Result<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
 }
 
@@ -44,21 +48,32 @@ impl Message for GetTopics {
 }
 
 
-impl Handler<GetTopicWithPost> for DatabaseService {
+impl Handler<GetTopicWithPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
 
-    fn handle(&mut self, msg: GetTopicWithPost, _: &mut Self::Context) -> Self::Result {
-        let tid = msg.0;
-        let page = msg.1;
-
-        let queryt = format!("SELECT * FROM topics WHERE id = {}", tid);
-
-        let queryp =
-            format!("SELECT * FROM posts
+    fn handle(&mut self, msg: GetTopicWithPosts, _: &mut Self::Context) -> Self::Result {
+        let (tid, queryp) = match msg {
+            GetTopicWithPosts::Popular(tid, page) => {
+                let queryp =
+                    format!("SELECT * FROM posts
+                   WHERE topic_id = {}
+                   ORDER BY reply_count DESC, id ASC
+                   OFFSET {}
+                   LIMIT {}", tid, (page - 1) * LIMIT, LIMIT);
+                (tid, queryp)
+            }
+            GetTopicWithPosts::Oldest(tid, page) => {
+                let queryp =
+                    format!("SELECT * FROM posts
                    WHERE topic_id = {}
                    ORDER BY id ASC
                    OFFSET {}
                    LIMIT {}", tid, (page - 1) * LIMIT, LIMIT);
+                (tid, queryp)
+            }
+        };
+
+        let queryt = format!("SELECT * FROM topics WHERE id = {}", tid);
 
         let ft =
             query_topics(self.db.as_mut().unwrap(), &queryt);
@@ -89,11 +104,12 @@ impl Handler<AddTopic> for DatabaseService {
             Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
         };
         let t = msg.0;
+        let now = Utc::now().naive_local();
 
         let query = format!(
             "INSERT INTO topics
-            (id, user_id, category_id, thumbnail, title, body, created_at)
-            VALUES ({}, {}, {}, '{}', '{}', '{}', '{}')
+            (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
+            VALUES ({}, {}, {}, '{}', '{}', '{}', '{}', '{}', '{}')
             RETURNING *",
             id,
             t.user_id.unwrap(),
@@ -101,7 +117,9 @@ impl Handler<AddTopic> for DatabaseService {
             t.thumbnail.unwrap(),
             t.title.unwrap(),
             t.body.unwrap(),
-            Utc::now().naive_local()
+            &now,
+            &now,
+            &now
         );
 
         Box::new(query_topic(self.db.as_mut().unwrap(), &query))
@@ -145,6 +163,7 @@ impl Handler<UpdateTopic> for DatabaseService {
     }
 }
 
+//ToDo: add multiple category_ids query
 impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
@@ -156,16 +175,27 @@ impl Handler<GetTopics> for DatabaseService {
                 ORDER BY last_reply_time DESC
                 OFFSET {}
                 LIMIT 20", id, ((page - 1) * 20)),
-            GetTopics::Popular(page) => {
-                let now = Utc::now().timestamp() - 86400;
-                let now = NaiveDateTime::from_timestamp(now, 0);
+            GetTopics::Popular(cid, page) => {
+                let yesterday = Utc::now().timestamp() - 86400;
+                let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
+
+                format!(
+                    "SELECT * FROM topics
+                WHERE last_reply_time > '{}' AND category_id = {}
+                ORDER BY reply_count DESC
+                OFFSET {}
+                LIMIT 20", &yesterday, cid, ((page - 1) * 20))
+            }
+            GetTopics::PopularAll(page) => {
+                let yesterday = Utc::now().timestamp() - 86400;
+                let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
 
                 format!(
                     "SELECT * FROM topics
                 WHERE last_reply_time > '{}'
                 ORDER BY reply_count DESC
                 OFFSET {}
-                LIMIT 20", &now, ((page - 1) * 20))
+                LIMIT 20", &yesterday, ((page - 1) * 20))
             }
         };
 

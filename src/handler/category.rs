@@ -66,7 +66,7 @@ impl Handler<AddCategory> for DatabaseService {
     fn handle(&mut self, msg: AddCategory, _: &mut Self::Context) -> Self::Result {
         let c = msg.0;
 
-        let query = "SELECT id() FROM categories ORDER BY id DESC LIMIT 1";
+        let query = "SELECT MAX(id) FROM categories";
 
         let f = get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
             .into_actor(self)
