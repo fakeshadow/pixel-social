@@ -12,6 +12,8 @@ use crate::model::{
         GlobalGuard,
     }
 };
+use crate::handler::cache::{build_category_set, build_topic_set};
+use chrono::NaiveDateTime;
 
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, ()> {
@@ -37,10 +39,14 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
         let (t, _) = rt.block_on(query_topics_simple(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         let mut tids = Vec::new();
+        let mut sets = Vec::new();
         for t in t.clone().into_iter() {
             tids.push(t.id);
+            sets.push((t.id, t.category_id, t.reply_count, t.last_reply_time));
             if t.id > last_tid { last_tid = t.id };
         }
+
+        let _ = rt.block_on(build_category_set(sets, c_cache.clone())).unwrap_or_else(|_| panic!("Failed to build category sets"));
 
         let key = format!("category:{}:list", &cat.id);
         let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
@@ -52,8 +58,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     // ToDo: iter category_ids vec and get posts from every topics{i} table and update topic's reply count with last reply time, post's reply count with last reply time, category's topic,post count.
 
     let mut last_pid = 1;
-    let query = "SELECT topic_id, id FROM posts ORDER BY topic_id ASC, id ASC";
-    let posts: Vec<(u32, u32)> = Vec::new();
+    let query = "SELECT topic_id, id, reply_count, last_reply_time FROM posts ORDER BY topic_id ASC, id ASC";
+    let posts: Vec<(u32, u32, i32, NaiveDateTime)> = Vec::new();
     let f = c
         .simple_query(query)
         .map_err(|e| panic!("{}", e))
@@ -62,7 +68,11 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
                 SimpleQueryMessage::Row(row) => {
                     if let Some(tid) = row.get(0).unwrap().parse::<u32>().ok() {
                         if let Some(pid) = row.get(1).unwrap().parse::<u32>().ok() {
-                            posts.push((tid, pid));
+                            if let Some(count) = row.get(2).unwrap().parse::<i32>().ok() {
+                                if let Some(time) = NaiveDateTime::parse_from_str(row.get(3).unwrap(), "%Y-%m-%d %H:%M:%S%.f").ok() {
+                                    posts.push((tid, pid, count, time));
+                                }
+                            }
                         }
                     }
                 }
@@ -74,21 +84,23 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
 
     if posts.len() > 0 {
+        let _ = rt.block_on(build_topic_set(posts.clone(), c_cache.clone())).unwrap_or_else(|_| panic!("Failed to load posts"));
+
         let mut temp = Vec::new();
         let mut index: u32 = posts[0].0;
         for post in posts.into_iter() {
-            let (i, v) = post;
+            let (tid, pid, _, _) = post;
 
-            if v > last_pid { last_pid = v };
+            if pid > last_pid { last_pid = pid };
 
-            if i == index {
-                temp.push(v)
+            if tid == index {
+                temp.push(pid)
             } else {
                 let key = format!("topic:{}:list", &index);
                 let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
                 temp = Vec::new();
-                index = i;
-                temp.push(v);
+                index = tid;
+                temp.push(pid);
             }
         }
         let key = format!("topic:{}:list", &index);

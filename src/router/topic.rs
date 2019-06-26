@@ -21,7 +21,7 @@ pub fn get_oldest(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (tid, page) = req.into_inner();
 
-    cache.send(GetTopicCache(tid, page))
+    cache.send(GetTopicCache::Old(tid, page))
         .from_err()
         .and_then(move |r| match r {
             Err(_) => Either::B(db
@@ -36,9 +36,9 @@ pub fn get_oldest(
                     .from_err()
                     .and_then(move |u| {
                         // include topic when querying first page.
-                        let topic = if page == 1 { t.first() } else { None };
+                        let topic = if page == 1 { Some(&t) } else { None };
                         let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
-                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::Topic(vec![t]));
                         let _ = cache.do_send(UpdateCache::Post(p));
                         let _ = cache.do_send(UpdateCache::User(u));
                         res
@@ -58,25 +58,35 @@ pub fn get_popular(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (tid, page) = req.into_inner();
 
-    db.send(GetTopicWithPosts::Popular(tid, page))
+    cache.send(GetTopicCache::Popular(tid, page))
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |(t, p, ids)| db
-            .send(GetUsers(ids))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                // include topic when querying first page.
+        .and_then(move |r| match r {
+            Err(_) => Either::B(db
+                .send(GetTopicWithPosts::Popular(tid, page))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |(t, p, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        // include topic when querying first page.
+                        let topic = if page == 1 { Some(&t) } else { None };
+                        let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
+                        let _ = cache.do_send(UpdateCache::Topic(vec![t]));
+                        let _ = cache.do_send(UpdateCache::Post(p));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        println!("from db");
+                        res
+                    })
+                )),
+            Ok((t, p, u)) => {
                 let topic = if page == 1 { Some(&t) } else { None };
-                let res = HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u));
-                let _ = cache.do_send(UpdateCache::Topic(t));
-                let _ = cache.do_send(UpdateCache::Post(p));
-                let _ = cache.do_send(UpdateCache::User(u));
-                res
-            })
-        )
+                Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
+            }
+        })
 }
 
 pub fn add(

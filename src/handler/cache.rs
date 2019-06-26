@@ -33,7 +33,12 @@ pub enum GetTopicsCache {
     PopularAll(i64),
 }
 
-pub struct GetTopicCache(pub u32, pub i64);
+//pub struct GetTopicCache(pub u32, pub i64);
+
+pub enum GetTopicCache {
+    Old(u32, i64),
+    Popular(u32, i64),
+}
 
 pub struct GetPostsCache(pub Vec<u32>);
 
@@ -158,6 +163,44 @@ impl Handler<AddedTopic> for CacheService {
     }
 }
 
+pub fn build_category_set(
+    vec: Vec<(u32, u32, i32, NaiveDateTime)>,
+    conn: SharedConn,
+) -> impl Future<Item=(), Error=ServiceError> {
+    let mut pipe = pipe();
+    pipe.atomic();
+
+    for (tid, cid, count, last_reply_time) in vec.into_iter() {
+        let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
+        pipe.cmd("ZADD").arg("all:topics:time").arg(time).arg(tid);
+        pipe.cmd("ZADD").arg("all:topics:reply").arg(count).arg(tid);
+        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", cid)).arg(time).arg(tid);
+        pipe.cmd("ZADD").arg(&format!("category{}:topics:reply", cid)).arg(count).arg(tid);
+    }
+
+    pipe.query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
+}
+
+pub fn build_topic_set(
+    vec: Vec<(u32, u32, i32, NaiveDateTime)>,
+    conn: SharedConn,
+) -> impl Future<Item=(), Error=ServiceError> {
+    let mut pipe = pipe();
+    pipe.atomic();
+
+    for (tid, pid, count, last_reply_time) in vec.into_iter() {
+        let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
+        pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg(time).arg(pid);
+        pipe.cmd("ZADD").arg(&format!("topic{}:posts:reply", tid)).arg(count).arg(pid);
+    }
+
+    pipe.query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
+}
+
 impl Handler<AddedPost> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
@@ -166,6 +209,9 @@ impl Handler<AddedPost> for CacheService {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
+        let count = p.reply_count;
+        let time = p.last_reply_time;
+        let time_string = time.to_string();
 
         let mut pipe = pipe();
         pipe.atomic();
@@ -173,21 +219,29 @@ impl Handler<AddedPost> for CacheService {
         pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid);
         pipe.cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid);
         pipe.cmd("HMSET").arg(&format!("post:{}:set", pid)).arg(p.sort_hash());
+
+        let key = format!("topic:{}:set", tid);
+        pipe.cmd("HINCRBY").arg(&key).arg("reply_count").arg(1);
+        pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string);
         pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1);
-        pipe.cmd("HINCRBY").arg(&format!("topic:{}:set", tid)).arg("reply_count").arg(1);
 
         // add post to sorted set with timestamp as score. topic_id:reply_count as set.
-        let time = p.last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        let count = p.reply_count;
+        let time = time.timestamp_millis() - BASETIME.timestamp_millis();
+
         pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg(time).arg(pid);
         pipe.cmd("ZADD").arg(&format!("topic{}:posts:reply", tid)).arg(count).arg(pid);
+
         // update topic reply time and reply count
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", tid)).arg("NX").arg(time).arg(pid);
+        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", cid)).arg("XX").arg(time).arg(tid);
         pipe.cmd("ZINCRBY").arg(&format!("category{}:topics:reply", cid)).arg(1).arg(tid);
+        pipe.cmd("ZADD").arg("all:topics:time").arg("NX").arg(time).arg(tid);
+        pipe.cmd("ZINCRBY").arg("all:topics:reply").arg(1).arg(tid);
 
         if let Some(pid) = p.post_id {
-            pipe.cmd("HINCRBY").arg(&format!("post:{}:set", pid)).arg("reply_count").arg(1);
-            pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg("NX").arg(time).arg(pid);
+            let key = format!("post:{}:set", pid);
+            pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string);
+            pipe.cmd("HINCRBY").arg(&key).arg("reply_count").arg(1);
+            pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg("XX").arg(time).arg(pid);
             pipe.cmd("ZINCRBY").arg(&format!("topic{}:posts:reply", tid)).arg(1).arg(pid);
         }
 
@@ -253,7 +307,6 @@ impl Handler<GetTopicsCache> for CacheService {
                 Box::new(f)
             }
             GetTopicsCache::PopularAll(page) => {
-                let id = 0;
                 let f =
                     topics_posts_from_set(
                         SortedSet::TopicsAll(page),
@@ -273,36 +326,88 @@ impl Handler<GetTopicCache> for CacheService {
     type Result = ResponseFuture<(Topic, Vec<Post>, Vec<User>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicCache, _: &mut Self::Context) -> Self::Result {
-        let tid = msg.0;
-        let page = msg.1;
+        match msg {
+            GetTopicCache::Old(tid, page) => {
+                let f1 =
+                    get_hmset(self.cache.as_ref().unwrap().clone(), vec![tid], "topic")
+                        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| {
+                            let t = vec
+                                .first()
+                                .ok_or(ServiceError::InternalServerError)?
+                                .parse::<Topic>()?;
+                            Ok(t)
+                        });
 
-        let f1 =
-            get_hmset(self.cache.as_ref().unwrap().clone(), vec![tid], "topic")
-                .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| {
-                    let t = vec
-                        .first()
-                        .ok_or(ServiceError::InternalServerError)?
-                        .parse::<Topic>()?;
-                    Ok(t)
-                });
+                let f2 =
+                    topics_posts_from_list(
+                        tid,
+                        page,
+                        "topic",
+                        "post",
+                        self.cache.as_ref().unwrap().clone());
 
-        let f2 =
-            topics_posts_from_list(
-                tid,
-                page,
-                "topic",
-                "post",
-                self.cache.as_ref().unwrap().clone());
+                let f = f1
+                    .join(f2)
+                    .and_then(|(t, (p, mut uids, conn)): (Topic, (Vec<Post>, Vec<u32>, SharedConn))| {
+                        uids.push(t.user_id);
+                        uids.sort();
+                        uids.dedup();
+                        get_users(conn, uids).map(|u| (t, p, u))
+                    });
+                Box::new(f)
+            }
+            GetTopicCache::Popular(tid, page) => {
+                let f1 =
+                    get_hmset(self.cache.as_ref().unwrap().clone(), vec![tid], "topic")
+                        .and_then(|(_, _, vec): (_, _, Vec<HashMap<String, String>>)| {
+                            let t = vec
+                                .first()
+                                .ok_or(ServiceError::InternalServerError)?
+                                .parse::<Topic>()?;
+                            Ok(t)
+                        });
 
-        let f = f1
-            .join(f2)
-            .and_then(|(t, (p, mut uids, conn)): (Topic, (Vec<Post>, Vec<u32>, SharedConn))| {
-                uids.push(t.user_id);
-                uids.sort();
-                uids.dedup();
-                get_users(conn, uids).map(|u| (t, p, u))
-            });
-        Box::new(f)
+                let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
+                let count_key = format!("topic{}:posts:reply", tid);
+
+                let f2 = cmd("zrevrangebyscore")
+                    .arg(&count_key)
+                    .arg("+inf")
+                    .arg("-inf")
+                    .arg("WITHSCORES")
+                    .query_async(self.cache.as_ref().unwrap().clone())
+                    .from_err()
+                    .and_then(move |(conn, mut pids): (SharedConn, Vec<(u32, u32)>)| {
+                        pids.sort_by(|(ia, sa), (ib, sb)| {
+                            if sa == sb {
+                                ia.cmp(ib)
+                            } else {
+                                sb.cmp(sa)
+                            }
+                        });
+                        let len = pids.len();
+                        let mut vec = Vec::with_capacity(20);
+                        let start = ((page - 1) * 20) as usize;
+                        for i in start..start + LIMITU {
+                            if i + 1 <= len {
+                                vec.push(pids[i].0)
+                            }
+                        }
+                        Ok((conn, vec))
+                    })
+                    .and_then(move |(conn, vec)| from_hmsets(conn, vec, "post"));
+
+                let f = f1
+                    .join(f2)
+                    .and_then(|(t, (p, mut uids, conn)): (Topic, (Vec<Post>, Vec<u32>, SharedConn))| {
+                        uids.push(t.user_id);
+                        uids.sort();
+                        uids.dedup();
+                        get_users(conn, uids).map(|u| (t, p, u))
+                    });
+                Box::new(f)
+            }
+        }
     }
 }
 
@@ -346,7 +451,6 @@ impl Handler<RemoveCategoryCache> for CacheService {
 enum SortedSet {
     Topics(Vec<u32>, i64),
     TopicsAll(i64),
-    Posts,
 }
 
 fn topics_posts_from_set<T>(
@@ -362,8 +466,6 @@ fn topics_posts_from_set<T>(
             (format!("category{}:topics:time", id), format!("category{}:topics:reply", id), "topic", page)
         }
         SortedSet::TopicsAll(page) => ("all:topics:time".to_owned(), "all:topics:reply".to_owned(), "topic", page),
-//        SortedSet::Posts => (format!("topic{}:posts:time", id), format!("topic{}:posts:reply", id), "post"),
-        _ => panic!("placeholder")
     };
 
     cmd("zrevrangebyscore")
@@ -376,8 +478,8 @@ fn topics_posts_from_set<T>(
             let mut pipe = pipe();
             pipe.atomic();
 
-            for tid in ids.iter() {
-                pipe.cmd("zscore").arg(&reply_key).arg(*tid);
+            for id in ids.iter() {
+                pipe.cmd("zscore").arg(&reply_key).arg(*id);
             };
 
             pipe.query_async(conn)

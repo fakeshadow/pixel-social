@@ -14,7 +14,7 @@ use crate::model::{
     common::AttachUser,
 };
 
-pub fn get_all_categories(
+pub fn get_all(
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -34,7 +34,7 @@ pub fn get_all_categories(
         })
 }
 
-pub fn get_category_latest(
+pub fn get_latest(
     req: Path<(u32, i64)>,
     db: Data<DB>,
     cache: Data<CACHE>,
@@ -65,7 +65,7 @@ pub fn get_category_latest(
         })
 }
 
-pub fn get_category_popular(
+pub fn get_popular(
     req: Path<(u32, i64)>,
     db: Data<DB>,
     cache: Data<CACHE>,
@@ -90,6 +90,39 @@ pub fn get_category_popular(
                         let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
                         let _ = cache.do_send(UpdateCache::Topic(t));
                         let _ = cache.do_send(UpdateCache::User(u));
+                        println!("from db");
+                        res
+                    })
+                ))
+        })
+}
+
+pub fn get_popular_all(
+    req: Path<(i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let page = req.into_inner();
+
+    cache.send(GetTopicsCache::PopularAll(page))
+        .from_err()
+        .and_then(move |r| match r {
+            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
+            Err(_) => Either::B(db.send(GetTopics::PopularAll(page))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                // return user ids with topics for users query
+                .and_then(move |(t, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        println!("from db");
                         res
                     })
                 ))
