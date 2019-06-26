@@ -38,7 +38,7 @@ pub fn test_global_var(
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(AddedTopic(t));
+//            let _ = cache.do_send(AddedTopic(t));
             res
         })
 }

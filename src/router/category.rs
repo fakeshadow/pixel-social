@@ -41,46 +41,28 @@ pub fn get_category_latest(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
-    db.send(GetTopics::Latest(id, page))
+    cache.send(GetTopicsCache::Latest(vec![id], page))
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        // return user ids with topics for users query
-        .and_then(move |(t, ids)| db
-            .send(GetUsers(ids))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-//                let _ = cache.do_send(UpdateCache::Topic(t));
-//                let _ = cache.do_send(UpdateCache::User(u));
-                res
-            })
-        )
-
-//    cache.send(GetTopicsCache::Latest(vec![id], page))
-//        .from_err()
-//        .and_then(move |r| match r {
-//            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
-//            Err(_) => Either::B(db.send(GetTopics::Latest(id, page))
-//                .from_err()
-//                .and_then(|r| r)
-//                .from_err()
-//                // return user ids with topics for users query
-//                .and_then(move |(t, ids)| db
-//                    .send(GetUsers(ids))
-//                    .from_err()
-//                    .and_then(|r| r)
-//                    .from_err()
-//                    .and_then(move |u| {
-//                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-//                        let _ = cache.do_send(UpdateCache::Topic(t));
-//                        let _ = cache.do_send(UpdateCache::User(u));
-//                        res
-//                    })
-//                ))
-//        })
+        .and_then(move |r| match r {
+            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
+            Err(_) => Either::B(db.send(GetTopics::Latest(vec![id], page))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                // return user ids with topics for users query
+                .and_then(move |(t, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        res
+                    })
+                ))
+        })
 }
 
 pub fn get_category_popular(
@@ -90,44 +72,26 @@ pub fn get_category_popular(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
-    db.send(GetTopics::Popular(id, page))
+    cache.send(GetTopicsCache::Popular(vec![id], page))
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        // return user ids with topics for users query
-        .and_then(move |(t, ids)| db
-            .send(GetUsers(ids))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-                let _ = cache.do_send(UpdateCache::Topic(t));
-                let _ = cache.do_send(UpdateCache::User(u));
-                res
-            })
-        )
-
-//    cache.send(GetTopicsCache::Popular(vec![id], page))
-//        .from_err()
-//        .and_then(move |r| match r {
-//            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
-//            Err(_) => Either::B(db.send(GetTopics::Popular(id, page))
-//                .from_err()
-//                .and_then(|r| r)
-//                .from_err()
-//                // return user ids with topics for users query
-//                .and_then(move |(t, ids)| db
-//                    .send(GetUsers(ids))
-//                    .from_err()
-//                    .and_then(|r| r)
-//                    .from_err()
-//                    .and_then(move |u| {
-//                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
-//                        let _ = cache.do_send(UpdateCache::Topic(t));
-//                        let _ = cache.do_send(UpdateCache::User(u));
-//                        res
-//                    })
-//                ))
-//        })
+        .and_then(move |r| match r {
+            Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
+            Err(_) => Either::B(db.send(GetTopics::Popular(vec![id], page))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                // return user ids with topics for users query
+                .and_then(move |(t, ids)| db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        res
+                    })
+                ))
+        })
 }

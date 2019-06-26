@@ -176,7 +176,7 @@ pub fn update_post(
                 .from_err()
                 .and_then(move |p| {
                     let res = HttpResponse::Ok().json(&p);
-                    let _ = cache.do_send(UpdateCache::Post(p));
+                    let _ = cache.do_send(UpdateCache::Post(vec![p]));
                     res
                 })))
 }

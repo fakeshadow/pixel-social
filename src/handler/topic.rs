@@ -12,7 +12,7 @@ use crate::model::{
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::{query_topics, query_posts, query_topic};
+use crate::handler::db::query_topic_simple;
 
 const LIMIT: i64 = 20;
 
@@ -26,8 +26,8 @@ pub enum GetTopicWithPosts {
 }
 
 pub enum GetTopics {
-    Latest(u32, i64),
-    Popular(u32, i64),
+    Latest(Vec<u32>, i64),
+    Popular(Vec<u32>, i64),
     PopularAll(i64),
 }
 
@@ -40,54 +40,81 @@ impl Message for UpdateTopic {
 }
 
 impl Message for GetTopicWithPosts {
-    type Result = Result<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = Result<(Topic, Vec<Post>, Vec<u32>), ServiceError>;
 }
 
 impl Message for GetTopics {
     type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
 }
 
-
 impl Handler<GetTopicWithPosts> for DatabaseService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = ResponseFuture<(Topic, Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicWithPosts, _: &mut Self::Context) -> Self::Result {
-        let (tid, queryp) = match msg {
-            GetTopicWithPosts::Popular(tid, page) => {
-                let queryp =
-                    format!("SELECT * FROM posts
-                   WHERE topic_id = {}
-                   ORDER BY reply_count DESC, id ASC
-                   OFFSET {}
-                   LIMIT {}", tid, (page - 1) * LIMIT, LIMIT);
-                (tid, queryp)
-            }
-            GetTopicWithPosts::Oldest(tid, page) => {
-                let queryp =
-                    format!("SELECT * FROM posts
-                   WHERE topic_id = {}
-                   ORDER BY id ASC
-                   OFFSET {}
-                   LIMIT {}", tid, (page - 1) * LIMIT, LIMIT);
-                (tid, queryp)
-            }
+        let (st, tid, page) = match msg {
+            GetTopicWithPosts::Popular(tid, page) =>
+                (self.posts_popular.as_ref().unwrap(), tid, page),
+            GetTopicWithPosts::Oldest(tid, page) =>
+                (self.posts_old.as_ref().unwrap(), tid, page)
         };
 
-        let queryt = format!("SELECT * FROM topics WHERE id = {}", tid);
+        let ft = self.db
+            .as_mut()
+            .unwrap()
+            .query(self.topic_by_id.as_ref().unwrap(), &[&tid])
+            .into_future()
+            .map_err(|e| e.0)
+            .from_err()
+            .and_then(|(r, _)| match r {
+                Some(row) => {
+                    let uid = row.get(1);
+                    let t = Topic {
+                        id: row.get(0),
+                        user_id: uid,
+                        category_id: row.get(2),
+                        title: row.get(3),
+                        body: row.get(4),
+                        thumbnail: row.get(5),
+                        created_at: row.get(6),
+                        updated_at: row.get(7),
+                        last_reply_time: row.get(8),
+                        reply_count: row.get(9),
+                        is_locked: row.get(10),
+                    };
+                    Ok((t, uid))
+                }
+                None => Err(ServiceError::BadRequest)
+            });
 
-        let ft =
-            query_topics(self.db.as_mut().unwrap(), &queryt);
-        let fp =
-            query_posts(self.db.as_mut().unwrap(), &queryp);
+        let p = Vec::with_capacity(20);
+        let ids = Vec::with_capacity(20);
+        let fp = self.db
+            .as_mut()
+            .unwrap()
+            .query(st, &[&tid, &((page - 1) * LIMIT)])
+            .from_err()
+            .fold((p, ids), move |(mut p, mut ids), row| {
+                ids.push(row.get(1));
+                p.push(Post {
+                    id: row.get(0),
+                    user_id: row.get(1),
+                    topic_id: row.get(2),
+                    category_id: row.get(3),
+                    post_id: row.get(4),
+                    post_content: row.get(5),
+                    created_at: row.get(6),
+                    updated_at: row.get(7),
+                    last_reply_time: row.get(8),
+                    reply_count: row.get(9),
+                    is_locked: row.get(10),
+                });
+                Ok::<(Vec<Post>, Vec<u32>), ServiceError>((p, ids))
+            });
 
         let f = ft
             .join(fp)
-            .map(|((t, mut tids), (p, mut ids))| {
-                if let Some(id) = tids.pop() {
-                    ids.push(id);
-                }
-                ids.sort();
-                ids.dedup();
+            .map(|((t, uid), (p, mut ids))| {
+                ids.push(uid);
                 (t, p, ids)
             });
 
@@ -106,23 +133,41 @@ impl Handler<AddTopic> for DatabaseService {
         let t = msg.0;
         let now = Utc::now().naive_local();
 
-        let query = format!(
-            "INSERT INTO topics
-            (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
-            VALUES ({}, {}, {}, '{}', '{}', '{}', '{}', '{}', '{}')
-            RETURNING *",
-            id,
-            t.user_id.unwrap(),
-            t.category_id,
-            t.thumbnail.unwrap(),
-            t.title.unwrap(),
-            t.body.unwrap(),
-            &now,
-            &now,
-            &now
-        );
+        let f = self.db
+            .as_mut()
+            .unwrap()
+            .query(self.insert_topic.as_ref().unwrap(),
+                   &[&id,
+                       &t.user_id.unwrap(),
+                       &t.category_id,
+                       &t.thumbnail.unwrap(),
+                       &t.title.unwrap(),
+                       &t.body.unwrap(),
+                       &now,
+                       &now,
+                       &now
+                   ])
+            .into_future()
+            .map_err(|(e, _)| e)
+            .from_err()
+            .and_then(|(r, _)| match r {
+                Some(row) => Ok(Topic {
+                    id: row.get(0),
+                    user_id: row.get(1),
+                    category_id: row.get(2),
+                    title: row.get(3),
+                    body: row.get(4),
+                    thumbnail: row.get(5),
+                    created_at: row.get(6),
+                    updated_at: row.get(7),
+                    last_reply_time: row.get(8),
+                    reply_count: row.get(9),
+                    is_locked: row.get(10),
+                }),
+                None => Err(ServiceError::BadRequest)
+            });
 
-        Box::new(query_topic(self.db.as_mut().unwrap(), &query))
+        Box::new(f)
     }
 }
 
@@ -146,7 +191,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         if let Some(s) = t.is_locked {
             let _ = write!(&mut query, " is_locked={},", s);
         }
-        // update update_at or return err as the query is empty.
+// update update_at or return err as the query is empty.
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at=DEFAULT");
         } else {
@@ -159,7 +204,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(query_topic(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
+        Box::new(query_topic_simple(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
     }
 }
 
@@ -168,38 +213,57 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        let query = match msg {
-            GetTopics::Latest(id, page) => format!(
-                "SELECT * FROM topics
-                WHERE category_id = {}
-                ORDER BY last_reply_time DESC
-                OFFSET {}
-                LIMIT 20", id, ((page - 1) * 20)),
+        let q = match msg {
+            GetTopics::Latest(cid, page) => {
+                self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.topics_latest.as_ref().unwrap(),
+                           &[&cid, &((page - 1) * 20)])
+            }
             GetTopics::Popular(cid, page) => {
                 let yesterday = Utc::now().timestamp() - 86400;
                 let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
 
-                format!(
-                    "SELECT * FROM topics
-                WHERE last_reply_time > '{}' AND category_id = {}
-                ORDER BY reply_count DESC
-                OFFSET {}
-                LIMIT 20", &yesterday, cid, ((page - 1) * 20))
+                self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.topics_popular.as_ref().unwrap(),
+                           &[&cid, &yesterday, &((page - 1) * 20)])
             }
             GetTopics::PopularAll(page) => {
                 let yesterday = Utc::now().timestamp() - 86400;
                 let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
 
-                format!(
-                    "SELECT * FROM topics
-                WHERE last_reply_time > '{}'
-                ORDER BY reply_count DESC
-                OFFSET {}
-                LIMIT 20", &yesterday, ((page - 1) * 20))
+                self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.topics_popular_all.as_ref().unwrap(),
+                           &[&yesterday, &((page - 1) * 20)])
             }
         };
 
-        let f = query_topics(self.db.as_mut().unwrap(), &query);
+        let t = Vec::with_capacity(20);
+        let ids: Vec<u32> = Vec::with_capacity(20);
+        let f = q
+            .from_err()
+            .fold((t, ids), move |(mut t, mut ids), row| {
+                ids.push(row.get(1));
+                t.push(Topic {
+                    id: row.get(0),
+                    user_id: row.get(1),
+                    category_id: row.get(2),
+                    title: row.get(3),
+                    body: row.get(4),
+                    thumbnail: row.get(5),
+                    created_at: row.get(6),
+                    updated_at: row.get(7),
+                    last_reply_time: row.get(8),
+                    reply_count: row.get(9),
+                    is_locked: row.get(10),
+                });
+                Ok::<(Vec<Topic>, Vec<u32>), ServiceError>((t, ids))
+            });
 
         Box::new(f)
     }

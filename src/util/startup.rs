@@ -3,7 +3,7 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{get_all_categories, query_topics, get_users_all, simple_query},
+    db::{get_all_categories, query_topics_simple, get_users_all, simple_query},
     cache::{build_list, build_hmset},
 };
 use crate::model::{
@@ -23,10 +23,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
     // Load all categories and make hash set.
-    let p = c.prepare("SELECT * FROM categories");
-    let st = rt.block_on(p).unwrap();
-    let categories = Vec::new();
-    let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap();
+    let categories = rt.block_on(get_all_categories(&mut c)).unwrap();
 
     rt.block_on(build_hmset(c_cache.clone(), categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
@@ -37,7 +34,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     for cat in categories.iter() {
         category_ids.push(cat.id);
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY last_reply_time DESC", cat.id);
-        let (t, _) = rt.block_on(query_topics(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let (t, _) = rt.block_on(query_topics_simple(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         let mut tids = Vec::new();
         for t in t.clone().into_iter() {
@@ -120,13 +117,10 @@ pub fn create_table(postgres_url: &str) {
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    let p = c.prepare("SELECT * FROM categories");
-    if let Some(st) = rt.block_on(p).ok() {
-        let categories = Vec::new();
-        if let Some(_) = rt.block_on(get_all_categories(&mut c, &st, categories)).ok() {
-            return;
-        }
+    if let Some(_) = rt.block_on(get_all_categories(&mut c)).ok() {
+        return;
     }
+
     // create default table
     let mut query = "
 CREATE TABLE users
@@ -217,15 +211,19 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 CREATE OR REPLACE FUNCTION adding_topic() RETURNS trigger AS
 $adding_topic$
 BEGIN
-    UPDATE categories
-    SET topic_count = topic_count + 1
-    WHERE id = NEW.category_id;
-    RETURN NULL;
+    IF EXISTS(SELECT id FROM categories WHERE id = NEW.category_id)
+    THEN
+        UPDATE categories
+        SET topic_count = topic_count + 1
+        WHERE id = NEW.category_id;
+        RETURN NEW;
+    ELSE RETURN NULL;
+    END IF;
 END;
 $adding_topic$ LANGUAGE plpgsql;
 
 CREATE TRIGGER adding_topic
-    AFTER INSERT
+    BEFORE INSERT
     ON topics
     FOR EACH ROW
 EXECUTE PROCEDURE adding_topic();
@@ -304,10 +302,7 @@ pub fn drop_table(postgres_url: &str) {
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    let p = c.prepare("SELECT * FROM categories");
-    let st = rt.block_on(p).expect("failed to prepare statement");
-    let categories = Vec::new();
-    let categories = rt.block_on(get_all_categories(&mut c, &st, categories)).unwrap_or_else(|_| panic!("failed to get categories"));
+    let categories = rt.block_on(get_all_categories(&mut c)).unwrap_or_else(|_| panic!("failed to get categories"));
 
     let query = "
 DROP TABLE IF EXISTS associates;

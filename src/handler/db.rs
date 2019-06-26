@@ -23,7 +23,7 @@ use crate::model::common::GetUserId;
 pub fn get_single_row<T>(
     c: &mut Client,
     query: &str,
-    index: usize
+    index: usize,
 ) -> impl Future<Item=T, Error=ServiceError>
     where T: std::str::FromStr {
     simple_query(c, query)
@@ -40,32 +40,6 @@ pub fn create_talk(
         .join(query_talk(c, query2))
 }
 
-pub fn query_posts(
-    c: &mut Client,
-    query: &str,
-) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ServiceError> {
-    general_simple_query_fold(c, query, post_from_simple_row)
-}
-
-pub fn query_topics(
-    c: &mut Client,
-    query: &str,
-) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
-    general_simple_query_fold(c, query, topic_from_simple_row)
-        .map(|(t, mut ids)| {
-            ids.sort();
-            ids.dedup();
-            (t, ids)
-        })
-}
-
-pub fn query_user(
-    c: &mut Client,
-    query: &str,
-) -> impl Future<Item=User, Error=ServiceError> {
-    general_simple_query(c, query, user_from_simple_row)
-}
-
 pub fn query_talk(
     c: &mut Client,
     query: &str,
@@ -73,21 +47,35 @@ pub fn query_talk(
     general_simple_query(c, query, talk_from_simple_row)
 }
 
-pub fn query_post(
+pub fn query_topics_simple(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ServiceError> {
+    general_simple_query_fold(c, query, topic_from_simple_row)
+}
+
+pub fn query_user_simple(
+    c: &mut Client,
+    query: &str,
+) -> impl Future<Item=User, Error=ServiceError> {
+    general_simple_query(c, query, user_from_simple_row)
+}
+
+pub fn query_post_simple(
     c: &mut Client,
     query: &str,
 ) -> impl Future<Item=Post, Error=ServiceError> {
     general_simple_query(c, query, post_from_simple_row)
 }
 
-pub fn query_topic(
+pub fn query_topic_simple(
     c: &mut Client,
     query: &str,
 ) -> impl Future<Item=Topic, Error=ServiceError> {
     general_simple_query(c, query, topic_from_simple_row)
 }
 
-pub fn query_category(
+pub fn query_category_simple(
     c: &mut Client,
     query: &str,
 ) -> impl Future<Item=Category, Error=ServiceError> {
@@ -96,30 +84,31 @@ pub fn query_category(
 
 pub fn get_all_categories(
     c: &mut Client,
-    st: &Statement,
-    categories: Vec<Category>,
 ) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
-    c.query(st, &[])
+    let vec = Vec::new();
+    c.simple_query("SELECT * FROM categories")
         .from_err()
-        .fold(categories, move |mut categories, row| {
-            categories.push(Category {
-                id: row.get(0),
-                name: row.get(1),
-                topic_count: row.get(2),
-                post_count: row.get(3),
-                subscriber_count: row.get(4),
-                thumbnail: row.get(5),
-            });
-            Ok::<_, ServiceError>(categories)
+        .fold(vec, move |mut vec, row| {
+            match row {
+                SimpleQueryMessage::Row(row) => {
+                    if let Some(c) = category_from_simple_row(&row).ok() {
+                        vec.push(c);
+                    }
+                }
+                _ => ()
+            }
+            Ok::<Vec<Category>, ServiceError>(vec)
         })
 }
 
 pub fn get_users(
     c: &mut Client,
     st: &Statement,
-    ids: Vec<u32>,
+    mut ids: Vec<u32>,
 ) -> impl Future<Item=Vec<User>, Error=ServiceError> {
     let users = Vec::with_capacity(21);
+    ids.sort();
+    ids.dedup();
     c.query(st, &[&ids])
         .from_err()
         .fold(users, move |mut users, row| {

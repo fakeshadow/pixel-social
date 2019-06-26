@@ -41,7 +41,7 @@ pub struct GetUsersCache(pub Vec<u32>);
 
 pub struct AddedTopic(pub Topic);
 
-pub struct AddedPost(pub Vec<Post>);
+pub struct AddedPost(pub Post);
 
 pub struct AddedCategory(pub Category);
 
@@ -162,7 +162,7 @@ impl Handler<AddedPost> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
     fn handle(&mut self, msg: AddedPost, _: &mut Self::Context) -> Self::Result {
-        let p = msg.0.first().unwrap();
+        let p = msg.0;
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -239,66 +239,24 @@ impl Handler<GetTopicsCache> for CacheService {
                         });
                 Box::new(f)
             }
-            GetTopicsCache::Popular(mut ids, page) => {
-                let cid = ids.pop().unwrap();
-
-                let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
-
+            GetTopicsCache::Popular(ids, page) => {
                 let f =
-                    cmd("zrevrangebyscore")
-                        .arg(&format!("category{}:topics:time", cid))
-                        .arg("+inf")
-                        .arg(yesterday)
-                        .query_async(self.cache.as_ref().unwrap().clone())
-                        .from_err()
-                        .and_then(move |(conn, tids): (SharedConn, Vec<u32>)| {
-                            let key = format!("category{}:topics:reply", cid);
-                            let mut pipe = pipe();
-                            pipe.atomic();
-
-                            for tid in tids.iter() {
-                                pipe.cmd("zscore").arg(&key).arg(*tid);
-                            };
-
-                            pipe.query_async(conn)
-                                .from_err()
-                                .and_then(move |(conn, counts): (SharedConn, Vec<u32>)| {
-                                    if counts.len() != tids.len() {
-                                        return Either::A(fut_err(ServiceError::BadRequest));
-                                    }
-                                    let len = tids.len();
-
-                                    let mut counts = counts.into_iter().enumerate().collect::<Vec<(usize, u32)>>();
-                                    counts.sort_by(|(ia, va), (ib, vb)| vb.cmp(va));
-
-                                    let mut vec = Vec::with_capacity(20);
-                                    let mut start = ((page - 1) * 20) as usize;
-                                    let finish = start + LIMITU;
-                                    for i in start..finish {
-                                        if i + 1 <= len {
-                                            let (j, v) = counts[i];
-                                            vec.push(tids[j])
-                                        }
-                                    }
-
-                                    Either::B(from_hmsets(conn, vec, "topic"))
-                                })
-                                .and_then(|(t, uids, conn)| {
-                                    get_users(conn, uids).map(|u| (t, u))
-                                })
+                    topics_posts_from_set(
+                        SortedSet::Topics(ids, page),
+                        self.cache.as_ref().unwrap().clone())
+                        .and_then(|(t, mut uids, conn)| {
+                            uids.sort();
+                            uids.dedup();
+                            get_users(conn, uids).map(|u| (t, u))
                         });
-
 
                 Box::new(f)
             }
             GetTopicsCache::PopularAll(page) => {
                 let id = 0;
                 let f =
-                    topics_posts_from_list(
-                        id,
-                        page,
-                        "category",
-                        "topic",
+                    topics_posts_from_set(
+                        SortedSet::TopicsAll(page),
                         self.cache.as_ref().unwrap().clone())
                         .and_then(|(t, mut uids, conn)| {
                             uids.sort();
@@ -382,6 +340,70 @@ impl Handler<RemoveCategoryCache> for CacheService {
             .from_err()
             .map(|(_, _): (_, usize)| ()))
     }
+}
+
+
+enum SortedSet {
+    Topics(Vec<u32>, i64),
+    TopicsAll(i64),
+    Posts,
+}
+
+fn topics_posts_from_set<T>(
+    set: SortedSet,
+    conn: SharedConn,
+) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
+    where T: GetUserId + FromHashSet {
+    let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
+
+    let (time_key, reply_key, hmset_key, page) = match set {
+        SortedSet::Topics(ids, page) => {
+            let id = ids.first().unwrap();
+            (format!("category{}:topics:time", id), format!("category{}:topics:reply", id), "topic", page)
+        }
+        SortedSet::TopicsAll(page) => ("all:topics:time".to_owned(), "all:topics:reply".to_owned(), "topic", page),
+//        SortedSet::Posts => (format!("topic{}:posts:time", id), format!("topic{}:posts:reply", id), "post"),
+        _ => panic!("placeholder")
+    };
+
+    cmd("zrevrangebyscore")
+        .arg(&time_key)
+        .arg("+inf")
+        .arg(yesterday)
+        .query_async(conn)
+        .from_err()
+        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
+            let mut pipe = pipe();
+            pipe.atomic();
+
+            for tid in ids.iter() {
+                pipe.cmd("zscore").arg(&reply_key).arg(*tid);
+            };
+
+            pipe.query_async(conn)
+                .from_err()
+                .and_then(move |(conn, counts): (SharedConn, Vec<u32>)| {
+                    if counts.len() != ids.len() {
+                        return Err(ServiceError::BadRequest);
+                    }
+                    let len = ids.len();
+
+                    let mut counts = counts.into_iter().enumerate().collect::<Vec<(usize, u32)>>();
+                    counts.sort_by(|(ia, va), (ib, vb)| vb.cmp(va));
+
+                    let mut vec = Vec::with_capacity(20);
+                    let start = ((page - 1) * 20) as usize;
+                    for i in start..start + LIMITU {
+                        if i + 1 <= len {
+                            let (j, v) = counts[i];
+                            vec.push(ids[j])
+                        }
+                    }
+
+                    Ok((conn, vec))
+                })
+                .and_then(move |(conn, vec)| from_hmsets(conn, vec, hmset_key))
+        })
 }
 
 

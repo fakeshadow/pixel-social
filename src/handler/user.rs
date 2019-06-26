@@ -10,7 +10,7 @@ use crate::model::{
     errors::ServiceError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::db::{get_users, auth_response_from_msg, unique_username_email_check, simple_query, query_user};
+use crate::handler::db::{get_users, auth_response_from_msg, unique_username_email_check, simple_query, query_user_simple};
 use crate::util::{hash, jwt};
 
 
@@ -94,7 +94,7 @@ impl Handler<Register> for DatabaseService {
              VALUES ({}, '{}', '{}', '{}', '{}', '{}')
              RETURNING *", u.id, u.username, u.email, u.hashed_password, u.avatar_url, u.signature);
 
-        Box::new(query_user(self.db.as_mut().unwrap(), query.as_str())
+        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str())
             .map(|u| vec![u]))
     }
 }
@@ -150,7 +150,7 @@ impl Handler<UpdateUser> for DatabaseService {
             return Box::new(future::err(ServiceError::BadRequest));
         }
 
-        Box::new(query_user(self.db.as_mut().unwrap(), query.as_str())
+        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str())
             .map(|u| vec![u]))
     }
 }

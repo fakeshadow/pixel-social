@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use futures::{future::IntoFuture, stream::futures_ordered};
 
 use actix::prelude::*;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement};
@@ -18,8 +19,15 @@ pub type MAIL = Addr<MailService>;
 
 pub struct DatabaseService {
     pub db: Option<Client>,
-    pub categories: Option<Statement>,
+    pub topics_latest: Option<Statement>,
+    pub topics_popular: Option<Statement>,
+    pub topics_popular_all: Option<Statement>,
+    pub topic_by_id: Option<Statement>,
+    pub posts_popular: Option<Statement>,
+    pub posts_old: Option<Statement>,
     pub users_by_id: Option<Statement>,
+    pub insert_topic: Option<Statement>,
+    pub insert_post: Option<Statement>,
 }
 
 pub struct CacheService {
@@ -64,23 +72,70 @@ impl DatabaseService {
         DatabaseService::create(move |ctx| {
             let addr = DatabaseService {
                 db: None,
-                categories: None,
+                topics_latest: None,
+                topics_popular: None,
+                topics_popular_all: None,
+                topic_by_id: None,
+                posts_popular: None,
+                posts_old: None,
                 users_by_id: None,
+                insert_topic: None,
+                insert_post: None,
             };
 
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
-                    let p2 = db.prepare("SELECT * FROM categories");
+                    let p1 = db.prepare("SELECT * FROM topics
+                        WHERE category_id = ANY($1)
+                        ORDER BY last_reply_time DESC
+                        OFFSET $2
+                        LIMIT 20");
+                    let p2 = db.prepare("SELECT * FROM topics
+                        WHERE last_reply_time > $2 AND category_id = ANY($1)
+                        ORDER BY reply_count DESC
+                        OFFSET $3
+                        LIMIT 20");
+                    let p3 = db.prepare("SELECT * FROM topics
+                        WHERE last_reply_time > $1
+                        ORDER BY reply_count DESC
+                        OFFSET $2
+                        LIMIT 20");
+                    let p4 = db.prepare("SELECT * FROM topics WHERE id = $1");
+                    let p5 = db.prepare("SELECT * FROM posts
+                        WHERE topic_id = $1
+                        ORDER BY reply_count DESC, id ASC
+                        OFFSET $2
+                        LIMIT 20");
+                    let p6 = db.prepare("SELECT * FROM posts
+                        WHERE topic_id = $1
+                        ORDER BY id ASC
+                        OFFSET $2
+                        LIMIT 20");
+                    let p7 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                    let p8 = db.prepare("INSERT INTO posts
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at, last_reply_time)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            RETURNING *");
+                    let p9 = db.prepare("INSERT INTO topics
+                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        RETURNING *");
 
-                    ctx.wait(p1
-                        .join(p2)
+                    let f = futures_ordered(vec![p1, p2, p3, p4, p5, p6, p7, p8, p9]).collect();
+                    ctx.wait(f
                         .map_err(|_| panic!("query prepare failed"))
                         .into_actor(addr)
-                        .and_then(|(st1, st2), addr, _| {
-                            addr.users_by_id = Some(st1);
-                            addr.categories = Some(st2);
+                        .and_then(|mut v, addr, _| {
+                            addr.insert_topic = v.pop();
+                            addr.insert_post = v.pop();
+                            addr.users_by_id = v.pop();
+                            addr.posts_old = v.pop();
+                            addr.posts_popular = v.pop();
+                            addr.topic_by_id = v.pop();
+                            addr.topics_popular_all = v.pop();
+                            addr.topics_popular = v.pop();
+                            addr.topics_latest = v.pop();
                             fut::ok(())
                         })
                     );

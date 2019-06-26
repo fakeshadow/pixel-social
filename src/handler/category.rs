@@ -8,7 +8,7 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category, simple_query};
+use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category_simple, simple_query};
 
 pub struct GetCategories;
 
@@ -51,12 +51,7 @@ impl Handler<GetCategories> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        let categories = Vec::new();
-
-        Box::new(get_all_categories(
-            self.db.as_mut().unwrap(),
-            self.categories.as_ref().unwrap(),
-            categories))
+        Box::new(get_all_categories(self.db.as_mut().unwrap()))
     }
 }
 
@@ -78,7 +73,7 @@ impl Handler<AddCategory> for DatabaseService {
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                query_category(addr.db.as_mut().unwrap(), &query)
+                query_category_simple(addr.db.as_mut().unwrap(), &query)
                     .into_actor(addr)
             });
 
@@ -107,7 +102,7 @@ impl Handler<UpdateCategory> for DatabaseService {
             return Box::new(ft_err(ServiceError::BadRequest));
         };
 
-        Box::new(query_category(self.db.as_mut().unwrap(), query.as_str())
+        Box::new(query_category_simple(self.db.as_mut().unwrap(), query.as_str())
             .map(|c| vec![c]))
     }
 }
