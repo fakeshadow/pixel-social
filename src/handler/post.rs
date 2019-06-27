@@ -54,7 +54,6 @@ impl Handler<ModifyPost> for DatabaseService {
                                &now
                            ])
                     .into_future()
-                    .map_err(|e| e.0)
                     .from_err()
                     .and_then(|(row, _)| {
                         match row {

@@ -3,16 +3,16 @@ use std::fmt::Write;
 use futures::{Future, future::{err as ft_err, ok as ft_ok}, IntoFuture};
 
 use actix::prelude::*;
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Utc};
 
 use crate::model::{
     actors::TalkService,
     errors::ServiceError,
     user::User,
-    talk::{Talk, SessionMessage, Delete},
+    talk::{Talk, SessionMessage},
 };
 use crate::handler::{
-    db::{create_talk, get_single_row, simple_query ,query_talk},
+    db::{get_single_row, simple_query, query_talk},
     cache::get_users,
 };
 
@@ -32,7 +32,8 @@ impl TalkService {
 
 #[derive(Serialize)]
 struct HistoryMessage {
-    pub date: NaiveDateTime,
+    pub talk_id: u32,
+    pub time: NaiveDateTime,
     pub message: String,
 }
 
@@ -145,15 +146,27 @@ impl Handler<ClientMessage> for TalkService {
         match msg.talk_id {
             Some(id) => {
                 let _ = self.send_message_many(id, &msg.msg);
-                let query = format!("INSERT INTO talk{} (message) VALUES ({})", &id, &msg.msg);
-                let f = simple_query(self.db.as_mut().unwrap(), &query).map(|_| ());
+                let f = self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&id, &msg.msg])
+                    .into_future()
+                    .from_err()
+                    .map(|_| ());
+
                 Box::new(f)
             }
             None => {
                 let _ = self.send_message(&msg.session_id, &msg.msg);
-                let query = format!("INSERT INTO private{} (message) VALUES ({})", &msg.session_id, &msg.msg);
-                //ToDo : if the message insert failed because table not exist then try to creat the table and insert again.
-                let f = simple_query(self.db.as_mut().unwrap(), &query).map(|_| ());
+                // ToDo: add private message insert statement
+                let f = self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&1, &msg.msg])
+                    .into_future()
+                    .from_err()
+                    .map(|_| ());
+
                 Box::new(f)
             }
         }
@@ -173,25 +186,22 @@ impl Handler<Create> for TalkService {
     type Result = ResponseActFuture<Self, (), ServiceError>;
 
     fn handle(&mut self, msg: Create, _: &mut Context<Self>) -> Self::Result {
-        let query = "SELECT id FROM talks ORDER BY id DESC LIMIT 1";
+        let query = "SELECT Max(id) FROM talks";
 
         let f =
             get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
                 .into_actor(self)
                 .and_then(move |cid, act, _| {
-                    //ToDo: in case query1 array failed.
-                    let query1 = format!("
+                    //ToDo: in case query array failed.
+                    let query = format!("
                     INSERT INTO talks
                     (id, name, description, owner, admin, users)
-                    VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])", cid, msg.name, msg.description, msg.owner, cid, cid);
+                    VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
+                    RETURNING *", cid, msg.name, msg.description, msg.owner, cid, cid);
 
-                    let query2 = format!("
-                    CREATE TABLE talk{}
-                    (date TIMESTAMP NOT NULL PRIMARY KEY DEFAULT CURRENT_TIMESTAMP,message VARCHAR(1024))", cid);
-
-                    create_talk(act.db.as_mut().unwrap(), &query1, &query2)
+                    query_talk(act.db.as_mut().unwrap(), &query)
                         .into_actor(act)
-                        .and_then(move |(_, t), act, _| {
+                        .and_then(move |t, act, _| {
                             let s = serde_json::to_string(&t)
                                 .unwrap_or("!!! Stringify Error. But Talk Creation is success".to_owned());
                             act.talks.insert(t.id, t);
@@ -214,21 +224,27 @@ impl Handler<Join> for TalkService {
                     return Box::new(fut::err(ServiceError::BadRequest));
                 };
                 // ToDo: in case sql failed.
-                let query = format!("UPDATE talks SET users=array_append(users, '{}') WHERE id={}", &msg.session_id, &msg.talk_id);
-                let f = simple_query(self.db.as_mut().unwrap(), &query)
-                    .map(|_| ())
+
+                let f = self.db
+                    .as_mut()
+                    .unwrap()
+                    .query(self.join_talk.as_ref().unwrap(), &[&msg.session_id, &msg.talk_id])
+                    .into_future()
+                    .map_err(|e| e.0)
+                    .from_err()
                     .into_actor(self)
-                    .then(move |r, act, _| match r {
-                        Ok(_) => {
+                    .and_then(move |row, act, _| match row.0 {
+                        Some(_) => {
                             act.talks.get_mut(&msg.talk_id).unwrap().users.push(msg.session_id);
                             act.send_message(&msg.session_id, "!! Joined");
                             fut::ok(())
                         }
-                        Err(_) => {
+                        None => {
                             act.send_message(&msg.session_id, "!!! Joined failed");
                             fut::ok(())
                         }
                     });
+
                 Box::new(f)
             }
             None => {
@@ -252,24 +268,66 @@ impl Handler<GetTalks> for TalkService {
 }
 
 impl Handler<GetHistory> for TalkService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ResponseActFuture<Self, (), ServiceError>;
 
     fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
-        if let Some(addr) = self.sessions.get(&msg.session_id) {
-            let table = match msg.talk_id {
-                Some(_) => "talk",
-                None => "private"
+        if let Some(_) = self.sessions.get(&msg.session_id) {
+            let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")
+                .unwrap_or(Utc::now().naive_local());
+
+            let msgs = Vec::with_capacity(20);
+
+            return match msg.talk_id {
+                Some(tid) => {
+                    let f = self.db
+                        .as_mut()
+                        .unwrap()
+                        .query(self.get_pub_msg.as_ref().unwrap(), &[&tid, &time])
+                        .from_err()
+                        .fold(msgs, move |mut msgs, row| {
+                            msgs.push(HistoryMessage {
+                                talk_id: row.get(0),
+                                time: row.get(1),
+                                message: row.get(2),
+                            });
+                            Ok::<Vec<HistoryMessage>, ServiceError>(msgs)
+                        })
+                        .into_actor(self)
+                        .and_then(move |h, act, _| {
+                            let s = serde_json::to_string(&h).unwrap_or("!!! Stringify Error".to_owned());
+                            act.send_message(&msg.session_id, &s);
+                            fut::ok(())
+                        });
+
+                    Box::new(f)
+                }
+                // ToDo: add private message table and prepare statement
+                None => {
+                    let f = self.db
+                        .as_mut()
+                        .unwrap()
+                        .query(self.get_pub_msg.as_ref().unwrap(), &[&1, &time])
+                        .from_err()
+                        .fold(msgs, move |mut msgs, row| {
+                            msgs.push(HistoryMessage {
+                                talk_id: row.get(0),
+                                time: row.get(1),
+                                message: row.get(2),
+                            });
+                            Ok::<Vec<HistoryMessage>, ServiceError>(msgs)
+                        })
+                        .into_actor(self)
+                        .and_then(move |h, act, _| {
+                            let s = serde_json::to_string(&h).unwrap_or("!!! Stringify Error".to_owned());
+                            act.send_message(&msg.session_id, &s);
+                            fut::ok(())
+                        });
+                    Box::new(f)
+                }
             };
-            let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f").unwrap();
-
-            let query = format!("SELECT * FROM {}{} WHERE date <= {} ORDER BY date DESC LIMIT 20", table, msg.session_id, time);
-            //ToDo: query db and get messages.
-            let addr = addr.clone();
-
-            return Box::new(ft_err(ServiceError::BadRequest));
         }
 
-        Box::new(ft_err(ServiceError::BadRequest))
+        Box::new(fut::err(ServiceError::BadRequest))
     }
 }
 
@@ -393,8 +451,29 @@ impl Handler<Admin> for TalkService {
             }
             None => {
                 self.send_message(&id, "!!! Bad Request");
-                Box::new(fut::err((ServiceError::BadRequest)))
+                Box::new(fut::err(ServiceError::BadRequest))
             }
+        }
+    }
+}
+
+
+#[derive(Message)]
+pub struct Delete {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+
+impl Handler<Delete> for TalkService {
+    type Result = ();
+
+    fn handle(&mut self, msg: Delete, _: &mut Context<Self>) {
+        if let Some(_) = self.talks.get(&msg.talk_id) {
+            //ToDo: delete talk table and messages here.
+            let string = "placeholder";
+
+            self.send_message(&msg.session_id, string);
         }
     }
 }

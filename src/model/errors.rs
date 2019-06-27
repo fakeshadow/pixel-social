@@ -63,6 +63,16 @@ impl From<tokio_postgres::error::Error> for ServiceError {
     }
 }
 
+impl<T> From<(tokio_postgres::error::Error, T)> for ServiceError {
+    fn from(e: (tokio_postgres::error::Error, T)) -> ServiceError {
+        ServiceError::BadRequestDb(DatabaseErrorMessage {
+            message: e.0.description().to_owned(),
+            details: Some(e.0.to_string()),
+            hint: None,
+        })
+    }
+}
+
 impl From<actix::MailboxError> for ServiceError {
     fn from(e: actix::MailboxError) -> ServiceError {
         match e {

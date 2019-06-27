@@ -30,16 +30,6 @@ pub fn get_single_row<T>(
         .and_then(move |msg| single_row_from_msg(index, &msg))
 }
 
-pub fn create_talk(
-    c: &mut Client,
-    query1: &str,
-    query2: &str,
-) -> impl Future<Item=((), Talk), Error=ServiceError> {
-    simple_query(c, query1)
-        .map(|_| ())
-        .join(query_talk(c, query2))
-}
-
 pub fn query_talk(
     c: &mut Client,
     query: &str,
@@ -204,7 +194,6 @@ pub fn simple_query(
 ) -> impl Future<Item=Option<SimpleQueryMessage>, Error=ServiceError> {
     c.simple_query(query)
         .into_future()
-        .map_err(|(e, _)| e)
         .from_err()
         .map(|(msg, _)| msg)
 }

@@ -63,7 +63,6 @@ impl Handler<GetTopicWithPosts> for DatabaseService {
             .unwrap()
             .query(self.topic_by_id.as_ref().unwrap(), &[&tid])
             .into_future()
-            .map_err(|e| e.0)
             .from_err()
             .and_then(|(r, _)| match r {
                 Some(row) => {
@@ -148,7 +147,6 @@ impl Handler<AddTopic> for DatabaseService {
                        &now
                    ])
             .into_future()
-            .map_err(|(e, _)| e)
             .from_err()
             .and_then(|(r, _)| match r {
                 Some(row) => Ok(Topic {

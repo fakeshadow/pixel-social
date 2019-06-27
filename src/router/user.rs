@@ -11,6 +11,7 @@ use crate::handler::{
     cache::{UpdateCache, GetUsersCache},
     user::{Login, PreRegister, Register, UpdateUser, GetUsers},
 };
+use crate::handler::cache::AddMail;
 
 pub fn get(
     jwt: UserJwt,
@@ -105,7 +106,8 @@ pub fn register(
                 .from_err()
                 .and_then(move |u| {
                     let res = HttpResponse::Ok().json(&u);
-                    let _ = cache.do_send(UpdateCache::User(u));
+                    let _ = cache.do_send(AddMail(u.to_mail()));
+                    let _ = cache.do_send(UpdateCache::User(vec![u]));
                     res
                 }))
         )

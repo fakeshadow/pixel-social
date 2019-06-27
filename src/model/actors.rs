@@ -34,13 +34,6 @@ pub struct CacheService {
     pub cache: Option<SharedConn>
 }
 
-pub struct TalkService {
-    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
-    pub talks: HashMap<u32, Talk>,
-    pub db: Option<Client>,
-    pub cache: Option<SharedConn>,
-}
-
 pub struct MailService {
     pub cache: Option<SharedConn>
 }
@@ -172,6 +165,16 @@ impl CacheService {
     }
 }
 
+pub struct TalkService {
+    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
+    pub talks: HashMap<u32, Talk>,
+    pub db: Option<Client>,
+    pub cache: Option<SharedConn>,
+    pub insert_pub_msg: Option<Statement>,
+    pub get_pub_msg: Option<Statement>,
+    pub join_talk: Option<Statement>,
+}
+
 impl TalkService {
     pub fn connect(postgres_url: &str, redis_url: &str) -> TALK {
         let hs = connect(postgres_url, NoTls);
@@ -184,6 +187,9 @@ impl TalkService {
                 talks: HashMap::new(),
                 db: None,
                 cache: None,
+                insert_pub_msg: None,
+                get_pub_msg: None,
+                join_talk: None,
             };
 
             cache.get_shared_async_connection()
@@ -198,6 +204,10 @@ impl TalkService {
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
+                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message) VALUES ($1, $2)");
+                    let p2 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time < $2 ORDER BY time DESC LIMIT 20");
+                    let p3 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
+
                     ctx.wait(db
                         .simple_query("SELECT * FROM talks")
                         .map_err(|e| panic!("{}", e))
@@ -208,6 +218,17 @@ impl TalkService {
                             };
                             fut::ok(())
                         }));
+
+                    ctx.wait(p1.join3(p2, p3)
+                        .map_err(|e| panic!("{}", e))
+                        .into_actor(addr)
+                        .and_then(|(st1, st2, st3), addr, _| {
+                            addr.insert_pub_msg = Some(st1);
+                            addr.get_pub_msg = Some(st2);
+                            addr.join_talk = Some(st3);
+                            fut::ok(())
+                        })
+                    );
 
                     addr.db = Some(db);
                     Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));

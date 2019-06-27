@@ -30,7 +30,7 @@ impl Message for GetUsers {
 }
 
 impl Message for Register {
-    type Result = Result<Vec<User>, ServiceError>;
+    type Result = Result<User, ServiceError>;
 }
 
 impl Message for UpdateUser {
@@ -72,7 +72,7 @@ impl Handler<PreRegister> for DatabaseService {
 }
 
 impl Handler<Register> for DatabaseService {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
+    type Result = ResponseFuture<User, ServiceError>;
 
     fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
         let req = msg.0;
@@ -94,8 +94,7 @@ impl Handler<Register> for DatabaseService {
              VALUES ({}, '{}', '{}', '{}', '{}', '{}')
              RETURNING *", u.id, u.username, u.email, u.hashed_password, u.avatar_url, u.signature);
 
-        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str())
-            .map(|u| vec![u]))
+        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str()))
     }
 }
 

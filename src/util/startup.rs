@@ -203,10 +203,22 @@ CREATE TABLE talks
     name        VARCHAR(128) NOT NULL UNIQUE,
     description VARCHAR(128) NOT NULL,
     secret      VARCHAR(128) NOT NULL DEFAULT '1',
+    privacy     OID          NOT NULL DEFAULT 0,
     owner       OID          NOT NULL,
     admin       OID[]        NOT NULL,
     users       OID[]        NOT NULL
 );
+
+CREATE TABLE public_messages1
+(
+    talk_id     OID          NOT NULL,
+    time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message     VARCHAR(1024)NOT NULL
+);
+
+
+CREATE INDEX pub_message_time_order ON public_messages1 (time DESC);
+CREATE INDEX pub_message_belong ON public_messages1 (talk_id);
 
 CREATE INDEX topic_time_order ON topics (last_reply_time DESC);
 CREATE INDEX topic_reply_order ON topics (reply_count DESC);
@@ -314,22 +326,18 @@ pub fn drop_table(postgres_url: &str) {
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    let categories = rt.block_on(get_all_categories(&mut c)).unwrap_or_else(|_| panic!("failed to get categories"));
-
     let query = "
 DROP TABLE IF EXISTS associates;
 DROP TABLE IF EXISTS talks;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS public_messages1;
+
 DROP TRIGGER IF EXISTS adding_post ON posts;
 DROP FUNCTION IF EXISTS adding_post();
 DROP TRIGGER IF EXISTS adding_topic ON topics;
 DROP FUNCTION IF EXISTS adding_topic();
-DROP INDEX IF EXISTS topic_time_order;
-DROP INDEX IF EXISTS topic_reply_order;
-DROP INDEX IF EXISTS post_reply_order;
-DROP INDEX IF EXISTS topic_category_belong;
-DROP INDEX IF EXISTS post_topic_belong;
+
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 

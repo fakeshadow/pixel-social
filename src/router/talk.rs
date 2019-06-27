@@ -8,10 +8,7 @@ use serde::Deserialize;
 use crate::util::jwt::JwtPayLoad;
 use crate::model::{
     actors::{TALK, TalkService},
-    talk::{
-        Delete,
-        SessionMessage,
-    },
+    talk::SessionMessage,
 };
 use crate::handler::{
     auth::UserJwt,
@@ -20,6 +17,7 @@ use crate::handler::{
         Disconnect,
         GetTalkUsers,
         Create,
+        Delete,
         GetTalks,
         Join,
         Admin,
@@ -137,7 +135,7 @@ fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::Websock
             "/users" => get_talk_users(session, v[1], ctx),
             "/join" => join_talk(session, v[1], ctx),
             "/create" => create_talk(session, v[1], ctx),
-            "/delete" => delete_talk(session, v[1], ctx),
+            "/delete" => delete_talk(session, v[1]),
             _ => ctx.text("!!! Unknown command")
         }
     }
@@ -255,7 +253,6 @@ fn create_talk(
 fn delete_talk(
     session: &mut WsChatSession,
     string: &str,
-    ctx: &mut ws::WebsocketContext<WsChatSession>,
 ) {
     let talk_id = string.parse::<u32>().unwrap_or(0);
     session.addr.do_send(Delete {

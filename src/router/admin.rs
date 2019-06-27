@@ -93,7 +93,6 @@ pub fn remove_category(
         .and_then(move |_| cache
             .send(RemoveCategoryCache(id))
             .from_err()
-            // ToDo: add retry if the delete of categories failed.
             .and_then(|r| r)
             .from_err()
             .and_then(|_| HttpResponse::Ok().finish())
