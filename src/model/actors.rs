@@ -1,15 +1,15 @@
 use std::collections::HashMap;
-use futures::{future::IntoFuture, stream::futures_ordered};
 
 use actix::prelude::*;
-use tokio_postgres::{connect, Client, tls::NoTls, Statement};
+use futures::{future::IntoFuture, stream::futures_ordered};
 use redis::Client as RedisClient;
+use tokio_postgres::{Client, connect, Statement, tls::NoTls};
 
-use crate::model::{
-    talk::{SessionMessage, Talk},
-    errors::ServiceError,
-};
 use crate::handler::db::talk_from_msg;
+use crate::model::{
+    errors::ServiceError,
+    talk::{SessionMessage, Talk},
+};
 
 pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<DatabaseService>;
@@ -28,6 +28,7 @@ pub struct DatabaseService {
     pub users_by_id: Option<Statement>,
     pub insert_topic: Option<Statement>,
     pub insert_post: Option<Statement>,
+    pub insert_user: Option<Statement>,
 }
 
 pub struct CacheService {
@@ -74,6 +75,7 @@ impl DatabaseService {
                 users_by_id: None,
                 insert_topic: None,
                 insert_post: None,
+                insert_user: None,
             };
 
             hs.map_err(|_| panic!("Can't connect to database"))
@@ -114,12 +116,16 @@ impl DatabaseService {
                         (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         RETURNING *");
+                    let p10 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING *");
 
-                    let f = futures_ordered(vec![p1, p2, p3, p4, p5, p6, p7, p8, p9]).collect();
+                    let f = futures_ordered(vec![p1, p2, p3, p4, p5, p6, p7, p8, p9, p10]).collect();
                     ctx.wait(f
                         .map_err(|_| panic!("query prepare failed"))
                         .into_actor(addr)
                         .and_then(|mut v, addr, _| {
+                            addr.insert_user = v.pop();
                             addr.insert_topic = v.pop();
                             addr.insert_post = v.pop();
                             addr.users_by_id = v.pop();

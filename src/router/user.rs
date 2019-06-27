@@ -8,10 +8,9 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, GetUsersCache},
+    cache::{UpdateCache, GetUsersCache, AddMail},
     user::{Login, PreRegister, Register, UpdateUser, GetUsers},
 };
-use crate::handler::cache::AddMail;
 
 pub fn get(
     jwt: UserJwt,
@@ -20,8 +19,9 @@ pub fn get(
     req: Path<(u32)>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = req.into_inner();
-    cache.send(GetUsersCache(vec![id])).
-        from_err()
+
+    cache.send(GetUsersCache(vec![id]))
+        .from_err()
         .and_then(move |r| match r {
             Ok(u) => Either::A(
                 if id == jwt.user_id {
@@ -65,7 +65,7 @@ pub fn update(
             .from_err()
             .and_then(move |u| {
                 let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(UpdateCache::User(u));
+                let _ = cache.do_send(UpdateCache::User(vec![u]));
                 res
             }))
 }

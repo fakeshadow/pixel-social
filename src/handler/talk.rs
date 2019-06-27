@@ -12,7 +12,7 @@ use crate::model::{
     talk::{Talk, SessionMessage},
 };
 use crate::handler::{
-    db::{get_single_row, simple_query, query_talk},
+    db::{query_single_row, simple_query, query_one_simple},
     cache::get_users,
 };
 
@@ -50,11 +50,19 @@ pub struct Disconnect {
 
 #[derive(Deserialize, Clone)]
 pub struct Create {
+    pub session_id: u32,
     pub name: String,
     pub description: String,
     pub owner: u32,
 }
 
+#[derive(Deserialize)]
+pub struct Delete {
+    pub session_id: u32,
+    pub talk_id: u32,
+}
+
+#[derive(Deserialize)]
 pub struct Join {
     pub session_id: u32,
     pub talk_id: u32,
@@ -71,7 +79,7 @@ impl Message for RemoveUser {
     type Result = Result<(), ServiceError>;
 }
 
-#[derive(Message)]
+#[derive(Message, Deserialize)]
 pub struct GetTalks {
     pub session_id: u32,
     pub talk_id: u32,
@@ -104,6 +112,10 @@ pub struct Admin {
     pub remove: Option<u32>,
     pub talk_id: u32,
     pub session_id: u32,
+}
+
+impl Message for Delete {
+    type Result = Result<(), ServiceError>;
 }
 
 impl Message for Create {
@@ -189,7 +201,7 @@ impl Handler<Create> for TalkService {
         let query = "SELECT Max(id) FROM talks";
 
         let f =
-            get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
+            query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
                 .into_actor(self)
                 .and_then(move |cid, act, _| {
                     //ToDo: in case query array failed.
@@ -199,7 +211,7 @@ impl Handler<Create> for TalkService {
                     VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
                     RETURNING *", cid, msg.name, msg.description, msg.owner, cid, cid);
 
-                    query_talk(act.db.as_mut().unwrap(), &query)
+                    query_one_simple::<Talk>(act.db.as_mut().unwrap(), &query)
                         .into_actor(act)
                         .and_then(move |t, act, _| {
                             let s = serde_json::to_string(&t)
@@ -387,7 +399,7 @@ impl Handler<RemoveUser> for TalkService {
                 return Box::new(fut::err(ServiceError::Unauthorized));
             };
 
-            let f = query_talk(self.db.as_mut().unwrap(), &query)
+            let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)
                 .into_actor(self)
                 .and_then(move |t, act, _| {
                     let s = serde_json::to_string(&t).unwrap_or("!!! Stringify Error.But user removal success".to_owned());
@@ -438,7 +450,7 @@ impl Handler<Admin> for TalkService {
                     query.push_str(&format!(" WHERE id={}", tid));
                 }
 
-                let f = query_talk(self.db.as_mut().unwrap(), &query)
+                let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)
                     .into_actor(self)
                     .and_then(move |t, act, _| {
                         let s = serde_json::to_string(&t)
@@ -457,23 +469,33 @@ impl Handler<Admin> for TalkService {
     }
 }
 
-
-#[derive(Message)]
-pub struct Delete {
-    pub session_id: u32,
-    pub talk_id: u32,
-}
-
-
 impl Handler<Delete> for TalkService {
-    type Result = ();
+    type Result = ResponseActFuture<Self, (), ServiceError>;
 
-    fn handle(&mut self, msg: Delete, _: &mut Context<Self>) {
+    fn handle(&mut self, msg: Delete, _: &mut Context<Self>) -> Self::Result {
         if let Some(_) = self.talks.get(&msg.talk_id) {
             //ToDo: delete talk table and messages here.
-            let string = "placeholder";
+            let query = format!("
+                        DELETE FROM categories
+                        WHERE id={}", msg.talk_id);
 
-            self.send_message(&msg.session_id, string);
+            let f = simple_query(self.db.as_mut().unwrap(), &query)
+                .into_actor(self)
+                .and_then(move |r, act, _| {
+                    let string = match r {
+                        Some(_) => if act.talks.remove(&msg.talk_id).is_some() {
+                            "!! Delete talk success"
+                        } else {
+                            "!!! Talk not found in hash map. But delete is success."
+                        },
+                        None => "!!! Failed to delete talk"
+                    };
+                    act.send_message(&msg.session_id, string);
+                    fut::ok(())
+                });
+
+            return Box::new(f);
         }
+        Box::new(fut::err(ServiceError::BadRequest))
     }
 }

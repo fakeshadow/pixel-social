@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use futures::{Future, future::{err as ft_err ,IntoFuture}};
+use futures::{Future, future::{err as ft_err, IntoFuture}};
 
 use actix::prelude::*;
 use chrono::Utc;
@@ -10,7 +10,7 @@ use crate::model::{
     common::GlobalGuard,
     post::{Post, PostRequest},
 };
-use crate::handler::db::query_post_simple;
+use crate::handler::db::{query_one, query_one_simple};
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
 
@@ -39,42 +39,20 @@ impl Handler<ModifyPost> for DatabaseService {
                 let p = msg.0;
                 let now = Utc::now().naive_local();
 
-                let f = self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.insert_post.as_ref().unwrap(),
-                           &[&id,
-                               p.user_id.as_ref().unwrap(),
-                               &p.topic_id.as_ref().unwrap(),
-                               &p.category_id,
-                               &p.post_id,
-                               p.post_content.as_ref().unwrap(),
-                               &now,
-                               &now,
-                               &now
-                           ])
-                    .into_future()
-                    .from_err()
-                    .and_then(|(row, _)| {
-                        match row {
-                            Some(row) => Ok(Post {
-                                id: row.get(0),
-                                user_id: row.get(1),
-                                topic_id: row.get(2),
-                                category_id: row.get(3),
-                                post_id: row.get(4),
-                                post_content: row.get(5),
-                                created_at: row.get(6),
-                                updated_at: row.get(7),
-                                last_reply_time: row.get(8),
-                                reply_count: row.get(9),
-                                is_locked: row.get(10),
-                            }),
-                            None => Err(ServiceError::BadRequest)
-                        }
-                    });
-
-                Box::new(f)
+                Box::new(query_one(
+                    self.db.as_mut().unwrap(),
+                    self.insert_post.as_ref().unwrap(),
+                    &[&id,
+                        p.user_id.as_ref().unwrap(),
+                        &p.topic_id.as_ref().unwrap(),
+                        &p.category_id,
+                        &p.post_id,
+                        p.post_content.as_ref().unwrap(),
+                        &now,
+                        &now,
+                        &now
+                    ],
+                ))
             }
             None => {
                 let p = msg.0;
@@ -105,7 +83,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 }
                 query.push_str(" RETURNING *");
 
-                Box::new(query_post_simple(self.db.as_mut().unwrap(), &query))
+                Box::new(query_one_simple(self.db.as_mut().unwrap(), &query))
             }
         }
     }
@@ -128,7 +106,7 @@ impl Handler<GetPosts> for DatabaseService {
         }
         query.push_str("}')");
 
-        Box::new(query_post_simple(self.db.as_mut().unwrap(), &query)
+        Box::new(query_one_simple::<Post>(self.db.as_mut().unwrap(), &query)
             .map(|p| {
                 let ids = vec![p.user_id];
                 (vec![p], ids)

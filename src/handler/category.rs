@@ -8,7 +8,7 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ServiceError,
 };
-use crate::handler::db::{get_all_categories, single_row_from_msg, get_single_row, query_category_simple, simple_query};
+use crate::handler::db::{query_single_row, simple_query, query_one_simple, query_all_simple};
 
 pub struct GetCategories;
 
@@ -39,19 +39,19 @@ impl Handler<RemoveCategory> for DatabaseService {
 
     fn handle(&mut self, msg: RemoveCategory, _: &mut Self::Context) -> Self::Result {
         let query = format!("
-        DELETE FROM talks
+        DELETE FROM categories
         WHERE id={}", msg.0);
 
         Box::new(simple_query(self.db.as_mut().unwrap(), &query).map(|_| ()))
     }
 }
 
-
 impl Handler<GetCategories> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ServiceError>;
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        Box::new(get_all_categories(self.db.as_mut().unwrap()))
+        let query = "SELECT * FROM categories";
+        Box::new(query_all_simple(self.db.as_mut().unwrap(), query))
     }
 }
 
@@ -63,7 +63,7 @@ impl Handler<AddCategory> for DatabaseService {
 
         let query = "SELECT MAX(id) FROM categories";
 
-        let f = get_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
+        let f = query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
             .into_actor(self)
             .and_then(move |cid, addr, _| {
                 let cid = cid + 1;
@@ -73,7 +73,7 @@ impl Handler<AddCategory> for DatabaseService {
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                query_category_simple(addr.db.as_mut().unwrap(), &query)
+                query_one_simple(addr.db.as_mut().unwrap(), &query)
                     .into_actor(addr)
             });
 
@@ -102,7 +102,7 @@ impl Handler<UpdateCategory> for DatabaseService {
             return Box::new(ft_err(ServiceError::BadRequest));
         };
 
-        Box::new(query_category_simple(self.db.as_mut().unwrap(), query.as_str())
+        Box::new(query_one_simple(self.db.as_mut().unwrap(), query.as_str())
             .map(|c| vec![c]))
     }
 }

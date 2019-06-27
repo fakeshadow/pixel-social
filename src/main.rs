@@ -25,7 +25,10 @@ mod util;
 use crate::{
     handler::cache::clear_cache,
     model::actors::{
-        CacheService, DatabaseService, TalkService, MailService,
+        CacheService,
+        DatabaseService,
+        TalkService,
+        MailService,
     },
     util::startup::{
         create_table,

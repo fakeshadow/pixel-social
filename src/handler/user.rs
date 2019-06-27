@@ -10,9 +10,8 @@ use crate::model::{
     errors::ServiceError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::db::{get_users, auth_response_from_msg, unique_username_email_check, simple_query, query_user_simple};
+use crate::handler::db::{query_multi, query_one, auth_response_from_msg, unique_username_email_check, simple_query, query_one_simple};
 use crate::util::{hash, jwt};
-
 
 pub struct GetUsers(pub Vec<u32>);
 
@@ -34,7 +33,7 @@ impl Message for Register {
 }
 
 impl Message for UpdateUser {
-    type Result = Result<Vec<User>, ServiceError>;
+    type Result = Result<User, ServiceError>;
 }
 
 impl Message for PreRegister {
@@ -49,10 +48,14 @@ impl Handler<GetUsers> for DatabaseService {
     type Result = ResponseFuture<Vec<User>, ServiceError>;
 
     fn handle(&mut self, msg: GetUsers, _: &mut Self::Context) -> Self::Result {
-        Box::new(get_users(
+        let mut ids = msg.0;
+        ids.sort();
+        ids.dedup();
+
+        Box::new(query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
-            msg.0,
+            &[&ids],
         ))
     }
 }
@@ -76,7 +79,6 @@ impl Handler<Register> for DatabaseService {
 
     fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
         let req = msg.0;
-
         let hash = match hash::hash_password(&req.password) {
             Ok(hash) => hash,
             Err(e) => return Box::new(future::err(e))
@@ -89,12 +91,16 @@ impl Handler<Register> for DatabaseService {
             Ok(u) => u,
             Err(e) => return Box::new(future::err(e))
         };
-        let query = format!(
-            "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
-             VALUES ({}, '{}', '{}', '{}', '{}', '{}')
-             RETURNING *", u.id, u.username, u.email, u.hashed_password, u.avatar_url, u.signature);
 
-        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str()))
+        Box::new(query_one(
+            self.db.as_mut().unwrap(),
+            self.insert_user.as_ref().unwrap(),
+            &[&u.id,
+                &u.username,
+                &u.email,
+                &u.hashed_password,
+                &u.avatar_url,
+                &u.signature]))
     }
 }
 
@@ -111,7 +117,7 @@ impl Handler<Login> for DatabaseService {
 }
 
 impl Handler<UpdateUser> for DatabaseService {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
+    type Result = ResponseFuture<User, ServiceError>;
 
     fn handle(&mut self, msg: UpdateUser, _: &mut Self::Context) -> Self::Result {
         let u = msg.0;
@@ -149,7 +155,6 @@ impl Handler<UpdateUser> for DatabaseService {
             return Box::new(future::err(ServiceError::BadRequest));
         }
 
-        Box::new(query_user_simple(self.db.as_mut().unwrap(), query.as_str())
-            .map(|u| vec![u]))
+        Box::new(query_one_simple(self.db.as_mut().unwrap(), query.as_str()))
     }
 }

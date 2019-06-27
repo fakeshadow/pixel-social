@@ -6,7 +6,6 @@ use crate::model::{
     common::{GlobalGuard, AttachUser},
     topic::{TopicRequest, TopicWithPost},
 };
-
 use crate::handler::{
     auth::UserJwt,
     user::GetUsers,
@@ -129,7 +128,7 @@ pub fn update(
             .from_err()
             .and_then(move |t| {
                 let res = HttpResponse::Ok().json(&t);
-                let _ = cache.do_send(UpdateCache::Topic(t));
+                let _ = cache.do_send(UpdateCache::Topic(vec![t]));
                 res
             }))
 }

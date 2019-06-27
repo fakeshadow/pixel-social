@@ -1,19 +1,22 @@
 use actix::prelude::*;
 use actix_rt::Runtime;
+use chrono::NaiveDateTime;
 use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{get_all_categories, query_topics_simple, get_users_all, simple_query},
-    cache::{build_list, build_hmset},
+    db::{query_multi_simple_with_id, query_all, simple_query},
+    cache::{build_list, build_hmset, build_category_set, build_topic_set},
 };
 use crate::model::{
+    topic::Topic,
+    user::User,
+    category::Category,
     common::{
         GlobalVar,
         GlobalGuard,
-    }
+    },
 };
-use crate::handler::cache::{build_category_set, build_topic_set};
-use chrono::NaiveDateTime;
+use crate::handler::db::query_all_simple;
 
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, ()> {
@@ -25,7 +28,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
     // Load all categories and make hash set.
-    let categories = rt.block_on(get_all_categories(&mut c)).unwrap();
+    let query = "SELECT * FROM categories";
+    let categories = rt.block_on(query_all_simple::<Category>(&mut c, query)).unwrap();
 
     rt.block_on(build_hmset(c_cache.clone(), categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
@@ -36,7 +40,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     for cat in categories.iter() {
         category_ids.push(cat.id);
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY last_reply_time DESC", cat.id);
-        let (t, _) = rt.block_on(query_topics_simple(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let (t, _): (Vec<Topic>, _) = rt.block_on(query_multi_simple_with_id(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         let mut tids = Vec::new();
         let mut sets = Vec::new();
@@ -109,7 +113,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
 
     let p = c.prepare("SELECT * FROM users");
     let st = rt.block_on(p).unwrap();
-    let users = rt.block_on(get_users_all(&mut c, &st)).unwrap_or_else(|_| panic!("Failed to load users"));
+    let users = rt.block_on(query_all::<User>(&mut c, &st, &[])).unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
@@ -129,7 +133,8 @@ pub fn create_table(postgres_url: &str) {
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    if let Some(_) = rt.block_on(get_all_categories(&mut c)).ok() {
+    let query = "SELECT * FROM categories";
+    if let Some(_) = rt.block_on(query_all_simple::<Category>(&mut c, query)).ok() {
         return;
     }
 

@@ -12,7 +12,7 @@ use crate::model::{
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::query_topic_simple;
+use crate::handler::db::{query_one_with_id, query_multi_with_id, query_one_simple};
 
 const LIMIT: i64 = 20;
 
@@ -36,7 +36,7 @@ impl Message for AddTopic {
 }
 
 impl Message for UpdateTopic {
-    type Result = Result<Vec<Topic>, ServiceError>;
+    type Result = Result<Topic, ServiceError>;
 }
 
 impl Message for GetTopicWithPosts {
@@ -51,67 +51,19 @@ impl Handler<GetTopicWithPosts> for DatabaseService {
     type Result = ResponseFuture<(Topic, Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicWithPosts, _: &mut Self::Context) -> Self::Result {
-        let (st, tid, page) = match msg {
+        let (stp, tid, page) = match msg {
             GetTopicWithPosts::Popular(tid, page) =>
                 (self.posts_popular.as_ref().unwrap(), tid, page),
             GetTopicWithPosts::Oldest(tid, page) =>
                 (self.posts_old.as_ref().unwrap(), tid, page)
         };
 
-        let ft = self.db
-            .as_mut()
-            .unwrap()
-            .query(self.topic_by_id.as_ref().unwrap(), &[&tid])
-            .into_future()
-            .from_err()
-            .and_then(|(r, _)| match r {
-                Some(row) => {
-                    let uid = row.get(1);
-                    let t = Topic {
-                        id: row.get(0),
-                        user_id: uid,
-                        category_id: row.get(2),
-                        title: row.get(3),
-                        body: row.get(4),
-                        thumbnail: row.get(5),
-                        created_at: row.get(6),
-                        updated_at: row.get(7),
-                        last_reply_time: row.get(8),
-                        reply_count: row.get(9),
-                        is_locked: row.get(10),
-                    };
-                    Ok((t, uid))
-                }
-                None => Err(ServiceError::BadRequest)
-            });
+        let c = self.db.as_mut().unwrap();
+        let stt = self.topic_by_id.as_ref().unwrap();
+        let offset = (page - 1) * LIMIT;
 
-        let p = Vec::with_capacity(20);
-        let ids = Vec::with_capacity(20);
-        let fp = self.db
-            .as_mut()
-            .unwrap()
-            .query(st, &[&tid, &((page - 1) * LIMIT)])
-            .from_err()
-            .fold((p, ids), move |(mut p, mut ids), row| {
-                ids.push(row.get(1));
-                p.push(Post {
-                    id: row.get(0),
-                    user_id: row.get(1),
-                    topic_id: row.get(2),
-                    category_id: row.get(3),
-                    post_id: row.get(4),
-                    post_content: row.get(5),
-                    created_at: row.get(6),
-                    updated_at: row.get(7),
-                    last_reply_time: row.get(8),
-                    reply_count: row.get(9),
-                    is_locked: row.get(10),
-                });
-                Ok::<(Vec<Post>, Vec<u32>), ServiceError>((p, ids))
-            });
-
-        let f = ft
-            .join(fp)
+        let f = query_one_with_id(c, stt, &[&tid])
+            .join(query_multi_with_id(c, stp, &[&tid, &offset]))
             .map(|((t, uid), (p, mut ids))| {
                 ids.push(uid);
                 (t, p, ids)
@@ -171,7 +123,7 @@ impl Handler<AddTopic> for DatabaseService {
 
 //ToDo: add query for moving topic to other table.
 impl Handler<UpdateTopic> for DatabaseService {
-    type Result = ResponseFuture<Vec<Topic>, ServiceError>;
+    type Result = ResponseFuture<Topic, ServiceError>;
 
     fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
         let t = msg.0;
@@ -202,7 +154,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(query_topic_simple(self.db.as_mut().unwrap(), &query).map(|t| vec![t]))
+        Box::new(query_one_simple(self.db.as_mut().unwrap(), &query))
     }
 }
 

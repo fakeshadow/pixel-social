@@ -24,6 +24,8 @@ use crate::handler::{
         UpdateUserCheck,
     },
 };
+use crate::handler::admin::RemoveCategoryCheck;
+
 pub fn add_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
@@ -85,18 +87,23 @@ pub fn remove_category(
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
-    //ToDo: add admin check
-    db.send(RemoveCategory(id))
+
+    db.send(RemoveCategoryCheck(jwt.is_admin))
         .from_err()
         .and_then(|r| r)
         .from_err()
-        .and_then(move |_| cache
-            .send(RemoveCategoryCache(id))
+        .and_then(move |_| db
+            .send(RemoveCategory(id))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(|_| HttpResponse::Ok().finish())
-        )
+            .and_then(move |_| cache
+                .send(RemoveCategoryCache(id))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(|_| HttpResponse::Ok().finish())
+            ))
 }
 
 pub fn update_user(
@@ -121,7 +128,7 @@ pub fn update_user(
                 .from_err()
                 .and_then(move |u| {
                     let res = HttpResponse::Ok().json(&u);
-                    let _ = cache.do_send(UpdateCache::User(u));
+                    let _ = cache.do_send(UpdateCache::User(vec![u]));
                     res
                 })))
 }
@@ -148,7 +155,7 @@ pub fn update_topic(
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
-                    let _ = cache.do_send(UpdateCache::Topic(t));
+                    let _ = cache.do_send(UpdateCache::Topic(vec![t]));
                     res
                 })))
 }

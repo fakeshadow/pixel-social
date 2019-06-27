@@ -10,7 +10,7 @@ use crate::model::{
     post::PostRequest,
     topic::TopicRequest,
 };
-use crate::handler::db::get_users;
+use crate::handler::db::query_multi;
 
 pub struct UpdateUserCheck(pub u32, pub UpdateRequest);
 
@@ -19,6 +19,8 @@ pub struct UpdateTopicCheck(pub u32, pub TopicRequest);
 pub struct UpdatePostCheck(pub u32, pub PostRequest);
 
 pub struct UpdateCategoryCheck(pub u32, pub CategoryRequest);
+
+pub struct RemoveCategoryCheck(pub u32);
 
 
 impl Message for UpdateUserCheck {
@@ -37,6 +39,9 @@ impl Message for UpdateCategoryCheck {
     type Result = Result<CategoryRequest, ServiceError>;
 }
 
+impl Message for RemoveCategoryCheck {
+    type Result = Result<(), ServiceError>;
+}
 
 impl Handler<UpdateUserCheck> for DatabaseService {
     type Result = ResponseFuture<UpdateRequest, ServiceError>;
@@ -45,10 +50,10 @@ impl Handler<UpdateUserCheck> for DatabaseService {
         let self_lv = msg.0;
         let req = msg.1;
 
-        Box::new(get_users(
+        Box::new(query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
-            vec![req.id.unwrap()])
+            &[req.id.as_ref().unwrap()])
             .and_then(move |u: Vec<User>| {
                 let u = u.first().ok_or(ServiceError::BadRequest)?;
                 check_admin_level(&req.is_admin, &self_lv, 9)?;
@@ -86,6 +91,15 @@ impl Handler<UpdatePostCheck> for DatabaseService {
         Box::new(update_post_check(&msg.0, &msg.1)
             .into_future()
             .map(|_| msg.1))
+    }
+}
+
+impl Handler<RemoveCategoryCheck> for DatabaseService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: RemoveCategoryCheck, _: &mut Self::Context) -> Self::Result {
+        Box::new(check_admin_level(&Some(1), &msg.0, 9)
+            .into_future())
     }
 }
 
