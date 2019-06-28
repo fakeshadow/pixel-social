@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
 
     let talk_service = TalkService::connect(&database_url, &redis_url);
     // mail service is not passed into data as we add mail queue into redis cache directly.
-    let _ = MailService::connect(&redis_url);
+    let mail = MailService::connect(&redis_url);
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
@@ -77,6 +77,7 @@ fn main() -> std::io::Result<()> {
             .data(talk_service.clone())
             .data(db)
             .data(cache)
+            .data(mail.clone())
             .wrap(Logger::default())
             .wrap(Cors::new()
                 .allowed_origin(&cors_origin)

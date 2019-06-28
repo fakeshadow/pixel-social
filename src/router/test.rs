@@ -3,7 +3,7 @@ use futures::{Future, future::{Either, IntoFuture, ok as ft_ok, err as ft_err}};
 use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
 
 use crate::model::{
-    actors::{DatabaseService, DB, CACHE},
+    actors::{DatabaseService, DB, CACHE, MAILER},
     user::{AuthRequest, UpdateRequest},
     common::{AttachUser, GlobalGuard, Validator},
     topic::{TopicRequest, TopicWithUser, TopicWithPost},

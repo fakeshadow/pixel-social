@@ -195,11 +195,11 @@ CREATE TABLE posts
 );
 CREATE TABLE associates
 (
-    id               OID       NOT NULL UNIQUE PRIMARY KEY,
-    user_id          OID       NOT NULL UNIQUE,
+    id               OID          NOT NULL UNIQUE PRIMARY KEY,
+    user_id          OID          NOT NULL UNIQUE,
     psn_id           VARCHAR(128) UNIQUE,
     live_id          VARCHAR(128) UNIQUE,
-    last_update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    last_update_time TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE talks
@@ -221,19 +221,34 @@ CREATE TABLE public_messages1
     message     VARCHAR(1024)NOT NULL
 );
 
+CREATE TABLE private_messages1
+(
+    from_id     OID          NOT NULL,
+    to_id       OID          NOT NULL,
+    time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    message     VARCHAR(1024)NOT NULL
+);
 
 CREATE INDEX pub_message_time_order ON public_messages1 (time DESC);
 CREATE INDEX pub_message_belong ON public_messages1 (talk_id);
 
+CREATE INDEX prv_message_time_order ON private_messages1 (time DESC);
+CREATE INDEX prv_message_belong ON private_messages1 (to_id);
+
 CREATE INDEX topic_time_order ON topics (last_reply_time DESC);
 CREATE INDEX topic_reply_order ON topics (reply_count DESC);
 CREATE INDEX topic_category_belong ON topics (category_id);
+
 CREATE INDEX post_reply_order ON posts (reply_count DESC);
 CREATE INDEX post_topic_belong ON posts (topic_id);
+
 CREATE UNIQUE INDEX users_username ON users (username);
 CREATE UNIQUE INDEX users_email ON users (email);
+
 CREATE UNIQUE INDEX categories_name ON categories (name);
+
 CREATE UNIQUE INDEX talks_name ON talks (name);
+
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);
 
@@ -337,6 +352,7 @@ DROP TABLE IF EXISTS talks;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS public_messages1;
+DROP TABLE IF EXISTS private_messages1;
 
 DROP TRIGGER IF EXISTS adding_post ON posts;
 DROP FUNCTION IF EXISTS adding_post();

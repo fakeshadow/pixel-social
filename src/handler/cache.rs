@@ -57,7 +57,6 @@ pub enum UpdateCache<T> {
     Category(Vec<T>),
 }
 
-
 pub struct AddMail(pub Mail);
 
 impl Message for GetCategoriesCache {
@@ -637,10 +636,9 @@ impl Handler<AddMail> for CacheService {
 }
 
 
-pub fn process_mail(
+pub fn from_mail_queue(
     conn: SharedConn,
-    send_mail: fn(&Mail) -> Result<(), ServiceError>,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(SharedConn, String), Error=ServiceError> {
     cmd("zrange")
         .arg("mail_queue")
         .arg(0)
@@ -649,16 +647,20 @@ pub fn process_mail(
         .from_err()
         .and_then(move |(conn, mut s): (_, Vec<String>)| {
             let s = s.pop().ok_or(ServiceError::InternalServerError)?;
-            let m = serde_json::from_str(&s)?;
-            let _ = send_mail(&m);
-            Ok((s, conn))
+            Ok((conn, s))
         })
-        .and_then(|(s, conn)| cmd("zrem")
-            .arg("mail_queue")
-            .arg(&s)
-            .query_async(conn)
-            .from_err()
-            .map(|(_, ())| ()))
+}
+
+pub fn delete_mail_queue(
+    key: &str,
+    conn: SharedConn,
+) -> impl Future<Item=(), Error=ServiceError> {
+    cmd("zrem")
+        .arg("mail_queue")
+        .arg(key)
+        .query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
 }
 
 // startup helper fn

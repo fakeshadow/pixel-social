@@ -476,8 +476,8 @@ impl Handler<Delete> for TalkService {
         if let Some(_) = self.talks.get(&msg.talk_id) {
             //ToDo: delete talk table and messages here.
             let query = format!("
-                        DELETE FROM categories
-                        WHERE id={}", msg.talk_id);
+                        DELETE FROM talks
+                        WHERE id = {}", msg.talk_id);
 
             let f = simple_query(self.db.as_mut().unwrap(), &query)
                 .into_actor(self)

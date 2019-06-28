@@ -4,18 +4,22 @@ use actix::prelude::*;
 use futures::{future::IntoFuture, stream::futures_ordered};
 use redis::Client as RedisClient;
 use tokio_postgres::{Client, connect, Statement, tls::NoTls};
+use lettre::SmtpTransport;
 
-use crate::handler::db::talk_from_msg;
 use crate::model::{
     errors::ServiceError,
     talk::{SessionMessage, Talk},
+};
+use crate::handler::{
+    db::talk_from_msg,
+    email::generate_mailer,
 };
 
 pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;
-pub type MAIL = Addr<MailService>;
+pub type MAILER = Addr<MailService>;
 
 pub struct DatabaseService {
     pub db: Option<Client>,
@@ -36,7 +40,8 @@ pub struct CacheService {
 }
 
 pub struct MailService {
-    pub cache: Option<SharedConn>
+    pub cache: Option<SharedConn>,
+    pub mailer: Option<SmtpTransport>,
 }
 
 impl Actor for DatabaseService {
@@ -247,12 +252,13 @@ impl TalkService {
 }
 
 impl MailService {
-    pub fn connect(redis_url: &str) -> MAIL {
+    pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
 
         MailService::create(move |ctx| {
             let addr = MailService {
-                cache: None
+                cache: None,
+                mailer: generate_mailer(),
             };
 
             client.get_shared_async_connection()
