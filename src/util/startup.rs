@@ -151,7 +151,8 @@ CREATE TABLE users
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_admin        OID          NOT NULL DEFAULT 0,
-    blocked         BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_blocked      BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_activate     BOOLEAN      NOT NULL DEFAULT FALSE,
     show_email      BOOLEAN      NOT NULL DEFAULT TRUE,
     show_created_at BOOLEAN      NOT NULL DEFAULT TRUE,
     show_updated_at BOOLEAN      NOT NULL DEFAULT TRUE
@@ -311,9 +312,9 @@ EXECUTE PROCEDURE adding_post();".to_owned();
 
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
-INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin)
+INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin, is_activate)
 VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
-        'avatar_url', 9);
+        'avatar_url', 9, true);
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', 'category_default.png');

@@ -11,7 +11,7 @@ use crate::model::{
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
 use crate::handler::db::{query_multi, query_one, auth_response_from_msg, unique_username_email_check, simple_query, query_one_simple};
-use crate::util::{hash, jwt};
+use crate::util::hash;
 
 pub struct GetUsers(pub Vec<u32>);
 
@@ -79,6 +79,7 @@ impl Handler<Register> for DatabaseService {
 
     fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
         let req = msg.0;
+
         let hash = match hash::hash_password(&req.password) {
             Ok(hash) => hash,
             Err(e) => return Box::new(future::err(e))
@@ -126,31 +127,35 @@ impl Handler<UpdateUser> for DatabaseService {
         query.push_str("UPDATE users SET");
 
         if let Some(s) = u.username.as_ref() {
-            let _ = write!(&mut query, " username='{}',", s);
+            let _ = write!(&mut query, " username = '{}',", s);
         }
         if let Some(s) = u.avatar_url.as_ref() {
-            let _ = write!(&mut query, " avatar_url='{}',", s);
+            let _ = write!(&mut query, " avatar_url = '{}',", s);
         }
         if let Some(s) = u.signature.as_ref() {
-            let _ = write!(&mut query, " signature='{}',", s);
+            let _ = write!(&mut query, " signature = '{}',", s);
         }
         if let Some(s) = u.show_created_at.as_ref() {
-            let _ = write!(&mut query, " show_created_at={},", s);
+            let _ = write!(&mut query, " show_created_at = {},", s);
         }
         if let Some(s) = u.show_email.as_ref() {
-            let _ = write!(&mut query, " show_email={},", s);
+            let _ = write!(&mut query, " show_email = {},", s);
         }
         if let Some(s) = u.show_updated_at.as_ref() {
-            let _ = write!(&mut query, " show_updated_at={},", s);
+            let _ = write!(&mut query, " show_updated_at = {},", s);
         }
         if let Some(s) = u.is_admin.as_ref() {
-            let _ = write!(&mut query, " is_admin={},", s);
+            let _ = write!(&mut query, " is_admin = {},", s);
         }
-        if let Some(s) = u.blocked.as_ref() {
-            let _ = write!(&mut query, " blocked={},", s);
+        if let Some(s) = u.is_blocked.as_ref() {
+            let _ = write!(&mut query, " is_blocked = {},", s);
         }
+        if let Some(s) = u.is_activate.as_ref() {
+            let _ = write!(&mut query, " is_activate= {} ,", s);
+        }
+
         if query.ends_with(",") {
-            let _ = write!(&mut query, " updated_at=DEFAULT WHERE id={} RETURNING *", u.id.unwrap());
+            let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {} RETURNING *", u.id.unwrap());
         } else {
             return Box::new(future::err(ServiceError::BadRequest));
         }

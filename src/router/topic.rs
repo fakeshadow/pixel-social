@@ -95,20 +95,25 @@ pub fn add(
     req: Json<TopicRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.check_new()
+    jwt.check_active_block()
         .into_future()
         .from_err()
-        .and_then(move |_| db
-            .send(AddTopic(req, global.get_ref().clone()))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |t| {
-                let res = HttpResponse::Ok().json(&t);
-                let _ = cache.do_send(AddedTopic(t));
-                res
-            }))
+        .and_then(move |_| {
+            let req = req.into_inner().attach_user_id(Some(jwt.user_id));
+            req.check_new()
+                .into_future()
+                .from_err()
+                .and_then(move |_| db
+                    .send(AddTopic(req, global.get_ref().clone()))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |t| {
+                        let res = HttpResponse::Ok().json(&t);
+                        let _ = cache.do_send(AddedTopic(t));
+                        res
+                    }))
+        })
 }
 
 pub fn update(

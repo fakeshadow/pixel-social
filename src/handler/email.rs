@@ -65,13 +65,14 @@ fn send_mail(mailer: &mut SmtpTransport, s: &str) -> Result<(), ServiceError> {
     let mail = serde_json::from_str::<Mail>(s)?;
 
     let server_url = env::var("SERVER_URL").expect("Server url must be set in .env");
-    let self_email = env::var("MAIL_DOMAIN").unwrap_or("Pixel@Share".to_owned());
+    let self_email = env::var("SELF_MAIL_ADDR").unwrap_or("Pixel@Share".to_owned());
+    let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or("PixelShare".to_owned());
 
     let mail = Email::builder()
         .to(mail.address)
-        .from((self_email, "PixelShare"))
+        .from((self_email, self_name))
         .subject("Activate your PixelShare account")
-        .alternative(format!("<p>Please click the link below </br> {}/user/activation/{} </p>", server_url, mail.uuid), "Activation link")
+        .alternative(format!("<p>Please click the link below </br> {}/activation/{} </p>", server_url, mail.uuid), "Activation link")
         .build()
         .map_err(|_|ServiceError::MailServiceError)?
         .into();

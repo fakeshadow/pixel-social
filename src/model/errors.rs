@@ -26,6 +26,10 @@ pub enum ServiceError {
     #[display(fmt = "Forbidden")]
     Unauthorized,
     #[display(fmt = "Forbidden")]
+    NOTACTIVE,
+    #[display(fmt = "Forbidden")]
+    BLOCKED,
+    #[display(fmt = "Forbidden")]
     AuthTimeout,
     #[display(fmt = "MailError")]
     MailServiceError,
@@ -48,6 +52,8 @@ impl ResponseError for ServiceError {
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::PARSEINT => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing int error")),
+            ServiceError::NOTACTIVE => HttpResponse::Forbidden().json(ErrorMessage::new("User is not activated yet")),
+            ServiceError::BLOCKED => HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }

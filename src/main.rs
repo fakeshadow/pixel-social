@@ -67,17 +67,17 @@ fn main() -> std::io::Result<()> {
 
     let talk_service = TalkService::connect(&database_url, &redis_url);
     // mail service is not passed into data as we add mail queue into redis cache directly.
-    let mail = MailService::connect(&redis_url);
+    let _ = MailService::connect(&redis_url);
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
+
         App::new()
             .data(global_arc.clone())
             .data(talk_service.clone())
             .data(db)
             .data(cache)
-            .data(mail.clone())
             .wrap(Logger::default())
             .wrap(Cors::new()
                 .allowed_origin(&cors_origin)
@@ -117,6 +117,7 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/{category_id}/{page}").route(web::get().to_async(router::category::get_latest)))
                 .service(web::resource("").route(web::get().to_async(router::category::get_all)))
             )
+            .service(web::resource("/activation/{uuid}").route(web::get().to_async(router::user::activation)))
             .service(web::scope("/test")
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))

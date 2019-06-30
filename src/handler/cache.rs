@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use futures::{Future, future, future::{err as fut_err, ok as fut_ok, Either}};
 
 use actix::prelude::*;
@@ -57,7 +57,17 @@ pub enum UpdateCache<T> {
     Category(Vec<T>),
 }
 
+pub enum DeleteCache {
+    Mail(String),
+}
+
 pub struct AddMail(pub Mail);
+
+pub struct ActivateUser(pub String);
+
+impl Message for ActivateUser {
+    type Result = Result<u32, ServiceError>;
+}
 
 impl Message for GetCategoriesCache {
     type Result = Result<Vec<Category>, ServiceError>;
@@ -96,6 +106,10 @@ impl Message for AddMail {
 }
 
 impl Message for RemoveCategoryCache {
+    type Result = Result<(), ServiceError>;
+}
+
+impl Message for DeleteCache {
     type Result = Result<(), ServiceError>;
 }
 
@@ -242,22 +256,6 @@ impl Handler<AddedCategory> for CacheService {
     }
 }
 
-impl Handler<GetTopicsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
-
-    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        let f = msg
-            .topics_from_cache(self.cache.as_ref().unwrap().clone())
-            .and_then(|(t, mut uids, conn)| {
-                uids.sort();
-                uids.dedup();
-                get_users(conn, uids).map(|u| (t, u))
-            });
-
-        Box::new(f)
-    }
-}
-
 impl Handler<GetTopicCache> for CacheService {
     type Result = ResponseFuture<(Topic, Vec<Post>, Vec<User>), ServiceError>;
 
@@ -360,6 +358,7 @@ impl Handler<GetPostsCache> for CacheService {
     }
 }
 
+//ToDo: move this handler to delete cache enum
 impl Handler<RemoveCategoryCache> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
@@ -381,97 +380,239 @@ impl Handler<RemoveCategoryCache> for CacheService {
     }
 }
 
+impl Handler<DeleteCache> for CacheService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: DeleteCache, _: &mut Self::Context) -> Self::Result {
+        let (key, fields) = match msg {
+            DeleteCache::Mail(uuid) => {
+                let fields = ["user_id", "uuid"];
+                (uuid, fields)
+            }
+        };
+
+        let mut pipe = pipe();
+        pipe.atomic();
+
+        for f in fields.to_vec() {
+            pipe.cmd("hdel").arg(&key).arg(f);
+        }
+
+        Box::new(pipe
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .map(|(_, _): (_, usize)| ()))
+    }
+}
+
+
+impl Handler<AddMail> for CacheService {
+    type Result = ResponseFuture<(), ServiceError>;
+
+    fn handle(&mut self, msg: AddMail, _: &mut Self::Context) -> Self::Result {
+        let mail = msg.0;
+        //ToDo: add stringify error handler.
+        let string = match serde_json::to_string(&mail) {
+            Ok(s) => s,
+            Err(_) => return Box::new(fut_err(ServiceError::InternalServerError))
+        };
+
+        let mut pipe = pipe();
+        pipe.atomic();
+        pipe.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(&string);
+        pipe.cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash());
+        pipe.cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE);
+
+        let f = pipe
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .map(|(_, ())| ());
+
+        Box::new(f)
+    }
+}
+
+impl Handler<ActivateUser> for CacheService {
+    type Result = ResponseFuture<u32, ServiceError>;
+
+    fn handle(&mut self, msg: ActivateUser, _: &mut Self::Context) -> Self::Result {
+        let f = cmd("HGETALL")
+            .arg(&msg.0)
+            .query_async(self.cache.as_ref().unwrap().clone())
+            .from_err()
+            .and_then(move |(_, hm): (_, HashMap<String, String>)| {
+                let m = hm.parse::<Mail>()?;
+                if msg.0 == m.uuid {
+                    Ok(m.user_id)
+                } else {
+                    Err(ServiceError::Unauthorized)
+                }
+            });
+        Box::new(f)
+    }
+}
+
+impl Handler<GetTopicsCache> for CacheService {
+    type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
+
+    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
+        let conn = self.cache.as_ref().unwrap().clone();
+
+        // try to query topics cache from sorted lists. if there is an error then query then sorted sets for popular
+        // topics and build a new sorted list.
+        let f = msg
+            .topics_from_cache(conn.clone())
+            .or_else(|e| {
+                println!("err_or_else");
+                topics_from_sorted_set(vec![1], 1, conn)
+            })
+            .and_then(|(t, mut uids, conn)| {
+                uids.sort();
+                uids.dedup();
+                get_users(conn, uids).map(|u| (t, u))
+            });
+
+        Box::new(f)
+    }
+}
+
 impl GetTopicsCache {
-    fn topics_from_cache<T>(
+    fn topics_from_cache(
         &self,
         conn: SharedConn,
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
-        where T: GetUserId + FromHashSet {
+    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>, SharedConn), Error=ServiceError> {
         match self {
             GetTopicsCache::Popular(ids, page) => {
-                let id = ids.first().unwrap();
-                let time_key = format!("category{}:topics:time", id);
-                let reply_key = format!("category{}:topics:reply", id);
+                let list_key = format!("category{}:popular:list", ids.first().unwrap());
+                let start = (*page as isize - 1) * 20;
 
-                Either::A(self
-                    .topics_from_sorted_set(
-                        time_key,
-                        reply_key,
-                        "topic",
-                        *page,
-                        conn))
+                println!("from list");
+
+                Either::A(
+                    cmd("lrange")
+                        .arg(&list_key)
+                        .arg(start)
+                        .arg(start + LIMIT - 1)
+                        .query_async(conn)
+                        .from_err()
+                        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
+                            if ids.len() == 0 {
+                                return Either::A(fut_err(ServiceError::InternalServerError));
+                            }
+                            Either::B(from_hmsets(conn, ids, "topic"))
+                        })
+                )
             }
             GetTopicsCache::PopularAll(page) => {
-                Either::A(self
-                    .topics_from_sorted_set(
-                        "all:topics:time".to_owned(),
-                        "all:topics:time".to_owned(),
-                        "topic",
-                        *page,
-                        conn))
-            }
-            GetTopicsCache::Latest(ids, page) => {
-                let id = *ids.first().unwrap();
+                let list_key = "categoryall:popular:list".to_owned();
+                let start = (*page as isize - 1) * 20;
 
-                Either::B(topics_posts_from_list(
-                    id,
-                    page.clone(),
-                    "category",
-                    "topic",
-                    conn))
+                Either::B(
+                    cmd("lrange")
+                        .arg(&list_key)
+                        .arg(start)
+                        .arg(start + LIMIT - 1)
+                        .query_async(conn)
+                        .from_err()
+                        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)|
+                            from_hmsets(conn, ids, "topic"))
+                )
             }
+            _ => panic!("none")
+//            GetTopicsCache::Latest(ids, page) => {
+//                let id = *ids.first().unwrap();
+
+//                Either::B(
+//                    topics_posts_from_list(
+//                        id,
+//                        page.clone(),
+//                        "category",
+//                        "topic",
+//                        conn))
+//            }
         }
     }
+}
 
-    fn topics_from_sorted_set<T>(
-        &self,
-        time_key: String,
-        reply_key: String,
-        hmset_key: &'static str,
-        page: i64,
-        conn: SharedConn,
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
-        where T: GetUserId + FromHashSet {
-        let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
+fn topics_from_sorted_set<T>(
+    ids: Vec<u32>,
+    page: i64,
+    conn: SharedConn,
+) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
+    where T: GetUserId + FromHashSet {
+    let id = ids.first().unwrap();
+    let time_key = format!("category{}:topics:time", id);
+    let reply_key = format!("category{}:topics:reply", id);
 
-        cmd("zrevrangebyscore")
-            .arg(&time_key)
-            .arg("+inf")
-            .arg(yesterday)
-            .query_async(conn)
-            .from_err()
-            .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
-                let mut pipe = pipe();
-                pipe.atomic();
+    let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
 
-                for id in ids.iter() {
-                    pipe.cmd("zscore").arg(&reply_key).arg(*id);
-                };
+    cmd("zrevrangebyscore")
+        .arg(&time_key)
+        .arg("+inf")
+        .arg(yesterday)
+        .query_async(conn)
+        .from_err()
+        .and_then(move |(conn, tids): (SharedConn, Vec<u32>)| {
+            cmd("ZREVRANGEBYSCORE")
+                .arg(&reply_key)
+                .arg("+inf")
+                .arg("-inf")
+                .arg("WITHSCORES")
+                .query_async(conn)
+                .from_err()
+                .and_then(move |(conn, counts): (SharedConn, Vec<(u32, u32)>)| {
+                    let len = counts.len();
+                    let mut vec: Vec<(u32, u32)> = Vec::with_capacity(len);
 
-                pipe.query_async(conn)
-                    .from_err()
-                    .and_then(move |(conn, counts): (SharedConn, Vec<u32>)| {
-                        if counts.len() != ids.len() {
-                            return Err(ServiceError::BadRequest);
-                        }
-                        let len = ids.len();
-
-                        let mut counts = counts.into_iter().enumerate().collect::<Vec<(usize, u32)>>();
-                        counts.sort_by(|(_, va), (_, vb)| vb.cmp(va));
-
-                        let mut vec = Vec::with_capacity(20);
-                        let start = ((page - 1) * 20) as usize;
-                        for i in start..start + LIMITU {
-                            if i + 1 <= len {
-                                let (j, _) = counts[i];
-                                vec.push(ids[j])
+                    // sort two ranged scores with the last_reply_time desc and reply_count desc.
+                    for i in 0..tids.len() {
+                        for (tid, count) in counts.iter() {
+                            if &tids[i] == tid {
+                                let l = vec.len();
+                                if l == 0 {
+                                    vec.push((*tid, *count));
+                                } else {
+                                    for k in 0..l {
+                                        if count > &vec[k].1 {
+                                            let k = if k > 1 { k - 1 } else { 0 };
+                                            vec.insert(k, (*tid, *count));
+                                            break;
+                                        } else {
+                                            vec.push((*tid, *count));
+                                            break;
+                                        }
+                                    }
+                                }
                             }
                         }
-                        Ok((conn, vec))
-                    })
-            })
-            .and_then(move |(conn, vec)| from_hmsets(conn, vec, hmset_key))
-    }
+                    }
+
+                    // build a list with the sorted range.
+                    let mut vec_f = Vec::with_capacity(20);
+                    let start = ((page - 1) * 20) as usize;
+                    let len = vec.len();
+
+                    let mut pipe = pipe();
+                    pipe.atomic();
+                    let list_key = format!("category{}:popular:list", ids.first().unwrap());
+
+                    for i in 0..len {
+                        let v = vec[i].0;
+                        pipe.cmd("rpush").arg(&list_key).arg(v);
+                        if i >= start && i <= start + LIMITU && i < len {
+                            vec_f.push(v)
+                        }
+                    }
+                    // list is expired in 10 seconds.
+                    pipe.cmd("expire").arg(&list_key).arg(10);
+
+                    pipe.query_async(conn.clone())
+                        .from_err()
+                        .map(|(_, ())| ())
+                        .join(from_hmsets(conn, vec_f, "topic"))
+                        .map(|(_, a)| a)
+                })
+        })
 }
 
 fn topics_posts_from_list<T>(
@@ -519,13 +660,13 @@ pub fn get_users(
     get_hmset(conn, uids, "user")
         .and_then(move |(_, uids, vec)| {
             let mut u = Vec::new();
-            // collect users from hash map
+// collect users from hash map
             for v in vec.iter() {
                 if let Some(user) = v.parse::<User>().ok() {
                     u.push(user);
                 }
             };
-            // abort
+// abort
             if u.len() != uids.len() || u.len() == 0 {
                 return Err(ServiceError::InternalServerError);
             };
@@ -555,7 +696,7 @@ pub fn build_hmset<T>(
 pub fn build_list(
     conn: SharedConn,
     vec: Vec<u32>,
-    // pass lpush or rpush as cmd
+// pass lpush or rpush as cmd
     cmd: &'static str,
     key: String,
 ) -> impl Future<Item=(), Error=ServiceError> {
@@ -585,7 +726,7 @@ fn from_hmsets<T>(
                     res.push(t);
                 }
             }
-            // abort query if the topics length doesn't match the ids' length.
+// abort query if the topics length doesn't match the ids' length.
             if res.len() != ids.len() {
                 return Err(ServiceError::InternalServerError);
             };
@@ -608,33 +749,6 @@ fn get_hmset<T>(
         .from_err()
         .map(|(conn, hm)| (conn, vec, hm))
 }
-
-impl Handler<AddMail> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
-
-    fn handle(&mut self, msg: AddMail, _: &mut Self::Context) -> Self::Result {
-        let mail = msg.0;
-        //ToDo: add stringify error handler.
-        let string = match serde_json::to_string(&mail) {
-            Ok(s) => s,
-            Err(_) => return Box::new(fut_err(ServiceError::InternalServerError))
-        };
-
-        let mut pipe = pipe();
-        pipe.atomic();
-        pipe.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(&string);
-        pipe.cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash());
-        pipe.cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE);
-
-        let f = pipe
-            .query_async(self.cache.as_ref().unwrap().clone())
-            .from_err()
-            .map(|(_, ())| ());
-
-        Box::new(f)
-    }
-}
-
 
 pub fn from_mail_queue(
     conn: SharedConn,

@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use crate::model::{
     mail::Mail,
     errors::ServiceError,
-    common::{GetSelfId, Validator}
+    common::{GetSelfId, Validator},
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -19,7 +19,8 @@ pub struct User {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub is_admin: u32,
-    pub blocked: bool,
+    pub is_blocked: bool,
+    pub is_activate: bool,
     pub show_email: bool,
     pub show_created_at: bool,
     pub show_updated_at: bool,
@@ -40,7 +41,8 @@ pub struct UserRef<'a> {
     pub created_at: Option<&'a NaiveDateTime>,
     pub updated_at: Option<&'a NaiveDateTime>,
     pub is_admin: &'a u32,
-    pub blocked: &'a bool,
+    pub is_blocked: &'a bool,
+    pub is_activate: &'a bool,
     pub show_email: &'a bool,
     pub show_created_at: &'a bool,
     pub show_updated_at: &'a bool,
@@ -71,7 +73,8 @@ impl ToUserRef for User {
             created_at,
             updated_at,
             is_admin: &self.is_admin,
-            blocked: &self.blocked,
+            is_blocked: &self.is_blocked,
+            is_activate: &self.is_activate,
             show_email: &self.show_email,
             show_created_at: &self.show_created_at,
             show_updated_at: &self.show_updated_at,
@@ -133,7 +136,8 @@ pub struct UpdateRequest {
     pub avatar_url: Option<String>,
     pub signature: Option<String>,
     pub is_admin: Option<u32>,
-    pub blocked: Option<bool>,
+    pub is_blocked: Option<bool>,
+    pub is_activate: Option<bool>,
     pub show_email: Option<bool>,
     pub show_created_at: Option<bool>,
     pub show_updated_at: Option<bool>,
@@ -145,7 +149,8 @@ impl UpdateRequest {
             Some(_) => {
                 self.id = id;
                 self.is_admin = None;
-                self.blocked = None;
+                self.is_blocked = None;
+                self.is_activate = None;
                 self
             }
             None => {
@@ -159,7 +164,23 @@ impl UpdateRequest {
             }
         }
     }
+
+    pub fn make_active(id: u32) -> Self {
+        UpdateRequest {
+            id: Some(id),
+            username: None,
+            avatar_url: None,
+            signature: None,
+            is_admin: None,
+            is_blocked: None,
+            is_activate: Some(true),
+            show_email: None,
+            show_created_at: None,
+            show_updated_at: None,
+        }
+    }
 }
+
 
 impl Validator for AuthRequest {
     fn get_username(&self) -> &str { &self.username }

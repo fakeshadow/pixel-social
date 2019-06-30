@@ -20,21 +20,25 @@ pub fn add(
     req: Json<PostRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    // ToDo: Add trigger before inserting. Make post_id null if the topic doesn't contain target post
-    req.check_new()
+    jwt.check_active_block()
         .into_future()
         .from_err()
-        .and_then(move |_| db
-            .send(ModifyPost(req, Some(global.get_ref().clone())))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |p| {
-                let res = HttpResponse::Ok().json(&p);
-                let _ = cache.do_send(AddedPost(p));
-                res
-            }))
+        .and_then(move |_| {
+            let req = req.into_inner().attach_user_id(Some(jwt.user_id));
+            req.check_new()
+                .into_future()
+                .from_err()
+                .and_then(move |_| db
+                    .send(ModifyPost(req, Some(global.get_ref().clone())))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |p| {
+                        let res = HttpResponse::Ok().json(&p);
+                        let _ = cache.do_send(AddedPost(p));
+                        res
+                    }))
+        })
 }
 
 pub fn update(

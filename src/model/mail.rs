@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use crate::model::user::User;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,7 +15,7 @@ impl Mail {
         Mail {
             user_id: user.id,
             username: user.username.to_owned(),
-            uuid: "123-321".to_owned(),
+            uuid: Uuid::new_v4().to_string(),
             address: user.email.to_owned(),
         }
     }

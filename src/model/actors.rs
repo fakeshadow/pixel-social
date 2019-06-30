@@ -93,12 +93,12 @@ impl DatabaseService {
                         LIMIT 20");
                     let p2 = db.prepare("SELECT * FROM topics
                         WHERE last_reply_time > $2 AND category_id = ANY($1)
-                        ORDER BY reply_count DESC
+                        ORDER BY reply_count DESC, last_reply_time DESC
                         OFFSET $3
                         LIMIT 20");
                     let p3 = db.prepare("SELECT * FROM topics
                         WHERE last_reply_time > $1
-                        ORDER BY reply_count DESC
+                        ORDER BY reply_count DESC, last_reply_time DESC
                         OFFSET $2
                         LIMIT 20");
                     let p4 = db.prepare("SELECT * FROM topics WHERE id = $1");

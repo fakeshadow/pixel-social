@@ -45,7 +45,8 @@ impl SortHash for User {
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
             ("is_admin", self.is_admin.to_string()),
-            ("blocked", self.blocked.to_string()),
+            ("blocked", self.is_blocked.to_string()),
+            ("is_activate", self.is_activate.to_string()),
             ("show_email", self.show_email.to_string()),
             ("show_created_at", self.show_created_at.to_string()),
             ("show_updated_at", self.show_updated_at.to_string())]
@@ -176,7 +177,8 @@ impl FromHashSet for User {
             created_at: hash.parse_date("created_at")?,
             updated_at: hash.parse_date("updated_at")?,
             is_admin: hash.parse_other::<u32>("is_admin")?,
-            blocked: hash.parse_other::<bool>("blocked")?,
+            is_blocked: hash.parse_other::<bool>("blocked")?,
+            is_activate: hash.parse_other::<bool>("is_activate")?,
             show_email: hash.parse_other::<bool>("show_email")?,
             show_created_at: hash.parse_other::<bool>("show_created_at")?,
             show_updated_at: hash.parse_other::<bool>("show_updated_at")?,
@@ -194,6 +196,18 @@ impl FromHashSet for Category {
             post_count: hash.parse_other::<i32>("post_count")?,
             subscriber_count: hash.parse_other::<i32>("subscriber_count")?,
             thumbnail: hash.parse_string("thumbnail")?,
+        })
+    }
+}
+
+impl FromHashSet for Mail {
+    fn from_hash(hash: &HashMap<String, String>) -> Result<Mail, ServiceError> {
+        hash.skip()?;
+        Ok(Mail {
+            user_id: hash.parse_other::<u32>("user_id")?,
+            username: "".to_string(),
+            uuid: hash.parse_string("uuid")?,
+            address: "".to_string(),
         })
     }
 }

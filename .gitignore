@@ -1,6 +1,5 @@
 /target
-/.env
-/migrations/2019-04-21-192740_template
+.env
 **/*.rs.bk
 /.idea
 **/android

@@ -8,7 +8,7 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, GetUsersCache, AddMail},
+    cache::{UpdateCache, GetUsersCache, AddMail, ActivateUser, DeleteCache},
     user::{Login, PreRegister, Register, UpdateUser, GetUsers},
 };
 
@@ -111,4 +111,29 @@ pub fn register(
                     res
                 }))
         )
+}
+
+pub fn activation(
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    req: Path<(String)>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let uuid = req.into_inner();
+
+    cache.send(ActivateUser(uuid.clone()))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |uid| db
+            .send(UpdateUser(UpdateRequest::make_active(uid)))
+            .from_err()
+            .and_then(|r| r)
+            .from_err()
+            .and_then(move |u| {
+                //ToDo: sign a new jwt token and return auth response instead of user object.
+                let res = HttpResponse::Ok().json(&u);
+                let _ = cache.do_send(UpdateCache::User(vec![u]));
+                let _ = cache.do_send(DeleteCache::Mail(uuid));
+                res
+            }))
 }
