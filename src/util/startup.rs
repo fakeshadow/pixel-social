@@ -1,7 +1,7 @@
 use actix::prelude::*;
 use actix_rt::Runtime;
 use chrono::NaiveDateTime;
-use tokio_postgres::{connect, Client, tls::NoTls, Statement, SimpleQueryMessage};
+use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
     db::{query_multi_simple_with_id, query_all, simple_query},

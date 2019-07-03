@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::fmt::Write;
-use futures::{Future, future::{err as ft_err, ok as ft_ok}, IntoFuture};
+use futures::Future;
 
 use actix::prelude::*;
 use chrono::{NaiveDateTime, Utc};
@@ -8,7 +7,6 @@ use chrono::{NaiveDateTime, Utc};
 use crate::model::{
     actors::TalkService,
     errors::ServiceError,
-    user::User,
     talk::{Talk, SessionMessage},
 };
 use crate::handler::{

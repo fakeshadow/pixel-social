@@ -1,8 +1,8 @@
 use std::fs;
 use std::io::Write;
 
-use actix_multipart::{Field, Multipart, MultipartError};
-use actix_web::{error, Error, HttpResponse, web};
+use actix_multipart::{Field, MultipartError};
+use actix_web::{error, Error, web};
 use futures::{future::{Either, err}, Future, Stream};
 use rand::Rng;
 

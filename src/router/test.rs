@@ -1,15 +1,13 @@
-use futures::{Future, future::{Either, IntoFuture, ok as ft_ok, err as ft_err}};
+use futures::{Future};
 
-use actix_web::{Error, HttpResponse, ResponseError, web::{Data, Json, Path}};
+use actix_web::{Error, HttpResponse, web::{Data, }};
 
 use crate::model::{
-    actors::{DatabaseService, DB, CACHE, MAILER},
-    user::{AuthRequest, UpdateRequest},
-    common::{AttachUser, GlobalGuard, Validator},
-    topic::{TopicRequest, TopicWithUser, TopicWithPost},
+    actors::{ DB, CACHE},
+    common::{GlobalGuard},
+    topic::{TopicRequest},
 };
 use crate::handler::{
-    user::GetUsers,
     topic::AddTopic,
     cache::AddedTopic,
 };

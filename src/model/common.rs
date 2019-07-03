@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use actix_web::{web::Data};
-
 use crate::model::{
     errors::ServiceError,
     user::{ToUserRef, UserRef},

@@ -1,13 +1,27 @@
 use std::collections::HashMap;
+use futures::{stream::futures_ordered};
 
-use actix::prelude::*;
-use futures::{future::IntoFuture, stream::futures_ordered};
+use actix::prelude::{
+    AsyncContext,
+    Addr,
+    Actor,
+    ActorFuture,
+    ActorStream,
+    Arbiter,
+    Context,
+    ContextFutureSpawner,
+    fut,
+    Future,
+    Recipient,
+    Stream,
+    WrapFuture,
+    WrapStream,
+};
 use redis::Client as RedisClient;
 use tokio_postgres::{Client, connect, Statement, tls::NoTls};
 use lettre::SmtpTransport;
 
 use crate::model::{
-    errors::ServiceError,
     talk::{SessionMessage, Talk},
 };
 use crate::handler::{
@@ -71,6 +85,7 @@ impl Actor for CacheUpdateService {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.update_list_pop(ctx);
+        self.trim_list_pop(ctx);
     }
 }
 
@@ -82,7 +97,7 @@ impl Actor for MailService {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.hb(ctx);
+        self.process_mail(ctx);
     }
 }
 

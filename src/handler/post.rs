@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use futures::{Future, future::{err as ft_err, IntoFuture}};
+use futures::{Future, future::{err as ft_err}};
 
 use actix::prelude::*;
 use chrono::Utc;

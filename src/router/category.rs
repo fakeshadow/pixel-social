@@ -1,18 +1,15 @@
-use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
+use actix_web::{HttpResponse, Error, web::{Data, Path}};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
-    auth::UserJwt,
     cache::{GetCategoriesCache, GetTopicsCache, UpdateCache},
     topic::GetTopics,
     category::GetCategories,
     user::GetUsers,
 };
 use crate::model::{
-    errors::ServiceError,
     actors::{DB, CACHE},
     topic::TopicWithUser,
-    common::AttachUser,
 };
 
 pub fn get_all(

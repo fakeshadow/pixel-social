@@ -3,7 +3,7 @@ use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
 use crate::model::{
     actors::{DB, CACHE},
-    common::{GlobalGuard, AttachUser},
+    common::{GlobalGuard},
     topic::{TopicRequest, TopicWithPost},
 };
 use crate::handler::{

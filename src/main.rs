@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+//#![allow(unused_imports)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -7,14 +7,12 @@ extern crate serde_derive;
 
 use std::env;
 
-use actix::prelude::*;
+use actix::prelude::System;
 use actix_web::{
     App,
     http::header,
     HttpServer, middleware::Logger, web,
 };
-use actix_cors::Cors;
-use actix_files as fs;
 use dotenv::dotenv;
 
 mod handler;
@@ -26,6 +24,7 @@ use crate::{
     handler::cache::clear_cache,
     model::actors::{
         CacheService,
+        CacheUpdateService,
         DatabaseService,
         TalkService,
         MailService,
@@ -36,7 +35,6 @@ use crate::{
         build_cache,
     },
 };
-use crate::model::actors::CacheUpdateService;
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -69,6 +67,8 @@ fn main() -> std::io::Result<()> {
     let talk_service = TalkService::connect(&database_url, &redis_url);
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let _ = MailService::connect(&redis_url);
+
+    // ToDo: currently block main thread on low spec server if there are too many popular topics in last 24 hrs.
     let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {
@@ -81,7 +81,7 @@ fn main() -> std::io::Result<()> {
             .data(db)
             .data(cache)
             .wrap(Logger::default())
-            .wrap(Cors::new()
+            .wrap(actix_cors::Cors::new()
                 .allowed_origin(&cors_origin)
                 .allowed_methods(vec!["GET", "POST"])
                 .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT, header::CONTENT_TYPE])
@@ -126,7 +126,7 @@ fn main() -> std::io::Result<()> {
             )
             .service(web::resource("/upload").route(web::post().to_async(router::stream::upload_file)))
             .service(web::resource("/talk").to_async(router::talk::talk))
-            .service(fs::Files::new("/public", "./public"))
+            .service(actix_files::Files::new("/public", "./public"))
     }).bind(format!("{}:{}", &server_ip, &server_port))?.start();
     sys.run()
 }

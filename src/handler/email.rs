@@ -1,10 +1,12 @@
 use std::{env, time::Duration};
 
-use actix::prelude::*;
+use actix::prelude::{
+    Context,
+    ActorFuture,
+    WrapFuture,
+    AsyncContext,
+};
 use lettre::{
-    EmailAddress,
-    Envelope,
-    SendableEmail,
     SmtpClient,
     Transport,
     SmtpTransport,
@@ -12,25 +14,23 @@ use lettre::{
         ConnectionReuseParameters,
         authentication::{
             Credentials,
-            Mechanism},
+            Mechanism,
+        },
     },
 };
 use lettre_email::Email;
 
+use crate::MailService;
 use crate::model::{
     mail::Mail,
     errors::ServiceError,
-    actors::{
-        SharedConn,
-        MailService,
-    },
 };
 use crate::handler::cache::{from_mail_queue, delete_mail_queue};
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(2000);
 
 impl MailService {
-    pub fn hb(&self, ctx: &mut Context<Self>) {
+    pub fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
             ctx.wait(from_mail_queue(act.cache.as_ref().unwrap().clone())
                 .into_actor(act)
@@ -74,7 +74,7 @@ fn send_mail(mailer: &mut SmtpTransport, s: &str) -> Result<(), ServiceError> {
         .subject("Activate your PixelShare account")
         .alternative(format!("<p>Please click the link below </br> {}/activation/{} </p>", server_url, mail.uuid), "Activation link")
         .build()
-        .map_err(|_|ServiceError::MailServiceError)?
+        .map_err(|_| ServiceError::MailServiceError)?
         .into();
 
     mailer.send(mail)

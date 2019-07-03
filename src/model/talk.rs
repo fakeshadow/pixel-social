@@ -1,13 +1,4 @@
-use std::collections::{HashMap, HashSet};
-
-use actix::prelude::*;
-use chrono::NaiveDateTime;
-
-use crate::model::{
-    actors::TalkService,
-    errors::ServiceError,
-};
-use crate::handler::talk::*;
+use actix::prelude::Message;
 
 #[derive(Serialize, Hash, Eq, PartialEq, Debug)]
 pub struct Talk {

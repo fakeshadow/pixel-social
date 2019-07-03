@@ -11,11 +11,9 @@ use crate::model::{
     talk::SessionMessage,
 };
 use crate::handler::{
-    auth::UserJwt,
     talk::{
         Connect,
         Disconnect,
-        GetTalkUsers,
         Create,
         Delete,
         GetTalks,

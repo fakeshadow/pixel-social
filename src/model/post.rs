@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use crate::model::{
     common::{AttachUser, GetSelfId, GetUserId},
     errors::ServiceError,
-    user::{ToUserRef, User, UserRef},
+    user::{ User, UserRef},
 };
 
 #[derive(Serialize, Deserialize)]

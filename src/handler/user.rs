@@ -1,8 +1,7 @@
 use std::fmt::Write;
-use futures::{Future, future, IntoFuture};
+use futures::{Future, future};
 
 use actix::prelude::*;
-use chrono::NaiveDateTime;
 
 use crate::model::{
     actors::DatabaseService,

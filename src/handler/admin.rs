@@ -1,10 +1,10 @@
-use futures::future::{err as ft_err, IntoFuture};
+use futures::future::{IntoFuture};
 
 use actix::prelude::*;
 
 use crate::model::{
     actors::DatabaseService,
-    user::{AuthRequest, AuthResponse, User, UpdateRequest},
+    user::{User, UpdateRequest},
     category::CategoryRequest,
     errors::ServiceError,
     post::PostRequest,

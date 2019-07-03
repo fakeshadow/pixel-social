@@ -1,14 +1,17 @@
 use std::{
     time::Duration,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
 };
-use futures::{Future, future, future::{err as fut_err, ok as fut_ok, Either}};
+use futures::{Future, future::{err as fut_err, Either}};
 
 use actix::prelude::*;
 use chrono::{NaiveDateTime, Utc};
 use redis::{Client, cmd, pipe};
 
-use crate::CacheService;
+use crate::{
+    CacheService,
+    CacheUpdateService,
+};
 use crate::model::{
     actors::SharedConn,
     errors::ServiceError,
@@ -17,24 +20,88 @@ use crate::model::{
     topic::Topic,
     user::User,
     cache::{FromHashSet, Parser, SortHash},
-    common::{AttachUser, GetSelfId, GetUserId},
+    common::{GetSelfId, GetUserId},
     mail::Mail,
 };
-use crate::model::actors::CacheUpdateService;
 
 lazy_static! {
     static ref BASETIME:NaiveDateTime = NaiveDateTime::parse_from_str("2019-06-24 2:33:33.666666", "%Y-%m-%d %H:%M:%S%.f").unwrap();
 }
 
-// limits are the page offsets of list query
+// page offsets of list query
 const LIMIT: isize = 20;
 const LIMITU: usize = 20;
-
-// list update interval time gap in millis
+// list_pop update interval time gap in millis
 const LIST_TIME_GAP: Duration = Duration::from_millis(10000);
-
+// trim list_pop interval time gap
+const TRIM_LIST_TIME_GAP: Duration = Duration::from_secs(3600);
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
+
+impl CacheUpdateService {
+    pub fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
+        ctx.run_interval(LIST_TIME_GAP, move |act, ctx| {
+            let f =
+                get_categories_cache(act.cache.as_ref().unwrap().clone())
+                    .into_actor(act)
+                    .map_err(|_, _, _| ())
+                    .and_then(|cat, act, _| {
+                        let conn = act.cache.as_ref().unwrap().clone();
+                        let mut vec = Vec::new();
+                        for c in cat.iter() {
+                            let list_key = format!("category:{}:list_pop", c.id);
+                            let time_key = format!("category:{}:topics_time", c.id);
+                            let reply_key = format!("category:{}:topics_reply", c.id);
+
+                            vec.push(update_list(time_key.as_str(), reply_key.as_str(), list_key, conn.clone()))
+                        }
+                        let list_key = "category:all:list_pop".to_owned();
+                        let time_key = "category:all:topics_time";
+                        let reply_key = "category:all:topics_reply";
+                        vec.push(update_list(time_key, reply_key, list_key, conn));
+
+                        futures::stream::futures_unordered(vec)
+                            .collect()
+                            .into_actor(act)
+                            .map_err(|_, _, _| ())
+                            .map(|_, _, _| ())
+                    });
+
+            ctx.wait(f);
+        });
+    }
+
+    pub fn trim_list_pop(&mut self, ctx: &mut Context<Self>) {
+        ctx.run_interval(TRIM_LIST_TIME_GAP, move |act, ctx| {
+            let f =
+                get_categories_cache(act.cache.as_ref().unwrap().clone())
+                    .into_actor(act)
+                    .map_err(|_, _, _| ())
+                    .and_then(|cat, act, _| {
+                        let conn = act.cache.as_ref().unwrap().clone();
+                        let mut vec = Vec::new();
+                        for c in cat.iter() {
+                            let time_key = format!("category:{}:topics_time", c.id);
+                            let reply_key = format!("category:{}:topics_reply", c.id);
+
+                            vec.push(trim_list(time_key, reply_key, conn.clone()))
+                        }
+                        let time_key = "category:all:topics_time".to_owned();
+                        let reply_key = "category:all:topics_reply".to_owned();
+                        vec.push(trim_list(time_key, reply_key, conn));
+
+                        futures::stream::futures_unordered(vec)
+                            .collect()
+                            .into_actor(act)
+                            .map_err(|_, _, _| ())
+                            .map(|_, _, _| ())
+                    });
+
+            ctx.wait(f);
+        });
+    }
+}
+
 
 pub struct GetCategoriesCache;
 
@@ -128,41 +195,6 @@ impl<T> Message for UpdateCache<T> {
     type Result = Result<(), ServiceError>;
 }
 
-impl CacheUpdateService {
-    pub fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
-        ctx.run_interval(LIST_TIME_GAP, move |act, ctx| {
-            let f =
-                get_categories_cache(act.cache.as_ref().unwrap().clone())
-                    .into_actor(act)
-                    .map_err(|_, _, _| ())
-                    .and_then(|cat, act, _| {
-                        let conn = act.cache.as_ref().unwrap().clone();
-                        let mut vec = Vec::new();
-                        for c in cat.iter() {
-                            let list_key = format!("category:{}:list_pop", c.id);
-                            let time_key = format!("category:{}:topics_time", c.id);
-                            let reply_key = format!("category:{}:topics_reply", c.id);
-
-                            vec.push(update_list(time_key.as_str(), reply_key.as_str(), list_key, conn.clone()))
-                        }
-                        let list_key = "category:all:list_pop".to_owned();
-                        let time_key = "category:all:topics_time";
-                        let reply_key = "category:all:topics_reply";
-                        vec.push(update_list(time_key, reply_key, list_key, conn));
-
-                        futures::stream::futures_ordered(vec)
-                            .collect()
-                            .into_actor(act)
-                            .map_err(|_, _, _| ())
-                            .map(|_, _, _| ())
-                    });
-
-            ctx.wait(f);
-        });
-    }
-}
-
-
 impl<T> Handler<UpdateCache<T>> for CacheService
     where T: GetSelfId + SortHash + 'static {
     type Result = ResponseFuture<(), ServiceError>;
@@ -248,7 +280,7 @@ impl Handler<AddedPost> for CacheService {
             .cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
 
-            .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid).ignore()
+//            .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid).ignore()
             .cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg("XX").arg(time).arg(tid).ignore()
             .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
@@ -260,15 +292,14 @@ impl Handler<AddedPost> for CacheService {
             let key = format!("post:{}:set", pid);
             pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
                 .cmd("HINCRBY").arg(&key).arg("reply_count").arg(1).ignore()
-                .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg("XX").arg(time).arg(pid).ignore()
+//                .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg("XX").arg(time).arg(pid).ignore()
                 .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(pid).ignore();
         }
 
-        let f = pipe
+        Box::new(pipe
             .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
-            .map(|(_, ())| ());
-        Box::new(f)
+            .map(|(_, ())| ()))
     }
 }
 
@@ -523,7 +554,6 @@ fn update_list(
     let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
 
     let mut pip = pipe();
-
     pip.atomic();
 
     pip.cmd("zrevrangebyscore")
@@ -568,11 +598,37 @@ fn update_list(
                     }
                 }
             }
+            let mut pipe = pipe();
+            pipe.atomic();
+            pipe.cmd("del").arg(&list_key).ignore()
+                .cmd("rpush").arg(&list_key).arg(vec).ignore();
+            pipe.query_async(conn)
+                .from_err()
+                .map(|(_, ())| ())
+        })
+}
 
-            println!("updated category {}", list_key);
+fn trim_list(
+    time_key: String,
+    reply_key: String,
+    conn: SharedConn,
+) -> impl Future<Item=(), Error=ServiceError> {
+    let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
 
-            cmd("rpush").arg(&list_key).arg(vec)
-                .query_async(conn.clone())
+    cmd("zrevrangebyscore")
+        .arg(&time_key)
+        .arg(yesterday)
+        .arg("-inf")
+        .query_async(conn)
+        .from_err()
+        .and_then(move |(conn, tids): (_, Vec<u32>)| {
+            let mut pipe = pipe();
+
+            for tid in tids.into_iter() {
+                pipe.cmd("zrem").arg(&reply_key).arg(tid).ignore();
+            }
+            pipe.cmd("ZREMRANGEBYSCORE").arg(&time_key).arg(yesterday).arg("-inf").ignore();
+            pipe.query_async(conn)
                 .from_err()
                 .map(|(_, ())| ())
         })
@@ -758,10 +814,10 @@ pub fn build_category_set(
 
     for (tid, cid, count, last_reply_time) in vec.into_iter() {
         let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid);
-        pipe.cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid);
+        pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
+            .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore();
     }
 
     pipe.query_async(conn)
@@ -776,10 +832,8 @@ pub fn build_topic_set(
     let mut pipe = pipe();
     pipe.atomic();
 
-    for (tid, pid, count, last_reply_time) in vec.into_iter() {
-        let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid);
-        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid);
+    for (tid, pid, count, _) in vec.into_iter() {
+        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid).ignore();
     }
 
     pipe.query_async(conn)

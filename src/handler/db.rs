@@ -1,6 +1,4 @@
-use std::fmt::Write;
-
-use futures::{Future, future, IntoFuture};
+use futures::Future;
 
 use actix::prelude::*;
 use chrono::NaiveDateTime;
@@ -10,12 +8,10 @@ use crate::util::{hash, jwt};
 
 use crate::model::{
     errors::ServiceError,
-    actors::DatabaseService,
     post::Post,
     user::{User, AuthRequest, AuthResponse},
     category::Category,
-    topic::{Topic, TopicRequest},
-    common::GlobalGuard,
+    topic::Topic,
     talk::Talk,
 };
 use crate::model::common::GetUserId;

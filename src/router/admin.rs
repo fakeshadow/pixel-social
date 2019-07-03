@@ -1,4 +1,4 @@
-use futures::{Future, future::Either, IntoFuture};
+use futures::{Future, IntoFuture};
 
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 
@@ -8,7 +8,7 @@ use crate::model::{
     topic::TopicRequest,
     common::Validator,
     category::CategoryRequest,
-    user::{ToUserRef, UpdateRequest},
+    user::UpdateRequest,
 };
 use crate::handler::{
     auth::UserJwt,

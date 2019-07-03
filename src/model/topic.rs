@@ -6,7 +6,6 @@ use crate::model::{
     post::{Post, PostWithUser},
     user::{ToUserRef, User, UserRef},
 };
-use crate::model::common::GetSelfCategory;
 
 #[derive(Serialize, Debug, Clone)]
 // ToDo: add field for topic visiable
