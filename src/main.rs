@@ -36,6 +36,7 @@ use crate::{
         build_cache,
     },
 };
+use crate::model::actors::CacheUpdateService;
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -68,6 +69,7 @@ fn main() -> std::io::Result<()> {
     let talk_service = TalkService::connect(&database_url, &redis_url);
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let _ = MailService::connect(&redis_url);
+    let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);

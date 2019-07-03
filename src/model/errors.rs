@@ -34,7 +34,9 @@ pub enum ServiceError {
     #[display(fmt = "MailError")]
     MailServiceError,
     #[display(fmt = "Internal Server Error")]
-    PARSEINT,
+    PARSE,
+    #[display(fmt = "NoContent")]
+    NoCache,
 }
 
 impl ResponseError for ServiceError {
@@ -43,6 +45,7 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
+            ServiceError::NoCache => HttpResponse::NoContent().json("No cache found"),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username already taken")),
             ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),
@@ -51,7 +54,7 @@ impl ResponseError for ServiceError {
             ServiceError::WrongPwd => HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong")),
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
-            ServiceError::PARSEINT => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing int error")),
+            ServiceError::PARSE => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing error")),
             ServiceError::NOTACTIVE => HttpResponse::Forbidden().json(ErrorMessage::new("User is not activated yet")),
             ServiceError::BLOCKED => HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
@@ -62,9 +65,8 @@ impl ResponseError for ServiceError {
 impl From<tokio_postgres::error::Error> for ServiceError {
     fn from(e: tokio_postgres::error::Error) -> ServiceError {
         ServiceError::BadRequestDb(DatabaseErrorMessage {
-            message: e.description().to_owned(),
-            details: Some(e.to_string()),
-            hint: None,
+            category: None,
+            description: e.description().to_string(),
         })
     }
 }
@@ -72,9 +74,8 @@ impl From<tokio_postgres::error::Error> for ServiceError {
 impl<T> From<(tokio_postgres::error::Error, T)> for ServiceError {
     fn from(e: (tokio_postgres::error::Error, T)) -> ServiceError {
         ServiceError::BadRequestDb(DatabaseErrorMessage {
-            message: e.0.description().to_owned(),
-            details: Some(e.0.to_string()),
-            hint: None,
+            category: None,
+            description: e.0.description().to_owned(),
         })
     }
 }
@@ -91,9 +92,8 @@ impl From<actix::MailboxError> for ServiceError {
 impl From<redis::RedisError> for ServiceError {
     fn from(e: redis::RedisError) -> ServiceError {
         ServiceError::BadRequestDb(DatabaseErrorMessage {
-            message: e.category().to_owned(),
-            details: Some(e.description().to_owned()),
-            hint: None,
+            category: Some(e.category().to_owned()),
+            description: e.description().to_owned(),
         })
     }
 }
@@ -106,21 +106,20 @@ impl From<serde_json::Error> for ServiceError {
 
 impl From<std::num::ParseIntError> for ServiceError {
     fn from(_err: std::num::ParseIntError) -> ServiceError {
-        ServiceError::PARSEINT
+        ServiceError::PARSE
     }
 }
 
 impl From<chrono::format::ParseError> for ServiceError {
     fn from(_err: chrono::format::ParseError) -> ServiceError {
-        ServiceError::InternalServerError
+        ServiceError::PARSE
     }
 }
 
 #[derive(Serialize, Debug)]
 pub struct DatabaseErrorMessage {
-    message: String,
-    details: Option<String>,
-    hint: Option<String>,
+    category: Option<String>,
+    description: String,
 }
 
 #[derive(Serialize)]

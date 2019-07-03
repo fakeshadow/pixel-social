@@ -9,6 +9,7 @@ use crate::handler::{
     user::GetUsers,
 };
 use crate::model::{
+    errors::ServiceError,
     actors::{DB, CACHE},
     topic::TopicWithUser,
     common::AttachUser,
@@ -76,11 +77,11 @@ pub fn get_popular(
         .from_err()
         .and_then(move |r| match r {
             Ok((t, u)) => Either::A(ft_ok(HttpResponse::Ok().json(TopicWithUser::new(&t, &u)))),
-            Err(_) => Either::B(db.send(GetTopics::Popular(vec![id], page))
+            Err(_) => Either::B(db
+                .send(GetTopics::Popular(vec![id], page))
                 .from_err()
                 .and_then(|r| r)
                 .from_err()
-                // return user ids with topics for users query
                 .and_then(move |(t, ids)| db
                     .send(GetUsers(ids))
                     .from_err()

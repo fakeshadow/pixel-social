@@ -9,7 +9,7 @@ use crate::model::{
 use crate::util::validation as validate;
 
 pub trait GetSelfCategory {
-    fn get_self_category(&self) -> &u32;
+    fn self_category(&self) -> &u32;
 }
 
 pub trait GetSelfId {

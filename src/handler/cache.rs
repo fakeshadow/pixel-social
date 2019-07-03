@@ -1,12 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    time::Duration,
+    collections::{HashMap, HashSet},
+};
 use futures::{Future, future, future::{err as fut_err, ok as fut_ok, Either}};
 
 use actix::prelude::*;
 use chrono::{NaiveDateTime, Utc};
 use redis::{Client, cmd, pipe};
 
+use crate::CacheService;
 use crate::model::{
-    actors::{CacheService, SharedConn},
+    actors::SharedConn,
     errors::ServiceError,
     category::Category,
     post::Post,
@@ -16,13 +20,20 @@ use crate::model::{
     common::{AttachUser, GetSelfId, GetUserId},
     mail::Mail,
 };
+use crate::model::actors::CacheUpdateService;
 
 lazy_static! {
     static ref BASETIME:NaiveDateTime = NaiveDateTime::parse_from_str("2019-06-24 2:33:33.666666", "%Y-%m-%d %H:%M:%S%.f").unwrap();
 }
 
+// limits are the page offsets of list query
 const LIMIT: isize = 20;
 const LIMITU: usize = 20;
+
+// list update interval time gap in millis
+const LIST_TIME_GAP: Duration = Duration::from_millis(10000);
+
+// mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
 pub struct GetCategoriesCache;
@@ -117,21 +128,54 @@ impl<T> Message for UpdateCache<T> {
     type Result = Result<(), ServiceError>;
 }
 
+impl CacheUpdateService {
+    pub fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
+        ctx.run_interval(LIST_TIME_GAP, move |act, ctx| {
+            let f =
+                get_categories_cache(act.cache.as_ref().unwrap().clone())
+                    .into_actor(act)
+                    .map_err(|_, _, _| ())
+                    .and_then(|cat, act, _| {
+                        let conn = act.cache.as_ref().unwrap().clone();
+                        let mut vec = Vec::new();
+                        for c in cat.iter() {
+                            let list_key = format!("category:{}:list_pop", c.id);
+                            let time_key = format!("category:{}:topics_time", c.id);
+                            let reply_key = format!("category:{}:topics_reply", c.id);
+
+                            vec.push(update_list(time_key.as_str(), reply_key.as_str(), list_key, conn.clone()))
+                        }
+                        let list_key = "category:all:list_pop".to_owned();
+                        let time_key = "category:all:topics_time";
+                        let reply_key = "category:all:topics_reply";
+                        vec.push(update_list(time_key, reply_key, list_key, conn));
+
+                        futures::stream::futures_ordered(vec)
+                            .collect()
+                            .into_actor(act)
+                            .map_err(|_, _, _| ())
+                            .map(|_, _, _| ())
+                    });
+
+            ctx.wait(f);
+        });
+    }
+}
+
+
 impl<T> Handler<UpdateCache<T>> for CacheService
     where T: GetSelfId + SortHash + 'static {
     type Result = ResponseFuture<(), ServiceError>;
 
     fn handle(&mut self, msg: UpdateCache<T>, _: &mut Self::Context) -> Self::Result {
-        let (vec, key) = match msg {
-            UpdateCache::Topic(vec) => (vec, "topic"),
-            UpdateCache::Post(vec) => (vec, "post"),
-            UpdateCache::User(vec) => (vec, "user"),
-            UpdateCache::Category(vec) => (vec, "category"),
-        };
-        Box::new(build_hmset(
-            self.cache.as_ref().unwrap().clone(),
-            vec,
-            key))
+        let conn = self.cache.as_ref().unwrap().clone();
+
+        match msg {
+            UpdateCache::Topic(vec) => Box::new(build_hmset(conn, vec, "topic")),
+            UpdateCache::Post(vec) => Box::new(build_hmset(conn, vec, "post")),
+            UpdateCache::User(vec) => Box::new(build_hmset(conn, vec, "user")),
+            UpdateCache::Category(vec) => Box::new(build_hmset(conn, vec, "category")),
+        }
     }
 }
 
@@ -158,26 +202,23 @@ impl Handler<AddedTopic> for CacheService {
         let t = msg.0;
         let tid = t.id;
         let cid = t.category_id;
+        let time = t.last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
+        let count = t.reply_count;
 
         let mut pipe = pipe();
         pipe.atomic();
-        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.self_id())).arg(t.sort_hash());
-        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1);
-        pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid);
+        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.self_id())).arg(t.sort_hash()).ignore()
+            .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1).ignore()
+            .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
+            .cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
+            .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore();
 
-        // add topic to sorted set with timestamp as score. topic_id:reply_count as set.
-        let time = t.last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        let count = t.reply_count;
-        pipe.cmd("ZADD").arg("all:topics:time").arg(time).arg(tid);
-        pipe.cmd("ZADD").arg("all:topics:reply").arg(count).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", cid)).arg(time).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:reply", cid)).arg(count).arg(tid);
-
-        let f = pipe
+        Box::new(pipe
             .query_async(self.cache.as_ref().unwrap().clone())
             .from_err()
-            .map(|(_, ())| ());
-        Box::new(f)
+            .map(|(_, ())| ()))
     }
 }
 
@@ -196,38 +237,31 @@ impl Handler<AddedPost> for CacheService {
         let mut pipe = pipe();
         pipe.atomic();
 
-        // update category and topic list.
-        pipe.cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid);
-        pipe.cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid);
-        pipe.cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid);
-
-        //insert post hash
-        pipe.cmd("HMSET").arg(&format!("post:{}:set", pid)).arg(p.sort_hash());
-
-        // update topic and category data.
         let key = format!("topic:{}:set", tid);
-        pipe.cmd("HINCRBY").arg(&key).arg("reply_count").arg(1);
-        pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string);
-        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1);
-
-        // add post time and reply count to sorted set
         let time = time.timestamp_millis() - BASETIME.timestamp_millis();
-        pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg(time).arg(pid);
-        pipe.cmd("ZADD").arg(&format!("topic{}:posts:reply", tid)).arg(count).arg(pid);
 
-        // update topic time and reply count
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", cid)).arg("XX").arg(time).arg(tid);
-        pipe.cmd("ZINCRBY").arg(&format!("category{}:topics:reply", cid)).arg(1).arg(tid);
-        pipe.cmd("ZADD").arg("all:topics:time").arg("XX").arg(time).arg(tid);
-        pipe.cmd("ZINCRBY").arg("all:topics:reply").arg(1).arg(tid);
+        pipe.cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid).ignore()
+            .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
+            .cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid).ignore()
+            .cmd("HMSET").arg(&format!("post:{}:set", pid)).arg(p.sort_hash()).ignore()
+            .cmd("HINCRBY").arg(&key).arg("reply_count").arg(1).ignore()
+            .cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
+            .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
 
-        // update to_post time, reply count and sorted set.
+            .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid).ignore()
+            .cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg("XX").arg(time).arg(tid).ignore()
+            .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
+
+            .cmd("ZADD").arg("category:all:topics_time").arg("XX").arg(time).arg(tid).ignore()
+            .cmd("ZINCRBY").arg("category:all:topics_reply").arg(1).arg(tid).ignore();
+
         if let Some(pid) = p.post_id {
             let key = format!("post:{}:set", pid);
-            pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string);
-            pipe.cmd("HINCRBY").arg(&key).arg("reply_count").arg(1);
-            pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg("XX").arg(time).arg(pid);
-            pipe.cmd("ZINCRBY").arg(&format!("topic{}:posts:reply", tid)).arg(1).arg(pid);
+            pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
+                .cmd("HINCRBY").arg(&key).arg("reply_count").arg(1).ignore()
+                .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg("XX").arg(time).arg(pid).ignore()
+                .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(pid).ignore();
         }
 
         let f = pipe
@@ -272,11 +306,11 @@ impl Handler<GetTopicCache> for CacheService {
                             Ok(t)
                         });
 
+                let list_key = format!("topic:{}:list", tid);
                 let f2 =
                     topics_posts_from_list(
-                        tid,
                         page,
-                        "topic",
+                        &list_key,
                         "post",
                         self.cache.as_ref().unwrap().clone());
 
@@ -301,7 +335,7 @@ impl Handler<GetTopicCache> for CacheService {
                             Ok(t)
                         });
 
-                let count_key = format!("topic{}:posts:reply", tid);
+                let count_key = format!("topic:{}:posts_reply", tid);
                 let f2 = cmd("zrevrangebyscore")
                     .arg(&count_key)
                     .arg("+inf")
@@ -405,7 +439,6 @@ impl Handler<DeleteCache> for CacheService {
     }
 }
 
-
 impl Handler<AddMail> for CacheService {
     type Result = ResponseFuture<(), ServiceError>;
 
@@ -456,183 +489,116 @@ impl Handler<GetTopicsCache> for CacheService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<User>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        let conn = self.cache.as_ref().unwrap().clone();
+        let (key, page) = match msg {
+            GetTopicsCache::Popular(ids, page) =>
+                (format!("category:{}:list_pop", ids.first().unwrap()), page),
+            GetTopicsCache::PopularAll(page) =>
+                ("category:all:list_pop".to_owned(), page),
+            GetTopicsCache::Latest(ids, page) =>
+                (format!("category:{}:list", ids.first().unwrap()), page),
+        };
 
-        // try to query topics cache from sorted lists. if there is an error then query then sorted sets for popular
-        // topics and build a new sorted list.
-        let f = msg
-            .topics_from_cache(conn.clone())
-            .or_else(|e| {
-                println!("err_or_else");
-                topics_from_sorted_set(vec![1], 1, conn)
-            })
-            .and_then(|(t, mut uids, conn)| {
-                uids.sort();
-                uids.dedup();
-                get_users(conn, uids).map(|u| (t, u))
-            });
+        let f =
+            topics_posts_from_list(
+                page,
+                key.as_str(),
+                "topic",
+                self.cache.as_ref().unwrap().clone())
+                .and_then(|(t, mut uids, conn)| {
+                    uids.sort();
+                    uids.dedup();
+                    get_users(conn, uids).map(|u| (t, u))
+                });
 
         Box::new(f)
     }
 }
 
-impl GetTopicsCache {
-    fn topics_from_cache(
-        &self,
-        conn: SharedConn,
-    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>, SharedConn), Error=ServiceError> {
-        match self {
-            GetTopicsCache::Popular(ids, page) => {
-                let list_key = format!("category{}:popular:list", ids.first().unwrap());
-                let start = (*page as isize - 1) * 20;
-
-                println!("from list");
-
-                Either::A(
-                    cmd("lrange")
-                        .arg(&list_key)
-                        .arg(start)
-                        .arg(start + LIMIT - 1)
-                        .query_async(conn)
-                        .from_err()
-                        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
-                            if ids.len() == 0 {
-                                return Either::A(fut_err(ServiceError::InternalServerError));
-                            }
-                            Either::B(from_hmsets(conn, ids, "topic"))
-                        })
-                )
-            }
-            GetTopicsCache::PopularAll(page) => {
-                let list_key = "categoryall:popular:list".to_owned();
-                let start = (*page as isize - 1) * 20;
-
-                Either::B(
-                    cmd("lrange")
-                        .arg(&list_key)
-                        .arg(start)
-                        .arg(start + LIMIT - 1)
-                        .query_async(conn)
-                        .from_err()
-                        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)|
-                            from_hmsets(conn, ids, "topic"))
-                )
-            }
-            _ => panic!("none")
-//            GetTopicsCache::Latest(ids, page) => {
-//                let id = *ids.first().unwrap();
-
-//                Either::B(
-//                    topics_posts_from_list(
-//                        id,
-//                        page.clone(),
-//                        "category",
-//                        "topic",
-//                        conn))
-//            }
-        }
-    }
-}
-
-fn topics_from_sorted_set<T>(
-    ids: Vec<u32>,
-    page: i64,
+fn update_list(
+    time_key: &str,
+    reply_key: &str,
+    list_key: String,
     conn: SharedConn,
-) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
-    where T: GetUserId + FromHashSet {
-    let id = ids.first().unwrap();
-    let time_key = format!("category{}:topics:time", id);
-    let reply_key = format!("category{}:topics:reply", id);
-
+) -> impl Future<Item=(), Error=ServiceError> {
     let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
 
-    cmd("zrevrangebyscore")
-        .arg(&time_key)
+    let mut pip = pipe();
+
+    pip.atomic();
+
+    pip.cmd("zrevrangebyscore")
+        .arg(time_key)
         .arg("+inf")
         .arg(yesterday)
-        .query_async(conn)
-        .from_err()
-        .and_then(move |(conn, tids): (SharedConn, Vec<u32>)| {
-            cmd("ZREVRANGEBYSCORE")
-                .arg(&reply_key)
-                .arg("+inf")
-                .arg("-inf")
-                .arg("WITHSCORES")
-                .query_async(conn)
-                .from_err()
-                .and_then(move |(conn, counts): (SharedConn, Vec<(u32, u32)>)| {
-                    let len = counts.len();
-                    let mut vec: Vec<(u32, u32)> = Vec::with_capacity(len);
+        .cmd("ZREVRANGEBYSCORE")
+        .arg(reply_key)
+        .arg("+inf")
+        .arg("-inf")
+        .arg("WITHSCORES");
 
-                    // sort two ranged scores with the last_reply_time desc and reply_count desc.
-                    for i in 0..tids.len() {
-                        for (tid, count) in counts.iter() {
-                            if &tids[i] == tid {
-                                let l = vec.len();
-                                if l == 0 {
-                                    vec.push((*tid, *count));
+    pip.query_async(conn)
+        .from_err()
+        .and_then(move |(conn, (tids, counts)): (_, (Vec<u32>, Vec<(u32, u32)>))| {
+            let len = counts.len();
+            let mut temp: Vec<(u32, u32)> = Vec::with_capacity(len);
+            let mut vec = Vec::with_capacity(len);
+
+            // sort two ranged scores with the last_reply_time desc and reply_count desc.
+            for i in 0..tids.len() {
+                for (tid, count) in counts.iter() {
+                    if &tids[i] == tid {
+                        let l = temp.len();
+                        if l == 0 {
+                            temp.push((*tid, *count));
+                            vec.push(*tid);
+                        } else {
+                            for k in 0..l {
+                                if count > &temp[k].1 {
+                                    let k = if k > 1 { k - 1 } else { 0 };
+                                    temp.insert(k, (*tid, *count));
+                                    vec.insert(k, *tid);
+                                    break;
                                 } else {
-                                    for k in 0..l {
-                                        if count > &vec[k].1 {
-                                            let k = if k > 1 { k - 1 } else { 0 };
-                                            vec.insert(k, (*tid, *count));
-                                            break;
-                                        } else {
-                                            vec.push((*tid, *count));
-                                            break;
-                                        }
-                                    }
+                                    temp.push((*tid, *count));
+                                    vec.push(*tid);
+                                    break;
                                 }
                             }
                         }
                     }
+                }
+            }
 
-                    // build a list with the sorted range.
-                    let mut vec_f = Vec::with_capacity(20);
-                    let start = ((page - 1) * 20) as usize;
-                    let len = vec.len();
+            println!("updated category {}", list_key);
 
-                    let mut pipe = pipe();
-                    pipe.atomic();
-                    let list_key = format!("category{}:popular:list", ids.first().unwrap());
-
-                    for i in 0..len {
-                        let v = vec[i].0;
-                        pipe.cmd("rpush").arg(&list_key).arg(v);
-                        if i >= start && i <= start + LIMITU && i < len {
-                            vec_f.push(v)
-                        }
-                    }
-                    // list is expired in 10 seconds.
-                    pipe.cmd("expire").arg(&list_key).arg(10);
-
-                    pipe.query_async(conn.clone())
-                        .from_err()
-                        .map(|(_, ())| ())
-                        .join(from_hmsets(conn, vec_f, "topic"))
-                        .map(|(_, a)| a)
-                })
+            cmd("rpush").arg(&list_key).arg(vec)
+                .query_async(conn.clone())
+                .from_err()
+                .map(|(_, ())| ())
         })
 }
 
 fn topics_posts_from_list<T>(
-    id: u32,
     page: i64,
     list_key: &str,
     set_key: &'static str,
     conn: SharedConn,
 ) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
     where T: GetUserId + FromHashSet {
-    let list_key = format!("{}:{}:list", list_key, id);
     let start = (page as isize - 1) * 20;
 
     cmd("lrange")
-        .arg(&list_key)
+        .arg(list_key)
         .arg(start)
         .arg(start + LIMIT - 1)
         .query_async(conn)
         .from_err()
-        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| from_hmsets(conn, ids, set_key))
+        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
+            if ids.len() == 0 {
+                return Either::A(fut_err(ServiceError::NoCache));
+            }
+            Either::B(from_hmsets(conn, ids, set_key))
+        })
 }
 
 fn get_categories_cache(
@@ -660,14 +626,14 @@ pub fn get_users(
     get_hmset(conn, uids, "user")
         .and_then(move |(_, uids, vec)| {
             let mut u = Vec::new();
-// collect users from hash map
+            // collect users from hash map
             for v in vec.iter() {
                 if let Some(user) = v.parse::<User>().ok() {
                     u.push(user);
                 }
             };
-// abort
-            if u.len() != uids.len() || u.len() == 0 {
+            // abort
+            if u.len() != uids.len() {
                 return Err(ServiceError::InternalServerError);
             };
             Ok(u)
@@ -696,7 +662,7 @@ pub fn build_hmset<T>(
 pub fn build_list(
     conn: SharedConn,
     vec: Vec<u32>,
-// pass lpush or rpush as cmd
+    // pass lpush or rpush as cmd
     cmd: &'static str,
     key: String,
 ) -> impl Future<Item=(), Error=ServiceError> {
@@ -726,7 +692,6 @@ fn from_hmsets<T>(
                     res.push(t);
                 }
             }
-// abort query if the topics length doesn't match the ids' length.
             if res.len() != ids.len() {
                 return Err(ServiceError::InternalServerError);
             };
@@ -793,10 +758,10 @@ pub fn build_category_set(
 
     for (tid, cid, count, last_reply_time) in vec.into_iter() {
         let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        pipe.cmd("ZADD").arg("all:topics:time").arg(time).arg(tid);
-        pipe.cmd("ZADD").arg("all:topics:reply").arg(count).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:time", cid)).arg(time).arg(tid);
-        pipe.cmd("ZADD").arg(&format!("category{}:topics:reply", cid)).arg(count).arg(tid);
+        pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid);
+        pipe.cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid);
+        pipe.cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid);
+        pipe.cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid);
     }
 
     pipe.query_async(conn)
@@ -813,8 +778,8 @@ pub fn build_topic_set(
 
     for (tid, pid, count, last_reply_time) in vec.into_iter() {
         let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        pipe.cmd("ZADD").arg(&format!("topic{}:posts:time", tid)).arg(time).arg(pid);
-        pipe.cmd("ZADD").arg(&format!("topic{}:posts:reply", tid)).arg(count).arg(pid);
+        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid);
+        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid);
     }
 
     pipe.query_async(conn)

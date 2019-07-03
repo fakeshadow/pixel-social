@@ -35,7 +35,21 @@ pub struct DatabaseService {
     pub insert_user: Option<Statement>,
 }
 
+pub struct TalkService {
+    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
+    pub talks: HashMap<u32, Talk>,
+    pub db: Option<Client>,
+    pub cache: Option<SharedConn>,
+    pub insert_pub_msg: Option<Statement>,
+    pub get_pub_msg: Option<Statement>,
+    pub join_talk: Option<Statement>,
+}
+
 pub struct CacheService {
+    pub cache: Option<SharedConn>
+}
+
+pub struct CacheUpdateService {
     pub cache: Option<SharedConn>
 }
 
@@ -50,6 +64,14 @@ impl Actor for DatabaseService {
 
 impl Actor for CacheService {
     type Context = Context<Self>;
+}
+
+impl Actor for CacheUpdateService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.update_list_pop(ctx);
+    }
 }
 
 impl Actor for TalkService {
@@ -176,14 +198,27 @@ impl CacheService {
     }
 }
 
-pub struct TalkService {
-    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
-    pub talks: HashMap<u32, Talk>,
-    pub db: Option<Client>,
-    pub cache: Option<SharedConn>,
-    pub insert_pub_msg: Option<Statement>,
-    pub get_pub_msg: Option<Statement>,
-    pub join_talk: Option<Statement>,
+impl CacheUpdateService {
+    pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
+        let client = RedisClient::open(redis_url)
+            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+
+        CacheUpdateService::create(move |ctx| {
+            let addr = CacheUpdateService {
+                cache: None
+            };
+
+            client.get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
+                    fut::ok(())
+                })
+                .wait(ctx);
+            addr
+        })
+    }
 }
 
 impl TalkService {

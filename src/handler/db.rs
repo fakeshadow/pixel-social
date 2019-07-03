@@ -336,7 +336,7 @@ pub fn query_single_row<T>(
                     .get(index)
                     .ok_or(ServiceError::BadRequest)?
                     .parse::<T>()
-                    .map_err(|_| ServiceError::PARSEINT),
+                    .map_err(|_| ServiceError::PARSE),
                 _ => Err(ServiceError::InternalServerError)
             }
             None => Err(ServiceError::InternalServerError)

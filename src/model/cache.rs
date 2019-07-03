@@ -45,7 +45,7 @@ impl SortHash for User {
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
             ("is_admin", self.is_admin.to_string()),
-            ("blocked", self.is_blocked.to_string()),
+            ("is_blocked", self.is_blocked.to_string()),
             ("is_activate", self.is_activate.to_string()),
             ("show_email", self.show_email.to_string()),
             ("show_created_at", self.show_created_at.to_string()),
@@ -110,7 +110,7 @@ impl Parser for HashMap<String, String> {
     }
     fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
         where K: FromStr {
-        self.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSEINT)
+        self.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
     }
     fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError> {
         FromHashSet::from_hash(self)
@@ -177,7 +177,7 @@ impl FromHashSet for User {
             created_at: hash.parse_date("created_at")?,
             updated_at: hash.parse_date("updated_at")?,
             is_admin: hash.parse_other::<u32>("is_admin")?,
-            is_blocked: hash.parse_other::<bool>("blocked")?,
+            is_blocked: hash.parse_other::<bool>("is_blocked")?,
             is_activate: hash.parse_other::<bool>("is_activate")?,
             show_email: hash.parse_other::<bool>("show_email")?,
             show_created_at: hash.parse_other::<bool>("show_created_at")?,
