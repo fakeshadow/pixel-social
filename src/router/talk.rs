@@ -1,6 +1,14 @@
 use std::time::{Duration, Instant};
 
-use actix::prelude::*;
+use actix::prelude::{
+    Actor,
+    ActorContext,
+    AsyncContext,
+    Handler,
+    Message,
+    Running,
+    StreamHandler,
+};
 use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
 use actix_web_actors::ws;
 use serde::Deserialize;
@@ -33,6 +41,7 @@ pub fn talk(
     stream: Payload,
     talk: Data<TALK>,
 ) -> Result<HttpResponse, Error> {
+    println!("connected");
     ws::start(
         WsChatSession {
             id: 0,
@@ -48,6 +57,19 @@ struct WsChatSession {
     id: u32,
     hb: Instant,
     addr: TALK,
+}
+
+impl Actor for WsChatSession {
+    type Context = ws::WebsocketContext<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb(ctx);
+    }
+
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        self.addr.do_send(Disconnect { session_id: self.id });
+        Running::Stop
+    }
 }
 
 impl WsChatSession {
@@ -69,72 +91,56 @@ impl Handler<SessionMessage> for WsChatSession {
     fn handle(&mut self, msg: SessionMessage, ctx: &mut Self::Context) { ctx.text(msg.0); }
 }
 
-impl Actor for WsChatSession {
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.hb(ctx);
-    }
-
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(Disconnect { session_id: self.id });
-        Running::Stop
-    }
-}
-
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
         match msg {
+            ws::Message::Close(_) => ctx.stop(),
             ws::Message::Ping(msg) => {
                 self.hb = Instant::now();
                 ctx.pong(&msg);
             }
             ws::Message::Pong(_) => self.hb = Instant::now(),
-            ws::Message::Text(t) => text_handler(self, t, ctx),
-            ws::Message::Close(_) => ctx.stop(),
+            ws::Message::Text(t) => {
+                let t = t.trim();
+                if !t.starts_with('/') {
+                    ctx.text("!!! Unknown command");
+                    ctx.stop();
+                    return;
+                }
+                let v: Vec<&str> = t.splitn(2, ' ').collect();
+                if v.len() != 2 {
+                    ctx.text("!!! Empty command");
+                    ctx.stop();
+                    return;
+                }
+                if v[0].len() > 10 || v[1].len() > 2560 {
+                    ctx.text("!!! Message out of range");
+                    ctx.stop();
+                    return;
+                }
+                if self.id <= 0 {
+                    match v[0] {
+                        "/auth" => auth(self, v[1], ctx),
+                        _ => ctx.text("!!! Unauthorized command")
+                    }
+                } else {
+                    match v[0] {
+                        "/msg" => general_msg_handler::<ClientMessage>(self, v[1], ctx),
+                        "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
+                        "/remove" => general_msg_handler::<RemoveUser>(self, v[1], ctx),
+                        "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
+                        // request talk_id 0 to get all talks details.
+                        "/talks" => get_talks(self, v[1], ctx),
+                        // get users of one talk from talk_id
+                        "/users" => general_msg_handler::<GetTalks>(self, v[1], ctx),
+                        "/join" => general_msg_handler::<Join>(self, v[1], ctx),
+                        "/create" => general_msg_handler::<Create>(self, v[1], ctx),
+                        "/delete" => general_msg_handler::<Delete>(self, v[1], ctx),
+                        _ => ctx.text("!!! Unknown command")
+                    }
+                }
+            }
             _ => (),
-        }
-    }
-}
-
-// pattern match ws command
-fn text_handler(session: &mut WsChatSession, text: String, ctx: &mut ws::WebsocketContext<WsChatSession>) {
-    let t = text.trim();
-    if !t.starts_with('/') {
-        ctx.text("!!! Unknown command");
-        ctx.stop();
-        return;
-    }
-    let v: Vec<&str> = t.splitn(2, ' ').collect();
-    if v.len() != 2 {
-        ctx.text("!!! Empty command");
-        ctx.stop();
-        return;
-    }
-    if v[0].len() > 10 || v[1].len() > 2560 {
-        ctx.text("!!! Message out of range");
-        ctx.stop();
-        return;
-    }
-    if session.id <= 0 {
-        match v[0] {
-            "/auth" => auth(session, v[1], ctx),
-            _ => ctx.text("!!! Unauthorized command")
-        }
-    } else {
-        match v[0] {
-            "/msg" => general_msg_handler::<ClientMessage>(session, v[1], ctx),
-            "/history" => general_msg_handler::<GetHistory>(session, v[1], ctx),
-            "/remove" => general_msg_handler::<RemoveUser>(session, v[1], ctx),
-            "/admin" => general_msg_handler::<Admin>(session, v[1], ctx),
-            // request talk_id 0 to get all talks details.
-            "/talks" => get_talks(session, v[1], ctx),
-            // get users of one talk from talk_id
-            "/users" => general_msg_handler::<GetTalks>(session, v[1], ctx),
-            "/join" => general_msg_handler::<Join>(session, v[1], ctx),
-            "/create" => general_msg_handler::<Create>(session, v[1], ctx),
-            "/delete" => general_msg_handler::<Delete>(session, v[1], ctx),
-            _ => ctx.text("!!! Unknown command")
         }
     }
 }

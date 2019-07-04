@@ -31,10 +31,12 @@ lazy_static! {
 // page offsets of list query
 const LIMIT: isize = 20;
 const LIMITU: usize = 20;
-// list_pop update interval time gap in millis
-const LIST_TIME_GAP: Duration = Duration::from_millis(10000);
+// list_pop update interval time gap in seconds
+const LIST_TIME_GAP: Duration = Duration::from_secs(10);
 // trim list_pop interval time gap
 const TRIM_LIST_TIME_GAP: Duration = Duration::from_secs(3600);
+// hash life is expire time of topic and post hash in seconds.
+const HASH_LIFE: usize = 172800;
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
@@ -67,7 +69,7 @@ impl CacheUpdateService {
                             .map(|_, _, _| ())
                     });
 
-            ctx.wait(f);
+            ctx.spawn(f);
         });
     }
 
@@ -97,7 +99,7 @@ impl CacheUpdateService {
                             .map(|_, _, _| ())
                     });
 
-            ctx.wait(f);
+            ctx.spawn(f);
         });
     }
 }
@@ -203,8 +205,8 @@ impl<T> Handler<UpdateCache<T>> for CacheService
         let conn = self.cache.as_ref().unwrap().clone();
 
         match msg {
-            UpdateCache::Topic(vec) => Box::new(build_hmset(conn, vec, "topic")),
-            UpdateCache::Post(vec) => Box::new(build_hmset(conn, vec, "post")),
+            UpdateCache::Topic(vec) => Box::new(build_hmset_expire(conn, vec, "topic")),
+            UpdateCache::Post(vec) => Box::new(build_hmset_expire(conn, vec, "post")),
             UpdateCache::User(vec) => Box::new(build_hmset(conn, vec, "user")),
             UpdateCache::Category(vec) => Box::new(build_hmset(conn, vec, "category")),
         }
@@ -239,7 +241,9 @@ impl Handler<AddedTopic> for CacheService {
 
         let mut pipe = pipe();
         pipe.atomic();
-        pipe.cmd("HMSET").arg(&format!("topic:{}:set", t.self_id())).arg(t.sort_hash()).ignore()
+        let key = format!("topic:{}:set", t.self_id());
+        pipe.cmd("HMSET").arg(key.as_str()).arg(t.sort_hash()).ignore()
+            .cmd("EXPIRE").arg(key.as_str()).arg(HASH_LIFE).ignore()
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
@@ -270,21 +274,20 @@ impl Handler<AddedPost> for CacheService {
         pipe.atomic();
 
         let key = format!("topic:{}:set", tid);
+        let post_key = format!("post:{}:set", pid);
         let time = time.timestamp_millis() - BASETIME.timestamp_millis();
 
-        pipe.cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid).ignore()
+        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
+            .cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
             .cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid).ignore()
-            .cmd("HMSET").arg(&format!("post:{}:set", pid)).arg(p.sort_hash()).ignore()
+            .cmd("HMSET").arg(post_key.as_str()).arg(p.sort_hash()).ignore()
+            .cmd("EXPIRE").arg(post_key.as_str()).arg(HASH_LIFE).ignore()
             .cmd("HINCRBY").arg(&key).arg("reply_count").arg(1).ignore()
             .cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
-            .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
-
-//            .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg(time).arg(pid).ignore()
             .cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(pid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg("XX").arg(time).arg(tid).ignore()
             .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
-
             .cmd("ZADD").arg("category:all:topics_time").arg("XX").arg(time).arg(tid).ignore()
             .cmd("ZINCRBY").arg("category:all:topics_reply").arg(1).arg(tid).ignore();
 
@@ -292,7 +295,6 @@ impl Handler<AddedPost> for CacheService {
             let key = format!("post:{}:set", pid);
             pipe.cmd("HSET").arg(&key).arg("last_reply_time").arg(&time_string).ignore()
                 .cmd("HINCRBY").arg(&key).arg("reply_count").arg(1).ignore()
-//                .cmd("ZADD").arg(&format!("topic:{}:posts_time", tid)).arg("XX").arg(time).arg(pid).ignore()
                 .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(pid).ignore();
         }
 
@@ -615,17 +617,26 @@ fn trim_list(
 ) -> impl Future<Item=(), Error=ServiceError> {
     let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
 
-    cmd("zrevrangebyscore")
+    let mut pip = pipe();
+    pip.atomic();
+    pip.cmd("zrevrangebyscore")
         .arg(&time_key)
+        .arg("+inf")
         .arg(yesterday)
+        .cmd("ZREVRANGEBYSCORE")
+        .arg(&reply_key)
+        .arg("+inf")
         .arg("-inf")
-        .query_async(conn)
-        .from_err()
-        .and_then(move |(conn, tids): (_, Vec<u32>)| {
-            let mut pipe = pipe();
+        .arg("WITHSCORES");
 
-            for tid in tids.into_iter() {
-                pipe.cmd("zrem").arg(&reply_key).arg(tid).ignore();
+    pip.query_async(conn)
+        .from_err()
+        .and_then(move |(conn, (tids, counts)): (_, (Vec<u32>, Vec<(u32, u32)>))| {
+            let mut pipe = pipe();
+            for (tid, _) in counts.into_iter() {
+                if !tids.contains(&tid) {
+                    pipe.cmd("zrem").arg(&reply_key).arg(tid).ignore();
+                }
             }
             pipe.cmd("ZREMRANGEBYSCORE").arg(&time_key).arg(yesterday).arg("-inf").ignore();
             pipe.query_async(conn)
@@ -709,6 +720,30 @@ pub fn build_hmset<T>(
         pipe.cmd("HMSET")
             .arg(&format!("{}:{}:set", key, v.self_id()))
             .arg(v.sort_hash());
+    }
+    pipe.query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
+}
+
+pub fn build_hmset_expire<T>(
+    conn: SharedConn,
+    vec: Vec<T>,
+    key: &'static str,
+) -> impl Future<Item=(), Error=ServiceError>
+    where T: GetSelfId + SortHash {
+    let mut pipe = pipe();
+    pipe.atomic();
+    for v in vec.iter() {
+        let key = format!("{}:{}:set", key, v.self_id());
+        pipe.cmd("HMSET")
+            .arg(key.as_str())
+            .arg(v.sort_hash())
+            .ignore()
+            .cmd("expire")
+            .arg(key.as_str())
+            .arg(HASH_LIFE)
+            .ignore();
     }
     pipe.query_async(conn)
         .from_err()

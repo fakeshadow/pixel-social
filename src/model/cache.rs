@@ -103,7 +103,7 @@ impl Parser for HashMap<String, String> {
         if self.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
     }
     fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
-        self.get(key).map(|s| s.to_owned()).ok_or(ServiceError::InternalServerError)
+        Ok(self.get(key).ok_or(ServiceError::InternalServerError)?.to_owned())
     }
     fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
         Ok(NaiveDateTime::parse_from_str(self.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)

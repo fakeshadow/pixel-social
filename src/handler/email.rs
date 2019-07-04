@@ -32,7 +32,7 @@ const MAIL_TIME_GAP: Duration = Duration::from_millis(2000);
 impl MailService {
     pub fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
-            ctx.wait(from_mail_queue(act.cache.as_ref().unwrap().clone())
+            ctx.spawn(from_mail_queue(act.cache.as_ref().unwrap().clone())
                 .into_actor(act)
                 .map_err(|_, _, _| ())
                 .and_then(|(conn, s), act, _| {
@@ -42,6 +42,7 @@ impl MailService {
                         .map_err(|_, _, _| ())
                         .map(|_, _, _| ())
                 }));
+
         });
     }
 }

@@ -236,11 +236,10 @@ CREATE INDEX pub_message_belong ON public_messages1 (talk_id);
 CREATE INDEX prv_message_time_order ON private_messages1 (time DESC);
 CREATE INDEX prv_message_belong ON private_messages1 (to_id);
 
-CREATE INDEX topic_time_order ON topics (last_reply_time DESC);
-CREATE INDEX topic_reply_order ON topics (reply_count DESC);
+CREATE INDEX topic_time_order ON topics (last_reply_time DESC, reply_count DESC);
 CREATE INDEX topic_category_belong ON topics (category_id);
 
-CREATE INDEX post_reply_order ON posts (reply_count DESC);
+CREATE INDEX post_reply_order ON posts (reply_count DESC, id ASC);
 CREATE INDEX post_topic_belong ON posts (topic_id);
 
 CREATE UNIQUE INDEX users_username ON users (username);
