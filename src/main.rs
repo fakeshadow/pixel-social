@@ -60,11 +60,11 @@ fn main() -> std::io::Result<()> {
 
     let _ = clear_cache(&redis_url);
 
-    let global_arc = build_cache(&database_url, &redis_url).expect("Unable to build cache");
+    let (global_arc, global_talk) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 
-    let talk_service = TalkService::connect(&database_url, &redis_url);
+//    let talk_service = TalkService::connect(&database_url, &redis_url, global_talk.clone());
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let _ = MailService::connect(&redis_url);
     // ToDo: currently block main thread on low spec server if there are too many popular topics in last 24 hrs.
@@ -73,10 +73,11 @@ fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
+        let talk = TalkService::connect(&database_url, &redis_url, global_talk.clone());
 
         App::new()
             .data(global_arc.clone())
-            .data(talk_service.clone())
+            .data(talk)
             .data(db)
             .data(cache)
             .wrap(Logger::default())

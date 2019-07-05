@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use futures::{stream::futures_ordered};
 
 use actix::prelude::{
@@ -6,26 +5,27 @@ use actix::prelude::{
     Addr,
     Actor,
     ActorFuture,
-    ActorStream,
     Arbiter,
     Context,
     ContextFutureSpawner,
     fut,
     Future,
-    Recipient,
     Stream,
     WrapFuture,
-    WrapStream,
 };
 use redis::Client as RedisClient;
-use tokio_postgres::{Client, connect, Statement, tls::NoTls};
+use tokio_postgres::{
+    Client,
+    connect,
+    Statement,
+    tls::NoTls,
+};
 use lettre::SmtpTransport;
 
 use crate::model::{
-    talk::{SessionMessage, Talk},
+    common::GlobalTalksGuard,
 };
 use crate::handler::{
-    db::talk_from_msg,
     email::generate_mailer,
 };
 
@@ -50,8 +50,7 @@ pub struct DatabaseService {
 }
 
 pub struct TalkService {
-    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
-    pub talks: HashMap<u32, Talk>,
+    pub global: GlobalTalksGuard,
     pub db: Option<Client>,
     pub cache: Option<SharedConn>,
     pub insert_pub_msg: Option<Statement>,
@@ -237,15 +236,14 @@ impl CacheUpdateService {
 }
 
 impl TalkService {
-    pub fn connect(postgres_url: &str, redis_url: &str) -> TALK {
+    pub fn connect(postgres_url: &str, redis_url: &str, global: GlobalTalksGuard) -> TALK {
         let hs = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         TalkService::create(move |ctx| {
             let addr = TalkService {
-                sessions: HashMap::new(),
-                talks: HashMap::new(),
+                global,
                 db: None,
                 cache: None,
                 insert_pub_msg: None,
@@ -268,17 +266,6 @@ impl TalkService {
                     let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message) VALUES ($1, $2)");
                     let p2 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time < $2 ORDER BY time DESC LIMIT 20");
                     let p3 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
-
-                    ctx.wait(db
-                        .simple_query("SELECT * FROM talks")
-                        .map_err(|e| panic!("{}", e))
-                        .into_actor(addr)
-                        .fold((), |_, row, addr, _, | {
-                            if let Some(t) = talk_from_msg(&Some(row)).ok() {
-                                addr.talks.insert(t.id, t);
-                            };
-                            fut::ok(())
-                        }));
 
                     ctx.wait(p1.join3(p2, p3)
                         .map_err(|e| panic!("{}", e))

@@ -4,22 +4,24 @@ use chrono::NaiveDateTime;
 use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{query_multi_simple_with_id, query_all, simple_query},
+    db::{query_multi_simple_with_id, query_all, simple_query, query_all_simple},
     cache::{build_list, build_hmset, build_category_set, build_topic_set},
 };
 use crate::model::{
     topic::Topic,
     user::User,
+    talk::Talk,
     category::Category,
     common::{
+        GlobalTalks,
+        GlobalTalksGuard,
         GlobalVar,
         GlobalGuard,
     },
 };
-use crate::handler::db::query_all_simple;
 
 //return global arc after building cache
-pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, ()> {
+pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, GlobalTalksGuard), ()> {
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
@@ -123,10 +125,17 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<GlobalGuard, (
     }
     rt.block_on(build_hmset(c_cache.clone(), users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
+    let p = c.prepare("SELECT * FROM talks");
+    let st = rt.block_on(p).unwrap();
+
+    let talks = rt.block_on(query_all::<Talk>(&mut c, &st, &[])).unwrap_or_else(|_| panic!("Failed to load talks"));
+
+
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
-    Ok(GlobalVar::new(last_uid, last_pid, last_tid))
+    Ok((GlobalVar::new(last_uid, last_pid, last_tid), GlobalTalks::new(talks)))
 }
+
 
 pub fn create_table(postgres_url: &str) {
     let mut rt = Runtime::new().unwrap();
@@ -325,7 +334,7 @@ VALUES (2, 'Announcement', 'category_default.png'),
        (5, 'Persona', 'persona.jpg');
 
 INSERT INTO talks (id, name, description, owner, admin, users)
-VALUES (1, 'test123', 'test123', 1, ARRAY [1, 2, 3], ARRAY [1, 2, 3]);
+VALUES (1, 'test123', 'test123', 1, ARRAY [1], ARRAY [1]);
 
 INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');

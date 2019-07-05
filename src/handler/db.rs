@@ -29,7 +29,8 @@ impl FromSimpleRow for Talk {
             name: row.get(1).ok_or(ServiceError::InternalServerError)?.to_owned(),
             description: row.get(2).ok_or(ServiceError::InternalServerError)?.to_owned(),
             secret: row.get(3).ok_or(ServiceError::InternalServerError)?.to_owned(),
-            owner: row.get(4).map(|s| s.parse::<u32>()).unwrap()?,
+            privacy: row.get(4).map(|s| s.parse::<u32>()).unwrap()?,
+            owner: row.get(5).map(|s| s.parse::<u32>()).unwrap()?,
             admin: vec![],
             users: vec![],
         })
@@ -173,6 +174,21 @@ pub fn query_all_simple<T>(
 
 pub trait FromRow {
     fn from_row(row: &Row) -> Self;
+}
+
+impl FromRow for Talk {
+    fn from_row(row: &Row) -> Self {
+        Talk {
+            id: row.get(0),
+            name: row.get(1),
+            description: row.get(2),
+            secret: row.get(3),
+            privacy: row.get(4),
+            owner: row.get(5),
+            admin: row.get(6),
+            users:row.get(7),
+        }
+    }
 }
 
 impl FromRow for User {
@@ -337,18 +353,6 @@ pub fn query_single_row<T>(
             }
             None => Err(ServiceError::InternalServerError)
         })
-}
-
-pub fn talk_from_msg(
-    opt: &Option<SimpleQueryMessage>
-) -> Result<Talk, ServiceError> {
-    match opt {
-        Some(msg) => match msg {
-            SimpleQueryMessage::Row(row) => FromSimpleRow::from_row(row),
-            _ => Err(ServiceError::InternalServerError)
-        }
-        None => Err(ServiceError::InternalServerError)
-    }
 }
 
 pub fn auth_response_from_msg(
