@@ -9,12 +9,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: 0.5.2
+  shared_preferences: 0.5.3+1
   http: ^0.12.0+2
-
-  rxdart: ^0.21.0
-  flutter_bloc: ^0.10.1
-  equatable: ^0.1.6
+  dio: 2.1.9
+  web_socket_channel: 1.0.13
+  rxdart: ^0.22.0
+  flutter_bloc: ^0.18.3
+  equatable: ^0.2.6
   cupertino_icons: ^0.1.2
 
 dev_dependencies:

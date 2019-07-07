@@ -4,15 +4,14 @@ import 'package:pixel_flutter/blocs/CategoryBlocs.dart';
 import 'package:pixel_flutter/components/Categories/CategoryCard.dart';
 
 class CategoryList extends StatelessWidget {
-  final CategoryBloc _categoryBloc = CategoryBloc();
-
   @override
   Widget build(BuildContext context) {
+    final _catbloc = BlocProvider.of<CategoryBloc>(context);
     return BlocBuilder(
-      bloc: _categoryBloc,
+      bloc: _catbloc,
       builder: (BuildContext context, CategoryState state) {
         if (state is CategoryInit) {
-          _categoryBloc.dispatch(LoadCategories());
+          _catbloc.dispatch(LoadCategories());
         }
         if (state is CategoryLoaded) {
           return ListView.builder(
@@ -24,7 +23,7 @@ class CategoryList extends StatelessWidget {
           );
         }
         if (state is CategoryLoading) {
-          return Container(child:Center(child: CircularProgressIndicator()));
+          return Container(child: Center(child: CircularProgressIndicator()));
         }
         return Container();
       },

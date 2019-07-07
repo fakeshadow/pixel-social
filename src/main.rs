@@ -64,10 +64,8 @@ fn main() -> std::io::Result<()> {
 
     let sys = System::new("PixelShare");
 
-//    let talk_service = TalkService::connect(&database_url, &redis_url, global_talk.clone());
     // mail service is not passed into data as we add mail queue into redis cache directly.
     let _ = MailService::connect(&redis_url);
-    // ToDo: currently block main thread on low spec server if there are too many popular topics in last 24 hrs.
     let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {

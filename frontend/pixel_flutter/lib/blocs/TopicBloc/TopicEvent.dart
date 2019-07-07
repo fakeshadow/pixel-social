@@ -5,10 +5,8 @@ abstract class TopicEvent extends Equatable {
   TopicEvent([List props = const[]]) : super(props);
 }
 
-class GetTopics extends TopicEvent {
-  final int categoryId;
+class GetTopic extends TopicEvent {
+  final int topicId;
 
-  GetTopics({@required this.categoryId}) : super([categoryId]);
+  GetTopic({@required this.topicId}) : super([topicId]);
 }
-
-class GetMore extends TopicEvent {}

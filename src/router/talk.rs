@@ -1,12 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use actix::prelude::{
-    Actor,
     ActorContext,
     AsyncContext,
     Handler,
     Message,
-    Running,
     StreamHandler,
 };
 use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
@@ -15,13 +13,12 @@ use serde::Deserialize;
 
 use crate::util::jwt::JwtPayLoad;
 use crate::model::{
-    actors::{TALK, TalkService},
+    actors::{TALK, TalkService, WsChatSession},
     talk::SessionMessage,
 };
 use crate::handler::{
     talk::{
         Connect,
-        Disconnect,
         Create,
         Delete,
         GetTalks,
@@ -32,9 +29,6 @@ use crate::handler::{
         GetHistory,
     },
 };
-
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn talk(
     req: HttpRequest,
@@ -53,38 +47,6 @@ pub fn talk(
     )
 }
 
-struct WsChatSession {
-    id: u32,
-    hb: Instant,
-    addr: TALK,
-}
-
-impl Actor for WsChatSession {
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.hb(ctx);
-    }
-
-    fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(Disconnect { session_id: self.id });
-        Running::Stop
-    }
-}
-
-impl WsChatSession {
-    fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                act.addr.do_send(Disconnect { session_id: act.id });
-                ctx.stop();
-                return;
-            }
-            ctx.ping("");
-        });
-    }
-}
-
 impl Handler<SessionMessage> for WsChatSession {
     type Result = ();
 
@@ -94,7 +56,10 @@ impl Handler<SessionMessage> for WsChatSession {
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
         match msg {
-            ws::Message::Close(_) => ctx.stop(),
+            ws::Message::Close(_) => {
+                println!("closing");
+                ctx.stop()
+            }
             ws::Message::Ping(msg) => {
                 self.hb = Instant::now();
                 ctx.pong(&msg);
@@ -102,11 +67,6 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
             ws::Message::Pong(_) => self.hb = Instant::now(),
             ws::Message::Text(t) => {
                 let t = t.trim();
-                if !t.starts_with('/') {
-                    ctx.text("!!! Unknown command");
-                    ctx.stop();
-                    return;
-                }
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
                     ctx.text("!!! Empty command");

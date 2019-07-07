@@ -7,24 +7,32 @@ abstract class TopicState extends Equatable {
 
 class TopicUninitialized extends TopicState {}
 
-class TopicError extends TopicState {}
-
 class TopicLoaded extends TopicState {
-  final List<Topic> topics;
+  final Topic topic;
+  final List posts;
   final bool hasReachedMax;
 
   TopicLoaded({
-    this.topics,
+    this.topic,
+    this.posts,
     this.hasReachedMax,
-  }) : super([topics, hasReachedMax]);
+  }) : super([topic, posts, hasReachedMax]);
 
   TopicLoaded copyWith({
-    List<Topic> topics,
+    Topic topic,
+    List posts,
     bool hasReachedMax,
   }) {
     return TopicLoaded(
-      topics: topics ?? this.topics,
+      topic: topic ?? this.topic,
+      posts: posts ?? this.posts,
       hasReachedMax: hasReachedMax ?? this.hasReachedMax,
     );
   }
+}
+
+class GotError extends TopicState {
+  final String error;
+
+  GotError({this.error}) : super([error]);
 }

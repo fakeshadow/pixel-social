@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+
+import 'package:pixel_flutter/env.dart';
 import 'package:pixel_flutter/Views/TopicsPage.dart';
 import 'package:pixel_flutter/components/Categories/CardName.dart';
 import 'package:pixel_flutter/components/Categories/CardDetail.dart';
 import 'package:pixel_flutter/models/Category.dart';
 
+
 /// push to topics page if from this widget.
-class CategoryCard extends StatelessWidget {
+class CategoryCard extends StatelessWidget with env{
   final Category category;
 
   CategoryCard({this.category});
@@ -36,7 +39,7 @@ class CategoryCard extends StatelessWidget {
                       // ToDo: Future look into fade image loading
                       FadeInImage.assetNetwork(
                         placeholder: 'assets/category_default_cover.png',
-                        image: category.theme,
+                        image: url + 'public/' + category.thumbnail,
                         fit: BoxFit.fitWidth,
                       ),
                       Positioned(

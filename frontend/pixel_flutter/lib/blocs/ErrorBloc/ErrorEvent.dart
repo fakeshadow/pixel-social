@@ -18,3 +18,4 @@ class GetSuccess extends ErrorEvent {
 
   GetSuccess({@required this.success}) : super([success]);
 }
+

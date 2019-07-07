@@ -1,18 +1,22 @@
+use std::time::{Duration, Instant};
 use futures::{stream::futures_ordered};
 
 use actix::prelude::{
+    Actor,
+    ActorContext,
+    ActorFuture,
     AsyncContext,
     Addr,
-    Actor,
-    ActorFuture,
     Arbiter,
     Context,
     ContextFutureSpawner,
     fut,
     Future,
+    Running,
     Stream,
     WrapFuture,
 };
+use actix_web_actors::ws;
 use redis::Client as RedisClient;
 use tokio_postgres::{
     Client,
@@ -27,7 +31,11 @@ use crate::model::{
 };
 use crate::handler::{
     email::generate_mailer,
+    talk::Disconnect,
 };
+
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<DatabaseService>;
@@ -71,6 +79,12 @@ pub struct MailService {
     pub mailer: Option<SmtpTransport>,
 }
 
+pub struct WsChatSession {
+    pub id: u32,
+    pub hb: Instant,
+    pub addr: TALK,
+}
+
 impl Actor for DatabaseService {
     type Context = Context<Self>;
 }
@@ -97,6 +111,19 @@ impl Actor for MailService {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.process_mail(ctx);
+    }
+}
+
+impl Actor for WsChatSession {
+    type Context = ws::WebsocketContext<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb(ctx);
+    }
+
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        self.addr.do_send(Disconnect { session_id: self.id });
+        Running::Stop
     }
 }
 
@@ -308,5 +335,19 @@ impl MailService {
                 .wait(ctx);
             addr
         })
+    }
+}
+
+impl WsChatSession {
+    pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                println!("disconnecting");
+                act.addr.do_send(Disconnect { session_id: act.id });
+                ctx.stop();
+                return;
+            }
+            ctx.ping("");
+        });
     }
 }

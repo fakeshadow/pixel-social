@@ -3,13 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
+import 'package:pixel_flutter/env.dart';
 import 'package:pixel_flutter/style/colors.dart';
 
-class AvatarIcon extends StatelessWidget {
+class AvatarIcon extends StatelessWidget with env {
   final String avatarUrl;
   final Function callback;
   final bool showAvatar;
-  final String _url = 'http://192.168.1.197:3200';
 
   AvatarIcon(
       {@required this.avatarUrl, this.callback, @required this.showAvatar});
@@ -21,7 +21,7 @@ class AvatarIcon extends StatelessWidget {
       padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 15),
       onPressed: callback != null ? () => callback() : () {},
       icon: showAvatar
-          ? CircleAvatar(backgroundImage: NetworkImage('$_url$avatarUrl'))
+          ? CircleAvatar(backgroundImage: NetworkImage(url + avatarUrl))
           : Icon(Icons.apps),
       iconSize: showAvatar ? 40 : 30,
     );

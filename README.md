@@ -20,5 +20,4 @@
 2. `webdev serve` to test locally
 
 `Mobile Frontend:`<br>
-1. `flutter create .` to generate dep files.
-2. `flutter run` to test on simulator or `flutter run --profile` for physic debug.
+1. `flutter run` to test on simulator or `flutter run --profile` for physic debug.

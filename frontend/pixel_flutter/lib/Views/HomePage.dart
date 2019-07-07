@@ -71,11 +71,10 @@ class _HomePageState extends State<HomePage> {
       child: Scaffold(
           endDrawer: UserDrawer(),
           body: BlocProvider(
-              bloc: _tabBloc,
+              builder: (context) => _tabBloc,
               child: BlocListener(
                 bloc: _errorBloc,
                 listener: (BuildContext context, ErrorState state) async {
-                  print(state);
                   if (state is NoSnack) {
                     Scaffold.of(context).hideCurrentSnackBar();
                   } else if (state is ShowSuccess) {
@@ -94,8 +93,7 @@ class _HomePageState extends State<HomePage> {
                 },
                 child: BlocBuilder(
                     bloc: _tabBloc,
-                    builder:
-                        (BuildContext context, VerticalTabState tabState) {
+                    builder: (BuildContext context, VerticalTabState tabState) {
                       if (tabState is Selected) {
                         return Stack(
                           children: <Widget>[
@@ -118,6 +116,8 @@ class _HomePageState extends State<HomePage> {
                                     )))
                           ],
                         );
+                      } else {
+                        return Container();
                       }
                     }),
               ))),

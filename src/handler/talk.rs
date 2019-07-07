@@ -26,31 +26,22 @@ use std::collections::HashMap;
 
 impl TalkService {
     fn send_message_many(&mut self, id: u32, msg: &str) {
-        let _ = self.global
-            .lock()
-            .map_err(|_| ())
-            .map(|t| {
-                if let Some(talk) = t.talks.get(&id) {
-                    talk.users
-                        .iter()
-                        .for_each(|uid| {
-                            if let Some(addr) = t.sessions.get(uid) {
-                                let _ = addr.do_send(SessionMessage(msg.to_owned()));
-                            }
-                        });
-                };
-            });
+        let talk = match self.global.lock() {
+            Ok(t) => t.talks.get(&id).map(|t| t.clone()),
+            Err(_) => return
+        };
+
+        if let Some(talk) = talk {
+            for uid in talk.users.iter() {
+                self.send_message(uid, msg);
+            };
+        };
     }
 
     fn send_message(&self, session_id: &u32, msg: &str) {
-        let _ = self.global
-            .lock()
-            .map_err(|_| ())
-            .map(|t| {
-                if let Some(addr) = t.sessions.get(&session_id) {
-                    let _ = addr.do_send(SessionMessage(msg.to_owned()));
-                };
-            });
+        if let Some(addr) = self.get_session(session_id) {
+            let _ = addr.do_send(SessionMessage(msg.to_owned()));
+        };
     }
 
     fn get_talks(&self) -> Option<HashMap<u32, Talk>> {
@@ -148,10 +139,6 @@ pub struct RemoveUser {
     user_id: u32,
     talk_id: u32,
 }
-
-//impl Message for RemoveUser {
-//    type Result = Result<(), ServiceError>;
-//}
 
 #[derive(Message, Deserialize)]
 pub struct GetTalks {
@@ -296,39 +283,36 @@ impl Handler<Join> for TalkService {
         let session_id = msg.session_id;
         let talk_id = msg.talk_id;
 
-        match self.global.lock() {
-            Ok(t) => match t.talks.get(&talk_id) {
-                Some(talk) => {
-                    if talk.users.contains(&session_id) {
-                        self.send_message(&session_id, "Already joined");
-                    };
+        if let Some(talk) = self.get_talk(&talk_id) {
+            if talk.users.contains(&session_id) {
+                self.send_message(&session_id, "Already joined");
+                return;
+            };
 
-                    ctx.spawn(self.db
-                        .as_mut()
-                        .unwrap()
-                        // ToDo: in case sql failed.
-                        .query(self.join_talk.as_ref().unwrap(),
-                               &[&session_id, &talk_id])
-                        .into_future()
-                        .into_actor(self)
-                        .map_err(move |(e, _), act, _| {
-                            act.send_message(&session_id, e.to_string().as_str());
-                        })
-                        .and_then(move |row, act, _| match row.0 {
+            let f = self.db
+                .as_mut()
+                .unwrap()
+                // ToDo: in case sql failed.
+                .query(self.join_talk.as_ref().unwrap(),
+                       &[&session_id, &talk_id])
+                .into_future()
+                .into_actor(self)
+                .then(move |r, act, _| {
+                    match r {
+                        Ok((row, _)) => match row {
                             Some(_) => {
                                 act.insert_user(talk_id, session_id);
                                 act.send_message(&session_id, "!! Joined");
-                                fut::ok(())
                             }
                             None => {
                                 act.send_message(&session_id, "!!! Joined failed");
-                                fut::ok(())
                             }
-                        }));
-                }
-                None => self.send_message(&session_id, "!!! Talk not found")
-            }
-            Err(_) => self.send_message(&session_id, "!!! Global arc lock failure")
+                        },
+                        Err(_) => act.send_message(&session_id, "!!! Database Error")
+                    };
+                    fut::ok(())
+                });
+            ctx.spawn(f);
         }
     }
 }
@@ -456,7 +440,7 @@ impl Handler<RemoveUser> for TalkService {
                 let query = if is_owner && other_is_admin {
                     format!("UPDATE talks SET admin=array_remove(admin, {}), users=array_remove(users, {})
                 WHERE id={} AND owner={}", uid, uid, tid, id)
-                } else if (is_admin || is_owner) & &!other_is_admin & &!other_is_owner {
+                } else if (is_admin || is_owner) &&!other_is_admin &&!other_is_owner {
                     format!("UPDATE talks SET users=array_remove(users, {})
                 WHERE id={}", uid, tid)
                 } else {
@@ -493,17 +477,10 @@ impl Handler<Admin> for TalkService {
         let tid = msg.talk_id;
         let id = msg.session_id;
 
-
-        let t = match self.global.lock() {
-            Ok(g) => match g.talks.get(&tid) {
-                Some(t) => t.clone(),
-                None => {
-                    self.send_message(&id, "!!! Talk not found");
-                    return;
-                }
-            }
-            Err(_) => {
-                self.send_message(&id, "!!! Global lock failure");
+        let t = match self.get_talk(&tid) {
+            Some(t) => t,
+            None => {
+                self.send_message(&id, "!!! Talk not found");
                 return;
             }
         };
@@ -527,22 +504,23 @@ impl Handler<Admin> for TalkService {
         }
 
         if query.ends_with("=") {
-            self.send_message(&id, "!!! Empty request");
             return;
-        } else {
-            query.push_str(&format!(" WHERE id={}", tid));
         }
+
+        query.push_str(&format!(" WHERE id = {}", tid));
 
         let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)
             .into_actor(self)
-            .map_err(move |_, act, _| {
-                act.send_message(&id, "!!! Database Error")
-            })
-            .and_then(move |t, act, _| {
-                let s = serde_json::to_string(&t)
-                    .unwrap_or("!!! Stringify Error.But admin query success".to_owned());
-                act.insert_talk(t);
-                act.send_message(&id, &s);
+            .then(move |r, act, _| {
+                match r {
+                    Ok(t) => {
+                        let s = serde_json::to_string(&t)
+                            .unwrap_or("!!! Stringify Error.But admin query success".to_owned());
+                        act.insert_talk(t);
+                        act.send_message(&id, &s);
+                    }
+                    Err(_) => act.send_message(&id, "!!! Database Error")
+                };
                 fut::ok(())
             });
         ctx.spawn(f);

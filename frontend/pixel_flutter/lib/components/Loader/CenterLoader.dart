@@ -6,9 +6,9 @@ class CenterLoader extends StatelessWidget {
     return SliverFillViewport(
       delegate: SliverChildBuilderDelegate((context, index) {
         return Container(
-            width: 20,
+            width: 10,
             child: Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(strokeWidth: 2),
             ));
       }, childCount: 1),
     );
