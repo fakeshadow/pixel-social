@@ -30,6 +30,7 @@ class VerticalTabText extends StatelessWidget {
                 ),
               );
             }
+            return Container();
           },
         ));
   }

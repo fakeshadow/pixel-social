@@ -56,10 +56,7 @@ impl Handler<SessionMessage> for WsChatSession {
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
         match msg {
-            ws::Message::Close(_) => {
-                println!("closing");
-                ctx.stop()
-            }
+            ws::Message::Close(_) => ctx.stop(),
             ws::Message::Ping(msg) => {
                 self.hb = Instant::now();
                 ctx.pong(&msg);
@@ -180,19 +177,16 @@ fn auth(
     string: &str,
     ctx: &mut ws::WebsocketContext<WsChatSession>,
 ) {
-    match serde_json::from_str::<String>(string) {
-        Ok(s) => match JwtPayLoad::from(&s) {
-            Ok(j) => {
-                session.id = j.user_id;
-                let _ = session.addr
-                    .do_send(Connect {
-                        session_id: session.id,
-                        addr: ctx.address().recipient(),
-                    });
-            }
-            Err(_) => ctx.text("!!! Authentication failed")
-        },
-        Err(_) => ctx.text("!!! Query parsing error")
+    match JwtPayLoad::from(string) {
+        Ok(j) => {
+            session.id = j.user_id;
+            let _ = session.addr
+                .do_send(Connect {
+                    session_id: session.id,
+                    addr: ctx.address().recipient(),
+                });
+        }
+        Err(_) => ctx.text("!!! Authentication failed")
     }
 }
 

@@ -22,9 +22,7 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
   get initialState => TopicsUninitialized();
 
   @override
-  Stream<TopicsState> mapEventToState(
-    TopicsEvent event,
-  ) async* {
+  Stream<TopicsState> mapEventToState(TopicsEvent event,) async* {
     if (event is GetTopics && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicsUninitialized) {
@@ -42,11 +40,10 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
           final page =
               1 + ((currentState as TopicsLoaded).topics.length / 20).floor();
           final topics = await topicsRepo.getTopics(event.categoryId, page);
-          yield topics.length < 20
-              ? (currentState as TopicsLoaded).copyWith(hasReachedMax: true)
-              : TopicsLoaded(
-                  topics: (currentState as TopicsLoaded).topics + topics,
-                  hasReachedMax: false);
+          final maxed = topics.length < 20 ? true : false;
+          yield TopicsLoaded(
+              topics: (currentState as TopicsLoaded).topics + topics,
+              hasReachedMax: maxed);
         }
       } catch (_) {
         yield TopicsError();

@@ -3,7 +3,7 @@ class env {
   /// main service ip
   final String url = 'http://192.168.1.197:3200/';
 
-  static const String WS_URL = 'ws://192.168.1.197:3200/talk';
+  final String WS_URL = 'ws://192.168.1.197:3200/talk';
 
   /// how often user can fetch categories data
   final int TIME_GATE = 360000;

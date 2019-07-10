@@ -341,8 +341,7 @@ impl MailService {
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                println!("disconnecting");
+          if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 act.addr.do_send(Disconnect { session_id: act.id });
                 ctx.stop();
                 return;

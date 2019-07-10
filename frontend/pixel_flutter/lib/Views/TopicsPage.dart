@@ -144,7 +144,7 @@ class TopicList extends StatelessWidget {
         delegate: SliverChildBuilderDelegate((context, index) {
           return index >= state.topics.length
               ? BottomLoader()
-              : TopicView(state.topics[index]);
+              : TopicView(topic: state.topics[index]);
         },
             childCount: state.hasReachedMax
                 ? state.topics.length

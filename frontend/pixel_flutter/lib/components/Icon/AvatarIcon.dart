@@ -21,7 +21,8 @@ class AvatarIcon extends StatelessWidget with env {
       padding: EdgeInsets.only(left: 0, top: 0, bottom: 0, right: 15),
       onPressed: callback != null ? () => callback() : () {},
       icon: showAvatar
-          ? CircleAvatar(backgroundImage: NetworkImage(url + avatarUrl))
+          ? CircleAvatar(
+              backgroundImage: NetworkImage(url + 'public/' + avatarUrl))
           : Icon(Icons.apps),
       iconSize: showAvatar ? 40 : 30,
     );

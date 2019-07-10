@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/io.dart';
+
+import 'package:pixel_flutter/blocs/UserBloc/UserBloc.dart';
+import 'package:pixel_flutter/blocs/UserBloc/UserState.dart';
 import 'package:pixel_flutter/blocs/VerticalTabBlocs.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 
@@ -11,11 +16,15 @@ import 'package:pixel_flutter/components/Categories/CategoryHeader.dart';
 import 'package:pixel_flutter/components/Categories/CategoryList.dart';
 import 'package:pixel_flutter/components/Button/AddPostButton.dart';
 import 'package:pixel_flutter/components/NavigationBar/CategoryNavBar.dart';
-import 'package:pixel_flutter/style/colors.dart';
 
+import 'package:pixel_flutter/Views/TalkPage.dart';
+
+import 'package:pixel_flutter/style/colors.dart';
 import 'package:pixel_flutter/style/text.dart';
 
-class HomePage extends StatefulWidget {
+import '../env.dart';
+
+class HomePage extends StatefulWidget with env {
   @override
   _HomePageState createState() => _HomePageState();
 }
@@ -23,18 +32,32 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   VerticalTabBloc _tabBloc;
   ErrorBloc _errorBloc;
+  WebSocketChannel channel;
 
   @override
   void initState() {
     _tabBloc = VerticalTabBloc();
     _errorBloc = BlocProvider.of<ErrorBloc>(context);
+    channel = IOWebSocketChannel.connect(widget.WS_URL);
+    channel.stream.listen((msg) => handleMessage(msg: msg));
+    BlocProvider.of<UserBloc>(context).state.listen((state) {
+      if (state is UserLoaded) {
+        final String auth = '/auth ' + state.user.token;
+        channel.sink.add(auth);
+      }
+    });
     super.initState();
+  }
+
+  Future<void> handleMessage({String msg}) async {
+    print(msg);
   }
 
   @override
   void dispose() {
     _errorBloc.dispatch(HideSnack());
     _tabBloc.dispose();
+    channel.sink.close();
     super.dispose();
   }
 
@@ -201,7 +224,7 @@ class _CardStackState extends State<CardStack>
                       ? CategoryList()
                       : widget.selectedTabIndex == 1
                           ? CategoryList()
-                          : CategoryList()),
+                          : TalkPage()),
             );
           },
         ),

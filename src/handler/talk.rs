@@ -59,6 +59,7 @@ impl TalkService {
     }
 
     fn get_session(&self, session_id: &u32) -> Option<Recipient<SessionMessage>> {
+
         match self.global.lock() {
             Ok(t) => t.sessions
                 .get(session_id)

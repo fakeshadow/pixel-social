@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:pixel_flutter/models/Topic.dart';
 
-class TopicView extends StatelessWidget {
-  final String url = 'http://192.168.1.197:3200';
+import 'package:pixel_flutter/env.dart';
+
+class TopicView extends StatelessWidget with env {
   final Topic topic;
 
-  TopicView(this.topic);
+  TopicView({this.topic});
 
   @override
   Widget build(BuildContext context) {
@@ -18,8 +19,7 @@ class TopicView extends StatelessWidget {
                 shape: BoxShape.circle,
                 image: DecorationImage(
                   fit: BoxFit.fill,
-                  image: NetworkImage(
-                      url + '${topic.avatarUrl}'),
+                  image: NetworkImage(url + 'public/' + '${topic.avatarUrl}'),
                 )),
           ),
           backgroundColor: Colors.white10,
@@ -37,8 +37,7 @@ class TopicView extends StatelessWidget {
       ),
       subtitle: Text(
         '${topic.id}    ${topic.username}    ${topic.lastReplyTime}',
-        style:
-        TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
+        style: TextStyle(fontSize: 12.0, fontWeight: FontWeight.w600),
       ),
       trailing: Icon(IconData(0x0)),
     );
