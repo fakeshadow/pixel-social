@@ -15,7 +15,7 @@ actix-multipart = "0.1.2"
 bcrypt = "0.4.0"
 chrono = { version = "0.4.7", features = ["serde"] }
 tokio-postgres = { version = "0.4.0-rc.3", features = ["with-chrono-0_4"] }
-redis = "0.11.0-beta.1"
+redis = { git = "https://github.com/mitsuhiko/redis-rs.git"}
 derive_more = "0.14.1"
 dotenv = "0.14.1"
 env_logger = "0.6.1"

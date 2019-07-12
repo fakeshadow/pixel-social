@@ -328,8 +328,11 @@ impl Handler<GetTalks> for TalkService {
                     _ => t.get(&msg.talk_id).map(|t| vec![t]).unwrap_or(vec![])
                 };
 
+                let mut result = "/talks ".to_owned();
                 let string = serde_json::to_string(&talks).unwrap_or("!!! Stringify error".to_owned());
-                self.send_message(&msg.session_id, &string);
+                result.push_str(&string);
+
+                self.send_message(&msg.session_id, &result);
             }
             None => self.send_message(&msg.session_id, "!!! Talk not found")
         }

@@ -87,7 +87,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                         "/remove" => general_msg_handler::<RemoveUser>(self, v[1], ctx),
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
                         // request talk_id 0 to get all talks details.
-                        "/talks" => get_talks(self, v[1], ctx),
+                        "/talks" => general_msg_handler::<GetTalks>(self, v[1], ctx),
                         // get users of one talk from talk_id
                         "/users" => general_msg_handler::<GetTalks>(self, v[1], ctx),
                         "/join" => general_msg_handler::<Join>(self, v[1], ctx),
@@ -187,19 +187,5 @@ fn auth(
                 });
         }
         Err(_) => ctx.text("!!! Authentication failed")
-    }
-}
-
-fn get_talks(
-    session: &mut WsChatSession,
-    string: &str,
-    ctx: &mut ws::WebsocketContext<WsChatSession>,
-) {
-    match serde_json::from_str::<u32>(string) {
-        Ok(talk_id) => session.addr.do_send(GetTalks {
-            session_id: session.id,
-            talk_id,
-        }),
-        Err(_) => ctx.text("!!! Query parsing error")
     }
 }

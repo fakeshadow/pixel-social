@@ -1,11 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
-import 'package:pixel_flutter/blocs/UserBloc/UserBloc.dart';
-import 'package:pixel_flutter/blocs/UserBloc/UserState.dart';
+import 'package:pixel_flutter/blocs/TalkBloc/TalkBloc.dart';
+import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
+import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import 'package:pixel_flutter/blocs/VerticalTabBlocs.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 
@@ -19,6 +22,8 @@ import 'package:pixel_flutter/components/NavigationBar/CategoryNavBar.dart';
 
 import 'package:pixel_flutter/Views/TalkPage.dart';
 
+import 'package:pixel_flutter/models/Talk.dart';
+
 import 'package:pixel_flutter/style/colors.dart';
 import 'package:pixel_flutter/style/text.dart';
 
@@ -30,35 +35,57 @@ class HomePage extends StatefulWidget with env {
 }
 
 class _HomePageState extends State<HomePage> {
-  VerticalTabBloc _tabBloc;
   ErrorBloc _errorBloc;
   WebSocketChannel channel;
 
   @override
   void initState() {
-    _tabBloc = VerticalTabBloc();
     _errorBloc = BlocProvider.of<ErrorBloc>(context);
     channel = IOWebSocketChannel.connect(widget.WS_URL);
     channel.stream.listen((msg) => handleMessage(msg: msg));
-    BlocProvider.of<UserBloc>(context).state.listen((state) {
-      if (state is UserLoaded) {
-        final String auth = '/auth ' + state.user.token;
-        channel.sink.add(auth);
-      }
-    });
     super.initState();
-  }
-
-  Future<void> handleMessage({String msg}) async {
-    print(msg);
   }
 
   @override
   void dispose() {
     _errorBloc.dispatch(HideSnack());
-    _tabBloc.dispose();
     channel.sink.close();
     super.dispose();
+  }
+
+  Future<void> handleUserState(UserState state) async {
+    if (state is UserLoaded) {
+      final String auth = '/auth ' + state.user.token;
+      channel.sink.add(auth);
+      return;
+    }
+  }
+
+  void getTalks(int talkId) {
+    channel.sink.add(GetTalks(talkId: talkId).toJSON());
+  }
+
+  Future<void> handleMessage({String msg}) async {
+    if (msg.startsWith('/')) {
+      final str = msg.split(" ").toList();
+      if (str.length != 2) {
+        return;
+      }
+      if (str[0] == "/talks") {
+        final data = jsonDecode(str[1]) as List;
+        final result = data.map((rawTalk) {
+          return Talk(
+              id: rawTalk['id'],
+              name: rawTalk['name'],
+              description: rawTalk['description'],
+              privacy: rawTalk['privacy'],
+              owner: rawTalk['owner'],
+              admin: rawTalk['admin'].cast<int>(),
+              users: rawTalk['users'].cast<int>());
+        }).toList();
+        BlocProvider.of<TalkBloc>(context).dispatch(GotTalk(talks: result));
+      }
+    }
   }
 
   Future<bool> _onWillPop() {
@@ -90,61 +117,68 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: _onWillPop,
-      child: Scaffold(
-          endDrawer: UserDrawer(),
-          body: BlocProvider(
-              builder: (context) => _tabBloc,
-              child: BlocListener(
-                bloc: _errorBloc,
-                listener: (BuildContext context, ErrorState state) async {
-                  if (state is NoSnack) {
-                    Scaffold.of(context).hideCurrentSnackBar();
-                  } else if (state is ShowSuccess) {
-                    Scaffold.of(context).showSnackBar(SnackBar(
-                      duration: Duration(seconds: 2),
-                      backgroundColor: Colors.green,
-                      content: Text(state.success),
-                    ));
-                  } else if (state is ShowError) {
-                    Scaffold.of(context).showSnackBar(SnackBar(
-                      duration: Duration(seconds: 2),
-                      backgroundColor: Colors.deepOrangeAccent,
-                      content: Text(state.error),
-                    ));
-                  }
-                },
-                child: BlocBuilder(
-                    bloc: _tabBloc,
-                    builder: (BuildContext context, VerticalTabState tabState) {
-                      if (tabState is Selected) {
-                        return Stack(
-                          children: <Widget>[
-                            GeneralBackground(),
-                            Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  CatNavBar(),
-                                  CategoryHeader(
-                                    tabIndex: tabState.index,
-                                  ),
-                                  Spacer(),
-                                  AddPostButton(text: 'New Topic')
-                                ]),
-                            Center(
-                                child: Container(
-                                    height: 470,
-                                    child: CardStack(
-                                      selectedTabIndex: tabState.index,
-                                    )))
-                          ],
-                        );
-                      } else {
-                        return Container();
+        onWillPop: _onWillPop,
+        child: Scaffold(
+            endDrawer: UserDrawer(),
+            body: MultiBlocListener(
+              listeners: [
+                // listen to userState and trigger web socket connection
+                BlocListener<UserEvent, UserState>(
+                    bloc: BlocProvider.of<UserBloc>(context),
+                    listener: (BuildContext context, UserState state) =>
+                        handleUserState(state)),
+                BlocListener<ErrorEvent, ErrorState>(
+                    bloc: _errorBloc,
+                    listener: (BuildContext context, ErrorState state) async {
+                      if (state is NoSnack) {
+                        Scaffold.of(context).hideCurrentSnackBar();
+                      } else if (state is ShowSuccess) {
+                        Scaffold.of(context).showSnackBar(SnackBar(
+                          duration: Duration(seconds: 2),
+                          backgroundColor: Colors.green,
+                          content: Text(state.success),
+                        ));
+                      } else if (state is ShowError) {
+                        Scaffold.of(context).showSnackBar(SnackBar(
+                          duration: Duration(seconds: 2),
+                          backgroundColor: Colors.deepOrangeAccent,
+                          content: Text(state.error),
+                        ));
                       }
                     }),
-              ))),
-    );
+              ],
+              child: BlocBuilder(
+                  bloc: BlocProvider.of<VerticalTabBloc>(context),
+                  builder: (BuildContext context, VerticalTabState tabState) {
+                    if (tabState is Selected) {
+                      return Stack(
+                        children: <Widget>[
+                          GeneralBackground(),
+                          Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                CatNavBar(),
+                                CategoryHeader(
+                                  tabIndex: tabState.index,
+                                ),
+                                Spacer(),
+                                InkWell(
+                                    onTap: () => getTalks(1),
+                                    child: AddPostButton(text: 'New Topic'))
+                              ]),
+                          Center(
+                              child: Container(
+                                  height: 470,
+                                  child: CardStack(
+                                    selectedTabIndex: tabState.index,
+                                  )))
+                        ],
+                      );
+                    } else {
+                      return Container();
+                    }
+                  }),
+            )));
   }
 }
 
