@@ -19,9 +19,3 @@ class TalkLoaded extends TalkState {
     );
   }
 }
-
-class TalkError extends TalkState {
-  final String error;
-
-  TalkError({this.error}) : super([error]);
-}

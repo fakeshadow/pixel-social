@@ -26,7 +26,7 @@ class CategoryRepo with env {
     final int _timeGap =
         DateTime.parse(_lastUpdateDate).compareTo(DateTime.now());
 
-    if (_timeGap > TIME_GATE) {
+    if (_timeGap > TIME_GATE || _lastUpdateDate == null) {
       return fetchCategories();
     }
 

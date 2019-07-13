@@ -7,8 +7,8 @@ class ErrorBloc extends Bloc<ErrorEvent, ErrorState> {
   ErrorState get initialState => Init();
 
   Stream<ErrorState> mapEventToState(
-      ErrorEvent event,
-      ) async* {
+    ErrorEvent event,
+  ) async* {
     if (event is HideSnack) {
       yield NoSnack();
     }

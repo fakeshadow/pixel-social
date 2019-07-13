@@ -71,7 +71,6 @@ class _AuthenticationPageState extends State<AuthenticationPage>
               tag: 'auth',
               child: Scaffold(
                 body: BlocListener(
-                  //ToDo: Change error handling to error bloc
                   bloc: _userBloc,
                   listener: (context, userState) {
                     if (userState is UserLoaded) {

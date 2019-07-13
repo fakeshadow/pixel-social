@@ -5,14 +5,22 @@ abstract class TalkEvent extends Equatable {
   TalkEvent([List props = const []]) : super(props);
 }
 
-class GotError extends TalkEvent {
-  final String error;
-
-  GotError({this.error}) : super([error]);
-}
-
-class GotTalk extends TalkEvent {
+class GotTalks extends TalkEvent {
   final List<Talk> talks;
 
-  GotTalk({this.talks}) : super([talks]);
+  GotTalks({this.talks}) : super([talks]);
 }
+
+class SendMessage extends TalkEvent {
+  final String msg;
+
+  SendMessage({this.msg}) : super([msg]);
+}
+
+class GetTalk extends TalkEvent {
+  final int talkId;
+
+  GetTalk({this.talkId}) : super([talkId]);
+}
+
+class TalkInit extends TalkEvent {}

@@ -1,14 +1,9 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart';
 
 import 'package:pixel_flutter/blocs/TalkBloc/TalkBloc.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
-import 'package:pixel_flutter/blocs/UserBlocs.dart';
 import 'package:pixel_flutter/blocs/VerticalTabBlocs.dart';
 import 'package:pixel_flutter/blocs/ErrorBlocs.dart';
 
@@ -21,7 +16,6 @@ import 'package:pixel_flutter/components/Button/AddPostButton.dart';
 import 'package:pixel_flutter/components/NavigationBar/CategoryNavBar.dart';
 
 import 'package:pixel_flutter/Views/TalkPage.dart';
-
 import 'package:pixel_flutter/models/Talk.dart';
 
 import 'package:pixel_flutter/style/colors.dart';
@@ -36,56 +30,23 @@ class HomePage extends StatefulWidget with env {
 
 class _HomePageState extends State<HomePage> {
   ErrorBloc _errorBloc;
-  WebSocketChannel channel;
+  TalkBloc _talkBloc;
 
   @override
   void initState() {
     _errorBloc = BlocProvider.of<ErrorBloc>(context);
-    channel = IOWebSocketChannel.connect(widget.WS_URL);
-    channel.stream.listen((msg) => handleMessage(msg: msg));
+    _talkBloc = BlocProvider.of<TalkBloc>(context);
     super.initState();
   }
 
   @override
   void dispose() {
     _errorBloc.dispatch(HideSnack());
-    channel.sink.close();
     super.dispose();
   }
 
-  Future<void> handleUserState(UserState state) async {
-    if (state is UserLoaded) {
-      final String auth = '/auth ' + state.user.token;
-      channel.sink.add(auth);
-      return;
-    }
-  }
-
-  void getTalks(int talkId) {
-    channel.sink.add(GetTalks(talkId: talkId).toJSON());
-  }
-
-  Future<void> handleMessage({String msg}) async {
-    if (msg.startsWith('/')) {
-      final str = msg.split(" ").toList();
-      if (str.length != 2) {
-        return;
-      }
-      if (str[0] == "/talks") {
-        final data = jsonDecode(str[1]) as List;
-        final result = data.map((rawTalk) {
-          return Talk(
-              id: rawTalk['id'],
-              name: rawTalk['name'],
-              description: rawTalk['description'],
-              privacy: rawTalk['privacy'],
-              owner: rawTalk['owner'],
-              admin: rawTalk['admin'].cast<int>(),
-              users: rawTalk['users'].cast<int>());
-        }).toList();
-        BlocProvider.of<TalkBloc>(context).dispatch(GotTalk(talks: result));
-      }
-    }
+  void getTalks(int id) {
+    _talkBloc.dispatch(SendMessage(msg: '/talk ' + GetTalks(talkId: id).toJSON()));
   }
 
   Future<bool> _onWillPop() {
@@ -122,16 +83,11 @@ class _HomePageState extends State<HomePage> {
             endDrawer: UserDrawer(),
             body: MultiBlocListener(
               listeners: [
-                // listen to userState and trigger web socket connection
-                BlocListener<UserEvent, UserState>(
-                    bloc: BlocProvider.of<UserBloc>(context),
-                    listener: (BuildContext context, UserState state) =>
-                        handleUserState(state)),
                 BlocListener<ErrorEvent, ErrorState>(
                     bloc: _errorBloc,
                     listener: (BuildContext context, ErrorState state) async {
                       if (state is NoSnack) {
-                        Scaffold.of(context).hideCurrentSnackBar();
+                        Scaffold.of(context).removeCurrentSnackBar();
                       } else if (state is ShowSuccess) {
                         Scaffold.of(context).showSnackBar(SnackBar(
                           duration: Duration(seconds: 2),

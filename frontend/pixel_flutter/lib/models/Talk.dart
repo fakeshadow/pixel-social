@@ -11,6 +11,19 @@ class Talk {
       this.owner,
       this.admin,
       this.users});
+
+  Map<String, dynamic> toMap() {
+    final map = <String, dynamic>{
+      'id': id,
+      'name': name,
+      'description': description,
+      'privacy': privacy,
+      'owner': owner,
+      'admin': admin,
+      'users': users,
+    };
+    return map;
+  }
 }
 
 class GetTalks {
