@@ -1,15 +1,22 @@
+import 'package:sqflite/sqlite_api.dart';
 import 'package:bloc/bloc.dart';
 
+import 'package:pixel_flutter/blocs/ErrorBloc/ErrorBloc.dart';
+import 'package:pixel_flutter/blocs/ErrorBloc/ErrorEvent.dart';
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryState.dart';
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryEvent.dart';
 
 import 'package:pixel_flutter/blocs/Repo/CategoryRepo.dart';
 
 class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
-  final CategoryRepo _categoryRepo = CategoryRepo();
+
+  final ErrorBloc errorBloc;
+  final Database db;
+
+  CategoryBloc({this.errorBloc, this.db});
 
   @override
-  CategoryState get initialState => CategoryInit();
+  CategoryState get initialState => CategoryUnload();
 
   Stream<CategoryState> mapEventToState(
     CategoryEvent event,
@@ -17,12 +24,10 @@ class CategoryBloc extends Bloc<CategoryEvent, CategoryState> {
     if (event is LoadCategories) {
       yield CategoryLoading();
       try {
-        final _categories = await _categoryRepo.loadCategories();
-
-        _categoryRepo.saveCategories(categories: _categories);
+        final _categories = await CategoryRepo.loadCategories(db: db);
         yield CategoryLoaded(categories: _categories);
       } catch (e) {
-        yield CategoryFailed(error: e);
+        errorBloc.dispatch(GetError(error: e.toString()));
       }
     }
   }

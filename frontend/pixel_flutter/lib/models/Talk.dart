@@ -41,3 +41,4 @@ class GetUsers {
 
   String toJSON() => '/users {"session_id": 0, "talk_id": $talkId}';
 }
+

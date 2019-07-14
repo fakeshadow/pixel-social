@@ -10,9 +10,6 @@ class CategoryList extends StatelessWidget {
     return BlocBuilder(
       bloc: _catbloc,
       builder: (BuildContext context, CategoryState state) {
-        if (state is CategoryInit) {
-          _catbloc.dispatch(LoadCategories());
-        }
         if (state is CategoryLoaded) {
           return ListView.builder(
             itemBuilder: (BuildContext context, int index) {

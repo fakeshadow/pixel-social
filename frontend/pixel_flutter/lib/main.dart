@@ -1,14 +1,12 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
+import 'package:pixel_flutter/blocs/CategoryBloc/CategoryEvent.dart';
 
+import 'package:sqflite/sqlite_api.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryBloc.dart';
 import 'package:pixel_flutter/blocs/ErrorBloc/ErrorBloc.dart';
-import 'package:pixel_flutter/blocs/ErrorBloc/ErrorState.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkBloc.dart';
-import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
 import 'package:pixel_flutter/blocs/UserBloc/UserBloc.dart';
 import 'package:pixel_flutter/blocs/UserBloc/UserEvent.dart';
 import 'package:pixel_flutter/blocs/VerticalTabBloc/VerticalTabBloc.dart';
@@ -31,18 +29,33 @@ class _PixelShareState extends State<PixelShare> {
   UserBloc userBloc;
   ErrorBloc errorBloc;
   TalkBloc talkBloc;
+  CategoryBloc categoryBloc;
+  Database db;
 
   @override
   void initState() {
-    errorBloc = ErrorBloc();
-    userBloc = UserBloc();
-    talkBloc = TalkBloc(errorBloc: errorBloc);
-
-    DataBase.createDb();
-    userBloc.dispatch(UserInit());
-    talkBloc.dispatch(TalkInit());
-
+    init();
     super.initState();
+  }
+
+  Future<void> init() async {
+//    await DataBase.delDb();
+    await DataBase.createDb();
+    final d = await DataBase.getDb();
+    setState(() {
+      db = d;
+      errorBloc = ErrorBloc();
+      categoryBloc = CategoryBloc(errorBloc: errorBloc, db: db);
+      talkBloc = TalkBloc(errorBloc: errorBloc, db: db);
+      userBloc = UserBloc(talkBloc: talkBloc, db: db);
+    });
+
+    final user = await DataBase.getSelfLocal(db: db).catchError((_) {
+      return null;
+    });
+
+    categoryBloc.dispatch(LoadCategories());
+    userBloc.dispatch(UserInit(user: user));
   }
 
   @override
@@ -50,12 +63,17 @@ class _PixelShareState extends State<PixelShare> {
     userBloc.dispose();
     errorBloc.dispose();
     talkBloc.dispose();
+    db.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
+    if (db == null) {
+      //ToDo: add loading page
+      return Container();
+    } else {
+      return MultiBlocProvider(
         providers: [
           // bloc for handling error info
           BlocProvider<ErrorBloc>(builder: (context) => errorBloc),
@@ -64,7 +82,7 @@ class _PixelShareState extends State<PixelShare> {
           // bloc for handling talks
           BlocProvider<TalkBloc>(builder: (context) => talkBloc),
           // bloc for handling categories data
-          BlocProvider<CategoryBloc>(builder: (context) => CategoryBloc()),
+          BlocProvider<CategoryBloc>(builder: (context) => categoryBloc),
           // bloc for handling vertical tab bar
           BlocProvider<VerticalTabBloc>(builder: (context) => VerticalTabBloc())
         ],
@@ -79,6 +97,8 @@ class _PixelShareState extends State<PixelShare> {
               brightness: Brightness.light,
               primarySwatch: Colors.blue,
               accentColor: Colors.deepPurple),
-        ));
+        ),
+      );
+    }
   }
 }

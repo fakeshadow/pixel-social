@@ -19,7 +19,7 @@ class TopicView extends StatelessWidget with env {
                 shape: BoxShape.circle,
                 image: DecorationImage(
                   fit: BoxFit.fill,
-                  image: NetworkImage(url + 'public/' + '${topic.avatarUrl}'),
+                  image: NetworkImage(env.url + 'public/' + '${topic.avatarUrl}'),
                 )),
           ),
           backgroundColor: Colors.white10,

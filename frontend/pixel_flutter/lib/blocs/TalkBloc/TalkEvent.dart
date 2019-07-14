@@ -23,4 +23,11 @@ class GetTalk extends TalkEvent {
   GetTalk({this.talkId}) : super([talkId]);
 }
 
-class TalkInit extends TalkEvent {}
+class TalkInit extends TalkEvent {
+  final String token;
+  final List<Talk> talks;
+
+  TalkInit({this.token, this.talks}) : super([token, talks]);
+}
+
+class TalkClose extends TalkEvent {}

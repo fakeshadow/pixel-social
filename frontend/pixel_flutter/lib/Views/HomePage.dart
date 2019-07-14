@@ -46,9 +46,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void getTalks(int id) {
-    _talkBloc.dispatch(SendMessage(msg: '/talk ' + GetTalks(talkId: id).toJSON()));
+    _talkBloc.dispatch(SendMessage(msg: GetTalks(talkId: id).toJSON()));
   }
-
   Future<bool> _onWillPop() {
     return showDialog(
         context: context,

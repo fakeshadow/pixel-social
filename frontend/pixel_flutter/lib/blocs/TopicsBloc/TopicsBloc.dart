@@ -22,7 +22,9 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
   get initialState => TopicsUninitialized();
 
   @override
-  Stream<TopicsState> mapEventToState(TopicsEvent event,) async* {
+  Stream<TopicsState> mapEventToState(
+    TopicsEvent event,
+  ) async* {
     if (event is GetTopics && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicsUninitialized) {

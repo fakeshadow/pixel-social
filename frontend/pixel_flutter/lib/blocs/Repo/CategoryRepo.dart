@@ -1,59 +1,47 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:core';
+
+import 'package:sqflite/sqlite_api.dart';
+
+import 'package:pixel_flutter/models/Category.dart';
+
+import 'package:pixel_flutter/api/PixelShareAPI.dart';
+import 'package:pixel_flutter/api/DataBase.dart';
 
 import 'package:pixel_flutter/env.dart';
 
-import 'package:pixel_flutter/models/Category.dart';
-import 'package:pixel_flutter/api/PixelShareAPI.dart';
+CategoryRepo categoryRepo = CategoryRepo();
 
-class CategoryRepo with env {
-  final _api = PixelShareAPI();
+class CategoryRepo {
+  static final _api = PixelShareAPI();
 
-  Future<List<Category>> fetchCategories() async {
-    final _categories = await _api.getCategories();
-    saveCategories(categories: _categories);
-    return _categories;
+  static final CategoryRepo _categoryRepo = CategoryRepo._internal();
+
+  factory CategoryRepo() {
+    return _categoryRepo;
   }
 
-  Future<List<Category>> loadCategories() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
+  CategoryRepo._internal();
 
-    if (!prefs.containsKey('categoryUpdateAt')) {
-      return fetchCategories();
-    }
-
-    final _lastUpdateDate = prefs.getString('categoryUpdateAt');
-
-    final int _timeGap =
-        DateTime.parse(_lastUpdateDate).compareTo(DateTime.now());
-
-    if (_timeGap > TIME_GATE || _lastUpdateDate == null) {
-      return fetchCategories();
-    }
-
-    final List<Category> _categories = [];
-    for (var i = 0; i < 999; i++) {
-      if (prefs.containsKey('category:$i')) {
-        final _id = i;
-        final _categoryData = prefs.getString('category:$i');
-        final _categoryVec = _categoryData.split(':::');
-        _categories.add(Category(
-            id: _id, name: _categoryVec[0], thumbnail: _categoryVec[1]));
-      }
-    }
-    return _categories;
-  }
-
-  Future<void> saveCategories({List<Category> categories}) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String now = DateTime.now().toString();
-    await prefs.setString('categoryUpdateAt', now);
-
-    categories.forEach((Category category) async {
-      final _id = category.id;
-      final _name = category.name;
-      final _thumbnail = category.thumbnail;
-      final String key = 'category:$_id';
-      await prefs.setString(key, '$_name:::$_thumbnail');
+  static Future<List<Category>> loadCategories({Database db}) async {
+    final _lastUpdateDate =
+        await DataBase.getValue(db: db, key: 'categoriesupdate')
+            .catchError((_) {
+      return null;
     });
+
+    final int _timeGap = _lastUpdateDate != null
+        ? DateTime.now().difference(DateTime.parse(_lastUpdateDate)).inSeconds
+        : 0;
+
+    if (_timeGap > env.TIME_GATE || _lastUpdateDate == null) {
+      final categories = await _api.getCategories();
+      await DataBase.setCategoriesLocal(db: db, categories: categories);
+      print('fetching');
+      return categories;
+    }
+
+    print('from db');
+    final categories = await DataBase.getCategoriesLocal(db: db);
+    return categories;
   }
 }

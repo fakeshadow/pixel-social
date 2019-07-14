@@ -34,7 +34,7 @@ class SliverNavBar extends StatelessWidget with env{
         backgroundColor: Colors.transparent,
         title: FadeInImage.assetNetwork(
             placeholder: 'assets/category_default_cover.png',
-            image: url + "public/" + thumbnail,
+            image: env.url + "public/" + thumbnail,
             fit: BoxFit.cover,
           ),
         centerTitle: true,

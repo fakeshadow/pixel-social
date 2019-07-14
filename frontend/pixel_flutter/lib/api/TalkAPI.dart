@@ -5,7 +5,7 @@ import '../env.dart';
 
 TalkAPI sockets = TalkAPI();
 
-class TalkAPI with env {
+class TalkAPI {
   static final TalkAPI _sockets = TalkAPI._internal();
 
   factory TalkAPI() {
@@ -19,7 +19,7 @@ class TalkAPI with env {
   ObserverList<Function> _listeners = ObserverList<Function>();
 
   connect() {
-    _channel = IOWebSocketChannel.connect(WS_URL);
+    _channel = IOWebSocketChannel.connect(env.WS_URL);
     _channel.stream.listen(_onReceptionOfMessageFromServer);
   }
 

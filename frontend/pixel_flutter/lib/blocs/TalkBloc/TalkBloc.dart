@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:sqflite/sqlite_api.dart';
 import 'package:bloc/bloc.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -8,16 +9,18 @@ import 'package:pixel_flutter/blocs/ErrorBloc/ErrorEvent.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkState.dart';
 
+import 'package:pixel_flutter/blocs/Repo/TalkRepo.dart';
+
 import 'package:pixel_flutter/models/Talk.dart';
 
-import '../../env.dart';
+import 'package:pixel_flutter/env.dart';
 
-import 'package:pixel_flutter/blocs/Repo/TalkRepo.dart';
 
 class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
   final ErrorBloc errorBloc;
+  final Database db;
 
-  TalkBloc({this.errorBloc});
+  TalkBloc({this.errorBloc, this.db});
 
   @override
   Stream<TalkState> transform(Stream<TalkEvent> events,
@@ -39,14 +42,17 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
     if (event is TalkInit) {
       try {
         talkRepo.addListener(handleMessage);
-        final List<Talk> talks = await talkRepo.init();
-        if (talks.isEmpty) {
-          return;
-        }
+        talkRepo.init(token: event.token);
+        final talks = await talkRepo.getTalks(db: db);
         yield TalkLoaded(talks: talks);
       } catch (e) {
         errorBloc.dispatch(GetError(error: e.toString()));
       }
+    }
+    if (event is TalkClose) {
+      talkRepo.close();
+      talkRepo.removeListener(handleMessage);
+      yield TalkUninitialized();
     }
     if (event is SendMessage) {
       talkRepo.sendMessage(event.msg);
@@ -54,24 +60,29 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
     }
     if (event is GotTalks) {
       try {
-        final talksOld = (currentState as TalkLoaded).talks.where((t) {
-          var result = true;
-          for (var tt in event.talks) {
-            if (t.id == tt.id) {
-              result = false;
-              break;
+        if (currentState is TalkLoaded) {
+          final talksOld = (currentState as TalkLoaded).talks.where((t) {
+            var result = true;
+            for (var tt in event.talks) {
+              if (t.id == tt.id) {
+                result = false;
+                break;
+              }
             }
-          }
-          return result;
-        }).toList();
-        yield TalkLoaded(talks: event.talks + talksOld);
+            return result;
+          }).toList();
+          yield TalkLoaded(talks: event.talks + talksOld);
+        } else {
+          yield TalkLoaded(talks: event.talks);
+        }
       } catch (e) {
         errorBloc.dispatch(GetError(error: e.toString()));
       }
     }
   }
 
-  void handleMessage(String msg) {
+  Future<void> handleMessage(String msg) async {
+    print(msg);
     if (msg.startsWith('!!!')) {
       final str = msg.substring(4);
       if (str.length == 0) {
@@ -96,6 +107,9 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
               admin: rawTalk['admin'].cast<int>(),
               users: rawTalk['users'].cast<int>());
         }).toList();
+
+        talkRepo.saveTalks(talks: result);
+
         dispatch(GotTalks(talks: result));
       }
     }

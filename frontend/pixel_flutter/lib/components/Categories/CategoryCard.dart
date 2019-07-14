@@ -39,7 +39,7 @@ class CategoryCard extends StatelessWidget with env{
                       // ToDo: Future look into fade image loading
                       FadeInImage.assetNetwork(
                         placeholder: 'assets/category_default_cover.png',
-                        image: url + 'public/' + category.thumbnail,
+                        image: env.url + 'public/' + category.thumbnail,
                         fit: BoxFit.fitWidth,
                       ),
                       Positioned(

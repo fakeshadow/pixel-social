@@ -9,22 +9,31 @@ import 'package:pixel_flutter/models/Topic.dart';
 import 'package:pixel_flutter/models/User.dart';
 import 'package:pixel_flutter/models/TopicWithPost.dart';
 
-class PixelShareAPI extends env {
+class PixelShareAPI {
   final Client _http = Client();
 
   Future<void> register(String username, String password, String email) async {
-    await _http.post(url + 'user/register',
+    final response = await _http.post(env.url + 'user/register',
         headers: {"Content-Type": "application/json"},
         body: json.encode(
             {'username': username, 'password': password, 'email': email}));
+    final data = json.decode(response.body);
+    if (data['error'] != null) {
+      return Future.error(data['error']);
+    }
   }
 
   Future<User> login(String username, String password) async {
-    final response = await _http.post(url + 'user/login',
+    final response = await _http.post(env.url + 'user/login',
         headers: {"Content-Type": "application/json"},
         body: json.encode({'username': username, 'password': password}));
 
     final data = json.decode(response.body);
+
+    if (data['error'] != null) {
+      return Future.error(data['error']);
+    }
+
     return User(
         id: data['user']['id'],
         email: data['user']['email'],
@@ -35,9 +44,14 @@ class PixelShareAPI extends env {
   }
 
   Future<List<Category>> getCategories() async {
-    final response = await _http.get(url + 'categories',
+    final response = await _http.get(env.url + 'categories',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
+
+    if (data.isNotEmpty && data.first['error'] != null) {
+      return Future.error(data.first['error']);
+    }
+
     return data.map((rawCategories) {
       return Category(
           id: rawCategories['id'],
@@ -50,9 +64,14 @@ class PixelShareAPI extends env {
   }
 
   Future<List<Topic>> getTopics(int categoryId, int page) async {
-    final response = await _http.get(url + 'categories/$categoryId/$page',
+    final response = await _http.get(env.url + 'categories/$categoryId/$page',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
+
+    if (data.isNotEmpty && data.first['error'] != null) {
+      return Future.error(data.first['error']);
+    }
+
     return data.map((rawTopic) {
       return Topic(
           id: rawTopic['id'],
@@ -69,22 +88,27 @@ class PixelShareAPI extends env {
   }
 
   Future<TopicWithPost> getTopic(int topicId, int page) async {
-    final response = await _http.get(url + 'topic/$topicId/$page',
+    final response = await _http.get(env.url + 'topic/$topicId/$page',
         headers: {"Content-Type": "application/json"});
 
     final data = json.decode(response.body);
+
+    if (data['error'] != null) {
+      return Future.error(data['error']);
+    }
+
     final topic = page == 1
         ? Topic(
-        id: data['topic']['id'],
-        categoryId: data['topic']['category_id'],
-        userId: data['topic']['user']['id'],
-        username: data['topic']['user']['username'],
-        title: data['topic']['title'],
-        body: data['topic']['body'],
-        replyCount: data['reply_count'],
-        lastReplyTime: data['topic']['last_reply_time'],
-        avatarUrl: data['topic']['user']['avatar_url'],
-        thumbnail: data['topic']['thumbnail'])
+            id: data['topic']['id'],
+            categoryId: data['topic']['category_id'],
+            userId: data['topic']['user']['id'],
+            username: data['topic']['user']['username'],
+            title: data['topic']['title'],
+            body: data['topic']['body'],
+            replyCount: data['reply_count'],
+            lastReplyTime: data['topic']['last_reply_time'],
+            avatarUrl: data['topic']['user']['avatar_url'],
+            thumbnail: data['topic']['thumbnail'])
         : null;
 
     final posts = data['posts'].map((rawPost) {
@@ -103,9 +127,8 @@ class PixelShareAPI extends env {
     return TopicWithPost(topic: topic, posts: posts);
   }
 
-  // ToDo: add error handling
   Future<Topic> addTopic(Topic topic, String jwt) async {
-    final response = await _http.post(url + 'topic',
+    final response = await _http.post(env.url + 'topic',
         headers: {
           "Content-Type": "application/json",
           "AUTHORIZATION": "Bearer " + jwt
@@ -117,6 +140,11 @@ class PixelShareAPI extends env {
           'category_id': topic.categoryId
         }));
     final data = json.decode(response.body);
+
+    if (data['error'] != null) {
+      return Future.error(data['error']);
+    }
+
     return Topic(
         id: data['id'],
         categoryId: data['category_id'],
