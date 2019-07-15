@@ -108,7 +108,7 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
               users: rawTalk['users'].cast<int>());
         }).toList();
 
-        talkRepo.saveTalks(talks: result);
+        talkRepo.setTalks(talks: result, db: db);
 
         dispatch(GotTalks(talks: result));
       }

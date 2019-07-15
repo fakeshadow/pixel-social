@@ -50,7 +50,7 @@ class _PixelShareState extends State<PixelShare> {
       userBloc = UserBloc(talkBloc: talkBloc, db: db);
     });
 
-    final user = await DataBase.getSelfLocal(db: db).catchError((_) {
+    final user = await DataBase.getSelf(db: db).catchError((_) {
       return null;
     });
 

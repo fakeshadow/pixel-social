@@ -322,7 +322,7 @@ EXECUTE PROCEDURE adding_post();".to_owned();
     query.push_str("
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin, is_activate)
 VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
-        'avatar_url', 9, true);
+        'ac.jpg', 9, true);
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', 'category_default.png');
@@ -334,7 +334,8 @@ VALUES (2, 'Announcement', 'category_default.png'),
        (5, 'Persona', 'persona.jpg');
 
 INSERT INTO talks (id, name, description, owner, admin, users)
-VALUES (1, 'test123', 'test123', 1, ARRAY [1], ARRAY [1]);
+VALUES (1, 'general', 'ac.jpg', 1, ARRAY [1], ARRAY [1]),
+       (2, 'special', 'ac.jpg', 1, ARRAY [1], ARRAY [1]);
 
 INSERT INTO topics (id, user_id, category_id, title, body, thumbnail)
 VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented community.', '');

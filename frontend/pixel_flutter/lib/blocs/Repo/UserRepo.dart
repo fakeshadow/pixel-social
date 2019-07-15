@@ -7,14 +7,13 @@ import 'package:pixel_flutter/models/User.dart';
 import 'package:sqflite/sqflite.dart';
 
 class UserRepo {
-  final _api = PixelShareAPI();
 
   Future<User> register(
       {@required String username,
       @required String password,
       @required String email,
       @required Database db}) async {
-    await _api.register(username, password, email);
+    await PixelShareAPI.register(username, password, email);
     return this.login(username: username, password: password, db: db);
   }
 
@@ -22,7 +21,7 @@ class UserRepo {
       {@required String username,
       @required String password,
       @required Database db}) async {
-    final User _user = await _api.login(username, password);
+    final User _user = await PixelShareAPI.login(username, password);
     await saveUser(db: db, user: _user);
     return _user;
   }
@@ -34,7 +33,7 @@ class UserRepo {
 
   Future<void> saveUser({Database db, User user}) async {
 //    final ddb = await DataBase.getDb();
-    return DataBase.setSelfLocal(db: db, user: user);
+    return DataBase.setSelf(db: db, user: user);
   }
 
   Future<void> deleteUser({Database db}) async {

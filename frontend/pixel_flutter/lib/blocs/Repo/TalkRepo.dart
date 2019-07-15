@@ -17,10 +17,11 @@ class TalkRepo {
   TalkRepo._internal();
 
   void init({String token}) {
-    sockets.connect();
-    if (token != null) {
-      sendMessage('/auth ' + token);
-    }
+    sockets.handleConn(() {
+      if (token != null) {
+        sendMessage('/auth ' + token);
+      }
+    });
   }
 
   void close() {
@@ -39,12 +40,11 @@ class TalkRepo {
     sockets.send(msg);
   }
 
-  void saveTalks({List<Talk> talks})  {
-    DataBase.saveTalks(talks: talks);
+  void setTalks({List<Talk> talks, Database db}) {
+    DataBase.setTalks(talks: talks, db: db);
   }
 
   Future<List<Talk>> getTalks({Database db}) async {
-    final talks = await DataBase.getTalksLocal(db: db);
-    return talks;
+    return DataBase.getTalks(db: db);
   }
 }

@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::collections::HashMap;
 
 use actix::prelude::{
     ActorFuture,
@@ -22,7 +23,6 @@ use crate::handler::{
     db::{query_single_row, simple_query, query_one_simple},
     cache::get_users,
 };
-use std::collections::HashMap;
 
 impl TalkService {
     fn send_message_many(&mut self, id: u32, msg: &str) {
@@ -323,7 +323,7 @@ impl Handler<GetTalks> for TalkService {
     fn handle(&mut self, msg: GetTalks, _: &mut Context<Self>) {
         match self.get_talks() {
             Some(t) => {
-                let talks = match msg.session_id {
+                let talks = match msg.talk_id {
                     0 => t.iter().map(|(_, t)| t).collect(),
                     _ => t.get(&msg.talk_id).map(|t| vec![t]).unwrap_or(vec![])
                 };

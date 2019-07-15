@@ -118,7 +118,7 @@ class _HomePageState extends State<HomePage> {
                                 ),
                                 Spacer(),
                                 InkWell(
-                                    onTap: () => getTalks(1),
+                                    onTap: () => getTalks(0),
                                     child: AddPostButton(text: 'New Topic'))
                               ]),
                           Center(

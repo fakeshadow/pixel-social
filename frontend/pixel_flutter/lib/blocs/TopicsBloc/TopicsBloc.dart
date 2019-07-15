@@ -6,7 +6,6 @@ import 'package:pixel_flutter/blocs/TopicsBloc/TopicsState.dart';
 import 'package:pixel_flutter/blocs/Repo/TopicsRepo.dart';
 
 class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
-  final topicsRepo = TopicsRepo();
 
   @override
   Stream<TopicsState> transform(Stream<TopicsEvent> events,
@@ -28,7 +27,7 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
     if (event is GetTopics && !_hasReachedMax(currentState)) {
       try {
         if (currentState is TopicsUninitialized) {
-          final topics = await topicsRepo.getTopics(event.categoryId, 1);
+          final topics = await TopicsRepo.getTopics(event.categoryId, 1);
           final maxed = topics.length < 20 ? true : false;
 
           if (topics.length == 0) {
@@ -41,7 +40,7 @@ class TopicsBloc extends Bloc<TopicsEvent, TopicsState> {
         if (currentState is TopicsLoaded) {
           final page =
               1 + ((currentState as TopicsLoaded).topics.length / 20).floor();
-          final topics = await topicsRepo.getTopics(event.categoryId, page);
+          final topics = await TopicsRepo.getTopics(event.categoryId, page);
           final maxed = topics.length < 20 ? true : false;
           yield TopicsLoaded(
               topics: (currentState as TopicsLoaded).topics + topics,

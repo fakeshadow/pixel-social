@@ -3,7 +3,6 @@ import 'package:sqflite/sqflite.dart';
 
 import 'package:pixel_flutter/models/Talk.dart';
 import 'package:pixel_flutter/models/User.dart';
-import 'package:pixel_flutter/models/Category.dart';
 
 const String talkTable = 'CREATE TABLE talks ('
     'id INTEGER PRIMARY KEY,'
@@ -83,39 +82,7 @@ class DataBase {
     }
   }
 
-  static Future<void> setCategoriesLocal({Database db, List<Category> categories}) async {
-    final String now = DateTime.now().toString();
-
-    await setValue(db: db, key: 'categoriesupdate', value: now);
-
-    var batch = db.batch();
-//    batch.insert('keys', {'key': 'categoriesupdate', 'value': now},
-//        conflictAlgorithm: ConflictAlgorithm.replace);
-    for (var cat in categories) {
-      batch.insert('categories', cat.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-
-    await batch.commit(noResult: true);
-    return;
-  }
-
-  static Future<List<Category>> getCategoriesLocal({Database db}) async {
-    final List<Map<String, dynamic>> list = await db.query('categories');
-    final List<Category> categories = list.map((col) {
-      return Category(
-          id: col['id'],
-          name: col['name'],
-          thumbnail: col['thumbnail'],
-          postCount: col['postCount'],
-          subCount: col['subCount'],
-          topicCount: col['topicCount']);
-    }).toList();
-
-    return categories;
-  }
-
-  static Future<List<Talk>> getTalksLocal({Database db}) async {
+  static Future<List<Talk>> getTalks({Database db}) async {
     final List<Map<String, dynamic>> list = await db.query('talks');
     final List<Talk> talks = list.map((col) {
       return Talk(
@@ -130,7 +97,7 @@ class DataBase {
     return talks;
   }
 
-  static Future<User> getSelfLocal({Database db}) async {
+  static Future<User> getSelf({Database db}) async {
     final username = await getValue(db: db, key: 'username');
     final email = await getValue(db: db, key: 'email');
     final avatarUrl = await getValue(db: db, key: 'avatarUrl');
@@ -146,7 +113,7 @@ class DataBase {
     );
   }
 
-  static Future<void> setSelfLocal({User user, Database db}) async {
+  static Future<void> setSelf({User user, Database db}) async {
     await setValue(db: db, key: 'username', value: user.username);
     await setValue(db: db, key: 'email', value: user.email);
     await setValue(db: db, key: 'avatarUrl', value: user.avatarUrl);
@@ -155,8 +122,7 @@ class DataBase {
     return;
   }
 
-  static Future<void> saveTalks({List<Talk> talks, Database db}) async {
-    final Database db = await getDb();
+  static Future<void> setTalks({List<Talk> talks, Database db}) async {
 
     var batch = db.batch();
     for (var t in talks) {

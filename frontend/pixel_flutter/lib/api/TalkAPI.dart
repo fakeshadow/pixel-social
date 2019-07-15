@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/io.dart';
 
@@ -12,6 +14,8 @@ class TalkAPI {
     return _sockets;
   }
 
+  bool isManualClosed = false;
+
   TalkAPI._internal();
 
   IOWebSocketChannel _channel;
@@ -20,18 +24,19 @@ class TalkAPI {
 
   connect() {
     _channel = IOWebSocketChannel.connect(env.WS_URL);
-    _channel.stream.listen(_onReceptionOfMessageFromServer);
+    isManualClosed = false;
   }
 
   close() {
     if (_channel != null) {
       if (_channel.sink != null) {
         _channel.sink.close();
+        isManualClosed = true;
       }
     }
   }
 
-  send(String message) {
+  send(String message) async {
     if (_channel != null) {
       if (_channel.sink != null) {
         _channel.sink.add(message);
@@ -47,9 +52,25 @@ class TalkAPI {
     _listeners.remove(callback);
   }
 
-  _onReceptionOfMessageFromServer(message) {
+  // retry connection every 3 seconds after disconnection
+  handleConn(Function callback) {
+    connect();
+    _channel.stream.listen(_onMsg, onError: _onErr, onDone: () async {
+      if (isManualClosed == false) {
+        await Future.delayed(Duration(seconds: 3));
+        handleConn(callback);
+      }
+    });
+    callback();
+  }
+
+  _onMsg(message) {
     _listeners.forEach((Function callback) {
       callback(message);
     });
+  }
+
+  _onErr(msg) {
+    print('ERROR: ' + msg);
   }
 }

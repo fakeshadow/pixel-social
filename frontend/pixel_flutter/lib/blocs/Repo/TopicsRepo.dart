@@ -3,17 +3,16 @@ import 'package:pixel_flutter/models/TopicWithPost.dart';
 import 'package:pixel_flutter/api/PixelShareAPI.dart';
 
 class TopicsRepo {
-  final _api = PixelShareAPI();
 
-  Future<List<Topic>> getTopics(int categoryId, int page) async {
-    return _api.getTopics(categoryId, page);
+  static Future<List<Topic>> getTopics(int categoryId, int page) async {
+    return PixelShareAPI.getTopics(categoryId, page);
   }
 
-  Future<TopicWithPost> getTopic(int topicId, int page) async {
-    return _api.getTopic(topicId, page);
+  static Future<TopicWithPost> getTopic(int topicId, int page) async {
+    return PixelShareAPI.getTopic(topicId, page);
   }
 
-  Future<Topic> addTopic(Topic topic, String jwt) {
-    return _api.addTopic(topic, jwt);
+  static Future<Topic> addTopic(Topic topic, String jwt) {
+    return PixelShareAPI.addTopic(topic, jwt);
   }
 }

@@ -10,9 +10,9 @@ import 'package:pixel_flutter/models/User.dart';
 import 'package:pixel_flutter/models/TopicWithPost.dart';
 
 class PixelShareAPI {
-  final Client _http = Client();
+  static final Client _http = Client();
 
-  Future<void> register(String username, String password, String email) async {
+  static Future<void> register(String username, String password, String email) async {
     final response = await _http.post(env.url + 'user/register',
         headers: {"Content-Type": "application/json"},
         body: json.encode(
@@ -23,7 +23,7 @@ class PixelShareAPI {
     }
   }
 
-  Future<User> login(String username, String password) async {
+  static Future<User> login(String username, String password) async {
     final response = await _http.post(env.url + 'user/login',
         headers: {"Content-Type": "application/json"},
         body: json.encode({'username': username, 'password': password}));
@@ -43,7 +43,7 @@ class PixelShareAPI {
         token: data['token']);
   }
 
-  Future<List<Category>> getCategories() async {
+  static Future<List<Category>> getCategories() async {
     final response = await _http.get(env.url + 'categories',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
@@ -63,7 +63,7 @@ class PixelShareAPI {
     }).toList();
   }
 
-  Future<List<Topic>> getTopics(int categoryId, int page) async {
+  static Future<List<Topic>> getTopics(int categoryId, int page) async {
     final response = await _http.get(env.url + 'categories/$categoryId/$page',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
@@ -87,7 +87,7 @@ class PixelShareAPI {
     }).toList();
   }
 
-  Future<TopicWithPost> getTopic(int topicId, int page) async {
+  static Future<TopicWithPost> getTopic(int topicId, int page) async {
     final response = await _http.get(env.url + 'topic/$topicId/$page',
         headers: {"Content-Type": "application/json"});
 
@@ -127,7 +127,7 @@ class PixelShareAPI {
     return TopicWithPost(topic: topic, posts: posts);
   }
 
-  Future<Topic> addTopic(Topic topic, String jwt) async {
+  static Future<Topic> addTopic(Topic topic, String jwt) async {
     final response = await _http.post(env.url + 'topic',
         headers: {
           "Content-Type": "application/json",
