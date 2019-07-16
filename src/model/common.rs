@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock, Mutex},
 };
 
-use actix::Recipient;
+use actix::prelude::Recipient;
 
 use crate::model::{
     errors::ServiceError,
@@ -98,29 +98,17 @@ pub trait Validator {
 
 // type and struct for global vars
 pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
-pub type GlobalTalksGuard = Arc<Mutex<GlobalTalks>>;
+pub type GlobalSessionsGuard = Arc<Mutex<HashMap<u32, Recipient<SessionMessage>>>>;
+pub type GlobalTalksGuard = Arc<RwLock<HashMap<u32, Talk>>>;
 
-#[derive(Clone)]
-pub struct GlobalTalks {
-    pub sessions: HashMap<u32, Recipient<SessionMessage>>,
-    pub talks: HashMap<u32, Talk>,
-}
+pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalksGuard, GlobalSessionsGuard) {
+    let mut talks = HashMap::new();
 
-impl GlobalTalks {
-    pub fn new(talks_vec: Vec<Talk>) -> GlobalTalksGuard {
-        let mut talks = HashMap::new();
-
-        for t in talks_vec.into_iter() {
-            talks.insert(t.id, t);
-        }
-
-        Arc::new(Mutex::new(
-            GlobalTalks {
-                sessions: HashMap::new(),
-                talks,
-            }
-        ))
+    for t in talks_vec.into_iter() {
+        talks.insert(t.id, t);
     }
+
+    (Arc::new(RwLock::new(talks)), Arc::new(Mutex::new(HashMap::new())))
 }
 
 #[derive(Clone, Debug)]

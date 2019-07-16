@@ -26,12 +26,7 @@ use crate::handler::{
 
 impl TalkService {
     fn send_message_many(&mut self, id: u32, msg: &str) {
-        let talk = match self.global.lock() {
-            Ok(t) => t.talks.get(&id).map(|t| t.clone()),
-            Err(_) => return
-        };
-
-        if let Some(talk) = talk {
+        if let Some(talk) = self.get_talk(&id) {
             for uid in talk.users.iter() {
                 self.send_message(uid, msg);
             };
@@ -45,23 +40,22 @@ impl TalkService {
     }
 
     fn get_talks(&self) -> Option<HashMap<u32, Talk>> {
-        match self.global.lock() {
-            Ok(t) => Some(t.talks.clone()),
+        match self.talks.read() {
+            Ok(t) => Some(t.clone()),
             Err(_) => None
         }
     }
 
     fn get_talk(&self, talk_id: &u32) -> Option<Talk> {
-        match self.global.lock() {
-            Ok(t) => t.talks.get(talk_id).map(|t| t.clone()),
+        match self.talks.read() {
+            Ok(t) => t.get(talk_id).map(|t| t.clone()),
             Err(_) => None
         }
     }
 
     fn get_session(&self, session_id: &u32) -> Option<Recipient<SessionMessage>> {
-
-        match self.global.lock() {
-            Ok(t) => t.sessions
+        match self.sessions.lock() {
+            Ok(s) => s
                 .get(session_id)
                 .map(|addr| addr.clone()),
             Err(_) => None
@@ -69,29 +63,31 @@ impl TalkService {
     }
 
     fn insert_talk(&self, talk: Talk) {
-        let _ = self.global
-            .lock()
+        let _ = self.talks
+            .write()
             .map_err(|_| ())
             .map(|mut t| {
-                t.talks.insert(talk.id, talk);
+                t.insert(talk.id, talk);
             });
     }
 
     fn remove_talk(&self, tid: &u32) -> Result<(), ServiceError> {
-        self.global
-            .lock()
+        self.talks
+            .write()
             .map_err(|_| ServiceError::InternalServerError)
             .map(|mut t| {
-                t.talks.remove(tid);
+                t.remove(tid);
             })
     }
 
     fn insert_user(&self, talk_id: u32, session_id: u32) {
-        let _ = self.global
-            .lock()
+        let _ = self.talks
+            .write()
             .map_err(|_| ())
             .map(|mut t| {
-                t.talks.get_mut(&talk_id).unwrap().users.push(session_id);
+                if let Some(t) = t.get_mut(&talk_id) {
+                    t.users.push(session_id)
+                };
             });
     }
 }
@@ -116,7 +112,7 @@ pub struct Disconnect {
 
 #[derive(Deserialize, Message, Clone)]
 pub struct Create {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     pub name: String,
     pub description: String,
     pub owner: u32,
@@ -124,40 +120,49 @@ pub struct Create {
 
 #[derive(Deserialize, Message)]
 pub struct Delete {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 #[derive(Deserialize, Message)]
 pub struct Join {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 #[derive(Deserialize, Message)]
 pub struct RemoveUser {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     user_id: u32,
     talk_id: u32,
 }
 
 #[derive(Message, Deserialize)]
 pub struct GetTalks {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 // pass Some(talk_id) in json for public message, pass None for private message
 #[derive(Deserialize, Message)]
-pub struct ClientMessage {
+pub struct GotMessages {
     pub msg: String,
     pub talk_id: Option<u32>,
-    pub session_id: u32,
+    pub user_id: Option<u32>,
+    pub session_id: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct ClientMessage<'a> {
+    pub msg: &'a str,
+    pub time: &'a NaiveDateTime,
+    pub user_id: Option<&'a u32>,
+    pub talk_id: Option<&'a u32>,
 }
 
 #[derive(Deserialize, Message)]
 pub struct GetTalkUsers {
-    pub session_id: u32,
+    pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
@@ -166,7 +171,7 @@ pub struct GetTalkUsers {
 pub struct GetHistory {
     pub time: String,
     pub talk_id: Option<u32>,
-    pub session_id: u32,
+    pub session_id: Option<u32>,
 }
 
 #[derive(Deserialize, Message)]
@@ -174,56 +179,91 @@ pub struct Admin {
     pub add: Option<u32>,
     pub remove: Option<u32>,
     pub talk_id: u32,
-    pub session_id: u32,
+    pub session_id: Option<u32>,
 }
 
 impl Handler<Disconnect> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
-        let _ = self.global
+        let _ = self.sessions
             .lock()
             .map_err(|_| self.send_message(&msg.session_id, "!!! Disconnect failed"))
-            .map(|mut t| t.sessions.remove(&msg.session_id));
+            .map(|mut t| t.remove(&msg.session_id));
     }
 }
 
-impl Handler<ClientMessage> for TalkService {
+impl Handler<GotMessages> for TalkService {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientMessage, ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: GotMessages, ctx: &mut Context<Self>) {
         // ToDo: batch insert messages to database.
+        //ToDo: add time stamp before inserting
+
         match msg.talk_id {
-            Some(id) => ctx.spawn(
-                self.db
+            Some(id) => {
+                let now = Utc::now().naive_local();
+                ctx.spawn(self.db
                     .as_mut()
                     .unwrap()
                     .query(self.insert_pub_msg.as_ref().unwrap(), &[&id, &msg.msg])
                     .into_future()
                     .into_actor(self)
-                    // ToDo: handle error.
-                    .map_err(|_, _, _| ())
-                    .and_then(move |(row, _), act, _| {
-                        if let Some(_) = row {
-                            act.send_message_many(id, &msg.msg);
+                    .then(move |r, act, _| match r {
+                        Ok(_) => {
+                            let mut result = "/msg ".to_owned();
+                            let vec = vec![ClientMessage {
+                                msg: &msg.msg,
+                                time: &now,
+                                user_id: None,
+                                talk_id: msg.talk_id.as_ref(),
+                            }];
+                            let temp = serde_json::to_string(&vec).unwrap();
+                            result.push_str(&temp);
+                            act.send_message_many(id, &result);
+                            fut::ok(())
                         }
-                        fut::ok(())
-                    })),
-            // ToDo: add private message insert statement
-            None => ctx.spawn(
-                self.db
+                        Err(_) => {
+                            act.send_message(msg.session_id.as_ref().unwrap(), "!!! Database error");
+                            fut::ok(())
+                        }
+                    }));
+            }
+            None => {
+                let id = match msg.user_id {
+                    Some(id) => id,
+                    None => return self.send_message(&msg.session_id.unwrap(), "!!! No user found")
+                };
+                let now = Utc::now().naive_local();
+                ctx.spawn(self.db
                     .as_mut()
                     .unwrap()
-                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&1, &msg.msg])
+                    .query(self.insert_prv_msg.as_ref().unwrap(),
+                           &[&msg.session_id.unwrap(), &id, &msg.msg])
                     .into_future()
                     .into_actor(self)
+                    // ToDo: handle error.
                     .map_err(|_, _, _| ())
-                    .and_then(move |(row, _), act, _| {
-                        if let Some(_) = row {
-                            act.send_message(&msg.session_id, &msg.msg);
+                    .then(move |r, act, _| match r {
+                        Ok(_) => {
+                            let mut result = "/msg ".to_owned();
+                            let vec = vec![ClientMessage {
+                                msg: &msg.msg,
+                                time: &now,
+                                user_id: msg.user_id.as_ref(),
+                                talk_id: None,
+                            }];
+                            let temp = serde_json::to_string(&vec).unwrap();
+                            result.push_str(&temp);
+                            act.send_message(&id, &result);
+                            fut::ok(())
                         }
-                        fut::ok(())
-                    }))
+                        Err(_) => {
+                            act.send_message(msg.session_id.as_ref().unwrap(), "!!! Database error");
+                            fut::ok(())
+                        }
+                    }));
+            }
         };
     }
 }
@@ -232,12 +272,12 @@ impl Handler<Connect> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Connect, _: &mut Context<Self>) {
-        let _ = self.global
+        let _ = self.sessions
             .lock()
             .map_err(|_| ())
             .map(|mut t| {
                 let _ = msg.addr.do_send(SessionMessage("Authentication success".to_owned()));
-                t.sessions.insert(msg.session_id, msg.addr);
+                t.insert(msg.session_id, msg.addr);
             });
     }
 }
@@ -281,7 +321,7 @@ impl Handler<Join> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Join, ctx: &mut Context<Self>) {
-        let session_id = msg.session_id;
+        let session_id = msg.session_id.unwrap();
         let talk_id = msg.talk_id;
 
         if let Some(talk) = self.get_talk(&talk_id) {
@@ -332,9 +372,9 @@ impl Handler<GetTalks> for TalkService {
                 let string = serde_json::to_string(&talks).unwrap_or("!!! Stringify error".to_owned());
                 result.push_str(&string);
 
-                self.send_message(&msg.session_id, &result);
+                self.send_message(&msg.session_id.unwrap(), &result);
             }
-            None => self.send_message(&msg.session_id, "!!! Talk not found")
+            None => self.send_message(&msg.session_id.unwrap(), "!!! Talk not found")
         }
     }
 }
@@ -343,7 +383,7 @@ impl Handler<GetHistory> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: GetHistory, ctx: &mut Context<Self>) {
-        let session_id = msg.session_id;
+        let session_id = msg.session_id.unwrap();
 
         if let Some(addr) = self.get_session(&session_id) {
             let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")
@@ -396,7 +436,7 @@ impl Handler<GetTalkUsers> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: GetTalkUsers, ctx: &mut Context<Self>) {
-        let session_id = msg.session_id;
+        let session_id = msg.session_id.unwrap();
 
         if let Some(addr) = self.get_session(&session_id) {
             if let Some(talk) = self.get_talk(&msg.talk_id) {
@@ -425,7 +465,7 @@ impl Handler<RemoveUser> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: RemoveUser, ctx: &mut Context<Self>) {
-        let id = msg.session_id;
+        let id = msg.session_id.unwrap();
         let tid = msg.talk_id;
         let uid = msg.user_id;
 
@@ -444,7 +484,7 @@ impl Handler<RemoveUser> for TalkService {
                 let query = if is_owner && other_is_admin {
                     format!("UPDATE talks SET admin=array_remove(admin, {}), users=array_remove(users, {})
                 WHERE id={} AND owner={}", uid, uid, tid, id)
-                } else if (is_admin || is_owner) &&!other_is_admin &&!other_is_owner {
+                } else if (is_admin || is_owner) && !other_is_admin && !other_is_owner {
                     format!("UPDATE talks SET users=array_remove(users, {})
                 WHERE id={}", uid, tid)
                 } else {
@@ -479,7 +519,7 @@ impl Handler<Admin> for TalkService {
 
     fn handle(&mut self, msg: Admin, ctx: &mut Context<Self>) {
         let tid = msg.talk_id;
-        let id = msg.session_id;
+        let id = msg.session_id.unwrap();
 
         let t = match self.get_talk(&tid) {
             Some(t) => t,
@@ -535,11 +575,11 @@ impl Handler<Delete> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Delete, ctx: &mut Context<Self>) {
-        if let Some(g) = self.global.lock().ok() {
-            if !g.talks.contains_key(&msg.talk_id) {
+        if let Some(g) = self.talks.read().ok() {
+            if !g.contains_key(&msg.talk_id) {
                 return;
             }
-            let session_id = msg.session_id;
+            let session_id = msg.session_id.unwrap();
 
             //ToDo: delete talk table and messages here.
             let query = format!("

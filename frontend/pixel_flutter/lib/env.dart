@@ -22,4 +22,5 @@ class env {
 
   /// Snackbar message for success input
   static const String GOT_TOPIC = 'Modified topic success';
+  static const String STORAGE_FAIL = 'Failed to access local storage';
 }

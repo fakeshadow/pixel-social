@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryEvent.dart';
 
@@ -7,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pixel_flutter/blocs/CategoryBloc/CategoryBloc.dart';
 import 'package:pixel_flutter/blocs/ErrorBloc/ErrorBloc.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkBloc.dart';
+import 'package:pixel_flutter/blocs/MessageBloc/MessageBloc.dart';
 import 'package:pixel_flutter/blocs/UserBloc/UserBloc.dart';
 import 'package:pixel_flutter/blocs/UserBloc/UserEvent.dart';
 import 'package:pixel_flutter/blocs/VerticalTabBloc/VerticalTabBloc.dart';
@@ -29,6 +32,7 @@ class _PixelShareState extends State<PixelShare> {
   UserBloc userBloc;
   ErrorBloc errorBloc;
   TalkBloc talkBloc;
+  MessageBloc messageBloc;
   CategoryBloc categoryBloc;
   Database db;
 
@@ -45,17 +49,15 @@ class _PixelShareState extends State<PixelShare> {
     setState(() {
       db = d;
       errorBloc = ErrorBloc();
-      categoryBloc = CategoryBloc(errorBloc: errorBloc, db: db);
-      talkBloc = TalkBloc(errorBloc: errorBloc, db: db);
-      userBloc = UserBloc(talkBloc: talkBloc, db: db);
+      categoryBloc = CategoryBloc(errorBloc: errorBloc, db: d);
+      messageBloc = MessageBloc(errorBloc: errorBloc);
+      talkBloc =
+          TalkBloc(messageBloc: messageBloc, errorBloc: errorBloc, db: d);
+      userBloc = UserBloc(talkBloc: talkBloc, db: d);
     });
 
-    final user = await DataBase.getSelf(db: db).catchError((_) {
-      return null;
-    });
-
+    userBloc.dispatch(UserInit());
     categoryBloc.dispatch(LoadCategories());
-    userBloc.dispatch(UserInit(user: user));
   }
 
   @override

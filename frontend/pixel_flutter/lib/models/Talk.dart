@@ -31,7 +31,7 @@ class GetTalks {
 
   GetTalks({this.talkId});
 
-  String toJSON() => '/talks {"session_id": 0, "talk_id": $talkId}';
+  String toJSON() => '/talks {"talk_id": $talkId}';
 }
 
 class GetUsers {
@@ -39,6 +39,23 @@ class GetUsers {
 
   GetUsers({this.talkId});
 
-  String toJSON() => '/users {"session_id": 0, "talk_id": $talkId}';
+  String toJSON() => '/users {"talk_id": $talkId}';
 }
 
+class SendPubMsg {
+  final int talkId;
+  final String msg;
+
+  SendPubMsg({this.talkId, this.msg});
+
+  String toJSON() => '/msg {"talk_id": $talkId, "msg": "$msg"}';
+}
+
+class SendPrvMsg {
+  final int userId;
+  final String msg;
+
+  SendPrvMsg({this.userId, this.msg});
+
+  String toJSON() => '/msg {"user_id": $userId, "msg": "$msg"}';
+}

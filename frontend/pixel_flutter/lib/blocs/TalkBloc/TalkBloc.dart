@@ -8,19 +8,22 @@ import 'package:pixel_flutter/blocs/ErrorBloc/ErrorBloc.dart';
 import 'package:pixel_flutter/blocs/ErrorBloc/ErrorEvent.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkState.dart';
+import 'package:pixel_flutter/blocs/MessageBloc/MessageBloc.dart';
+import 'package:pixel_flutter/blocs/MessageBloc/MessageEvent.dart';
 
 import 'package:pixel_flutter/blocs/Repo/TalkRepo.dart';
 
 import 'package:pixel_flutter/models/Talk.dart';
+import 'package:pixel_flutter/models/Message.dart';
 
 import 'package:pixel_flutter/env.dart';
 
-
 class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
+  final MessageBloc messageBloc;
   final ErrorBloc errorBloc;
   final Database db;
 
-  TalkBloc({this.errorBloc, this.db});
+  TalkBloc({this.messageBloc, this.errorBloc, this.db});
 
   @override
   Stream<TalkState> transform(Stream<TalkEvent> events,
@@ -43,7 +46,7 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
       try {
         talkRepo.addListener(handleMessage);
         talkRepo.init(token: event.token);
-        final talks = await talkRepo.getTalks(db: db);
+        final talks = await talkRepo.getTalksLocal(db: db);
         yield TalkLoaded(talks: talks);
       } catch (e) {
         errorBloc.dispatch(GetError(error: e.toString()));
@@ -91,28 +94,53 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
       errorBloc.dispatch(GetError(error: str));
     }
     if (msg.startsWith('/')) {
-      final str = msg.split(" ").toList();
-      if (str.length != 2) {
+      final index = msg.indexOf(" ");
+      final cmd = msg.substring(0, index);
+      final str = msg.substring(index);
+      if (str.length == 0) {
         return null;
       }
-      if (str[0] == "/talks") {
-        final data = jsonDecode(str[1]) as List;
-        final result = data.map((rawTalk) {
-          return Talk(
-              id: rawTalk['id'],
-              name: rawTalk['name'],
-              description: rawTalk['description'],
-              privacy: rawTalk['privacy'],
-              owner: rawTalk['owner'],
-              admin: rawTalk['admin'].cast<int>(),
-              users: rawTalk['users'].cast<int>());
-        }).toList();
-
-        talkRepo.setTalks(talks: result, db: db);
-
-        dispatch(GotTalks(talks: result));
+      switch (cmd) {
+        case '/msg':
+          gotMsg(str);
+          break;
+        case "/talks":
+          gotTalks(str);
+          break;
       }
     }
-    return null;
+  }
+
+  void gotTalks(String msg) {
+    final data = jsonDecode(msg) as List;
+    final result = data.map((rawTalk) {
+      return Talk(
+          id: rawTalk['id'],
+          name: rawTalk['name'],
+          description: rawTalk['description'],
+          privacy: rawTalk['privacy'],
+          owner: rawTalk['owner'],
+          admin: rawTalk['admin'].cast<int>(),
+          users: rawTalk['users'].cast<int>());
+    }).toList();
+
+    talkRepo.setTalks(talks: result, db: db);
+    dispatch(GotTalks(talks: result));
+  }
+
+  void gotMsg(String msg) {
+    final data = jsonDecode(msg) as List;
+    final result = data.map((msg) {
+      // ToDo: use substring to handle date time as flutter doesn't support nano seconds date time for now.
+      final String time = (msg['time'] as String).substring(0, 26);
+      return Message(
+          talkId: msg['talk_id'],
+          userId: msg['user_id'],
+          dateTime: DateTime.parse(time),
+          msg: msg['msg']);
+    }).toList();
+
+    messageBloc.dispatch(GotMessage(msg: result));
+    //ToDo: update talk last reply and unread reply count.
   }
 }

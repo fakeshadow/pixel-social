@@ -25,7 +25,7 @@ use crate::handler::{
         Join,
         Admin,
         RemoveUser,
-        ClientMessage,
+        GotMessages,
         GetHistory,
     },
 };
@@ -82,7 +82,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                     }
                 } else {
                     match v[0] {
-                        "/msg" => general_msg_handler::<ClientMessage>(self, v[1], ctx),
+                        "/msg" => general_msg_handler::<GotMessages>(self, v[1], ctx),
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
                         "/remove" => general_msg_handler::<RemoveUser>(self, v[1], ctx),
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
@@ -108,50 +108,50 @@ trait AttachSessionId {
 
 impl AttachSessionId for Admin {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for RemoveUser {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for GetHistory {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for ClientMessage {
+impl AttachSessionId for GotMessages {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for Join {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for Delete {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for Create {
     fn attach_session_id(&mut self, id: u32) {
         self.owner = id;
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 
 impl AttachSessionId for GetTalks {
     fn attach_session_id(&mut self, id: u32) {
-        self.session_id = id;
+        self.session_id = Some(id);
     }
 }
 

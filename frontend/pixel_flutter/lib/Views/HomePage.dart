@@ -15,7 +15,7 @@ import 'package:pixel_flutter/components/Categories/CategoryList.dart';
 import 'package:pixel_flutter/components/Button/AddPostButton.dart';
 import 'package:pixel_flutter/components/NavigationBar/CategoryNavBar.dart';
 
-import 'package:pixel_flutter/Views/TalkPage.dart';
+import 'package:pixel_flutter/Views/RecentMessagePage.dart';
 import 'package:pixel_flutter/models/Talk.dart';
 
 import 'package:pixel_flutter/style/colors.dart';
@@ -46,8 +46,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void getTalks(int id) {
-    _talkBloc.dispatch(SendMessage(msg: GetTalks(talkId: id).toJSON()));
+    _talkBloc.dispatch(
+        SendMessage(msg: SendPubMsg(talkId: 1, msg: "test message").toJSON()));
+//    _talkBloc.dispatch(SendMessage(msg: GetTalks(talkId: id).toJSON()));
   }
+
   Future<bool> _onWillPop() {
     return showDialog(
         context: context,
@@ -213,7 +216,7 @@ class _CardStackState extends State<CardStack>
                       ? CategoryList()
                       : widget.selectedTabIndex == 1
                           ? CategoryList()
-                          : TalkPage()),
+                          : RecentMessagePage()),
             );
           },
         ),

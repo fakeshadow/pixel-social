@@ -15,4 +15,3 @@ pub struct Talk {
 
 #[derive(Message)]
 pub struct SessionMessage(pub String);
-

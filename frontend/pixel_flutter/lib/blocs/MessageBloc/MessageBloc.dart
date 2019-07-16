@@ -1,15 +1,20 @@
 import 'package:bloc/bloc.dart';
+import 'package:pixel_flutter/blocs/ErrorBloc/ErrorEvent.dart';
 import 'package:rxdart/rxdart.dart';
 
 import 'package:pixel_flutter/blocs/Repo/MessageRepo.dart';
 
+import 'package:pixel_flutter/blocs/ErrorBloc/ErrorBloc.dart';
 import 'package:pixel_flutter/blocs/MessageBloc/MessageEvent.dart';
 import 'package:pixel_flutter/blocs/MessageBloc/MessageState.dart';
 
 import '../../env.dart';
 
 class MessageBloc extends Bloc<MessageEvent, MessageState> with env {
+  final ErrorBloc errorBloc;
   final MessageRepo messageRepo = MessageRepo();
+
+  MessageBloc({this.errorBloc});
 
   @override
   Stream<MessageState> transform(Stream<MessageEvent> events,
@@ -28,34 +33,20 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> with env {
   Stream<MessageState> mapEventToState(
     MessageEvent event,
   ) async* {
-    if (event is GotPublicMessage) {
+
+    if (event is GotMessage) {
       try {
         if (currentState is MessageUninitialized) {
-          yield MessageLoaded(pubMsg: event.msg);
+          yield MessageLoaded(msg: event.msg);
           return;
         }
         if (currentState is MessageLoaded) {
           yield MessageLoaded(
-              pubMsg: (currentState as MessageLoaded).pubMsg + event.msg);
+              msg: (currentState as MessageLoaded).msg + event.msg);
           return;
         }
-      } catch (_) {
-        yield MessageError(error: "error");
-      }
-    }
-    if (event is GotPrivateMessage) {
-      try {
-        if (currentState is MessageUninitialized) {
-          yield MessageLoaded(prvMsg: event.msg);
-          return;
-        }
-        if (currentState is MessageLoaded) {
-          yield MessageLoaded(
-              prvMsg: (currentState as MessageLoaded).prvMsg + event.msg);
-          return;
-        }
-      } catch (_) {
-        yield MessageError(error: "error");
+      } catch (e) {
+        errorBloc.dispatch(GetError(error: e.toString()));
       }
     }
   }

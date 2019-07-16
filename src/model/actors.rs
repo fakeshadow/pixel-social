@@ -27,7 +27,7 @@ use tokio_postgres::{
 use lettre::SmtpTransport;
 
 use crate::model::{
-    common::GlobalTalksGuard,
+    common::{GlobalTalksGuard, GlobalSessionsGuard}
 };
 use crate::handler::{
     email::generate_mailer,
@@ -58,11 +58,14 @@ pub struct DatabaseService {
 }
 
 pub struct TalkService {
-    pub global: GlobalTalksGuard,
+    pub talks: GlobalTalksGuard,
+    pub sessions: GlobalSessionsGuard,
     pub db: Option<Client>,
     pub cache: Option<SharedConn>,
     pub insert_pub_msg: Option<Statement>,
+    pub insert_prv_msg: Option<Statement>,
     pub get_pub_msg: Option<Statement>,
+    pub get_prv_msg: Option<Statement>,
     pub join_talk: Option<Statement>,
 }
 
@@ -263,18 +266,21 @@ impl CacheUpdateService {
 }
 
 impl TalkService {
-    pub fn connect(postgres_url: &str, redis_url: &str, global: GlobalTalksGuard) -> TALK {
+    pub fn connect(postgres_url: &str, redis_url: &str, talks: GlobalTalksGuard, sessions: GlobalSessionsGuard) -> TALK {
         let hs = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         TalkService::create(move |ctx| {
             let addr = TalkService {
-                global,
+                talks,
+                sessions,
                 db: None,
                 cache: None,
                 insert_pub_msg: None,
+                insert_prv_msg: None,
                 get_pub_msg: None,
+                get_prv_msg: None,
                 join_talk: None,
             };
 
@@ -291,16 +297,20 @@ impl TalkService {
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
                     let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message) VALUES ($1, $2)");
-                    let p2 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time < $2 ORDER BY time DESC LIMIT 20");
-                    let p3 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
+                    let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, message) VALUES ($1, $2, $3)");
+                    let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 20");
+                    let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 20");
+                    let p5 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
 
-                    ctx.wait(p1.join3(p2, p3)
+                    ctx.wait(p1.join5(p2, p3, p4, p5)
                         .map_err(|e| panic!("{}", e))
                         .into_actor(addr)
-                        .and_then(|(st1, st2, st3), addr, _| {
+                        .and_then(|(st1, st2, st3, st4, st5), addr, _| {
                             addr.insert_pub_msg = Some(st1);
-                            addr.get_pub_msg = Some(st2);
-                            addr.join_talk = Some(st3);
+                            addr.insert_prv_msg = Some(st2);
+                            addr.get_pub_msg = Some(st3);
+                            addr.get_prv_msg = Some(st4);
+                            addr.join_talk = Some(st5);
                             fut::ok(())
                         })
                     );
@@ -341,7 +351,7 @@ impl MailService {
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-          if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 act.addr.do_send(Disconnect { session_id: act.id });
                 ctx.stop();
                 return;

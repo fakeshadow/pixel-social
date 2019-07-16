@@ -1,20 +1,26 @@
+import 'package:sqflite/sqlite_api.dart';
+
+import 'package:pixel_flutter/api/DataBase.dart';
+
 import 'package:pixel_flutter/models/Message.dart';
 
+MessageRepo categoryRepo = MessageRepo();
+
 class MessageRepo {
+  static final MessageRepo _categoryRepo = MessageRepo._internal();
 
-  Future<void> saveMsg(
-      {List<PublicMessage> pubMsg, List<PrivateMessage> prvMsg}) async {
+  factory MessageRepo() {
+    return _categoryRepo;
+  }
 
-    pubMsg.forEach((PublicMessage msg) {
-      final _id = msg.talkId;
-      final _date = msg.dateTime;
-      final String key = 'talk:$_id:$_date';
-    });
+  MessageRepo._internal();
 
-    prvMsg.forEach((PrivateMessage msg) {
-      final _id = msg.userId;
-      final _date = msg.dateTime;
-      final String key = 'user:$_id:$_date';
-    });
+  static Future<void> saveMsg({Database db, List<Message> msg}) async {
+    return DataBase.setMsg(msg: msg, db: db);
+  }
+
+  static Future<List<Message>> loadMsg(
+      {Database db, int time, int talkId, int userId}) async {
+    return DataBase.getMsg(userId: userId, talkId: talkId, time: time, db: db);
   }
 }

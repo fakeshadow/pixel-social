@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
 
     let _ = clear_cache(&redis_url);
 
-    let (global_arc, global_talk) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
+    let (global_arc, global_talks,global_sessions) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 
@@ -71,7 +71,7 @@ fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
-        let talk = TalkService::connect(&database_url, &redis_url, global_talk.clone());
+        let talk = TalkService::connect(&database_url, &redis_url, global_talks.clone(), global_sessions.clone());
 
         App::new()
             .data(global_arc.clone())

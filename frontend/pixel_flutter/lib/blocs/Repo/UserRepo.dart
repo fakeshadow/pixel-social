@@ -6,52 +6,64 @@ import 'package:pixel_flutter/api/PixelShareAPI.dart';
 import 'package:pixel_flutter/models/User.dart';
 import 'package:sqflite/sqflite.dart';
 
-class UserRepo {
+import 'package:pixel_flutter/env.dart';
 
-  Future<User> register(
+class UserRepo {
+  static Future<User> register(
       {@required String username,
       @required String password,
       @required String email,
       @required Database db}) async {
     await PixelShareAPI.register(username, password, email);
-    return this.login(username: username, password: password, db: db);
+    return login(username: username, password: password, db: db);
   }
 
-  Future<User> login(
+  static Future<User> login(
       {@required String username,
       @required String password,
       @required Database db}) async {
     final User _user = await PixelShareAPI.login(username, password);
-    await saveUser(db: db, user: _user);
+    setSelf(db: db, user: _user).catchError((_) => env.STORAGE_FAIL);
     return _user;
   }
 
-  Future<User> update() async {
+  static Future<User> update() async {
     await Future.delayed(Duration(seconds: 1));
     return User(id: 1, username: 'test', avatarUrl: 'test', signature: 'test');
   }
 
-  Future<void> saveUser({Database db, User user}) async {
-//    final ddb = await DataBase.getDb();
-    return DataBase.setSelf(db: db, user: user);
+  static Future<void> setSelf({Database db, User user}) async {
+    return DataBase.setSelfUser(db: db, user: user)
+        .catchError((_) => env.STORAGE_FAIL);
   }
 
-  Future<void> deleteUser({Database db}) async {
-    await DataBase.delSet(db: db, key: 'username');
-    await DataBase.delSet(db: db, key: 'email');
-    await DataBase.delSet(db: db, key: 'avatarUrl');
-    await DataBase.delSet(db: db, key: 'signature');
-    await DataBase.delSet(db: db, key: 'token');
-    return;
+  static Future<User> getSelf({Database db}) async {
+    return DataBase.getSelfUser(db: db).catchError((_) => env.STORAGE_FAIL);
   }
 
-  Future<String> deleteToken({Database db}) async {
-    await DataBase.delSet(db: db, key: 'token');
-    final username = await DataBase.getValue(db: db, key: 'username');
-    return username;
+  static Future<void> deleteUser({Database db}) async {
+    try {
+      DataBase.delKeyValue(db: db, key: 'username');
+      DataBase.delKeyValue(db: db, key: 'email');
+      DataBase.delKeyValue(db: db, key: 'avatarUrl');
+      DataBase.delKeyValue(db: db, key: 'signature');
+      DataBase.delKeyValue(db: db, key: 'token');
+    } catch (_) {
+      throw (env.STORAGE_FAIL);
+    }
   }
 
-  Future<bool> hasToken({Database db}) async {
+  static Future<String> deleteToken({Database db}) async {
+    try {
+      DataBase.delKeyValue(db: db, key: 'token');
+      final username = await DataBase.getValue(db: db, key: 'username');
+      return username;
+    } catch (_) {
+      throw (env.STORAGE_FAIL);
+    }
+  }
+
+  static Future<bool> hasToken({Database db}) async {
     return DataBase.getValue(db: db, key: 'token').then((token) {
       if (token != null) {
         return true;

@@ -44,7 +44,7 @@ class TalkRepo {
     DataBase.setTalks(talks: talks, db: db);
   }
 
-  Future<List<Talk>> getTalks({Database db}) async {
+  Future<List<Talk>> getTalksLocal({Database db}) async {
     return DataBase.getTalks(db: db);
   }
 }

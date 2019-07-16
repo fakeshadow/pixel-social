@@ -64,13 +64,15 @@ class TalkAPI {
     callback();
   }
 
-  _onMsg(message) {
+  _onMsg(msg) {
     _listeners.forEach((Function callback) {
-      callback(message);
+      callback(msg);
     });
   }
 
   _onErr(msg) {
-    print('ERROR: ' + msg);
+    _listeners.forEach((Function callback) {
+      callback(msg);
+    });
   }
 }

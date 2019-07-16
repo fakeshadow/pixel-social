@@ -7,13 +7,11 @@ abstract class MessageState extends Equatable {
 class MessageUninitialized extends MessageState {}
 
 class MessageLoaded extends MessageState {
-  final List pubMsg;
-  final List prvMsg;
+  final List msg;
 
   MessageLoaded({
-    this.pubMsg,
-    this.prvMsg,
-  }) : super([pubMsg, prvMsg]);
+    this.msg,
+  }) : super([msg]);
 
   MessageLoaded copyWith({
     List pubMsg,
@@ -21,14 +19,7 @@ class MessageLoaded extends MessageState {
     bool hasReachedMax,
   }) {
     return MessageLoaded(
-      pubMsg: pubMsg ?? this.pubMsg,
-      prvMsg: prvMsg ?? this.prvMsg,
+      msg: pubMsg ?? this.msg,
     );
   }
-}
-
-class MessageError extends MessageState {
-  final String error;
-
-  MessageError({this.error}) : super([error]);
 }

@@ -6,20 +6,12 @@ abstract class MessageEvent extends Equatable {
   MessageEvent([List props = const []]) : super(props);
 }
 
-class GotError extends MessageEvent {
-  final String error;
+class Init extends MessageEvent {
 
-  GotError({this.error}) : super([error]);
 }
 
-class GotPublicMessage extends MessageEvent {
-  final List<PublicMessage> msg;
+class GotMessage extends MessageEvent {
+  final List<Message> msg;
 
-  GotPublicMessage({this.msg}) : super([msg]);
-}
-
-class GotPrivateMessage extends MessageEvent {
-  final List<PrivateMessage> msg;
-
-  GotPrivateMessage({this.msg}) : super([msg]);
+  GotMessage({this.msg}) : super([msg]);
 }

@@ -1,19 +1,19 @@
 import 'package:equatable/equatable.dart';
 
-class PublicMessage extends Equatable {
-  final int talkId;
+class Message extends Equatable {
+  final int talkId, userId;
   final DateTime dateTime;
-  final String message;
+  final String msg;
 
-  PublicMessage({this.talkId, this.dateTime, this.message})
-      : super([talkId, dateTime, message]);
-}
+  Message({this.talkId, this.userId, this.dateTime, this.msg})
+      : super([talkId, userId, dateTime, msg]);
 
-class PrivateMessage extends Equatable {
-  final int userId;
-  final DateTime dateTime;
-  final String message;
-
-  PrivateMessage({this.userId, this.dateTime, this.message})
-      : super([userId, dateTime, message]);
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'talk_id': talkId,
+      'user_id': userId,
+      'time': dateTime.millisecondsSinceEpoch,
+      'msg': msg,
+    };
+  }
 }
