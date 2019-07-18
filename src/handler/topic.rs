@@ -12,7 +12,7 @@ use crate::model::{
     topic::Topic,
     post::Post,
 };
-use crate::handler::db::{query_one_with_id, query_multi_with_id, query_one_simple};
+use crate::handler::db::{query_one_with_id, query_multi_with_id, query_one_simple, query_one};
 
 const LIMIT: i64 = 20;
 
@@ -84,38 +84,19 @@ impl Handler<AddTopic> for DatabaseService {
         let t = msg.0;
         let now = Utc::now().naive_local();
 
-        let f = self.db
-            .as_mut()
-            .unwrap()
-            .query(self.insert_topic.as_ref().unwrap(),
-                   &[&id,
-                       &t.user_id.unwrap(),
-                       &t.category_id,
-                       &t.thumbnail.unwrap(),
-                       &t.title.unwrap(),
-                       &t.body.unwrap(),
-                       &now,
-                       &now,
-                       &now
-                   ])
-            .into_future()
-            .from_err()
-            .and_then(|(r, _)| match r {
-                Some(row) => Ok(Topic {
-                    id: row.get(0),
-                    user_id: row.get(1),
-                    category_id: row.get(2),
-                    title: row.get(3),
-                    body: row.get(4),
-                    thumbnail: row.get(5),
-                    created_at: row.get(6),
-                    updated_at: row.get(7),
-                    last_reply_time: row.get(8),
-                    reply_count: row.get(9),
-                    is_locked: row.get(10),
-                }),
-                None => Err(ServiceError::BadRequest)
-            });
+        let f =
+            query_one(self.db.as_mut().unwrap(),
+                      self.insert_topic.as_ref().unwrap(),
+                      &[&id,
+                          &t.user_id.unwrap(),
+                          &t.category_id,
+                          &t.thumbnail.unwrap(),
+                          &t.title.unwrap(),
+                          &t.body.unwrap(),
+                          &now,
+                          &now,
+                          &now
+                      ]);
 
         Box::new(f)
     }
@@ -163,58 +144,32 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        let q = match msg {
-            GetTopics::Latest(cid, page) => {
-                self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.topics_latest.as_ref().unwrap(),
-                           &[&cid, &((page - 1) * 20)])
-            }
+        let f = match msg {
+            GetTopics::Latest(cid, page) =>
+                query_multi_with_id(
+                self.db.as_mut().unwrap(),
+                self.topics_latest.as_ref().unwrap(),
+                &[&cid, &((page - 1) * 20)]),
+
             GetTopics::Popular(cid, page) => {
                 let yesterday = Utc::now().timestamp() - 86400;
                 let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
 
-                self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.topics_popular.as_ref().unwrap(),
-                           &[&cid, &yesterday, &((page - 1) * 20)])
+                query_multi_with_id(
+                    self.db.as_mut().unwrap(),
+                    self.topics_popular.as_ref().unwrap(),
+                    &[&cid, &yesterday, &((page - 1) * 20)])
             }
             GetTopics::PopularAll(page) => {
                 let yesterday = Utc::now().timestamp() - 86400;
                 let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
 
-                self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.topics_popular_all.as_ref().unwrap(),
-                           &[&yesterday, &((page - 1) * 20)])
+                query_multi_with_id(
+                    self.db.as_mut().unwrap(),
+                    self.topics_popular_all.as_ref().unwrap(),
+                    &[&yesterday, &((page - 1) * 20)])
             }
         };
-
-        let t = Vec::with_capacity(20);
-        let ids: Vec<u32> = Vec::with_capacity(20);
-        let f = q
-            .from_err()
-            .fold((t, ids), move |(mut t, mut ids), row| {
-                ids.push(row.get(1));
-                t.push(Topic {
-                    id: row.get(0),
-                    user_id: row.get(1),
-                    category_id: row.get(2),
-                    title: row.get(3),
-                    body: row.get(4),
-                    thumbnail: row.get(5),
-                    created_at: row.get(6),
-                    updated_at: row.get(7),
-                    last_reply_time: row.get(8),
-                    reply_count: row.get(9),
-                    is_locked: row.get(10),
-                });
-                Ok::<(Vec<Topic>, Vec<u32>), ServiceError>((t, ids))
-            });
-
         Box::new(f)
     }
 }

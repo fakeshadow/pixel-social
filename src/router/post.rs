@@ -20,7 +20,7 @@ pub fn add(
     req: Json<PostRequest>,
     global: Data<GlobalGuard>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    jwt.check_active_block()
+    jwt.check_privilege()
         .into_future()
         .from_err()
         .and_then(move |_| {

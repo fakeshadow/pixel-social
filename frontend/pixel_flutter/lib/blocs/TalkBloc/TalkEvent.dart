@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+
 import 'package:pixel_flutter/models/Talk.dart';
 
 abstract class TalkEvent extends Equatable {
@@ -17,17 +18,16 @@ class SendMessage extends TalkEvent {
   SendMessage({this.msg}) : super([msg]);
 }
 
-class GetTalk extends TalkEvent {
-  final int talkId;
+class GetTalks extends TalkEvent {
+  final List<int> talkIds;
 
-  GetTalk({this.talkId}) : super([talkId]);
+  GetTalks({this.talkIds}) : super([talkIds]);
 }
 
 class TalkInit extends TalkEvent {
   final String token;
-  final List<Talk> talks;
 
-  TalkInit({this.token, this.talks}) : super([token, talks]);
+  TalkInit({this.token}) : super([token]);
 }
 
 class TalkClose extends TalkEvent {}

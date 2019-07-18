@@ -56,8 +56,8 @@ impl Handler<UpdateUserCheck> for DatabaseService {
             &[req.id.as_ref().unwrap()])
             .and_then(move |u: Vec<User>| {
                 let u = u.first().ok_or(ServiceError::BadRequest)?;
-                check_admin_level(&req.is_admin, &self_lv, 9)?;
-                if self_lv <= u.is_admin { return Err(ServiceError::Unauthorized); }
+                check_admin_level(&req.privilege, &self_lv, 9)?;
+                if self_lv <= u.privilege { return Err(ServiceError::Unauthorized); }
                 Ok(req)
             })
         )

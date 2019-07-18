@@ -12,7 +12,8 @@ import 'package:pixel_flutter/models/TopicWithPost.dart';
 class PixelShareAPI {
   static final Client _http = Client();
 
-  static Future<void> register(String username, String password, String email) async {
+  static Future<void> register(
+      String username, String password, String email) async {
     final response = await _http.post(env.url + 'user/register',
         headers: {"Content-Type": "application/json"},
         body: json.encode(
@@ -36,6 +37,7 @@ class PixelShareAPI {
 
     return User(
         id: data['user']['id'],
+        privilege: data['user']['privilege'],
         email: data['user']['email'],
         username: data['user']['username'],
         avatarUrl: data['user']['avatar_url'],

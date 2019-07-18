@@ -82,14 +82,17 @@ class DataBase {
 
     final List<Map<String, dynamic>> list = await db.rawQuery(query);
 
-    return list.map((col) {
-      final int timeStamp = col['time'];
-      return Message(
-          talkId: col['talk_id'],
-          userId: col['user_id'],
-          dateTime: DateTime.fromMillisecondsSinceEpoch(timeStamp),
-          msg: col['message']);
-    }).toList();
+    return list
+        .map((col) {
+          final int timeStamp = col['time'];
+          return Message(
+              talkId: col['talk_id'],
+              userId: col['user_id'],
+              dateTime: DateTime.fromMillisecondsSinceEpoch(timeStamp),
+              msg: col['message']);
+        })
+        .toList()
+        .reversed;
   }
 
   static Future<List<Talk>> getTalks({Database db}) async {
@@ -107,8 +110,30 @@ class DataBase {
     return talks;
   }
 
+  static Future<List<User>> getUsers({Database db}) async {
+    final List<Map<String, dynamic>> list =
+        await db.query('users').catchError((_) {
+      return null;
+    });
+
+    if (list == null) {
+      return null;
+    } else {
+      return list.map((col) {
+        return User(
+            id: col['id'],
+            username: col['username'],
+            email: col['email'],
+            avatarUrl: col['avatarUrl'],
+            signature: col['signature']);
+      }).toList();
+    }
+  }
+
   static Future<User> getSelfUser({Database db}) async {
+    final id = await getValue(db: db, key: 'id');
     final username = await getValue(db: db, key: 'username');
+    final privilege = await getValue(db: db, key: 'privilege');
     final email = await getValue(db: db, key: 'email');
     final avatarUrl = await getValue(db: db, key: 'avatarUrl');
     final signature = await getValue(db: db, key: 'signature');
@@ -117,7 +142,9 @@ class DataBase {
     });
 
     return User(
+      id: int.parse(id),
       username: username,
+      privilege: int.parse(privilege),
       email: email,
       avatarUrl: avatarUrl,
       signature: signature,
@@ -126,12 +153,23 @@ class DataBase {
   }
 
   static Future<void> setSelfUser({User user, Database db}) async {
+    setKeyValue(db: db, key: 'id', value: '${user.id}');
     setKeyValue(db: db, key: 'username', value: user.username);
+    setKeyValue(db: db, key: 'privilege', value: '${user.privilege}');
     setKeyValue(db: db, key: 'email', value: user.email);
     setKeyValue(db: db, key: 'avatarUrl', value: user.avatarUrl);
     setKeyValue(db: db, key: 'signature', value: user.signature);
     setKeyValue(db: db, key: 'token', value: user.token);
     return;
+  }
+
+  static Future<void> setUsers({List<User> users, Database db}) async {
+    var batch = db.batch();
+    for (var u in users) {
+      batch.insert('users', u.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    return batch.commit(noResult: true);
   }
 
   static Future<void> setTalks({List<Talk> talks, Database db}) async {

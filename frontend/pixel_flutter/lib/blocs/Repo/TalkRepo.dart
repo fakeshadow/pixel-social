@@ -4,6 +4,7 @@ import 'package:pixel_flutter/api/TalkAPI.dart';
 import 'package:pixel_flutter/api/DataBase.dart';
 
 import 'package:pixel_flutter/models/Talk.dart';
+import 'package:pixel_flutter/models/User.dart';
 
 TalkRepo talkRepo = TalkRepo();
 
@@ -44,7 +45,28 @@ class TalkRepo {
     DataBase.setTalks(talks: talks, db: db);
   }
 
-  Future<List<Talk>> getTalksLocal({Database db}) async {
-    return DataBase.getTalks(db: db);
+  Future<List<Talk>> getTalks({Database db}) async {
+    final List<Talk> users = await DataBase.getTalks(db: db).catchError((e) {
+      return null;
+    });
+    if (users == null) {
+      sendMessage(SendMsg(cmd: CommandType.getTalks, talkId: 0).toJSON());
+    }
+    return users;
+  }
+
+  Future<List<User>> getRelation({Database db}) async {
+    final List<User> users = await DataBase.getUsers(db: db).catchError((e) {
+      return null;
+    });
+    if (users == null) {
+      sendMessage(
+          SendMsg(cmd: CommandType.getUsers, usersId: [0]).toJSON());
+    }
+    return users;
+  }
+
+  void getUpdate() {
+    sendMessage(SendMsg(cmd: CommandType.getUpdate).toJSON());
   }
 }

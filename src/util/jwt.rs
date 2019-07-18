@@ -9,19 +9,15 @@ use crate::model::errors::ServiceError;
 pub struct JwtPayLoad {
     pub exp: i64,
     pub user_id: u32,
-    pub is_admin: u32,
-    pub is_blocked: bool,
-    pub is_activate: bool,
+    pub privilege: u32,
 }
 
 impl JwtPayLoad {
-    pub fn new(user_id: u32, is_admin: u32, is_blocked: bool, is_activate: bool) -> Self {
+    pub fn new(user_id: u32, privilege: u32) -> Self {
         JwtPayLoad {
             exp: (Local::now() + Duration::days(30)).timestamp(),
             user_id,
-            is_admin,
-            is_blocked,
-            is_activate,
+            privilege,
         }
     }
     pub fn from(string: &str) -> Result<JwtPayLoad, ServiceError> {
@@ -38,20 +34,20 @@ impl JwtPayLoad {
         encode(&Header::default(), &self, get_secret().as_ref())
             .map_err(|_| ServiceError::InternalServerError)
     }
-    pub fn check_active_block(&self) -> Result<(),ServiceError> {
+    pub fn check_privilege(&self) -> Result<(), ServiceError> {
         self.check_active()?;
         self.check_blocked()?;
         Ok(())
     }
     pub fn check_active(&self) -> Result<(), ServiceError> {
-        if self.is_activate {
+        if self.privilege > 1 {
             Ok(())
         } else {
             Err(ServiceError::NOTACTIVE)
         }
     }
     pub fn check_blocked(&self) -> Result<(), ServiceError> {
-        if self.is_blocked {
+        if self.privilege == 0 {
             Err(ServiceError::BLOCKED)
         } else {
             Ok(())

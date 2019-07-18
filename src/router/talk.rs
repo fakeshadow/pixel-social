@@ -26,6 +26,7 @@ use crate::handler::{
         Admin,
         RemoveUser,
         GotMessages,
+        GetRelation,
         GetHistory,
     },
 };
@@ -88,8 +89,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
                         // request talk_id 0 to get all talks details.
                         "/talks" => general_msg_handler::<GetTalks>(self, v[1], ctx),
-                        // get users of one talk from talk_id
-                        "/users" => general_msg_handler::<GetTalks>(self, v[1], ctx),
+                        "/relation" => general_msg_handler::<GetRelation>(self, v[1], ctx),
                         "/join" => general_msg_handler::<Join>(self, v[1], ctx),
                         "/create" => general_msg_handler::<Create>(self, v[1], ctx),
                         "/delete" => general_msg_handler::<Delete>(self, v[1], ctx),
@@ -150,6 +150,12 @@ impl AttachSessionId for Create {
 }
 
 impl AttachSessionId for GetTalks {
+    fn attach_session_id(&mut self, id: u32) {
+        self.session_id = Some(id);
+    }
+}
+
+impl AttachSessionId for GetRelation {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }

@@ -46,8 +46,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   void getTalks(int id) {
-    _talkBloc.dispatch(
-        SendMessage(msg: SendPubMsg(talkId: 1, msg: "test message").toJSON()));
+    _talkBloc.dispatch(SendMessage(
+        msg:
+            SendMsg(cmd: CommandType.getRelation)
+                .toJSON()));
 //    _talkBloc.dispatch(SendMessage(msg: GetTalks(talkId: id).toJSON()));
   }
 

@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
 
     let _ = clear_cache(&redis_url);
 
-    let (global_arc, global_talks,global_sessions) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
+    let (global_arc, global_talks, global_sessions) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 

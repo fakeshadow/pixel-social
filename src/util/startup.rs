@@ -162,9 +162,7 @@ CREATE TABLE users
     signature       VARCHAR(256) NOT NULL,
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_admin        OID          NOT NULL DEFAULT 0,
-    is_blocked      BOOLEAN      NOT NULL DEFAULT FALSE,
-    is_activate     BOOLEAN      NOT NULL DEFAULT FALSE,
+    privilege       OID          NOT NULL DEFAULT 1,
     show_email      BOOLEAN      NOT NULL DEFAULT TRUE,
     show_created_at BOOLEAN      NOT NULL DEFAULT TRUE,
     show_updated_at BOOLEAN      NOT NULL DEFAULT TRUE
@@ -227,9 +225,15 @@ CREATE TABLE talks
     users       OID[]        NOT NULL
 );
 
+CREATE TABLE relations
+(
+    id          OID          NOT NULL UNIQUE PRIMARY KEY,
+    friends     OID[]
+);
+
 CREATE TABLE public_messages1
 (
-    talk_id     OID          NOT NULL,
+    talk_id     OID          NOT NULL PRIMARY KEY,
     time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     message     VARCHAR(1024)NOT NULL
 );
@@ -237,16 +241,14 @@ CREATE TABLE public_messages1
 CREATE TABLE private_messages1
 (
     from_id     OID          NOT NULL,
-    to_id       OID          NOT NULL,
+    to_id       OID          NOT NULL PRIMARY KEY,
     time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     message     VARCHAR(1024)NOT NULL
 );
 
 CREATE INDEX pub_message_time_order ON public_messages1 (time DESC);
-CREATE INDEX pub_message_belong ON public_messages1 (talk_id);
 
 CREATE INDEX prv_message_time_order ON private_messages1 (time DESC);
-CREATE INDEX prv_message_belong ON private_messages1 (to_id);
 
 CREATE INDEX topic_time_order ON topics (last_reply_time DESC, reply_count DESC);
 CREATE INDEX topic_category_belong ON topics (category_id);
@@ -323,9 +325,14 @@ EXECUTE PROCEDURE adding_post();".to_owned();
 
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
-INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, is_admin, is_activate)
-VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser',
-        'ac.jpg', 9, true);
+INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, privilege)
+VALUES (1, 'adminuser', 'admin@pixelshare', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'ac.jpg', 9),
+       (2, 'testtest1', 'test123@test123', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'ac.jpg', 0),
+       (3, 'testtest2', 'test223@test123', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'ac.jpg', 1),
+       (4, 'testtest3', 'test323@test123', '$2y$06$z6K5TMA2TQbls77he7cEsOQQ4ekgCNvuxkg6eSKdHHLO9u6sY9d3C', 'AdminUser', 'ac.jpg', 2);
+
+INSERT INTO relations (id, friends)
+VALUES (1, ARRAY[2,3,4]);
 
 INSERT INTO categories (id, name, thumbnail)
 VALUES (1, 'General', 'category_default.png');
@@ -369,6 +376,7 @@ DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS public_messages1;
 DROP TABLE IF EXISTS private_messages1;
+DROP TABLE IF EXISTS relations;
 
 DROP TRIGGER IF EXISTS adding_post ON posts;
 DROP FUNCTION IF EXISTS adding_post();

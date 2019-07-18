@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use futures::{stream::futures_ordered};
+use futures::{future::join_all};
 
 use actix::prelude::{
     Actor,
@@ -13,7 +13,6 @@ use actix::prelude::{
     fut,
     Future,
     Running,
-    Stream,
     WrapFuture,
 };
 use actix_web_actors::ws;
@@ -66,6 +65,7 @@ pub struct TalkService {
     pub insert_prv_msg: Option<Statement>,
     pub get_pub_msg: Option<Statement>,
     pub get_prv_msg: Option<Statement>,
+    pub get_relations: Option<Statement>,
     pub join_talk: Option<Statement>,
 }
 
@@ -191,21 +191,20 @@ impl DatabaseService {
                         VALUES ($1, $2, $3, $4, $5, $6)
                         RETURNING *");
 
-                    let f = futures_ordered(vec![p1, p2, p3, p4, p5, p6, p7, p8, p9, p10]).collect();
-                    ctx.wait(f
+                    ctx.wait(join_all(vec![p10, p9, p8, p7, p6, p5, p4, p3, p2, p1])
                         .map_err(|_| panic!("query prepare failed"))
                         .into_actor(addr)
                         .and_then(|mut v, addr, _| {
-                            addr.insert_user = v.pop();
-                            addr.insert_topic = v.pop();
-                            addr.insert_post = v.pop();
-                            addr.users_by_id = v.pop();
-                            addr.posts_old = v.pop();
-                            addr.posts_popular = v.pop();
-                            addr.topic_by_id = v.pop();
-                            addr.topics_popular_all = v.pop();
-                            addr.topics_popular = v.pop();
                             addr.topics_latest = v.pop();
+                            addr.topics_popular = v.pop();
+                            addr.topics_popular_all = v.pop();
+                            addr.topic_by_id = v.pop();
+                            addr.posts_popular = v.pop();
+                            addr.posts_old = v.pop();
+                            addr.users_by_id = v.pop();
+                            addr.insert_post = v.pop();
+                            addr.insert_topic = v.pop();
+                            addr.insert_user = v.pop();
                             fut::ok(())
                         })
                     );
@@ -281,6 +280,7 @@ impl TalkService {
                 insert_prv_msg: None,
                 get_pub_msg: None,
                 get_prv_msg: None,
+                get_relations: None,
                 join_talk: None,
             };
 
@@ -298,22 +298,23 @@ impl TalkService {
                 .and_then(|(mut db, conn), addr, ctx| {
                     let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message) VALUES ($1, $2)");
                     let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, message) VALUES ($1, $2, $3)");
-                    let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 20");
-                    let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 20");
-                    let p5 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
+                    let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
+                    let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
+                    let p5 = db.prepare("SELECT * FROM relations WHERE id = $1");
+                    let p6 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
 
-                    ctx.wait(p1.join5(p2, p3, p4, p5)
+                    ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
                         .map_err(|e| panic!("{}", e))
                         .into_actor(addr)
-                        .and_then(|(st1, st2, st3, st4, st5), addr, _| {
-                            addr.insert_pub_msg = Some(st1);
-                            addr.insert_prv_msg = Some(st2);
-                            addr.get_pub_msg = Some(st3);
-                            addr.get_prv_msg = Some(st4);
-                            addr.join_talk = Some(st5);
+                        .and_then(|mut vec, addr, _| {
+                            addr.insert_pub_msg = vec.pop();
+                            addr.insert_prv_msg = vec.pop();
+                            addr.get_pub_msg = vec.pop();
+                            addr.get_prv_msg = vec.pop();
+                            addr.get_relations = vec.pop();
+                            addr.join_talk = vec.pop();
                             fut::ok(())
-                        })
-                    );
+                        }));
 
                     addr.db = Some(db);
                     Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));

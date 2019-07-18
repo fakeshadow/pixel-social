@@ -18,9 +18,7 @@ pub struct User {
     pub signature: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub is_admin: u32,
-    pub is_blocked: bool,
-    pub is_activate: bool,
+    pub privilege: u32,
     pub show_email: bool,
     pub show_created_at: bool,
     pub show_updated_at: bool,
@@ -40,9 +38,7 @@ pub struct UserRef<'a> {
     pub signature: &'a str,
     pub created_at: Option<&'a NaiveDateTime>,
     pub updated_at: Option<&'a NaiveDateTime>,
-    pub is_admin: &'a u32,
-    pub is_blocked: &'a bool,
-    pub is_activate: &'a bool,
+    pub privilege: &'a u32,
     pub show_email: &'a bool,
     pub show_created_at: &'a bool,
     pub show_updated_at: &'a bool,
@@ -72,9 +68,7 @@ impl ToUserRef for User {
             signature: self.signature.as_str(),
             created_at,
             updated_at,
-            is_admin: &self.is_admin,
-            is_blocked: &self.is_blocked,
-            is_activate: &self.is_activate,
+            privilege: &self.privilege,
             show_email: &self.show_email,
             show_created_at: &self.show_created_at,
             show_updated_at: &self.show_updated_at,
@@ -135,9 +129,7 @@ pub struct UpdateRequest {
     pub username: Option<String>,
     pub avatar_url: Option<String>,
     pub signature: Option<String>,
-    pub is_admin: Option<u32>,
-    pub is_blocked: Option<bool>,
-    pub is_activate: Option<bool>,
+    pub privilege: Option<u32>,
     pub show_email: Option<bool>,
     pub show_created_at: Option<bool>,
     pub show_updated_at: Option<bool>,
@@ -148,9 +140,7 @@ impl UpdateRequest {
         match id {
             Some(_) => {
                 self.id = id;
-                self.is_admin = None;
-                self.is_blocked = None;
-                self.is_activate = None;
+                self.privilege = None;
                 self
             }
             None => {
@@ -171,16 +161,13 @@ impl UpdateRequest {
             username: None,
             avatar_url: None,
             signature: None,
-            is_admin: None,
-            is_blocked: None,
-            is_activate: Some(true),
+            privilege: Some(2),
             show_email: None,
             show_created_at: None,
             show_updated_at: None,
         }
     }
 }
-
 
 impl Validator for AuthRequest {
     fn get_username(&self) -> &str { &self.username }

@@ -143,14 +143,8 @@ impl Handler<UpdateUser> for DatabaseService {
         if let Some(s) = u.show_updated_at.as_ref() {
             let _ = write!(&mut query, " show_updated_at = {},", s);
         }
-        if let Some(s) = u.is_admin.as_ref() {
-            let _ = write!(&mut query, " is_admin = {},", s);
-        }
-        if let Some(s) = u.is_blocked.as_ref() {
-            let _ = write!(&mut query, " is_blocked = {},", s);
-        }
-        if let Some(s) = u.is_activate.as_ref() {
-            let _ = write!(&mut query, " is_activate= {} ,", s);
+        if let Some(s) = u.privilege.as_ref() {
+            let _ = write!(&mut query, " privilege = {},", s);
         }
 
         if query.ends_with(",") {

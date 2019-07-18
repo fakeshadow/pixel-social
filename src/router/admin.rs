@@ -37,7 +37,7 @@ pub fn add_category(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateCategoryCheck(jwt.is_admin, req))
+            .send(UpdateCategoryCheck(jwt.privilege, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -64,7 +64,7 @@ pub fn update_category(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateCategoryCheck(jwt.is_admin, req))
+            .send(UpdateCategoryCheck(jwt.privilege, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -88,7 +88,7 @@ pub fn remove_category(
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
 
-    db.send(RemoveCategoryCheck(jwt.is_admin))
+    db.send(RemoveCategoryCheck(jwt.privilege))
         .from_err()
         .and_then(|r| r)
         .from_err()
@@ -117,7 +117,7 @@ pub fn update_user(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateUserCheck(jwt.is_admin, req))
+            .send(UpdateUserCheck(jwt.privilege, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -144,7 +144,7 @@ pub fn update_topic(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateTopicCheck(jwt.is_admin, req))
+            .send(UpdateTopicCheck(jwt.privilege, req))
             .from_err()
             .and_then(|r| r)
             .from_err()
@@ -171,7 +171,7 @@ pub fn update_post(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdatePostCheck(jwt.is_admin, req))
+            .send(UpdatePostCheck(jwt.privilege, req))
             .from_err()
             .and_then(|r| r)
             .from_err()

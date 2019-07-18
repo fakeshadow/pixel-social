@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:pixel_flutter/blocs/TalkBloc/TalkBloc.dart';
-import 'package:pixel_flutter/blocs/TalkBloc/TalkState.dart';
+import 'package:pixel_flutter/blocs/MessageBlocs.dart';
 
-import 'package:pixel_flutter/models/Talk.dart';
+import 'package:pixel_flutter/models/Message.dart';
 
 import 'package:pixel_flutter/env.dart';
 
@@ -17,9 +17,9 @@ class _RecentMessagePageState extends State<RecentMessagePage> {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder(
-      bloc: BlocProvider.of<TalkBloc>(context),
-      builder: (BuildContext context, TalkState state) {
-        if (state is TalkLoaded) {
+      bloc: BlocProvider.of<MessageBloc>(context),
+      builder: (BuildContext context, MessageState state) {
+        if (state is MessageLoaded) {
           return ListView.separated(
             padding: EdgeInsets.all(10),
             separatorBuilder: (BuildContext context, int index) {
@@ -32,10 +32,9 @@ class _RecentMessagePageState extends State<RecentMessagePage> {
                 ),
               );
             },
-            itemCount: state.talks.length,
+            itemCount: state.msg.length,
             itemBuilder: (BuildContext context, int index) {
-              final Talk t = state.talks[index];
-              return TalkItem(name: t.name, thumbnail: t.description);
+              return MessageItem(msg: state.msg[index]);
             },
           );
         }
@@ -45,26 +44,23 @@ class _RecentMessagePageState extends State<RecentMessagePage> {
   }
 }
 
-class TalkItem extends StatefulWidget {
-  final String name;
-  final String thumbnail;
+class MessageItem extends StatefulWidget {
+  final Message msg;
 
   final bool isOnline = true;
-  final String msg = 'test test test test test';
   final String time = '2 DAYS AGO';
   final int counter = 10;
 
-  TalkItem({
+  MessageItem({
     Key key,
-    @required this.name,
-    @required this.thumbnail,
+    @required this.msg,
   }) : super(key: key);
 
   @override
-  _TalkItemState createState() => _TalkItemState();
+  _MessageItemState createState() => _MessageItemState();
 }
 
-class _TalkItemState extends State<TalkItem> {
+class _MessageItemState extends State<MessageItem> {
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -75,7 +71,7 @@ class _TalkItemState extends State<TalkItem> {
           children: <Widget>[
             CircleAvatar(
               backgroundImage: NetworkImage(
-                env.url + 'public/' + widget.thumbnail,
+                env.url + 'public/' + widget.msg.msg,
               ),
               radius: 25,
             ),
@@ -104,7 +100,7 @@ class _TalkItemState extends State<TalkItem> {
           ],
         ),
         title: Text(
-          "${widget.name}",
+          "${widget.msg.msg}",
           style: TextStyle(
             fontWeight: FontWeight.bold,
           ),

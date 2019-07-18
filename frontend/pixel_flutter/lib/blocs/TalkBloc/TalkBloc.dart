@@ -10,20 +10,24 @@ import 'package:pixel_flutter/blocs/TalkBloc/TalkEvent.dart';
 import 'package:pixel_flutter/blocs/TalkBloc/TalkState.dart';
 import 'package:pixel_flutter/blocs/MessageBloc/MessageBloc.dart';
 import 'package:pixel_flutter/blocs/MessageBloc/MessageEvent.dart';
+import 'package:pixel_flutter/blocs/UsersBloc/UsersBloc.dart';
+import 'package:pixel_flutter/blocs/UsersBloc/UsersEvent.dart';
 
 import 'package:pixel_flutter/blocs/Repo/TalkRepo.dart';
 
 import 'package:pixel_flutter/models/Talk.dart';
 import 'package:pixel_flutter/models/Message.dart';
+import 'package:pixel_flutter/models/User.dart';
 
 import 'package:pixel_flutter/env.dart';
 
 class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
   final MessageBloc messageBloc;
+  final UsersBloc usersBloc;
   final ErrorBloc errorBloc;
   final Database db;
 
-  TalkBloc({this.messageBloc, this.errorBloc, this.db});
+  TalkBloc({this.usersBloc, this.messageBloc, this.errorBloc, this.db});
 
   @override
   Stream<TalkState> transform(Stream<TalkEvent> events,
@@ -44,9 +48,16 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
   ) async* {
     if (event is TalkInit) {
       try {
+        // add listener for websocket and use local jwt token for websocket authentication
         talkRepo.addListener(handleMessage);
         talkRepo.init(token: event.token);
-        final talks = await talkRepo.getTalksLocal(db: db);
+
+        // get talks,friends and unread messages.
+        final talks = await talkRepo.getTalks(db: db);
+        final users = await talkRepo.getRelation(db: db);
+//        talkRepo.getUpdate();
+
+        usersBloc.dispatch(GotUsers(users: users));
         yield TalkLoaded(talks: talks);
       } catch (e) {
         errorBloc.dispatch(GetError(error: e.toString()));
@@ -59,7 +70,6 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
     }
     if (event is SendMessage) {
       talkRepo.sendMessage(event.msg);
-      yield currentState;
     }
     if (event is GotTalks) {
       try {
@@ -74,8 +84,11 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
             }
             return result;
           }).toList();
+          talkRepo.setTalks(talks: event.talks, db: db);
+
           yield TalkLoaded(talks: event.talks + talksOld);
         } else {
+          talkRepo.setTalks(talks: event.talks, db: db);
           yield TalkLoaded(talks: event.talks);
         }
       } catch (e) {
@@ -86,19 +99,21 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
 
   Future<void> handleMessage(String msg) async {
     print(msg);
-    if (msg.startsWith('!!!')) {
+    if (msg.startsWith('!')) {
+      return;
+    } else if (msg.startsWith('!!!')) {
       final str = msg.substring(4);
       if (str.length == 0) {
-        return null;
+        return;
       }
       errorBloc.dispatch(GetError(error: str));
-    }
-    if (msg.startsWith('/')) {
+      return;
+    } else if (msg.startsWith('/')) {
       final index = msg.indexOf(" ");
       final cmd = msg.substring(0, index);
       final str = msg.substring(index);
       if (str.length == 0) {
-        return null;
+        return;
       }
       switch (cmd) {
         case '/msg':
@@ -107,11 +122,48 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
         case "/talks":
           gotTalks(str);
           break;
+        case "/users":
+          gotUsers(str);
+          break;
+        case "/relation":
+          gotUsers(str);
+          break;
       }
+      return;
+    }
+    final data = jsonDecode(msg);
+    switch (data['typ']) {
+      case "relation":
+        gotRelation(data);
+        break;
+      case 'message':
+        gotMsg(data);
+        break;
+      case "talks":
+        gotTalks(data);
+        break;
+      case "users":
+        gotUsers(data);
+        break;
     }
   }
 
-  void gotTalks(String msg) {
+  Future<void> gotUsers(String msg) {
+    final data = jsonDecode(msg) as List;
+    final result = data.map((rawUser) {
+      return User(
+          id: rawUser['id'],
+          username: rawUser['username'],
+          email: rawUser['email'],
+          avatarUrl: rawUser['avatarUrl'],
+          signature: rawUser['signature']);
+    }).toList();
+
+    usersBloc.dispatch(GotUsers(users: result));
+    return null;
+  }
+
+  Future<void> gotTalks(String msg) {
     final data = jsonDecode(msg) as List;
     final result = data.map((rawTalk) {
       return Talk(
@@ -124,14 +176,20 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
           users: rawTalk['users'].cast<int>());
     }).toList();
 
-    talkRepo.setTalks(talks: result, db: db);
     dispatch(GotTalks(talks: result));
+    return null;
   }
 
-  void gotMsg(String msg) {
+  Future<void> gotRelation(Map map) {
+    final friends = map['friends'].cast<int>();
+    usersBloc.dispatch(GotRelations(friends: friends));
+    return null;
+  }
+
+  Future<void> gotMsg(String msg) {
     final data = jsonDecode(msg) as List;
     final result = data.map((msg) {
-      // ToDo: use substring to handle date time as flutter doesn't support nano seconds date time for now.
+      // ToDo: use substring to handle date time as flutter doesn't support parsing nanoseconds.
       final String time = (msg['time'] as String).substring(0, 26);
       return Message(
           talkId: msg['talk_id'],
@@ -140,7 +198,8 @@ class TalkBloc extends Bloc<TalkEvent, TalkState> with env {
           msg: msg['msg']);
     }).toList();
 
-    messageBloc.dispatch(GotMessage(msg: result));
+    messageBloc.dispatch(GotHistory(msg: result));
     //ToDo: update talk last reply and unread reply count.
+    return null;
   }
 }

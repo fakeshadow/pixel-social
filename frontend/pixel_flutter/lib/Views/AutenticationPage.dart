@@ -84,7 +84,7 @@ class _AuthenticationPageState extends State<AuthenticationPage>
                         content: Text(userState.error),
                         backgroundColor: Colors.deepOrange,
                       ));
-                      _userBloc.dispatch(UserInit());
+                      _userBloc.dispatch(LoadUser());
                     }
                   },
                   child: Stack(children: <Widget>[

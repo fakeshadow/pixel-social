@@ -33,8 +33,18 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> with env {
   Stream<MessageState> mapEventToState(
     MessageEvent event,
   ) async* {
-
-    if (event is GotMessage) {
+    if (event is GotNew) {
+      try {
+        if (currentState is MessageLoaded) {
+          yield MessageLoaded(
+              msg: (currentState as MessageLoaded).msg + event.msg);
+          return;
+        }
+      } catch (e) {
+        errorBloc.dispatch(GetError(error: e.toString()));
+      }
+    }
+    if (event is GotHistory) {
       try {
         if (currentState is MessageUninitialized) {
           yield MessageLoaded(msg: event.msg);
@@ -42,7 +52,7 @@ class MessageBloc extends Bloc<MessageEvent, MessageState> with env {
         }
         if (currentState is MessageLoaded) {
           yield MessageLoaded(
-              msg: (currentState as MessageLoaded).msg + event.msg);
+              msg: event.msg + (currentState as MessageLoaded).msg);
           return;
         }
       } catch (e) {

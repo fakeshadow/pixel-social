@@ -11,6 +11,7 @@ import 'package:pixel_flutter/blocs/UserBloc/UserState.dart';
 import 'package:pixel_flutter/blocs/UserBloc/UserEvent.dart';
 import 'package:pixel_flutter/blocs/Repo/UserRepo.dart';
 
+// user bloc will dispatch talk init to talk bloc which will load talks,friends and unread messages.
 class UserBloc extends Bloc<UserEvent, UserState> {
   final TalkBloc talkBloc;
   final ErrorBloc errorBloc;
@@ -22,7 +23,7 @@ class UserBloc extends Bloc<UserEvent, UserState> {
 
   @override
   Stream<UserState> mapEventToState(UserEvent event) async* {
-    if (event is UserInit) {
+    if (event is LoadUser) {
       yield Loading();
       final user = await UserRepo.getSelf(db: db)
           .catchError((e) => errorBloc.dispatch(GetError(error: e)));

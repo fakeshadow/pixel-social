@@ -48,12 +48,10 @@ impl FromSimpleRow for User {
             signature: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            is_admin: row.get(8).map(|s| s.parse::<u32>()).unwrap()?,
-            is_blocked: if row.get(9) == Some("f") { false } else { true },
-            is_activate: if row.get(10) == Some("f") { false } else { true },
-            show_email: if row.get(11) == Some("f") { false } else { true },
-            show_created_at: if row.get(12) == Some("f") { false } else { true },
-            show_updated_at: if row.get(13) == Some("f") { false } else { true },
+            privilege: row.get(8).map(|s| s.parse::<u32>()).unwrap()?,
+            show_email: if row.get(9) == Some("f") { false } else { true },
+            show_created_at: if row.get(10) == Some("f") { false } else { true },
+            show_updated_at: if row.get(11) == Some("f") { false } else { true },
         })
     }
 }
@@ -202,12 +200,10 @@ impl FromRow for User {
             signature: row.get(5),
             created_at: row.get(6),
             updated_at: row.get(7),
-            is_admin: row.get(8),
-            is_blocked: row.get(9),
-            is_activate: row.get(10),
-            show_email: row.get(11),
-            show_created_at: row.get(12),
-            show_updated_at: row.get(13),
+            privilege: row.get(8),
+            show_email: row.get(9),
+            show_created_at: row.get(10),
+            show_updated_at: row.get(11),
         }
     }
 }
@@ -396,7 +392,7 @@ fn auth_response_from_simple_row(
     let _ = hash::verify_password(pass, hash)?;
 
     let user: User = FromSimpleRow::from_row(row)?;
-    let token = jwt::JwtPayLoad::new(user.id, user.is_admin, user.is_blocked, user.is_activate).sign()?;
+    let token = jwt::JwtPayLoad::new(user.id, user.privilege).sign()?;
 
     Ok(AuthResponse { token, user })
 }

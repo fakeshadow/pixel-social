@@ -6,12 +6,14 @@ abstract class MessageEvent extends Equatable {
   MessageEvent([List props = const []]) : super(props);
 }
 
-class Init extends MessageEvent {
-
-}
-
-class GotMessage extends MessageEvent {
+class GotNew extends MessageEvent {
   final List<Message> msg;
 
-  GotMessage({this.msg}) : super([msg]);
+  GotNew({this.msg}) : super([msg]);
+}
+
+class GotHistory extends MessageEvent {
+  final List<Message> msg;
+
+  GotHistory({this.msg}) : super([msg]);
 }

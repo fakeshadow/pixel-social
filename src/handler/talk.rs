@@ -25,6 +25,7 @@ use crate::handler::{
 };
 
 impl TalkService {
+    // ToDo: add online offline filter
     fn send_message_many(&mut self, id: u32, msg: &str) {
         if let Some(talk) = self.get_talk(&id) {
             for uid in talk.users.iter() {
@@ -138,6 +139,17 @@ pub struct RemoveUser {
 }
 
 #[derive(Message, Deserialize)]
+pub struct GetRelation {
+    pub session_id: Option<u32>,
+}
+
+#[derive(Message, Deserialize)]
+pub struct GetUsers {
+    pub session_id: Option<u32>,
+    user_id: Vec<u32>,
+}
+
+#[derive(Message, Deserialize)]
 pub struct GetTalks {
     pub session_id: Option<u32>,
     pub talk_id: u32,
@@ -158,6 +170,12 @@ pub struct ClientMessage<'a> {
     pub time: &'a NaiveDateTime,
     pub user_id: Option<&'a u32>,
     pub talk_id: Option<&'a u32>,
+}
+
+#[derive(Serialize)]
+struct SendRelation<'a> {
+    typ: &'a str,
+    friends: Vec<u32>,
 }
 
 #[derive(Deserialize, Message)]
@@ -276,7 +294,7 @@ impl Handler<Connect> for TalkService {
             .lock()
             .map_err(|_| ())
             .map(|mut t| {
-                let _ = msg.addr.do_send(SessionMessage("Authentication success".to_owned()));
+                let _ = msg.addr.do_send(SessionMessage("! Authentication success".to_owned()));
                 t.insert(msg.session_id, msg.addr);
             });
     }
@@ -376,6 +394,38 @@ impl Handler<GetTalks> for TalkService {
             }
             None => self.send_message(&msg.session_id.unwrap(), "!!! Talk not found")
         }
+    }
+}
+
+
+impl Handler<GetRelation> for TalkService {
+    type Result = ();
+    fn handle(&mut self, msg: GetRelation, ctx: &mut Context<Self>) {
+        let f = self.db
+            .as_mut()
+            .unwrap()
+            // ToDo: add query for relations table for user friends.
+            .query(self.get_relations.as_ref().unwrap(), &[msg.session_id.as_ref().unwrap()])
+            .into_future()
+            .into_actor(self)
+            .then(move |r, act, _| match r {
+                Ok((r, _)) => {
+                    if let Some(r) = r {
+                        let s = serde_json::to_string(&SendRelation {
+                            typ: "relation",
+                            friends: r.get(1),
+                        }).unwrap_or("!!! Stringify Error".to_owned());
+
+                        let _ = act.send_message(msg.session_id.as_ref().unwrap(), &s.as_str());
+                    };
+                    fut::ok(())
+                }
+                Err((_, _)) => {
+                    let _ = act.send_message(msg.session_id.as_ref().unwrap(), "!!! Database error");
+                    fut::ok(())
+                }
+            });
+        ctx.spawn(f);
     }
 }
 
