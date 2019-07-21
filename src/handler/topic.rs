@@ -2,7 +2,7 @@ use std::fmt::Write;
 use futures::{Future, future::err as ft_err};
 
 use actix::prelude::*;
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
 
 use crate::model::{
     actors::DatabaseService,
@@ -10,26 +10,15 @@ use crate::model::{
     common::GlobalGuard,
     errors::ServiceError,
     topic::Topic,
-    post::Post,
 };
-use crate::handler::db::{query_one_with_id, query_multi_with_id, query_one_simple, query_one};
+use crate::handler::db::{query_multi_with_id, query_one_simple, query_one};
 
-const LIMIT: i64 = 20;
 
 pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
 
 pub struct UpdateTopic(pub TopicRequest);
 
-pub enum GetTopicWithPosts {
-    Oldest(u32, i64),
-    Popular(u32, i64),
-}
-
-pub enum GetTopics {
-    Latest(Vec<u32>, i64),
-    Popular(Vec<u32>, i64),
-    PopularAll(i64),
-}
+pub struct GetTopics(pub Vec<u32>);
 
 impl Message for AddTopic {
     type Result = Result<Topic, ServiceError>;
@@ -39,38 +28,8 @@ impl Message for UpdateTopic {
     type Result = Result<Topic, ServiceError>;
 }
 
-impl Message for GetTopicWithPosts {
-    type Result = Result<(Topic, Vec<Post>, Vec<u32>), ServiceError>;
-}
-
 impl Message for GetTopics {
     type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
-}
-
-impl Handler<GetTopicWithPosts> for DatabaseService {
-    type Result = ResponseFuture<(Topic, Vec<Post>, Vec<u32>), ServiceError>;
-
-    fn handle(&mut self, msg: GetTopicWithPosts, _: &mut Self::Context) -> Self::Result {
-        let (stp, tid, page) = match msg {
-            GetTopicWithPosts::Popular(tid, page) =>
-                (self.posts_popular.as_ref().unwrap(), tid, page),
-            GetTopicWithPosts::Oldest(tid, page) =>
-                (self.posts_old.as_ref().unwrap(), tid, page)
-        };
-
-        let c = self.db.as_mut().unwrap();
-        let stt = self.topic_by_id.as_ref().unwrap();
-        let offset = (page - 1) * LIMIT;
-
-        let f = query_one_with_id(c, stt, &[&tid])
-            .join(query_multi_with_id(c, stp, &[&tid, &offset]))
-            .map(|((t, uid), (p, mut ids))| {
-                ids.push(uid);
-                (t, p, ids)
-            });
-
-        Box::new(f)
-    }
 }
 
 impl Handler<AddTopic> for DatabaseService {
@@ -82,23 +41,20 @@ impl Handler<AddTopic> for DatabaseService {
             Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
         };
         let t = msg.0;
-        let now = Utc::now().naive_local();
+        let now = &Utc::now().naive_local();
 
-        let f =
-            query_one(self.db.as_mut().unwrap(),
-                      self.insert_topic.as_ref().unwrap(),
-                      &[&id,
-                          &t.user_id.unwrap(),
-                          &t.category_id,
-                          &t.thumbnail.unwrap(),
-                          &t.title.unwrap(),
-                          &t.body.unwrap(),
-                          &now,
-                          &now,
-                          &now
-                      ]);
-
-        Box::new(f)
+        Box::new(query_one(
+            self.db.as_mut().unwrap(),
+            self.insert_topic.as_ref().unwrap(),
+            &[&id,
+                &t.user_id.unwrap(),
+                &t.category_id,
+                &t.thumbnail.unwrap(),
+                &t.title.unwrap(),
+                &t.body.unwrap(),
+                now,
+                now,
+                now]))
     }
 }
 
@@ -122,7 +78,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         if let Some(s) = t.is_locked {
             let _ = write!(&mut query, " is_locked={},", s);
         }
-// update update_at or return err as the query is empty.
+        // update update_at or return err as the query is empty.
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at=DEFAULT");
         } else {
@@ -144,32 +100,23 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        let f = match msg {
-            GetTopics::Latest(cid, page) =>
-                query_multi_with_id(
+        Box::new(
+            query_multi_with_id(
                 self.db.as_mut().unwrap(),
-                self.topics_latest.as_ref().unwrap(),
-                &[&cid, &((page - 1) * 20)]),
-
-            GetTopics::Popular(cid, page) => {
-                let yesterday = Utc::now().timestamp() - 86400;
-                let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
-
-                query_multi_with_id(
-                    self.db.as_mut().unwrap(),
-                    self.topics_popular.as_ref().unwrap(),
-                    &[&cid, &yesterday, &((page - 1) * 20)])
-            }
-            GetTopics::PopularAll(page) => {
-                let yesterday = Utc::now().timestamp() - 86400;
-                let yesterday = NaiveDateTime::from_timestamp(yesterday, 0);
-
-                query_multi_with_id(
-                    self.db.as_mut().unwrap(),
-                    self.topics_popular_all.as_ref().unwrap(),
-                    &[&yesterday, &((page - 1) * 20)])
-            }
-        };
-        Box::new(f)
+                self.topics_by_id.as_ref().unwrap(),
+                &[&msg.0])
+                .map(move |(mut t, uids): (Vec<Topic>, Vec<u32>)| {
+                    let mut result = Vec::with_capacity(t.len());
+                    for i in 0..msg.0.len() {
+                        for j in 0..t.len() {
+                            if msg.0[i] == t[j].id {
+                                result.push(t.swap_remove(j));
+                                break;
+                            }
+                        }
+                    }
+                    (result, uids)
+                })
+        )
     }
 }

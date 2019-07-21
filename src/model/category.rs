@@ -7,10 +7,13 @@ use crate::model::{
 pub struct Category {
     pub id: u32,
     pub name: String,
-    pub topic_count: i32,
-    pub post_count: i32,
-    pub subscriber_count: i32,
     pub thumbnail: String,
+    // fields below stored only in redis. return None when querying database.
+    pub topic_count: Option<u32>,
+    pub post_count: Option<u32>,
+    // new is last 24 hrs
+    pub topic_count_new: Option<u32>,
+    pub post_count_new: Option<u32>,
 }
 
 #[derive(Deserialize)]

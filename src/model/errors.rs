@@ -36,7 +36,7 @@ pub enum ServiceError {
     #[display(fmt = "Internal Server Error")]
     PARSE,
     #[display(fmt = "NoContent")]
-    NoCache,
+    NoContent,
 }
 
 impl ResponseError for ServiceError {
@@ -45,7 +45,7 @@ impl ResponseError for ServiceError {
             ServiceError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ServiceError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ServiceError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
-            ServiceError::NoCache => HttpResponse::NoContent().json("No cache found"),
+            ServiceError::NoContent => HttpResponse::NoContent().finish(),
             ServiceError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username already taken")),
             ServiceError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
             ServiceError::InvalidUsername => HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username")),

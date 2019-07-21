@@ -33,6 +33,7 @@ use crate::handler::{
     talk::Disconnect,
 };
 
+// websocket heartbeat and connection time out time.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -44,12 +45,8 @@ pub type MAILER = Addr<MailService>;
 
 pub struct DatabaseService {
     pub db: Option<Client>,
-    pub topics_latest: Option<Statement>,
-    pub topics_popular: Option<Statement>,
-    pub topics_popular_all: Option<Statement>,
-    pub topic_by_id: Option<Statement>,
-    pub posts_popular: Option<Statement>,
-    pub posts_old: Option<Statement>,
+    pub topics_by_id: Option<Statement>,
+    pub posts_by_id: Option<Statement>,
     pub users_by_id: Option<Statement>,
     pub insert_topic: Option<Statement>,
     pub insert_post: Option<Statement>,
@@ -137,12 +134,8 @@ impl DatabaseService {
         DatabaseService::create(move |ctx| {
             let addr = DatabaseService {
                 db: None,
-                topics_latest: None,
-                topics_popular: None,
-                topics_popular_all: None,
-                topic_by_id: None,
-                posts_popular: None,
-                posts_old: None,
+                topics_by_id: None,
+                posts_by_id: None,
                 users_by_id: None,
                 insert_topic: None,
                 insert_post: None,
@@ -152,59 +145,32 @@ impl DatabaseService {
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("SELECT * FROM topics
-                        WHERE category_id = ANY($1)
-                        ORDER BY last_reply_time DESC
-                        OFFSET $2
-                        LIMIT 20");
-                    let p2 = db.prepare("SELECT * FROM topics
-                        WHERE last_reply_time > $2 AND category_id = ANY($1)
-                        ORDER BY reply_count DESC, last_reply_time DESC
-                        OFFSET $3
-                        LIMIT 20");
-                    let p3 = db.prepare("SELECT * FROM topics
-                        WHERE last_reply_time > $1
-                        ORDER BY reply_count DESC, last_reply_time DESC
-                        OFFSET $2
-                        LIMIT 20");
-                    let p4 = db.prepare("SELECT * FROM topics WHERE id = $1");
-                    let p5 = db.prepare("SELECT * FROM posts
-                        WHERE topic_id = $1
-                        ORDER BY reply_count DESC, id ASC
-                        OFFSET $2
-                        LIMIT 20");
-                    let p6 = db.prepare("SELECT * FROM posts
-                        WHERE topic_id = $1
-                        ORDER BY id ASC
-                        OFFSET $2
-                        LIMIT 20");
-                    let p7 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
-                    let p8 = db.prepare("INSERT INTO posts
+                    let p1 = db.prepare("SELECT * FROM topics WHERE id = ANY($1)");
+                    let p2 = db.prepare("SELECT * FROM posts WHERE id = ANY($1)");
+                    let p3 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                    let p4 = db.prepare("INSERT INTO posts
                             (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at, last_reply_time)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                             RETURNING *");
-                    let p9 = db.prepare("INSERT INTO topics
+                    let p5 = db.prepare("INSERT INTO topics
                         (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         RETURNING *");
-                    let p10 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+                    let p6 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
                         VALUES ($1, $2, $3, $4, $5, $6)
                         RETURNING *");
 
-                    ctx.wait(join_all(vec![p10, p9, p8, p7, p6, p5, p4, p3, p2, p1])
+                    ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
                         .map_err(|_| panic!("query prepare failed"))
                         .into_actor(addr)
                         .and_then(|mut v, addr, _| {
-                            addr.topics_latest = v.pop();
-                            addr.topics_popular = v.pop();
-                            addr.topics_popular_all = v.pop();
-                            addr.topic_by_id = v.pop();
-                            addr.posts_popular = v.pop();
-                            addr.posts_old = v.pop();
+                            addr.topics_by_id = v.pop();
+                            addr.posts_by_id = v.pop();
                             addr.users_by_id = v.pop();
                             addr.insert_post = v.pop();
                             addr.insert_topic = v.pop();
                             addr.insert_user = v.pop();
+
                             fut::ok(())
                         })
                     );
@@ -238,6 +204,10 @@ impl CacheService {
                 .wait(ctx);
             addr
         })
+    }
+
+    pub fn get_conn(&self) -> SharedConn {
+        self.cache.as_ref().unwrap().clone()
     }
 }
 
@@ -296,7 +266,7 @@ impl TalkService {
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message) VALUES ($1, $2)");
+                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message, time) VALUES ($1, $2, $3)");
                     let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, message) VALUES ($1, $2, $3)");
                     let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
                     let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
@@ -353,7 +323,6 @@ impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                act.addr.do_send(Disconnect { session_id: act.id });
                 ctx.stop();
                 return;
             }

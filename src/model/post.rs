@@ -17,8 +17,8 @@ pub struct Post {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
     pub is_locked: bool,
+    pub reply_count: Option<u32>,
 }
 
 #[derive(Deserialize)]

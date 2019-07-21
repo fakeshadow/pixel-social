@@ -134,14 +134,8 @@ impl Handler<UpdateUser> for DatabaseService {
         if let Some(s) = u.signature.as_ref() {
             let _ = write!(&mut query, " signature = '{}',", s);
         }
-        if let Some(s) = u.show_created_at.as_ref() {
-            let _ = write!(&mut query, " show_created_at = {},", s);
-        }
         if let Some(s) = u.show_email.as_ref() {
             let _ = write!(&mut query, " show_email = {},", s);
-        }
-        if let Some(s) = u.show_updated_at.as_ref() {
-            let _ = write!(&mut query, " show_updated_at = {},", s);
         }
         if let Some(s) = u.privilege.as_ref() {
             let _ = write!(&mut query, " privilege = {},", s);

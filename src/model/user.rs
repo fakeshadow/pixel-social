@@ -6,7 +6,7 @@ use crate::model::{
     common::{GetSelfId, Validator},
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct User {
     pub id: u32,
     pub username: String,
@@ -17,11 +17,12 @@ pub struct User {
     pub avatar_url: String,
     pub signature: String,
     pub created_at: NaiveDateTime,
-    pub updated_at: NaiveDateTime,
+    // privilege level : 0 is blocked, 1 is not active, 2 is normal user, 3 and above is admin level.
     pub privilege: u32,
     pub show_email: bool,
-    pub show_created_at: bool,
-    pub show_updated_at: bool,
+    // online_status and last_online are stored in redis only. return None when querying database.
+    pub online_status: Option<u32>,
+    pub last_online: Option<NaiveDateTime>,
 }
 
 fn default_password() -> String {
@@ -36,12 +37,11 @@ pub struct UserRef<'a> {
     pub email: Option<&'a str>,
     pub avatar_url: &'a str,
     pub signature: &'a str,
-    pub created_at: Option<&'a NaiveDateTime>,
-    pub updated_at: Option<&'a NaiveDateTime>,
+    pub created_at: &'a NaiveDateTime,
     pub privilege: &'a u32,
     pub show_email: &'a bool,
-    pub show_created_at: &'a bool,
-    pub show_updated_at: &'a bool,
+    pub online_status: Option<&'a u32>,
+    pub last_online: Option<&'a NaiveDateTime>,
 }
 
 impl User {
@@ -58,20 +58,17 @@ pub trait ToUserRef {
 impl ToUserRef for User {
     fn to_ref(&self) -> UserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
-        let created_at = if self.show_created_at { Some(&self.created_at) } else { None };
-        let updated_at = if self.show_updated_at { Some(&self.updated_at) } else { None };
         UserRef {
             id: &self.id,
             username: self.username.as_str(),
             email,
             avatar_url: self.avatar_url.as_str(),
             signature: self.signature.as_str(),
-            created_at,
-            updated_at,
+            created_at: &self.created_at,
             privilege: &self.privilege,
             show_email: &self.show_email,
-            show_created_at: &self.show_created_at,
-            show_updated_at: &self.show_updated_at,
+            online_status: self.online_status.as_ref(),
+            last_online: self.last_online.as_ref(),
         }
     }
 }
@@ -131,8 +128,6 @@ pub struct UpdateRequest {
     pub signature: Option<String>,
     pub privilege: Option<u32>,
     pub show_email: Option<bool>,
-    pub show_created_at: Option<bool>,
-    pub show_updated_at: Option<bool>,
 }
 
 impl UpdateRequest {
@@ -148,8 +143,6 @@ impl UpdateRequest {
                 self.avatar_url = None;
                 self.signature = None;
                 self.show_email = None;
-                self.show_created_at = None;
-                self.show_updated_at = None;
                 self
             }
         }
@@ -163,8 +156,6 @@ impl UpdateRequest {
             signature: None,
             privilege: Some(2),
             show_email: None,
-            show_created_at: None,
-            show_updated_at: None,
         }
     }
 }

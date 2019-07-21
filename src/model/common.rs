@@ -3,14 +3,15 @@ use std::{
     sync::{Arc, RwLock, Mutex},
 };
 
-use actix::prelude::Recipient;
+use actix::prelude::Addr;
 
 use crate::model::{
     errors::ServiceError,
-    talk::{Talk, SessionMessage},
+    talk::Talk,
     user::{ToUserRef, UserRef},
 };
 use crate::util::validation as validate;
+use crate::model::actors::WsChatSession;
 
 pub trait GetSelfCategory {
     fn self_category(&self) -> &u32;
@@ -98,7 +99,7 @@ pub trait Validator {
 
 // type and struct for global vars
 pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
-pub type GlobalSessionsGuard = Arc<Mutex<HashMap<u32, Recipient<SessionMessage>>>>;
+pub type GlobalSessionsGuard = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
 pub type GlobalTalksGuard = Arc<RwLock<HashMap<u32, Talk>>>;
 
 pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalksGuard, GlobalSessionsGuard) {
@@ -108,7 +109,7 @@ pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalksGuard, Glo
         talks.insert(t.id, t);
     }
 
-    (Arc::new(RwLock::new(talks)), Arc::new(Mutex::new(HashMap::new())))
+    (Arc::new(RwLock::new(talks)), Arc::new(RwLock::new(HashMap::new())))
 }
 
 #[derive(Clone, Debug)]

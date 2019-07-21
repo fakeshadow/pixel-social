@@ -1,22 +1,24 @@
-use futures::{Future};
-
-use actix_web::{Error, HttpResponse, web::{Data, }};
+use actix::prelude::Future;
+use actix_web::{Error, HttpResponse, web::Data};
 
 use crate::model::{
-    actors::{ DB, CACHE},
-    common::{GlobalGuard},
-    topic::{TopicRequest},
+    actors::{DB, CACHE},
+    common::GlobalGuard,
+    topic::TopicRequest,
 };
 use crate::handler::{
     topic::AddTopic,
     cache::AddedTopic,
 };
+use crate::model::post::PostRequest;
+use crate::handler::post::ModifyPost;
+use crate::handler::cache::AddedPost;
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json("hello world"))
 }
 
-pub fn test_global_var(
+pub fn add_topic(
     global: Data<GlobalGuard>,
     db: Data<DB>,
     cache: Data<CACHE>,
@@ -37,6 +39,31 @@ pub fn test_global_var(
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
             let _ = cache.do_send(AddedTopic(t));
+            res
+        })
+}
+
+pub fn add_post(
+    global: Data<GlobalGuard>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let req = PostRequest {
+        id: None,
+        user_id: Some(1),
+        topic_id: Some(1),
+        category_id: 1,
+        post_id: Some(1),
+        post_content: Some("t4265335423646e".to_owned()),
+        is_locked: None,
+    };
+    db.send(ModifyPost(req, Some(global.get_ref().clone())))
+        .from_err()
+        .and_then(|r| r)
+        .from_err()
+        .and_then(move |p| {
+            let res = HttpResponse::Ok().json(&p);
+            let _ = cache.do_send(AddedPost(p));
             res
         })
 }

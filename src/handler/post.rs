@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use futures::{Future, future::{err as ft_err}};
+use futures::{Future, future::err as ft_err};
 
 use actix::prelude::*;
 use chrono::Utc;
@@ -10,7 +10,7 @@ use crate::model::{
     common::GlobalGuard,
     post::{Post, PostRequest},
 };
-use crate::handler::db::{query_one, query_one_simple};
+use crate::handler::db::{query_one, query_one_simple, query_multi_with_id};
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
 
@@ -93,24 +93,23 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
-        let mut query = "SELECT * FROM posts
-        WHERE id= ANY('{".to_owned();
-
-        let len = msg.0.len();
-        for (i, p) in msg.0.iter().enumerate() {
-            if i < len - 1 {
-                let _ = write!(&mut query, "{},", p);
-            } else {
-                let _ = write!(&mut query, "{}", p);
-            }
-        }
-        query.push_str("}')");
-
-        Box::new(query_one_simple::<Post>(self.db.as_mut().unwrap(), &query)
-            .map(|p| {
-                let ids = vec![p.user_id];
-                (vec![p], ids)
-            }))
+        Box::new(
+            query_multi_with_id(
+                self.db.as_mut().unwrap(),
+                self.posts_by_id.as_ref().unwrap(),
+                &[&msg.0])
+                .map(move |(mut t, uids): (Vec<Post>, Vec<u32>)| {
+                    let mut result = Vec::with_capacity(t.len());
+                    for i in 0..msg.0.len() {
+                        for j in 0..t.len() {
+                            if msg.0[i] == t[j].id {
+                                result.push(t.swap_remove(j));
+                                break;
+                            }
+                        }
+                    }
+                    (result, uids)
+                }))
     }
 }
 

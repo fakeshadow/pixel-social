@@ -19,8 +19,8 @@ pub struct Topic {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub last_reply_time: NaiveDateTime,
-    pub reply_count: i32,
     pub is_locked: bool,
+    pub reply_count: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -90,6 +90,7 @@ impl<'a> TopicWithUser<'a> {
     pub fn new(t: &'a Vec<Topic>, u: &'a Vec<User>) -> Vec<Self> {
         t.iter().map(|t| t.attach_user(&u)).collect()
     }
+
 }
 
 #[derive(Serialize)]

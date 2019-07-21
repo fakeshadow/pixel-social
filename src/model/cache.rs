@@ -29,7 +29,6 @@ impl SortHash for Topic {
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
             ("last_reply_time", self.last_reply_time.to_string()),
-            ("reply_count", self.reply_count.to_string()),
             ("is_locked", self.is_locked.to_string())]
     }
 }
@@ -43,11 +42,8 @@ impl SortHash for User {
             ("avatar_url", self.avatar_url.to_owned()),
             ("signature", self.signature.to_owned()),
             ("created_at", self.created_at.to_string()),
-            ("updated_at", self.updated_at.to_string()),
             ("privilege", self.privilege.to_string()),
-            ("show_email", self.show_email.to_string()),
-            ("show_created_at", self.show_created_at.to_string()),
-            ("show_updated_at", self.show_updated_at.to_string())]
+            ("show_email", self.show_email.to_string())]
     }
 }
 
@@ -62,20 +58,15 @@ impl SortHash for Post {
              ("created_at", self.created_at.to_string()),
              ("updated_at", self.updated_at.to_string()),
              ("last_reply_time", self.last_reply_time.to_string()),
-             ("reply_count", self.reply_count.to_string()),
              ("is_locked", self.is_locked.to_string())]
     }
 }
 
 impl SortHash for Category {
     fn sort_hash(&self) -> Vec<(&str, String)> {
-        vec![
-            ("id", self.id.to_string()),
-            ("name", self.name.to_owned()),
-            ("topic_count", self.topic_count.to_string()),
-            ("post_count", self.post_count.to_string()),
-            ("subscriber_count", self.subscriber_count.to_string()),
-            ("thumbnail", self.thumbnail.to_owned())]
+        vec![("id", self.id.to_string()),
+             ("name", self.name.to_owned()),
+             ("thumbnail", self.thumbnail.to_owned())]
     }
 }
 
@@ -115,13 +106,64 @@ impl Parser for HashMap<String, String> {
     }
 }
 
-pub trait FromHashSet
-    where Self: Sized {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Self, ServiceError>;
+pub trait ParserMulti {
+    fn skip(&self) -> Result<(), ServiceError>;
+    fn parse_string(&self, key: &str) -> Result<String, ServiceError>;
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError>;
+    fn parse_other<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
+    fn parse_other_perm<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
+    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ServiceError>;
 }
 
-impl FromHashSet for Post {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Post, ServiceError> {
+impl ParserMulti for (HashMap<String, String>, HashMap<String, String>) {
+    fn skip(&self) -> Result<(), ServiceError> {
+        if self.0.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
+    }
+    fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
+        Ok(self.0.get(key).ok_or(ServiceError::InternalServerError)?.to_owned())
+    }
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
+        Ok(NaiveDateTime::parse_from_str(self.0.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
+    }
+    fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
+        where K: FromStr {
+        self.0.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
+    }
+    fn parse_other_perm<K>(&self, key: &str) -> Result<K, ServiceError>
+        where K: FromStr {
+        self.1.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
+    }
+    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ServiceError> {
+        FromHashSetMulti::from_hash(self)
+    }
+}
+
+pub trait FromHashSetMulti
+    where Self: Sized {
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Self, ServiceError>;
+}
+
+impl FromHashSetMulti for Topic {
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Topic, ServiceError> {
+        hash.skip()?;
+        Ok(Topic {
+            id: hash.parse_other::<u32>("id")?,
+            user_id: hash.parse_other::<u32>("user_id")?,
+            category_id: hash.parse_other::<u32>("category_id")?,
+            title: hash.parse_string("title")?,
+            body: hash.parse_string("body")?,
+            thumbnail: hash.parse_string("thumbnail")?,
+            created_at: hash.parse_date("created_at")?,
+            updated_at: hash.parse_date("updated_at")?,
+            last_reply_time: hash.parse_date("last_reply_time")?,
+            is_locked: hash.parse_other::<bool>("is_locked")?,
+            reply_count: hash.parse_other_perm::<u32>("reply_count").ok(),
+        })
+    }
+}
+
+impl FromHashSetMulti for Post {
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Post, ServiceError> {
         hash.skip()?;
         let post_id = match hash.parse_other::<u32>("post_id").ok() {
             Some(id) => if id == 0 { None } else { Some(id) },
@@ -137,29 +179,15 @@ impl FromHashSet for Post {
             created_at: hash.parse_date("created_at")?,
             updated_at: hash.parse_date("updated_at")?,
             last_reply_time: hash.parse_date("last_reply_time")?,
-            reply_count: hash.parse_other::<i32>("reply_count")?,
             is_locked: hash.parse_other::<bool>("is_locked")?,
+            reply_count: hash.parse_other_perm::<u32>("reply_count").ok(),
         })
     }
 }
 
-impl FromHashSet for Topic {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Topic, ServiceError> {
-        hash.skip()?;
-        Ok(Topic {
-            id: hash.parse_other::<u32>("id")?,
-            user_id: hash.parse_other::<u32>("user_id")?,
-            category_id: hash.parse_other::<u32>("category_id")?,
-            title: hash.parse_string("title")?,
-            body: hash.parse_string("body")?,
-            thumbnail: hash.parse_string("thumbnail")?,
-            created_at: hash.parse_date("created_at")?,
-            updated_at: hash.parse_date("updated_at")?,
-            last_reply_time: hash.parse_date("last_reply_time")?,
-            reply_count: hash.parse_other::<i32>("reply_count")?,
-            is_locked: hash.parse_other::<bool>("is_locked")?,
-        })
-    }
+pub trait FromHashSet
+    where Self: Sized {
+    fn from_hash(hash: &HashMap<String, String>) -> Result<Self, ServiceError>;
 }
 
 impl FromHashSet for User {
@@ -173,11 +201,10 @@ impl FromHashSet for User {
             avatar_url: hash.parse_string("avatar_url")?,
             signature: hash.parse_string("signature")?,
             created_at: hash.parse_date("created_at")?,
-            updated_at: hash.parse_date("updated_at")?,
             privilege: hash.parse_other::<u32>("privilege")?,
             show_email: hash.parse_other::<bool>("show_email")?,
-            show_created_at: hash.parse_other::<bool>("show_created_at")?,
-            show_updated_at: hash.parse_other::<bool>("show_updated_at")?,
+            online_status: hash.parse_other::<u32>("online_status").ok(),
+            last_online: hash.parse_date("last_online").ok(),
         })
     }
 }
@@ -188,10 +215,11 @@ impl FromHashSet for Category {
         Ok(Category {
             id: hash.parse_other::<u32>("id")?,
             name: hash.parse_string("name")?,
-            topic_count: hash.parse_other::<i32>("topic_count")?,
-            post_count: hash.parse_other::<i32>("post_count")?,
-            subscriber_count: hash.parse_other::<i32>("subscriber_count")?,
             thumbnail: hash.parse_string("thumbnail")?,
+            topic_count: hash.parse_other::<u32>("topic_count").ok(),
+            post_count: hash.parse_other::<u32>("post_count").ok(),
+            topic_count_new: hash.parse_other::<u32>("topic_count_new").ok(),
+            post_count_new: hash.parse_other::<u32>("post_count_new").ok(),
         })
     }
 }

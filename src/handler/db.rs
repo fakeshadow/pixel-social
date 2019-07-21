@@ -47,11 +47,10 @@ impl FromSimpleRow for User {
             avatar_url: row.get(4).ok_or(ServiceError::InternalServerError)?.to_owned(),
             signature: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            privilege: row.get(8).map(|s| s.parse::<u32>()).unwrap()?,
-            show_email: if row.get(9) == Some("f") { false } else { true },
-            show_created_at: if row.get(10) == Some("f") { false } else { true },
-            show_updated_at: if row.get(11) == Some("f") { false } else { true },
+            privilege: row.get(7).map(|s| s.parse::<u32>()).unwrap()?,
+            show_email: if row.get(8) == Some("f") { false } else { true },
+            online_status: None,
+            last_online: None,
         })
     }
 }
@@ -72,8 +71,8 @@ impl FromSimpleRow for Post {
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             last_reply_time: row.get(8).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            reply_count: row.get(9).map(|s| s.parse::<i32>()).unwrap()?,
-            is_locked: if row.get(10) == Some("f") { false } else { true },
+            is_locked: if row.get(9) == Some("f") { false } else { true },
+            reply_count: None,
         })
     }
 }
@@ -90,8 +89,8 @@ impl FromSimpleRow for Topic {
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             last_reply_time: row.get(8).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            reply_count: row.get(9).map(|s| s.parse::<i32>()).unwrap()?,
-            is_locked: if row.get(10) == Some("f") { false } else { true },
+            is_locked: if row.get(9) == Some("f") { false } else { true },
+            reply_count: None,
         })
     }
 }
@@ -101,10 +100,11 @@ impl FromSimpleRow for Category {
         Ok(Category {
             id: row.get(0).map(|s| s.parse::<u32>()).unwrap()?,
             name: row.get(1).ok_or(ServiceError::InternalServerError)?.to_owned(),
-            topic_count: row.get(2).map(|s| s.parse::<i32>()).unwrap()?,
-            post_count: row.get(3).map(|s| s.parse::<i32>()).unwrap()?,
-            subscriber_count: row.get(4).map(|s| s.parse::<i32>()).unwrap()?,
-            thumbnail: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
+            thumbnail: row.get(2).ok_or(ServiceError::InternalServerError)?.to_owned(),
+            topic_count: None,
+            post_count: None,
+            topic_count_new: None,
+            post_count_new: None,
         })
     }
 }
@@ -184,7 +184,7 @@ impl FromRow for Talk {
             privacy: row.get(4),
             owner: row.get(5),
             admin: row.get(6),
-            users:row.get(7),
+            users: row.get(7),
         }
     }
 }
@@ -199,11 +199,10 @@ impl FromRow for User {
             avatar_url: row.get(4),
             signature: row.get(5),
             created_at: row.get(6),
-            updated_at: row.get(7),
-            privilege: row.get(8),
-            show_email: row.get(9),
-            show_created_at: row.get(10),
-            show_updated_at: row.get(11),
+            privilege: row.get(7),
+            show_email: row.get(8),
+            online_status: None,
+            last_online: None,
         }
     }
 }
@@ -220,8 +219,8 @@ impl FromRow for Post {
             created_at: row.get(6),
             updated_at: row.get(7),
             last_reply_time: row.get(8),
-            reply_count: row.get(9),
-            is_locked: row.get(10),
+            is_locked: row.get(9),
+            reply_count: None
         }
     }
 }
@@ -238,8 +237,8 @@ impl FromRow for Topic {
             created_at: row.get(6),
             updated_at: row.get(7),
             last_reply_time: row.get(8),
-            reply_count: row.get(9),
-            is_locked: row.get(10),
+            is_locked: row.get(9),
+            reply_count: None,
         }
     }
 }
@@ -255,21 +254,6 @@ pub fn query_one<T>(
         .from_err()
         .and_then(|(r, _)| match r {
             Some(row) => Ok(FromRow::from_row(&row)),
-            None => Err(ServiceError::BadRequest)
-        })
-}
-
-pub fn query_one_with_id<T>(
-    c: &mut Client,
-    st: &Statement,
-    p: &[&dyn ToSql],
-) -> impl Future<Item=(T, u32), Error=ServiceError>
-    where T: FromRow {
-    c.query(st, p)
-        .into_future()
-        .from_err()
-        .and_then(|(r, _)| match r {
-            Some(row) => Ok((FromRow::from_row(&row), row.get(1))),
             None => Err(ServiceError::BadRequest)
         })
 }

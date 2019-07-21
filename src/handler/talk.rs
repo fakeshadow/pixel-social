@@ -2,20 +2,21 @@ use std::fmt::Write;
 use std::collections::HashMap;
 
 use actix::prelude::{
+    Addr,
     ActorFuture,
     AsyncContext,
     Context,
     fut,
     Handler,
     Message,
-    Recipient,
     Stream,
     WrapFuture,
 };
 use chrono::{NaiveDateTime, Utc};
+use redis::cmd;
 
 use crate::model::{
-    actors::TalkService,
+    actors::{TalkService, WsChatSession},
     errors::ServiceError,
     talk::{Talk, SessionMessage},
 };
@@ -54,8 +55,8 @@ impl TalkService {
         }
     }
 
-    fn get_session(&self, session_id: &u32) -> Option<Recipient<SessionMessage>> {
-        match self.sessions.lock() {
+    fn get_session(&self, session_id: &u32) -> Option<Addr<WsChatSession>> {
+        match self.sessions.read() {
             Ok(s) => s
                 .get(session_id)
                 .map(|addr| addr.clone()),
@@ -100,10 +101,17 @@ struct HistoryMessage {
     pub message: String,
 }
 
+#[derive(Deserialize)]
+pub struct Auth {
+    pub token: String,
+    pub online_status: u32,
+}
+
 #[derive(Message)]
 pub struct Connect {
     pub session_id: u32,
-    pub addr: Recipient<SessionMessage>,
+    pub online_status: u32,
+    pub addr: Addr<WsChatSession>,
 }
 
 #[derive(Message)]
@@ -203,11 +211,21 @@ pub struct Admin {
 impl Handler<Disconnect> for TalkService {
     type Result = ();
 
-    fn handle(&mut self, msg: Disconnect, _: &mut Context<Self>) {
+    fn handle(&mut self, msg: Disconnect, ctx: &mut Context<Self>) {
         let _ = self.sessions
-            .lock()
+            .write()
             .map_err(|_| self.send_message(&msg.session_id, "!!! Disconnect failed"))
-            .map(|mut t| t.remove(&msg.session_id));
+            .map(|mut t| {
+                let f = cmd("HMSET").arg(&format!("user:{}:set", msg.session_id))
+                    .arg(&[("online_status", 0.to_string()), ("last_online", Utc::now().naive_local().to_string())])
+                    .query_async(self.cache.as_ref().unwrap().clone())
+                    .into_actor(self)
+                    .map_err(|_, _, _| ())
+                    .map(|(_, ()), _, _| ());
+                ctx.spawn(f);
+
+                t.remove(&msg.session_id)
+            });
     }
 }
 
@@ -216,7 +234,6 @@ impl Handler<GotMessages> for TalkService {
 
     fn handle(&mut self, msg: GotMessages, ctx: &mut Context<Self>) {
         // ToDo: batch insert messages to database.
-        //ToDo: add time stamp before inserting
 
         match msg.talk_id {
             Some(id) => {
@@ -224,7 +241,7 @@ impl Handler<GotMessages> for TalkService {
                 ctx.spawn(self.db
                     .as_mut()
                     .unwrap()
-                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&id, &msg.msg])
+                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&id, &msg.msg, &now])
                     .into_future()
                     .into_actor(self)
                     .then(move |r, act, _| match r {
@@ -289,11 +306,18 @@ impl Handler<GotMessages> for TalkService {
 impl Handler<Connect> for TalkService {
     type Result = ();
 
-    fn handle(&mut self, msg: Connect, _: &mut Context<Self>) {
+    fn handle(&mut self, msg: Connect, ctx: &mut Context<Self>) {
         let _ = self.sessions
-            .lock()
+            .write()
             .map_err(|_| ())
             .map(|mut t| {
+                let f = cmd("HMSET").arg(&format!("user:{}:set", msg.session_id))
+                    .arg(&[("online_status", msg.online_status.to_string())])
+                    .query_async(self.cache.as_ref().unwrap().clone())
+                    .into_actor(self)
+                    .map_err(|_, _, _| ())
+                    .map(|(_, ()), _, _| ());
+                ctx.spawn(f);
                 let _ = msg.addr.do_send(SessionMessage("! Authentication success".to_owned()));
                 t.insert(msg.session_id, msg.addr);
             });
@@ -490,7 +514,7 @@ impl Handler<GetTalkUsers> for TalkService {
 
         if let Some(addr) = self.get_session(&session_id) {
             if let Some(talk) = self.get_talk(&msg.talk_id) {
-                let f = get_users(self.cache.as_ref().unwrap().clone(), talk.users)
+                let f = get_users(self.cache.as_ref().unwrap().clone(), &talk.users)
                     .into_actor(self)
                     .then(move |r, _, _| {
                         match r {

@@ -18,6 +18,7 @@ use crate::model::{
 };
 use crate::handler::{
     talk::{
+        Auth,
         Connect,
         Create,
         Delete,
@@ -180,18 +181,23 @@ fn general_msg_handler<'a, T>(
 
 fn auth(
     session: &mut WsChatSession,
-    string: &str,
+    text: &str,
     ctx: &mut ws::WebsocketContext<WsChatSession>,
 ) {
-    match JwtPayLoad::from(string) {
-        Ok(j) => {
-            session.id = j.user_id;
-            let _ = session.addr
-                .do_send(Connect {
+    println!("{}", text);
+    let r: Result<Auth, _> = serde_json::from_str(text);
+    match r {
+        Ok(auth) => match JwtPayLoad::from(&auth.token) {
+            Ok(j) => {
+                session.id = j.user_id;
+                let _ = session.addr.do_send(Connect {
                     session_id: session.id,
-                    addr: ctx.address().recipient(),
+                    online_status: auth.online_status,
+                    addr: ctx.address(),
                 });
-        }
-        Err(_) => ctx.text("!!! Authentication failed")
+            }
+            Err(_) => ctx.text("!!! Authentication failed")
+        },
+        Err(_) => ctx.text("!!! Query parsing error")
     }
 }

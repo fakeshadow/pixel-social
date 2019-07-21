@@ -40,14 +40,13 @@ fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let redis_url = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1".to_owned());
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
 
     // create or clear database tables
     let args: Vec<String> = env::args().collect();
-
     for arg in args.iter() {
         if arg == "drop" {
             drop_table(&database_url);
@@ -64,8 +63,10 @@ fn main() -> std::io::Result<()> {
 
     let sys = System::new("PixelShare");
 
-    // mail service is not passed into data as we add mail queue into redis cache directly.
+    // mail service and cache update service are not passed into data.
+    // mail is added directly into redis when registering and changing password.
     let _ = MailService::connect(&redis_url);
+    // cache for sorting popular categories and topics run with a 10 seconds interval.
     let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {
@@ -120,11 +121,12 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/activation/{uuid}").route(web::get().to_async(router::user::activation)))
             .service(web::scope("/test")
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
-                .service(web::resource("/lock").route(web::get().to_async(router::test::test_global_var)))
+                .service(web::resource("/topic").route(web::get().to_async(router::test::add_topic)))
+                .service(web::resource("/post").route(web::get().to_async(router::test::add_post)))
             )
             .service(web::resource("/upload").route(web::post().to_async(router::stream::upload_file)))
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
-    }).bind(format!("{}:{}", &server_ip, &server_port))?.start();
+    }).bind(format!("{}:{}", &server_ip, &server_port))?.workers(12).start();
     sys.run()
 }
