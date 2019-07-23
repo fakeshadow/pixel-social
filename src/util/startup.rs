@@ -107,6 +107,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
             sets.push((t.id, t.category_id, t.reply_count.unwrap_or(0), t.last_reply_time));
             if t.id > last_tid { last_tid = t.id };
         }
+
         let _ = rt.block_on(build_topics_cache_list(sets, c_cache.clone())).unwrap_or_else(|_| panic!("Failed to build category sets"));
         let key = format!("category:{}:list", &cat.id);
         let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));

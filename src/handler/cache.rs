@@ -33,19 +33,15 @@ use crate::model::{
     mail::Mail,
 };
 
-lazy_static! {
-    static ref BASETIME:NaiveDateTime = NaiveDateTime::parse_from_str("2019-07-20 2:33:33.666666", "%Y-%m-%d %H:%M:%S%.f").unwrap();
-}
-
 // page offsets of list query
 const LIMIT: isize = 20;
 
-// add to pid when zadd topic:{}:post_rely
-const POST_LEX_BASE: u32 = 1000000000;
+// use LEX_BASE minus pid and tid before adding to zrange.
+const LEX_BASE: u32 = std::u32::MAX;
 // list_pop update interval time gap in seconds
-const LIST_TIME_GAP: Duration = Duration::from_secs(10);
+const LIST_TIME_GAP: Duration = Duration::from_secs(5);
 // trim list_pop interval time gap
-const TRIM_LIST_TIME_GAP: Duration = Duration::from_secs(3600);
+const TRIM_LIST_TIME_GAP: Duration = Duration::from_secs(1800);
 // hash life is expire time of topic and post hash in seconds.
 const HASH_LIFE: usize = 172800;
 // mail life is expire time of mail hash in seconds
@@ -60,7 +56,7 @@ impl CacheUpdateService {
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
                         let conn = act.cache.as_ref().unwrap().clone();
-                        let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
+                        let yesterday = Utc::now().timestamp_millis() - 86400000;
                         let mut vec = Vec::new();
 
                         for c in cat.iter() {
@@ -86,7 +82,7 @@ impl CacheUpdateService {
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
                         let conn = act.cache.as_ref().unwrap().clone();
-                        let yesterday = Utc::now().timestamp_millis() - BASETIME.timestamp_millis() - 86400000;
+                        let yesterday = Utc::now().timestamp_millis() - 86400000;
                         let mut vec = Vec::new();
 
                         for c in cat.iter() {
@@ -119,10 +115,13 @@ pub enum GetTopicCache {
 
 pub struct GetPostsCache(pub Vec<u32>);
 
+#[derive(Message)]
 pub struct AddedTopic(pub Topic);
 
+#[derive(Message)]
 pub struct AddedPost(pub Post);
 
+#[derive(Message)]
 pub struct AddedCategory(pub Category);
 
 pub struct RemoveCategoryCache(pub u32);
@@ -162,17 +161,6 @@ impl Message for GetPostsCache {
     type Result = Result<(Vec<Post>, Vec<User>), ServiceError>;
 }
 
-impl Message for AddedTopic {
-    type Result = Result<(), ServiceError>;
-}
-
-impl Message for AddedPost {
-    type Result = Result<(), ServiceError>;
-}
-
-impl Message for AddedCategory {
-    type Result = Result<(), ServiceError>;
-}
 
 impl Message for AddMail {
     type Result = Result<(), ServiceError>;
@@ -215,43 +203,47 @@ impl Handler<GetCategoriesCache> for CacheService {
 }
 
 impl Handler<AddedTopic> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddedTopic, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddedTopic, ctx: &mut Self::Context) -> Self::Result {
         let t = msg.0;
         let tid = t.id;
         let cid = t.category_id;
-        let time = t.last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
-        let count = t.reply_count;
+        let time = t.last_reply_time.timestamp_millis();
 
         let mut pipe = pipe();
         pipe.atomic();
         let key = format!("topic:{}:set", t.self_id());
         pipe.cmd("HMSET").arg(key.as_str()).arg(t.sort_hash()).ignore()
             .cmd("EXPIRE").arg(key.as_str()).arg(HASH_LIFE).ignore()
+            .cmd("HINCRBY").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(0).ignore()
+
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
-            .cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
-            .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
-            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
-            .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore();
 
-        Box::new(pipe
+            .cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
+            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
+            .cmd("ZINCRBY").arg("category:all:topics_reply").arg(0).arg(tid).ignore()
+            .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(0).arg(tid).ignore();
+
+        let f = pipe
             .query_async(self.get_conn())
-            .from_err()
-            .map(|(_, ())| ()))
+            .into_actor(self)
+            .map_err(|_, _, _| ())
+            .map(|(_, ()), _, _| ());
+
+        ctx.spawn(f);
     }
 }
 
 impl Handler<AddedPost> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddedPost, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddedPost, ctx: &mut Self::Context) -> Self::Result {
         let p = msg.0;
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
-        let count = p.reply_count;
         let time = p.last_reply_time;
         let time_string = time.to_string();
 
@@ -259,40 +251,47 @@ impl Handler<AddedPost> for CacheService {
         pipe.atomic();
 
         let post_key = format!("post:{}:set", pid);
-        let time = time.timestamp_millis() - BASETIME.timestamp_millis();
+        let time = time.timestamp_millis();
 
-        pipe.cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
+        pipe.cmd("HMSET").arg(post_key.as_str()).arg(p.sort_hash()).ignore()
+            .cmd("EXPIRE").arg(post_key.as_str()).arg(HASH_LIFE).ignore()
+            .cmd("HINCRBY").arg(&format!("post:{}:set_perm", pid)).arg("reply_count").arg(0).ignore()
+
+            .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
             .cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
             .cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid).ignore()
-            .cmd("HMSET").arg(post_key.as_str()).arg(p.sort_hash()).ignore()
-            .cmd("EXPIRE").arg(post_key.as_str()).arg(HASH_LIFE).ignore()
+
             .cmd("HINCRBY").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(1).ignore()
             .cmd("HSET").arg(&format!("topic:{}:set", tid)).arg("last_reply_time").arg(&time_string).ignore()
-            .cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(POST_LEX_BASE - pid).ignore()
+
+            .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(0).arg(LEX_BASE - pid).ignore()
+
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg("XX").arg(time).arg(tid).ignore()
-            .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_time").arg("XX").arg(time).arg(tid).ignore()
+            .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
             .cmd("ZINCRBY").arg("category:all:topics_reply").arg(1).arg(tid).ignore()
+
             .cmd("ZADD").arg(&format!("category:{}:posts_time", cid)).arg(time).arg(pid).ignore();
 
         if let Some(pid) = p.post_id {
             pipe.cmd("HSET").arg(&format!("post:{}:set", pid)).arg("last_reply_time").arg(&time_string).ignore()
                 .cmd("HINCRBY").arg(&format!("post:{}:set_perm", pid)).arg("reply_count").arg(1).ignore()
-                .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(POST_LEX_BASE - pid).ignore();
+                .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(LEX_BASE - pid).ignore();
         }
 
-        Box::new(pipe
+        ctx.spawn(pipe
             .query_async(self.get_conn())
-            .from_err()
-            .map(|(_, ())| ()))
+            .into_actor(self)
+            .map_err(|_, _, _| ())
+            .map(|(_, ()), _, _| ()));
     }
 }
 
 impl Handler<AddedCategory> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddedCategory, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddedCategory, ctx: &mut Self::Context) -> Self::Result {
         let c = msg.0;
         let mut pipe = pipe();
         pipe.atomic();
@@ -300,10 +299,11 @@ impl Handler<AddedCategory> for CacheService {
         pipe.cmd("HMSET").arg(&format!("category:{}:set", c.id)).arg(c.sort_hash());
         let f = pipe
             .query_async(self.get_conn())
-            .from_err()
-            .map(|(_, ())| ());
+            .into_actor(self)
+            .map_err(|_, _, _| ())
+            .map(|(_, ()), _, _| ());
 
-        Box::new(f)
+        ctx.spawn(f);
     }
 }
 
@@ -352,14 +352,12 @@ impl Handler<GetTopicCache> for CacheService {
             }
 
             GetTopicCache::Popular(tid, page) => {
-                let count_key = format!("topic:{}:posts_reply", tid);
-                let start = ((page - 1) * 20) as usize;
                 let f = cmd("zrevrangebyscore")
-                    .arg(&count_key)
+                    .arg(&format!("topic:{}:posts_reply", tid))
                     .arg("+inf")
                     .arg("-inf")
                     .arg("LIMIT")
-                    .arg(start)
+                    .arg(((page - 1) * 20) as usize)
                     .arg(20)
                     .query_async(self.get_conn())
                     .map_err(|_| None)
@@ -367,7 +365,7 @@ impl Handler<GetTopicCache> for CacheService {
                         if ids.len() == 0 {
                             return Either::A(fut_err(None));
                         }
-                        let ids = ids.into_iter().map(|id| POST_LEX_BASE - id).collect::<Vec<u32>>();
+                        let ids = ids.into_iter().map(|id| LEX_BASE - id).collect::<Vec<u32>>();
                         let e = Some(ids.clone());
 
                         Either::B(get_cache_multi_with_id(&ids, "post", conn)
@@ -583,10 +581,11 @@ fn update_list(
     let mut pip = pipe();
     pip.atomic();
 
-    pip.cmd("zrevrangebyscore")
+    pip.cmd("ZREVRANGEBYSCORE")
         .arg(&time_key)
         .arg("+inf")
         .arg(yesterday)
+        .arg("WITHSCORES")
         .cmd("ZREVRANGEBYSCORE")
         .arg(&reply_key)
         .arg("+inf")
@@ -595,45 +594,31 @@ fn update_list(
 
     pip.query_async(conn)
         .from_err()
-        .and_then(move |(conn, (tids, mut counts)): (_, (Vec<u32>, Vec<(u32, u32)>))| {
-            let len = counts.len();
-            let topic_count_new = tids.len();
-
-            let mut temp = Vec::with_capacity(len);
-            let mut vec = Vec::with_capacity(len);
-
-            // sort two ranged scores with the last_reply_time desc and reply_count desc.
-
-            for tid in tids.into_iter() {
-                for j in 0..counts.len() {
-                    if tid == counts[j].0 {
-                        let l = temp.len();
-                        if l == 0 {
-                            vec.push(tid);
-                            temp.push(counts.swap_remove(j));
-                        } else {
-                            for k in 0..l {
-                                if counts[j].1 > temp[k].1 {
-                                    let k = if k > 1 { k - 1 } else { 0 };
-                                    vec.insert(k, tid);
-                                    temp.insert(k, counts.swap_remove(j));
-                                    break;
-                                } else {
-                                    vec.push(tid);
-                                    temp.push(counts.swap_remove(j));
-                                    break;
-                                }
-                            }
-                        };
-                        break;
+        .and_then(move |(conn, (tids, mut counts)): (_, (HashMap<u32, i64>, Vec<(u32, u32)>))| {
+            use std::cmp::Ordering;
+            counts.sort_by(|a, b| {
+                if a.1 == b.1 {
+                    if let Some(a) = tids.get(&a.0) {
+                        if let Some(b) = tids.get(&b.0) {
+                            if a > b {
+                                return Ordering::Less;
+                            } else if a < b {
+                                return Ordering::Greater;
+                            };
+                        }
                     }
+                    Ordering::Equal
+                } else {
+                    Ordering::Greater
                 }
-            }
+            });
 
-            let mut pipe = pipe();
-            pipe.atomic();
+            let vec: Vec<u32> = counts.into_iter().map(|(id, _)| id).collect();
 
             if vec.len() > 0 {
+                let mut pipe = pipe();
+                pipe.atomic();
+
                 pipe.cmd("del")
                     .arg(&list_key)
                     .ignore()
@@ -641,20 +626,22 @@ fn update_list(
                     .arg(&list_key)
                     .arg(vec)
                     .ignore();
-            }
 
-            // update topic_count_new
-            if let Some(key) = set_key {
-                pipe.cmd("HSET")
-                    .arg(&key)
-                    .arg("topic_count_new")
-                    .arg(topic_count_new)
-                    .ignore();
-            }
+                // update topic_count_new
+                if let Some(key) = set_key {
+                    pipe.cmd("HSET")
+                        .arg(&key)
+                        .arg("topic_count_new")
+                        .arg(tids.len())
+                        .ignore();
+                }
 
-            pipe.query_async(conn)
-                .from_err()
-                .map(|(_, ())| ())
+                Either::A(pipe.query_async(conn)
+                    .from_err()
+                    .map(move |(_, ())| ()))
+            } else {
+                Either::B(fut_err(ServiceError::InternalServerError))
+            }
         })
 }
 
@@ -949,7 +936,7 @@ pub fn build_topics_cache_list(
     pipe.atomic();
 
     for (tid, cid, count, last_reply_time) in vec.into_iter() {
-        let time = last_reply_time.timestamp_millis() - BASETIME.timestamp_millis();
+        let time = last_reply_time.timestamp_millis();
         pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
@@ -971,7 +958,7 @@ pub fn build_posts_cache_list(
     pipe.atomic();
 
     for (tid, pid, count) in vec.into_iter() {
-        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(POST_LEX_BASE - pid).ignore()
+        pipe.cmd("ZADD").arg(&format!("topic:{}:posts_reply", tid)).arg(count).arg(LEX_BASE - pid).ignore()
             // set post's reply count to perm key that never expire.
             .cmd("HSET").arg(&format!("post:{}:set_perm", pid)).arg("reply_count").arg(count).ignore();
     }

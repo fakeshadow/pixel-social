@@ -1,9 +1,9 @@
 use std::{
-    collections::HashMap,
     sync::{Arc, RwLock, Mutex},
 };
 
 use actix::prelude::Addr;
+use hashbrown::HashMap;
 
 use crate::model::{
     errors::ServiceError,

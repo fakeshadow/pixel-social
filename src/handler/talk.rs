@@ -1,5 +1,4 @@
 use std::fmt::Write;
-use std::collections::HashMap;
 
 use actix::prelude::{
     Addr,
@@ -13,6 +12,7 @@ use actix::prelude::{
     WrapFuture,
 };
 use chrono::{NaiveDateTime, Utc};
+use hashbrown::HashMap;
 use redis::cmd;
 
 use crate::model::{
