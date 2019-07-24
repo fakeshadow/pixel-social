@@ -23,13 +23,12 @@ use tokio_postgres::{
     Statement,
     tls::NoTls,
 };
-use lettre::SmtpTransport;
 
 use crate::model::{
-    common::{GlobalTalksGuard, GlobalSessionsGuard}
+    common::{GlobalTalksGuard, GlobalSessionsGuard},
+    mail::{Mailer, Twilio},
 };
 use crate::handler::{
-    email::generate_mailer,
     talk::Disconnect,
 };
 
@@ -76,7 +75,8 @@ pub struct CacheUpdateService {
 
 pub struct MailService {
     pub cache: Option<SharedConn>,
-    pub mailer: Option<SmtpTransport>,
+    pub mailer: Mailer,
+    pub twilio: Option<Twilio>,
 }
 
 pub struct WsChatSession {
@@ -111,6 +111,7 @@ impl Actor for MailService {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.process_mail(ctx);
+        self.process_sms(ctx);
     }
 }
 
@@ -149,12 +150,12 @@ impl DatabaseService {
                     let p2 = db.prepare("SELECT * FROM posts WHERE id = ANY($1)");
                     let p3 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
                     let p4 = db.prepare("INSERT INTO posts
-                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at, last_reply_time)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             RETURNING *");
                     let p5 = db.prepare("INSERT INTO topics
-                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at, last_reply_time)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         RETURNING *");
                     let p6 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
                         VALUES ($1, $2, $3, $4, $5, $6)
@@ -294,6 +295,10 @@ impl TalkService {
             addr
         })
     }
+
+    pub fn get_conn(&self) -> SharedConn {
+        self.cache.as_ref().unwrap().clone()
+    }
 }
 
 impl MailService {
@@ -303,7 +308,8 @@ impl MailService {
         MailService::create(move |ctx| {
             let addr = MailService {
                 cache: None,
-                mailer: generate_mailer(),
+                mailer: Self::generate_mailer(),
+                twilio: Self::generate_twilio(),
             };
 
             client.get_shared_async_connection()
@@ -316,6 +322,10 @@ impl MailService {
                 .wait(ctx);
             addr
         })
+    }
+
+    pub fn get_conn(&self) -> SharedConn {
+        self.cache.as_ref().unwrap().clone()
     }
 }
 

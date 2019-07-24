@@ -5,7 +5,7 @@ pub mod topic;
 pub mod user;
 pub mod stream;
 pub mod talk;
-pub mod email;
+pub mod messenger;
 pub mod cache;
 pub mod admin;
 

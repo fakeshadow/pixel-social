@@ -28,7 +28,6 @@ impl SortHash for Topic {
             ("thumbnail", self.thumbnail.to_owned()),
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
-            ("last_reply_time", self.last_reply_time.to_string()),
             ("is_locked", self.is_locked.to_string())]
     }
 }
@@ -57,7 +56,6 @@ impl SortHash for Post {
              ("post_content", self.post_content.to_owned()),
              ("created_at", self.created_at.to_string()),
              ("updated_at", self.updated_at.to_string()),
-             ("last_reply_time", self.last_reply_time.to_string()),
              ("is_locked", self.is_locked.to_string())]
     }
 }
@@ -155,7 +153,7 @@ impl FromHashSetMulti for Topic {
             thumbnail: hash.parse_string("thumbnail")?,
             created_at: hash.parse_date("created_at")?,
             updated_at: hash.parse_date("updated_at")?,
-            last_reply_time: hash.parse_date("last_reply_time")?,
+            last_reply_time: hash.parse_date("last_reply_time").ok(),
             is_locked: hash.parse_other::<bool>("is_locked")?,
             reply_count: hash.parse_other_perm::<u32>("reply_count").ok(),
         })
@@ -178,7 +176,7 @@ impl FromHashSetMulti for Post {
             post_content: hash.parse_string("post_content")?,
             created_at: hash.parse_date("created_at")?,
             updated_at: hash.parse_date("updated_at")?,
-            last_reply_time: hash.parse_date("last_reply_time")?,
+            last_reply_time: hash.parse_date("last_reply_time").ok(),
             is_locked: hash.parse_other::<bool>("is_locked")?,
             reply_count: hash.parse_other_perm::<u32>("reply_count").ok(),
         })

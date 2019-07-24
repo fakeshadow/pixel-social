@@ -12,120 +12,10 @@ use crate::handler::{
     user::GetUsers,
     post::GetPosts,
     topic::{AddTopic, UpdateTopic, GetTopics},
-    cache::{AddedTopic, UpdateCache, GetTopicCache, GetUsersCache},
+    cache::{AddedTopic, UpdateCache, GetTopicCache, GetTopicsCache, GetUsersCache},
 };
-
-pub fn get_oldest(
-    req: Path<(u32, i64)>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    let (tid, page) = req.into_inner();
-    get(tid, page, GetTopicCache::Old(tid, page), db, cache)
-}
-
-pub fn get_popular(
-    req: Path<(u32, i64)>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    let (tid, page) = req.into_inner();
-    get(tid, page, GetTopicCache::Popular(tid, page), db, cache)
-}
-
-fn get(
-    tid: u32,
-    page: i64,
-    msg: GetTopicCache,
-    db: Data<DB>,
-    cache: Data<CACHE>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.send(msg)
-        .from_err()
-        .and_then(move |r| match r {
-            Err(ids) => {
-                if let Some(ids) = ids {
-                    return Either::B(db
-                        .send(GetPosts(ids))
-                        .from_err()
-                        .and_then(|r| r)
-                        .from_err()
-                        .and_then(move |(p, mut u)| {
-                            if page == 1 {
-                                Either::A(db
-                                    .send(GetTopics(vec![tid]))
-                                    .from_err()
-                                    .and_then(|r| r)
-                                    .from_err()
-                                    .and_then(move |(t, mut ut)| {
-                                        u.append(&mut ut);
-                                        cache.send(GetUsersCache(u))
-                                            .from_err()
-                                            .and_then(move |r| match r {
-                                                Ok(u) => {
-                                                    let res = HttpResponse::Ok().json(TopicWithPost::new(t.first(), &p, &u));
-                                                    let _ = cache.do_send(UpdateCache::Topic(t));
-                                                    let _ = cache.do_send(UpdateCache::Post(p));
-                                                    println!("topics and posts from db");
-                                                    Either::A(ft_ok(res))
-                                                }
-                                                Err(ids) => Either::B(db
-                                                    .send(GetUsers(ids))
-                                                    .from_err()
-                                                    .and_then(|r| r)
-                                                    .from_err()
-                                                    .and_then(move |u| {
-                                                        let res = HttpResponse::Ok().json(TopicWithPost::new(None, &p, &u));
-                                                        let _ = cache.do_send(UpdateCache::Topic(t));
-                                                        let _ = cache.do_send(UpdateCache::Post(p));
-                                                        let _ = cache.do_send(UpdateCache::User(u));
-                                                        println!("topics,posts and users from db");
-                                                        res
-                                                    })
-                                                )
-                                            })
-                                    })
-                                )
-                            } else {
-                                Either::B(cache
-                                    .send(GetUsersCache(u))
-                                    .from_err()
-                                    .and_then(move |r| match r {
-                                        Ok(u) => {
-                                            let res = HttpResponse::Ok().json(TopicWithPost::new(None, &p, &u));
-                                            let _ = cache.do_send(UpdateCache::Post(p));
-                                            println!("posts from db");
-
-                                            Either::A(ft_ok(res))
-                                        }
-                                        Err(ids) => Either::B(db
-                                            .send(GetUsers(ids))
-                                            .from_err()
-                                            .and_then(|r| r)
-                                            .from_err()
-                                            .and_then(move |u| {
-                                                let res = HttpResponse::Ok().json(TopicWithPost::new(None, &p, &u));
-                                                let _ = cache.do_send(UpdateCache::Post(p));
-                                                let _ = cache.do_send(UpdateCache::User(u));
-                                                println!("posts and users from db");
-                                                res
-                                            })
-                                        )
-                                    })
-                                )
-                            }
-                        })
-                    );
-                }
-
-                Either::A(ft_ok(ServiceError::NoContent.render_response()))
-            }
-            Ok((t, p, u)) => {
-                let topic = if page == 1 { Some(&t) } else { None };
-                Either::A(ft_ok(HttpResponse::Ok().json(TopicWithPost::new(topic, &p, &u))))
-            }
-        })
-}
+use crate::model::post::Post;
+use crate::model::topic::Topic;
 
 pub fn add(
     jwt: UserJwt,
@@ -175,4 +65,131 @@ pub fn update(
                 let _ = cache.do_send(UpdateCache::Topic(vec![t]));
                 res
             }))
+}
+
+pub fn get_oldest(
+    req: Path<(u32, i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let (tid, page) = req.into_inner();
+    get(tid, page, GetTopicCache::Old(tid, page), db, cache)
+}
+
+pub fn get_popular(
+    req: Path<(u32, i64)>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    let (tid, page) = req.into_inner();
+    get(tid, page, GetTopicCache::Popular(tid, page), db, cache)
+}
+
+fn get(
+    tid: u32,
+    page: i64,
+    msg: GetTopicCache,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    cache.send(msg)
+        .from_err()
+        .and_then(move |r| match r {
+            Ok((p, ids)) => Either::A({
+                if page == 1 {
+                    Either::A(get_topic_attach_user_form_res(db, cache, tid, ids, p, false))
+                } else {
+                    Either::B(attach_user_form_res(db, cache, ids, vec![], p, false, false))
+                }
+            }),
+            Err(e) => Either::B(match e {
+                ServiceError::IdsFromCache(ids) => Either::B(db
+                    .send(GetPosts(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |(p, ids)| {
+                        if page == 1 {
+                            Either::A(get_topic_attach_user_form_res(db, cache, tid, ids, p, true))
+                        } else {
+                            Either::B(attach_user_form_res(db, cache, ids, vec![], p, false, true))
+                        }
+                    })),
+                _ => Either::A(ft_ok(e.render_response()))
+            })
+        })
+}
+
+fn get_topic_attach_user_form_res(
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    tid: u32,
+    mut ids: Vec<u32>,
+    p: Vec<Post>,
+    update_p: bool,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    cache.send(GetTopicsCache::Ids(vec![tid]))
+        .from_err()
+        .and_then(move |r| match r {
+            Ok((t, mut id)) => {
+                ids.append(&mut id);
+                Either::A(attach_user_form_res(db, cache, ids, t, p, false, update_p))
+            }
+            Err(e) => Either::B(match e {
+                ServiceError::IdsFromCache(tids) => Either::A(db
+                    .send(GetTopics(tids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |(t, mut id)| {
+                        ids.append(&mut id);
+                        attach_user_form_res(db, cache, ids, t, p, true, update_p)
+                    })
+                ),
+                _ => Either::B(ft_ok(e.render_response()))
+            })
+        })
+}
+
+
+fn attach_user_form_res(
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    ids: Vec<u32>,
+    t: Vec<Topic>,
+    p: Vec<Post>,
+    update_t: bool,
+    update_p: bool,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    cache.send(GetUsersCache(ids))
+        .from_err()
+        .and_then(move |r| match r {
+            Ok(u) => {
+                let res = HttpResponse::Ok().json(TopicWithPost::new(t.first(), &p, &u));
+                if update_t {
+                    let _ = cache.do_send(UpdateCache::Topic(t));
+                }
+                if update_p {
+                    let _ = cache.do_send(UpdateCache::Post(p));
+                }
+                Either::A(ft_ok(res))
+            }
+            Err(ids) => Either::B(db
+                .send(GetUsers(ids))
+                .from_err()
+                .and_then(|r| r)
+                .from_err()
+                .and_then(move |u| {
+                    let res = HttpResponse::Ok().json(TopicWithPost::new(t.first(), &p, &u));
+                    if update_t {
+                        let _ = cache.do_send(UpdateCache::Topic(t));
+                    }
+                    if update_p {
+                        let _ = cache.do_send(UpdateCache::Post(p));
+                    }
+                    let _ = cache.do_send(UpdateCache::User(u));
+                    res
+                })
+            )
+        })
 }

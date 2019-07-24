@@ -186,12 +186,6 @@ struct SendRelation<'a> {
     friends: Vec<u32>,
 }
 
-#[derive(Deserialize, Message)]
-pub struct GetTalkUsers {
-    pub session_id: Option<u32>,
-    pub talk_id: u32,
-}
-
 // pass talk id for talk public messages. pass none for private history message.
 #[derive(Deserialize, Message)]
 pub struct GetHistory {
@@ -421,6 +415,30 @@ impl Handler<GetTalks> for TalkService {
     }
 }
 
+impl Handler<GetUsers> for TalkService {
+    type Result = ();
+    fn handle(&mut self, msg: GetUsers, ctx: &mut Context<Self>) {
+        let session_id = msg.session_id.unwrap();
+        if let Some(addr) = self.get_session(&session_id) {
+            let f = get_users(self.get_conn(), &msg.user_id)
+                .into_actor(self)
+                .then(move |r, _, _| {
+                    match r {
+                        Ok(u) => {
+                            let string = serde_json::to_string(&u)
+                                .unwrap_or("failed to serialize users".to_owned());
+                            let _ = addr.do_send(SessionMessage(string));
+                        }
+                        Err(_) => {
+                            let _ = addr.do_send(SessionMessage("!!! Database error".to_owned()));
+                        }
+                    };
+                    fut::ok(())
+                });
+            ctx.spawn(f);
+        }
+    }
+}
 
 impl Handler<GetRelation> for TalkService {
     type Result = ();
@@ -506,35 +524,6 @@ impl Handler<GetHistory> for TalkService {
     }
 }
 
-impl Handler<GetTalkUsers> for TalkService {
-    type Result = ();
-
-    fn handle(&mut self, msg: GetTalkUsers, ctx: &mut Context<Self>) {
-        let session_id = msg.session_id.unwrap();
-
-        if let Some(addr) = self.get_session(&session_id) {
-            if let Some(talk) = self.get_talk(&msg.talk_id) {
-                let f = get_users(self.cache.as_ref().unwrap().clone(), &talk.users)
-                    .into_actor(self)
-                    .then(move |r, _, _| {
-                        match r {
-                            Ok(u) => {
-                                let string = serde_json::to_string(&u)
-                                    .unwrap_or("failed to serialize users".to_owned());
-                                let _ = addr.do_send(SessionMessage(string));
-                            }
-                            Err(_) => {
-                                let _ = addr.do_send(SessionMessage("!!! Database error".to_owned()));
-                            }
-                        };
-                        fut::ok(())
-                    });
-                ctx.spawn(f);
-            }
-        }
-    }
-}
-
 impl Handler<RemoveUser> for TalkService {
     type Result = ();
 
@@ -595,36 +584,20 @@ impl Handler<Admin> for TalkService {
         let tid = msg.talk_id;
         let id = msg.session_id.unwrap();
 
-        let t = match self.get_talk(&tid) {
-            Some(t) => t,
-            None => {
-                self.send_message(&id, "!!! Talk not found");
-                return;
-            }
-        };
-
         let mut query = "UPDATE talks SET admin=".to_owned();
 
         if let Some(uid) = msg.add {
-            if t.admin.contains(&uid) {
-                self.send_message(&id, "!!! User is admin already");
-                return;
-            }
             let _ = write!(&mut query, "array_append(admin, {})", uid);
         }
 
         if let Some(uid) = msg.remove {
-            if !t.admin.contains(&uid) {
-                self.send_message(&id, "!!! User is not admin");
-                return;
-            }
             let _ = write!(&mut query, "array_remove(admin, {})", uid);
         }
 
         if query.ends_with("=") {
+            self.send_message(&id, "!!! Empty request");
             return;
         }
-
         query.push_str(&format!(" WHERE id = {}", tid));
 
         let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)

@@ -2,7 +2,7 @@ use std::{
     time::Duration,
     collections::HashMap,
 };
-use futures::future::{err as fut_err, Either, join_all};
+use futures::future::{ok as ft_ok, err as ft_err, Either, join_all};
 
 use actix::prelude::{
     ActorFuture,
@@ -14,7 +14,7 @@ use actix::prelude::{
     ResponseFuture,
     WrapFuture,
 };
-use chrono::{NaiveDateTime, Utc};
+use chrono::{Utc, NaiveDateTime};
 use redis::{Client, cmd, pipe};
 
 use crate::{
@@ -35,7 +35,6 @@ use crate::model::{
 
 // page offsets of list query
 const LIMIT: isize = 20;
-
 // use LEX_BASE minus pid and tid before adding to zrange.
 const LEX_BASE: u32 = std::u32::MAX;
 // list_pop update interval time gap in seconds
@@ -60,6 +59,7 @@ impl CacheUpdateService {
                         let mut vec = Vec::new();
 
                         for c in cat.iter() {
+                            // update_list will also update topic count new.
                             vec.push(Either::A(update_list(Some(c.id), yesterday, conn.clone())));
                             vec.push(Either::B(update_post_count(c.id, yesterday, conn.clone())));
                         }
@@ -106,6 +106,7 @@ pub enum GetTopicsCache {
     Latest(u32, i64),
     Popular(u32, i64),
     PopularAll(i64),
+    Ids(Vec<u32>),
 }
 
 pub enum GetTopicCache {
@@ -124,8 +125,7 @@ pub struct AddedPost(pub Post);
 #[derive(Message)]
 pub struct AddedCategory(pub Category);
 
-pub struct RemoveCategoryCache(pub u32);
-
+#[derive(Message)]
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
     Post(Vec<T>),
@@ -133,11 +133,15 @@ pub enum UpdateCache<T> {
     Category(Vec<T>),
 }
 
+#[derive(Message)]
 pub enum DeleteCache {
     Mail(String),
 }
 
+#[derive(Message)]
 pub struct AddMail(pub Mail);
+
+pub struct RemoveCategoryCache(pub u32);
 
 pub struct ActivateUser(pub String);
 
@@ -150,47 +154,46 @@ impl Message for GetCategoriesCache {
 }
 
 impl Message for GetTopicsCache {
-    type Result = Result<(Vec<Topic>, Vec<User>), Option<Vec<u32>>>;
+    type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
 }
 
 impl Message for GetTopicCache {
-    type Result = Result<(Topic, Vec<Post>, Vec<User>), Option<Vec<u32>>>;
+    type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
 }
 
 impl Message for GetPostsCache {
     type Result = Result<(Vec<Post>, Vec<User>), ServiceError>;
 }
 
-
-impl Message for AddMail {
-    type Result = Result<(), ServiceError>;
-}
-
 impl Message for RemoveCategoryCache {
-    type Result = Result<(), ServiceError>;
-}
-
-impl Message for DeleteCache {
-    type Result = Result<(), ServiceError>;
-}
-
-impl<T> Message for UpdateCache<T> {
     type Result = Result<(), ServiceError>;
 }
 
 impl<T> Handler<UpdateCache<T>> for CacheService
     where T: GetSelfId + SortHash + 'static {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: UpdateCache<T>, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: UpdateCache<T>, ctx: &mut Self::Context) -> Self::Result {
         let conn = self.get_conn();
 
         match msg {
-            UpdateCache::Topic(vec) => Box::new(build_hmsets_expire(conn, vec, "topic")),
-            UpdateCache::Post(vec) => Box::new(build_hmsets_expire(conn, vec, "post")),
-            UpdateCache::User(vec) => Box::new(build_hmsets(conn, vec, "user")),
-            UpdateCache::Category(vec) => Box::new(build_hmsets(conn, vec, "category")),
-        }
+            UpdateCache::Topic(vec) => ctx.spawn(build_hmsets_expire(conn, vec, "topic")
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|_, _, _| ())),
+            UpdateCache::Post(vec) => ctx.spawn(build_hmsets_expire(conn, vec, "post")
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|_, _, _| ())),
+            UpdateCache::User(vec) => ctx.spawn(build_hmsets(conn, vec, "user")
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|_, _, _| ())),
+            UpdateCache::Category(vec) => ctx.spawn(build_hmsets(conn, vec, "category")
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|_, _, _| ()))
+        };
     }
 }
 
@@ -209,7 +212,7 @@ impl Handler<AddedTopic> for CacheService {
         let t = msg.0;
         let tid = t.id;
         let cid = t.category_id;
-        let time = t.last_reply_time.timestamp_millis();
+        let time = t.created_at.timestamp_millis();
 
         let mut pipe = pipe();
         pipe.atomic();
@@ -244,7 +247,7 @@ impl Handler<AddedPost> for CacheService {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
-        let time = p.last_reply_time;
+        let time = p.created_at;
         let time_string = time.to_string();
 
         let mut pipe = pipe();
@@ -308,51 +311,18 @@ impl Handler<AddedCategory> for CacheService {
 }
 
 impl Handler<GetTopicCache> for CacheService {
-    type Result = ResponseFuture<(Topic, Vec<Post>, Vec<User>), Option<Vec<u32>>>;
+    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicCache, _: &mut Self::Context) -> Self::Result {
         match msg {
-            GetTopicCache::Old(tid, page) => {
-                let list_key = format!("topic:{}:list", tid);
-                let start = (page as isize - 1) * 20;
-                let f = cmd("lrange")
-                    .arg(list_key)
-                    .arg(start)
-                    .arg(start + LIMIT - 1)
-                    .query_async(self.get_conn())
-                    .map_err(|_| None)
-                    .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
-                        if ids.len() == 0 {
-                            return Either::A(fut_err(None));
-                        }
-                        let e = Some(ids.clone());
-
-                        Either::B(get_cache_multi_with_id(&ids, "post", conn)
-                            .map_err(|_| e)
-                            .and_then(move |(p, mut uids, conn)| {
-                                let e = Some(ids.clone());
-                                get_cache_multi_with_id(&vec![tid], "topic", conn)
-                                    .map_err(|_| e)
-                                    .and_then(move |(mut t, _, conn): (Vec<Topic>, _, _)| {
-                                        let t = match t.pop() {
-                                            Some(t) => t,
-                                            None => return Either::A(fut_err(None))
-                                        };
-                                        uids.push(t.user_id);
-                                        uids.sort();
-                                        uids.dedup();
-                                        let e = Some(ids.clone());
-                                        Either::B(get_users(conn, &uids)
-                                            .map_err(|_| e)
-                                            .map(|u| (t, p, u)))
-                                    })
-                            }))
-                    });
-                Box::new(f)
-            }
-
-            GetTopicCache::Popular(tid, page) => {
-                let f = cmd("zrevrangebyscore")
+            GetTopicCache::Old(tid, page) => Box::new(
+                topics_posts_from_list(
+                    page,
+                    &format!("topic:{}:list", tid),
+                    "post",
+                    self.get_conn())),
+            GetTopicCache::Popular(tid, page) => Box::new(
+                cmd("zrevrangebyscore")
                     .arg(&format!("topic:{}:posts_reply", tid))
                     .arg("+inf")
                     .arg("-inf")
@@ -360,38 +330,16 @@ impl Handler<GetTopicCache> for CacheService {
                     .arg(((page - 1) * 20) as usize)
                     .arg(20)
                     .query_async(self.get_conn())
-                    .map_err(|_| None)
+                    .from_err()
                     .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
                         if ids.len() == 0 {
-                            return Either::A(fut_err(None));
+                            return Either::A(ft_err(ServiceError::NoContent));
                         }
-                        let ids = ids.into_iter().map(|id| LEX_BASE - id).collect::<Vec<u32>>();
-                        let e = Some(ids.clone());
-
+                        let ids = ids.into_iter().map(|i|LEX_BASE - i).collect();
                         Either::B(get_cache_multi_with_id(&ids, "post", conn)
-                            .map_err(|_| e)
-                            .and_then(move |(p, mut uids, conn)| {
-                                let e = Some(ids.clone());
-                                get_cache_multi_with_id(&vec![tid], "topic", conn)
-                                    .map_err(|_| e)
-                                    .and_then(move |(mut t, _, conn): (Vec<Topic>, _, _)| {
-                                        let t = match t.pop() {
-                                            Some(t) => t,
-                                            None => return Either::A(fut_err(None))
-                                        };
-                                        uids.push(t.user_id);
-                                        uids.sort();
-                                        uids.dedup();
-                                        let e = Some(ids.clone());
-                                        Either::B(get_users(conn, &uids)
-                                            .map_err(|_| e)
-                                            .map(|u| (t, p, u)))
-                                    })
-                            }))
-                    });
-
-                Box::new(f)
-            }
+                            .map_err(|_| ServiceError::IdsFromCache(ids))
+                            .map(|(v, i, _)| (v, i)))
+                    }))
         }
     }
 }
@@ -434,9 +382,9 @@ impl Handler<RemoveCategoryCache> for CacheService {
 }
 
 impl Handler<DeleteCache> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: DeleteCache, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DeleteCache, ctx: &mut Self::Context) -> Self::Result {
         let (key, fields) = match msg {
             DeleteCache::Mail(uuid) => {
                 let fields = ["user_id", "uuid"];
@@ -451,36 +399,36 @@ impl Handler<DeleteCache> for CacheService {
             pipe.cmd("hdel").arg(&key).arg(f);
         }
 
-        Box::new(pipe
+        ctx.spawn(pipe
             .query_async(self.get_conn())
-            .from_err()
-            .map(|(_, _): (_, usize)| ()))
+            .into_actor(self)
+            .map_err(|_, _, _| ())
+            .map(|(_, _): (_, usize), _, _| ()));
     }
 }
 
 impl Handler<AddMail> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ();
 
-    fn handle(&mut self, msg: AddMail, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: AddMail, ctx: &mut Self::Context) -> Self::Result {
         let mail = msg.0;
         //ToDo: add stringify error handler.
-        let string = match serde_json::to_string(&mail) {
-            Ok(s) => s,
-            Err(_) => return Box::new(fut_err(ServiceError::InternalServerError))
-        };
 
-        let mut pipe = pipe();
-        pipe.atomic();
-        pipe.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(&string);
-        pipe.cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash());
-        pipe.cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE);
+        if let Some(s) = serde_json::to_string(&mail).ok() {
+            let mut pipe = pipe();
+            pipe.atomic();
+            pipe.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(s.as_str());
+            pipe.cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash());
+            pipe.cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE);
 
-        let f = pipe
-            .query_async(self.get_conn())
-            .from_err()
-            .map(|(_, ())| ());
+            let f = pipe
+                .query_async(self.get_conn())
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|(_, ()), _, _| ());
 
-        Box::new(f)
+            ctx.spawn(f);
+        }
     }
 }
 
@@ -505,35 +453,62 @@ impl Handler<ActivateUser> for CacheService {
 }
 
 impl Handler<GetTopicsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<User>), Option<Vec<u32>>>;
+    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 
     fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        let (key, page) = match msg {
+        match msg {
             GetTopicsCache::Popular(id, page) =>
-                (format!("category:{}:list_pop", id), page),
+                Box::new(topics_posts_from_list(
+                    page,
+                    &format!("category:{}:list_pop", id),
+                    "topic",
+                    self.get_conn())),
             GetTopicsCache::PopularAll(page) =>
-                ("category:all:list_pop".to_owned(), page),
+                Box::new(topics_posts_from_list(
+                    page,
+                    "category:all:list_pop",
+                    "topic",
+                    self.get_conn())),
             GetTopicsCache::Latest(id, page) =>
-                (format!("category:{}:list", id), page),
-        };
-
-        let f =
-            topics_posts_from_list(
-                page,
-                key.as_str(),
-                "topic",
-                self.get_conn())
-                .and_then(|(t, mut uids, conn)| {
-                    uids.sort();
-                    uids.dedup();
-                    get_users(conn, &uids)
-                        .map_err(|_| None)
-                        .map(|u| (t, u))
-                });
-
-        Box::new(f)
+                Box::new(topics_posts_from_list(
+                    page,
+                    &format!("category:{}:list", id),
+                    "topic",
+                    self.get_conn())),
+            GetTopicsCache::Ids(ids) =>
+                Box::new(get_cache_multi_with_id(&ids, "topic", self.get_conn())
+                    .map_err(|_| ServiceError::IdsFromCache(ids))
+                    .map(|(v, i, _)| (v, i)))
+        }
     }
 }
+
+fn topics_posts_from_list<T>(
+    page: i64,
+    list_key: &str,
+    set_key: &'static str,
+    conn: SharedConn,
+) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ServiceError>
+    where T: GetUserId + FromHashSetMulti {
+    let start = (page as isize - 1) * 20;
+
+    cmd("lrange")
+        .arg(list_key)
+        .arg(start)
+        .arg(start + LIMIT - 1)
+        .query_async(conn)
+        .from_err()
+        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
+            if ids.len() == 0 {
+                return Either::A(ft_err(ServiceError::NoContent));
+            }
+            Either::B(get_cache_multi_with_id(&ids, set_key, conn)
+                .map_err(|_| ServiceError::IdsFromCache(ids))
+                .map(|(v, i, _)| (v, i))
+            )
+        })
+}
+
 
 fn update_post_count(
     cid: u32,
@@ -580,7 +555,6 @@ fn update_list(
 
     let mut pip = pipe();
     pip.atomic();
-
     pip.cmd("ZREVRANGEBYSCORE")
         .arg(&time_key)
         .arg("+inf")
@@ -596,10 +570,10 @@ fn update_list(
         .from_err()
         .and_then(move |(conn, (tids, mut counts)): (_, (HashMap<u32, i64>, Vec<(u32, u32)>))| {
             use std::cmp::Ordering;
-            counts.sort_by(|a, b| {
-                if a.1 == b.1 {
-                    if let Some(a) = tids.get(&a.0) {
-                        if let Some(b) = tids.get(&b.0) {
+            counts.sort_by(|(a0, a1), (b0, b1)| {
+                if a1 == b1 {
+                    if let Some(a) = tids.get(a0) {
+                        if let Some(b) = tids.get(b0) {
                             if a > b {
                                 return Ordering::Less;
                             } else if a < b {
@@ -613,34 +587,39 @@ fn update_list(
                 }
             });
 
-            let vec: Vec<u32> = counts.into_iter().map(|(id, _)| id).collect();
+            let vec = counts.into_iter().map(|(id, _)| id).collect::<Vec<u32>>();
+
+            let mut should_update = false;
+            let mut pip = pipe();
+            pip.atomic();
+
+            if let Some(key) = set_key {
+                pip.cmd("HSET")
+                    .arg(&key)
+                    .arg("topic_count_new")
+                    .arg(tids.len())
+                    .ignore();
+                should_update = true;
+            }
 
             if vec.len() > 0 {
-                let mut pipe = pipe();
-                pipe.atomic();
-
-                pipe.cmd("del")
+                pip.cmd("del")
                     .arg(&list_key)
                     .ignore()
                     .cmd("rpush")
                     .arg(&list_key)
                     .arg(vec)
                     .ignore();
+                should_update = true;
+            }
 
-                // update topic_count_new
-                if let Some(key) = set_key {
-                    pipe.cmd("HSET")
-                        .arg(&key)
-                        .arg("topic_count_new")
-                        .arg(tids.len())
-                        .ignore();
-                }
-
-                Either::A(pipe.query_async(conn)
+            if should_update {
+                Either::A(pip
+                    .query_async(conn)
                     .from_err()
-                    .map(move |(_, ())| ()))
+                    .map(|(_, ())| ()))
             } else {
-                Either::B(fut_err(ServiceError::InternalServerError))
+                Either::B(ft_ok(()))
             }
         })
 }
@@ -710,29 +689,6 @@ impl Handler<GetUsersCache> for CacheService {
         Box::new(get_users(self.get_conn(), &msg.0)
             .map_err(|_| msg.0))
     }
-}
-
-fn topics_posts_from_list<T>(
-    page: i64,
-    list_key: &str,
-    set_key: &'static str,
-    conn: SharedConn,
-) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=Option<Vec<u32>>>
-    where T: GetUserId + FromHashSetMulti {
-    let start = (page as isize - 1) * 20;
-
-    cmd("lrange")
-        .arg(list_key)
-        .arg(start)
-        .arg(start + LIMIT - 1)
-        .query_async(conn)
-        .map_err(|_| None)
-        .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
-            if ids.len() == 0 {
-                return Either::A(fut_err(None));
-            }
-            Either::B(get_cache_multi_with_id(&ids, set_key, conn).map_err(|_| Some(ids)))
-        })
 }
 
 fn get_categories(
@@ -935,8 +891,8 @@ pub fn build_topics_cache_list(
     let mut pipe = pipe();
     pipe.atomic();
 
-    for (tid, cid, count, last_reply_time) in vec.into_iter() {
-        let time = last_reply_time.timestamp_millis();
+    for (tid, cid, count, time) in vec.into_iter() {
+        let time = time.timestamp_millis();
         pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()

@@ -1,6 +1,6 @@
 use actix::prelude::Message;
 
-#[derive(Clone, Serialize, Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Serialize, Debug)]
 pub struct Talk {
     pub id: u32,
     pub name: String,

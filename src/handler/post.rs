@@ -49,7 +49,6 @@ impl Handler<ModifyPost> for DatabaseService {
                         &p.post_id,
                         p.post_content.as_ref().unwrap(),
                         &now,
-                        &now,
                         &now
                     ],
                 ))

@@ -53,7 +53,6 @@ impl Handler<AddTopic> for DatabaseService {
                 &t.title.unwrap(),
                 &t.body.unwrap(),
                 now,
-                now,
                 now]))
     }
 }

@@ -1,6 +1,20 @@
+use lettre::SmtpTransport;
 use uuid::Uuid;
 
 use crate::model::user::User;
+
+pub struct Mailer {
+    pub mailer: SmtpTransport,
+    pub server_url: String,
+    pub self_addr: String,
+    pub self_name: String,
+}
+
+pub struct Twilio {
+    pub url: String,
+    pub account_id: String,
+    pub auth_token: String,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Mail {

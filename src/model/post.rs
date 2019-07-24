@@ -16,7 +16,7 @@ pub struct Post {
     pub post_content: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub last_reply_time: NaiveDateTime,
+    pub last_reply_time: Option<NaiveDateTime>,
     pub is_locked: bool,
     pub reply_count: Option<u32>,
 }

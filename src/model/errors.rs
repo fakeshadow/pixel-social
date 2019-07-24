@@ -37,6 +37,14 @@ pub enum ServiceError {
     PARSE,
     #[display(fmt = "NoContent")]
     NoContent,
+    #[display(fmt = "Ids From Cache")]
+    IdsFromCache(Vec<u32>),
+    #[display(fmt = "Connection Time Out")]
+    TimeOut,
+    #[display(fmt = "Connection Error")]
+    ConnectError,
+    #[display(fmt = "Invalid Url")]
+    InvalidUrl(String)
 }
 
 impl ResponseError for ServiceError {
@@ -61,6 +69,19 @@ impl ResponseError for ServiceError {
         }
     }
 }
+
+impl From<awc::error::SendRequestError> for ServiceError {
+    fn from(e: awc::error::SendRequestError) -> ServiceError {
+        use awc::error::SendRequestError;
+        match e {
+            SendRequestError::Url(i) => ServiceError::InvalidUrl(i.to_string()),
+            SendRequestError::Connect(_) => ServiceError::ConnectError,
+            SendRequestError::Timeout => ServiceError::TimeOut,
+            _ => ServiceError::InternalServerError
+        }
+    }
+}
+
 
 impl From<tokio_postgres::error::Error> for ServiceError {
     fn from(e: tokio_postgres::error::Error) -> ServiceError {

@@ -60,7 +60,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
         rt.block_on(f).unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
         // load topics belong to category
-        let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY last_reply_time DESC", cat.id);
+        let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
         let (t, _): (Vec<Topic>, _) = rt.block_on(query_multi_simple_with_id(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -104,7 +104,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
         let mut sets = Vec::new();
         for t in t.clone().into_iter() {
             tids.push(t.id);
-            sets.push((t.id, t.category_id, t.reply_count.unwrap_or(0), t.last_reply_time));
+            sets.push((t.id, t.category_id, t.reply_count.unwrap_or(0), t.created_at));
             if t.id > last_tid { last_tid = t.id };
         }
 
@@ -267,7 +267,6 @@ CREATE TABLE topics
     thumbnail       VARCHAR(1024) NOT NULL,
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
 );
 CREATE TABLE posts
@@ -280,7 +279,6 @@ CREATE TABLE posts
     post_content    VARCHAR(1024) NOT NULL,
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_reply_time TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
 );
 CREATE TABLE associates

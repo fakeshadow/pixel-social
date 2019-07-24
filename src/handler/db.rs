@@ -7,6 +7,7 @@ use tokio_postgres::{Row, SimpleQueryRow, SimpleQueryMessage, Statement, Client,
 use crate::util::{hash, jwt};
 
 use crate::model::{
+    common::GetUserId,
     errors::ServiceError,
     post::Post,
     user::{User, AuthRequest, AuthResponse},
@@ -14,8 +15,6 @@ use crate::model::{
     topic::Topic,
     talk::Talk,
 };
-use crate::model::common::GetUserId;
-
 
 pub trait FromSimpleRow
     where Self: std::marker::Sized {
@@ -70,8 +69,8 @@ impl FromSimpleRow for Post {
             post_content: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            last_reply_time: row.get(8).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            is_locked: if row.get(9) == Some("f") { false } else { true },
+            last_reply_time: None,
+            is_locked: if row.get(8) == Some("f") { false } else { true },
             reply_count: None,
         })
     }
@@ -88,8 +87,8 @@ impl FromSimpleRow for Topic {
             thumbnail: row.get(5).ok_or(ServiceError::InternalServerError)?.to_owned(),
             created_at: row.get(6).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
             updated_at: row.get(7).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            last_reply_time: row.get(8).map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")).unwrap()?,
-            is_locked: if row.get(9) == Some("f") { false } else { true },
+            last_reply_time: None,
+            is_locked: if row.get(8) == Some("f") { false } else { true },
             reply_count: None,
         })
     }
@@ -218,8 +217,8 @@ impl FromRow for Post {
             post_content: row.get(5),
             created_at: row.get(6),
             updated_at: row.get(7),
-            last_reply_time: row.get(8),
-            is_locked: row.get(9),
+            last_reply_time: None,
+            is_locked: row.get(8),
             reply_count: None
         }
     }
@@ -236,8 +235,8 @@ impl FromRow for Topic {
             thumbnail: row.get(5),
             created_at: row.get(6),
             updated_at: row.get(7),
-            last_reply_time: row.get(8),
-            is_locked: row.get(9),
+            last_reply_time: None,
+            is_locked: row.get(8),
             reply_count: None,
         }
     }

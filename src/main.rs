@@ -59,14 +59,15 @@ fn main() -> std::io::Result<()> {
 
     let _ = clear_cache(&redis_url);
 
-    let (global_arc, global_talks, global_sessions) = build_cache(&database_url, &redis_url).expect("Unable to build cache");
+    let (global, global_talks, global_sessions) =
+        build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 
-    // mail service and cache update service are not passed into data.
+    // mail actor and cache update service are not passed into data.
     // mail is added directly into redis when registering and changing password.
     let _ = MailService::connect(&redis_url);
-    // cache for sorting popular categories and topics run with a 10 seconds interval.
+    // actor for sorting popular categories and topics run with a 5 seconds interval.
     let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {
@@ -75,7 +76,7 @@ fn main() -> std::io::Result<()> {
         let talk = TalkService::connect(&database_url, &redis_url, global_talks.clone(), global_sessions.clone());
 
         App::new()
-            .data(global_arc.clone())
+            .data(global.clone())
             .data(talk)
             .data(db)
             .data(cache)
