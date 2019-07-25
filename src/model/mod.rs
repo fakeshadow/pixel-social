@@ -1,5 +1,5 @@
 pub mod cache;
-pub mod mail;
+pub mod messenger;
 pub mod category;
 pub mod common;
 pub mod errors;

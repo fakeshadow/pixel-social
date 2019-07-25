@@ -27,13 +27,13 @@ use lettre_email::Email;
 
 use crate::MessageService;
 use crate::model::{
-    mail::{Mail, Mailer, Twilio},
+    messenger::{Mail, Mailer, Twilio, SmsMessage},
     errors::{ErrorCollection, ServiceError},
 };
 
-const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
+const MAIL_TIME_GAP: Duration = Duration::from_millis(2000);
 const SMS_TIME_GAP: Duration = Duration::from_millis(1000);
-const ERROR_TIME_GAP: Duration = Duration::from_millis(3000);
+const ERROR_TIME_GAP: Duration = Duration::from_millis(1000);
 
 impl MessageService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
@@ -44,10 +44,9 @@ impl MessageService {
     // errors are sent right away with sms and mail. instead of using queue.
     fn process_errors(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(ERROR_TIME_GAP, move |act, ctx| {
-            if let Some(mut e) = act.errors.to_report().ok() {
-                e.insert("to".to_owned(), act.twilio.as_ref().unwrap().self_number.to_owned());
-
-                ctx.spawn(act.send_sms(e)
+            if let Some(s) = act.errors.to_report().ok() {
+                ctx.spawn(act
+                    .send_sms_admin(s)
                     .into_actor(act)
                     .map_err(|_, _, _| ())
                     .map(|_, _, _| ()));
@@ -58,10 +57,11 @@ impl MessageService {
     fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
             ctx.spawn(act
-                .from_queue::<String>("mail_queue")
+                .from_queue("mail_queue")
                 .into_actor(act)
-                .map_err(|e, _, _| {
-                    println!("{:?}", e);
+                .map_err(|e, _, _| match e {
+                    ServiceError::NoCache => (),
+                    _ => println!("mail error is : {:?}", e)
                 })
                 .and_then(|s, act, _| act
                     .send_mail(s.as_str())
@@ -74,16 +74,17 @@ impl MessageService {
     fn process_sms(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(SMS_TIME_GAP, move |act, ctx| {
             ctx.spawn(act
-                .from_queue::<HashMap<String, String>>("sms_queue")
+                .from_queue("sms_queue")
                 .into_actor(act)
-                .map_err(|_, _, _| ())
-                .and_then(|s, act, _| {
-                    // ToDo: add error handling.
-                    act.send_sms(s)
-                        .into_future()
-                        .into_actor(act)
-                        .map_err(|_, _, _| ())
-                }));
+                .map_err(|e, _, _| match e {
+                    ServiceError::NoCache => (),
+                    _ => println!("sms error is : {:?}", e)
+                })
+                .and_then(|s, act, _| act
+                    .send_sms_user(s.as_str())
+                    .into_actor(act)
+                    .map_err(|_, _, _| ())
+                ));
         });
     }
 
@@ -98,11 +99,13 @@ impl MessageService {
 
         let mailer = SmtpClient::new_simple(&mail_server)
             .unwrap()
+            .timeout(Some(Duration::new(1, 0)))
             .credentials(Credentials::new(username, password))
             .smtp_utf8(false)
             .authentication_mechanism(Mechanism::Plain)
             .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
             .transport();
+
         Mailer {
             mailer,
             server_url,
@@ -138,30 +141,42 @@ impl MessageService {
         }
     }
 
-    fn send_sms(&mut self, msg: HashMap<String, String>) -> impl Future<Item=(), Error=ServiceError> {
-        if let Some(to) = msg.get("to") {
-            if let Some(body) = msg.get("message") {
-                let t = self.twilio.as_ref().unwrap();
-                let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
+    fn send_sms_admin(&mut self, msg: String) -> impl Future<Item=(), Error=ServiceError> {
+        let msg = SmsMessage {
+            to: self.twilio.as_ref().unwrap().self_number.to_string(),
+            message: msg,
+        };
+        self.send_sms(msg)
+    }
 
-                let msg = [
-                    ("From", t.self_number.to_string()),
-                    ("To", to.to_string()),
-                    ("Body", body.to_string())];
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ServiceError> {
+        let msg = match serde_json::from_str::<SmsMessage>(msg) {
+            Ok(s) => s,
+            Err(_) => return Either::A(ft_ok(()))
+        };
+        Either::B(self.send_sms(msg))
+    }
 
-                let c = awc::Client::build()
-                    .connector(awc::Connector::new().timeout(Duration::from_secs(5)).finish())
-                    .finish();
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ServiceError> {
+        let t = self.twilio.as_ref().unwrap();
+        let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
-                return Either::A(c.post(&url)
-                    .basic_auth(t.account_id.as_str(), Some(t.auth_token.as_str()))
-                    .set_header(awc::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .send_form(&msg)
-                    .from_err()
-                    .map(|_| ()));
-            }
-        }
-        Either::B(ft_ok(()))
+        let form = [
+            ("From", t.self_number.to_string()),
+            ("To", msg.to),
+            ("Body", msg.message)
+        ];
+
+        let c = awc::Client::build()
+            .connector(awc::Connector::new().timeout(Duration::from_secs(5)).finish())
+            .finish();
+
+        c.post(&url)
+            .basic_auth(t.account_id.as_str(), Some(t.auth_token.as_str()))
+            .set_header(awc::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .send_form(&form)
+            .from_err()
+            .map(|_| ())
     }
 
     fn send_mail(&mut self, s: &str) -> Result<(), ServiceError> {
@@ -182,7 +197,10 @@ impl MessageService {
             .mailer
             .send(mail)
             .map(|_| ())
-            .map_err(|_| ServiceError::MailServiceError)
+            .map_err(|e| {
+                println!("{:?}", e);
+                ServiceError::MailServiceError
+            })
     }
 }
 

@@ -25,6 +25,12 @@ pub struct Mail {
     pub address: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SmsMessage {
+    pub to: String,
+    pub message: String,
+}
+
 impl Mail {
     pub fn from_user(user: &User) -> Self {
         Mail {

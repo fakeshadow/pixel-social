@@ -30,7 +30,7 @@ use crate::model::{
     user::User,
     cache::{FromHashSetMulti, Parser, SortHash},
     common::{GetSelfId, GetUserId},
-    mail::Mail,
+    messenger::Mail,
 };
 
 // page offsets of list query
@@ -47,8 +47,7 @@ const HASH_LIFE: usize = 172800;
 const MAIL_LIFE: usize = 3600;
 
 impl MessageService {
-    pub fn from_queue<T>(&self, key: &str) -> impl Future<Item=T, Error=ServiceError>
-        where T: redis::FromRedisValue + std::marker::Send + 'static {
+    pub fn from_queue(&self, key: &str) -> impl Future<Item=String, Error=ServiceError> {
         let mut pip = pipe();
         pip.atomic();
         pip.cmd("zrange")
@@ -61,7 +60,7 @@ impl MessageService {
             .arg(0);
         pip.query_async(self.get_conn())
             .from_err()
-            .and_then(|(_, (mut s, ())): (_, (Vec<T>, _))| s
+            .and_then(|(_, (mut s, ())): (_, (Vec<String>, _))| s
                 .pop().ok_or(ServiceError::NoCache))
     }
 }

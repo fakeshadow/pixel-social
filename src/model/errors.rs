@@ -168,21 +168,23 @@ pub struct ErrorCollection {
 }
 
 impl ErrorCollection {
-    pub fn to_report(&mut self) -> Result<HashMap<String, String>, ()> {
+    pub fn to_report(&mut self) -> Result<String, ()> {
         if self.is_active {
-            let mut result = HashMap::with_capacity(1);
-            let mut message = String::from("Got error: ");
+            let mut message = String::from("Got error:");
 
             let err = &mut self.errors;
 
             if let Some(v) = err.get_mut(&ServiceError::MailServiceError) {
                 if *v > 2 {
-                    message.push_str("MailServiceError");
+                    message.push_str(" MailServiceError(Could be email server offline)");
                     *v = 0;
                 }
             }
-            result.insert("message".to_owned(), message);
-            Ok(result)
+            if !message.ends_with(":") {
+                Ok(message)
+            } else {
+                Err(())
+            }
         } else {
             Err(())
         }

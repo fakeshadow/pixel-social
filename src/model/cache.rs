@@ -9,7 +9,7 @@ use crate::model::{
     post::Post,
     topic::Topic,
     user::User,
-    mail::Mail,
+    messenger::Mail,
 };
 
 // all cache are use hashmap sets to store individual struct.

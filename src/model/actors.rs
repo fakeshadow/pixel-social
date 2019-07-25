@@ -27,7 +27,7 @@ use tokio_postgres::{
 use crate::model::{
     errors::ErrorCollection,
     common::{GlobalTalksGuard, GlobalSessionsGuard},
-    mail::{Mailer, Twilio},
+    messenger::{Mailer, Twilio},
 };
 use crate::handler::{
     talk::Disconnect,

@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    mail::Mail,
+    messenger::Mail,
     errors::ServiceError,
     common::{GetSelfId, Validator},
 };
