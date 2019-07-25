@@ -12,7 +12,7 @@ actix-multipart = "0.1.2"
 actix-rt = "0.2.4"
 actix-web = "1.0.5"
 actix-web-actors = "1.0.2"
-awc = "0.2.2"
+awc = { version ="0.2.2", features = ["ssl"] }
 bcrypt = "0.4.0"
 chrono = { version = "0.4.7", features = ["serde"] }
 derive_more = "0.14.1"

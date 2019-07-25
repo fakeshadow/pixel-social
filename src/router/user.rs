@@ -9,7 +9,7 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     cache::{UpdateCache, GetUsersCache, AddMail, ActivateUser, DeleteCache},
-    user::{Login, PreRegister, Register, UpdateUser, GetUsers},
+    user::{Login, Register, UpdateUser, GetUsers},
 };
 
 pub fn get(
@@ -95,21 +95,16 @@ pub fn register(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(PreRegister(req.into_inner()))
+            .send(Register(req.into_inner(), global.get_ref().clone()))
             .from_err()
             .and_then(|r| r)
             .from_err()
-            .and_then(move |req| db
-                .send(Register(req, global.get_ref().clone()))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |u| {
-                    let res = HttpResponse::Ok().json(&u);
-                    let _ = cache.do_send(AddMail(u.to_mail()));
-                    let _ = cache.do_send(UpdateCache::User(vec![u]));
-                    res
-                }))
+            .and_then(move |u| {
+                let res = HttpResponse::Ok().json(&u);
+                let _ = cache.do_send(AddMail(u.to_mail()));
+                let _ = cache.do_send(UpdateCache::User(vec![u]));
+                res
+            })
         )
 }
 

@@ -5,7 +5,8 @@ use crate::model::{
     errors::ServiceError,
     actors::{DB, CACHE},
     common::GlobalGuard,
-    topic::{TopicRequest, TopicWithPost},
+    post::Post,
+    topic::{Topic, TopicRequest},
 };
 use crate::handler::{
     auth::UserJwt,
@@ -14,8 +15,6 @@ use crate::handler::{
     topic::{AddTopic, UpdateTopic, GetTopics},
     cache::{AddedTopic, UpdateCache, GetTopicCache, GetTopicsCache, GetUsersCache},
 };
-use crate::model::post::Post;
-use crate::model::topic::Topic;
 
 pub fn add(
     jwt: UserJwt,
@@ -165,7 +164,7 @@ fn attach_user_form_res(
         .from_err()
         .and_then(move |r| match r {
             Ok(u) => {
-                let res = HttpResponse::Ok().json(TopicWithPost::new(t.first(), &p, &u));
+                let res = HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u));
                 if update_t {
                     let _ = cache.do_send(UpdateCache::Topic(t));
                 }
@@ -180,7 +179,7 @@ fn attach_user_form_res(
                 .and_then(|r| r)
                 .from_err()
                 .and_then(move |u| {
-                    let res = HttpResponse::Ok().json(TopicWithPost::new(t.first(), &p, &u));
+                    let res = HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u));
                     if update_t {
                         let _ = cache.do_send(UpdateCache::Topic(t));
                     }

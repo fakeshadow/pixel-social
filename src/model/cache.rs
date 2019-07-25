@@ -12,6 +12,9 @@ use crate::model::{
     mail::Mail,
 };
 
+// all cache are use hashmap sets to store individual struct.
+// zrange and list are used to maintain the index and order for data.
+
 // ToDo: add individual field sort
 pub trait SortHash {
     fn sort_hash(&self) -> Vec<(&str, String)>;

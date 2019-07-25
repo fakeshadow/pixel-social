@@ -11,11 +11,12 @@ pub struct Category {
     // fields below stored only in redis. return None when querying database.
     pub topic_count: Option<u32>,
     pub post_count: Option<u32>,
-    // new is last 24 hrs
+    // new is last 24 hrs stores only in redis.
     pub topic_count_new: Option<u32>,
     pub post_count_new: Option<u32>,
 }
 
+// handle incoming json request
 #[derive(Deserialize)]
 pub struct CategoryRequest {
     pub id: Option<u32>,

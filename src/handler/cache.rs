@@ -15,14 +15,14 @@ use actix::prelude::{
     WrapFuture,
 };
 use chrono::{Utc, NaiveDateTime};
-use redis::{Client, cmd, pipe};
+use redis::{cmd, pipe};
 
 use crate::{
     CacheService,
     CacheUpdateService,
 };
 use crate::model::{
-    actors::SharedConn,
+    actors::{SharedConn, MessageService},
     errors::ServiceError,
     category::Category,
     post::Post,
@@ -46,15 +46,40 @@ const HASH_LIFE: usize = 172800;
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
+impl MessageService {
+    pub fn from_queue<T>(&self, key: &str) -> impl Future<Item=T, Error=ServiceError>
+        where T: redis::FromRedisValue + std::marker::Send + 'static {
+        let mut pip = pipe();
+        pip.atomic();
+        pip.cmd("zrange")
+            .arg(key)
+            .arg(0)
+            .arg(0)
+            .cmd("ZREMRANGEBYRANK")
+            .arg(key)
+            .arg(0)
+            .arg(0);
+        pip.query_async(self.get_conn())
+            .from_err()
+            .and_then(|(_, (mut s, ())): (_, (Vec<T>, _))| s
+                .pop().ok_or(ServiceError::NoCache))
+    }
+}
+
 impl CacheUpdateService {
-    pub fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
+    pub fn start_interval(&mut self, ctx: &mut Context<Self>) {
+        self.update_list_pop(ctx);
+        self.trim_list_pop(ctx);
+    }
+
+    fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
         ctx.run_interval(LIST_TIME_GAP, move |act, ctx| {
             let f =
                 get_categories(act.cache.as_ref().unwrap().clone())
                     .into_actor(act)
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
-                        let conn = act.cache.as_ref().unwrap().clone();
+                        let conn = act.get_conn();
                         let yesterday = Utc::now().timestamp_millis() - 86400000;
                         let mut vec = Vec::new();
 
@@ -74,14 +99,14 @@ impl CacheUpdateService {
         });
     }
 
-    pub fn trim_list_pop(&mut self, ctx: &mut Context<Self>) {
+    fn trim_list_pop(&mut self, ctx: &mut Context<Self>) {
         ctx.run_interval(TRIM_LIST_TIME_GAP, move |act, ctx| {
             let f =
                 get_categories(act.cache.as_ref().unwrap().clone())
                     .into_actor(act)
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
-                        let conn = act.cache.as_ref().unwrap().clone();
+                        let conn = act.get_conn();
                         let yesterday = Utc::now().timestamp_millis() - 86400000;
                         let mut vec = Vec::new();
 
@@ -115,6 +140,8 @@ pub enum GetTopicCache {
 }
 
 pub struct GetPostsCache(pub Vec<u32>);
+
+pub struct GetUsersCache(pub Vec<u32>);
 
 #[derive(Message)]
 pub struct AddedTopic(pub Topic);
@@ -165,6 +192,10 @@ impl Message for GetPostsCache {
     type Result = Result<(Vec<Post>, Vec<User>), ServiceError>;
 }
 
+impl Message for GetUsersCache {
+    type Result = Result<Vec<User>, Vec<u32>>;
+}
+
 impl Message for RemoveCategoryCache {
     type Result = Result<(), ServiceError>;
 }
@@ -176,24 +207,17 @@ impl<T> Handler<UpdateCache<T>> for CacheService
     fn handle(&mut self, msg: UpdateCache<T>, ctx: &mut Self::Context) -> Self::Result {
         let conn = self.get_conn();
 
-        match msg {
-            UpdateCache::Topic(vec) => ctx.spawn(build_hmsets_expire(conn, vec, "topic")
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|_, _, _| ())),
-            UpdateCache::Post(vec) => ctx.spawn(build_hmsets_expire(conn, vec, "post")
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|_, _, _| ())),
-            UpdateCache::User(vec) => ctx.spawn(build_hmsets(conn, vec, "user")
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|_, _, _| ())),
-            UpdateCache::Category(vec) => ctx.spawn(build_hmsets(conn, vec, "category")
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|_, _, _| ()))
+        let f = match msg {
+            UpdateCache::Topic(vec) => build_hmsets(conn, vec, "topic", true),
+            UpdateCache::Post(vec) => build_hmsets(conn, vec, "post", true),
+            UpdateCache::User(vec) => build_hmsets(conn, vec, "user", false),
+            UpdateCache::Category(vec) => build_hmsets(conn, vec, "category", false)
         };
+
+        ctx.spawn(f
+            .into_actor(self)
+            .map_err(|_, _, _| ())
+            .map(|_, _, _| ()));
     }
 }
 
@@ -217,13 +241,12 @@ impl Handler<AddedTopic> for CacheService {
         let mut pipe = pipe();
         pipe.atomic();
         let key = format!("topic:{}:set", t.self_id());
+
         pipe.cmd("HMSET").arg(key.as_str()).arg(t.sort_hash()).ignore()
             .cmd("EXPIRE").arg(key.as_str()).arg(HASH_LIFE).ignore()
             .cmd("HINCRBY").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(0).ignore()
-
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
-
             .cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
             .cmd("ZINCRBY").arg("category:all:topics_reply").arg(0).arg(tid).ignore()
@@ -259,22 +282,17 @@ impl Handler<AddedPost> for CacheService {
         pipe.cmd("HMSET").arg(post_key.as_str()).arg(p.sort_hash()).ignore()
             .cmd("EXPIRE").arg(post_key.as_str()).arg(HASH_LIFE).ignore()
             .cmd("HINCRBY").arg(&format!("post:{}:set_perm", pid)).arg("reply_count").arg(0).ignore()
-
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
             .cmd("lrem").arg(&format!("category:{}:list", cid)).arg(1).arg(tid).ignore()
             .cmd("lpush").arg(&format!("category:{}:list", cid)).arg(tid).ignore()
             .cmd("rpush").arg(&format!("topic:{}:list", tid)).arg(pid).ignore()
-
             .cmd("HINCRBY").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(1).ignore()
             .cmd("HSET").arg(&format!("topic:{}:set", tid)).arg("last_reply_time").arg(&time_string).ignore()
-
             .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(0).arg(LEX_BASE - pid).ignore()
-
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg("XX").arg(time).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_time").arg("XX").arg(time).arg(tid).ignore()
             .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(1).arg(tid).ignore()
             .cmd("ZINCRBY").arg("category:all:topics_reply").arg(1).arg(tid).ignore()
-
             .cmd("ZADD").arg(&format!("category:{}:posts_time", cid)).arg(time).arg(pid).ignore();
 
         if let Some(pid) = p.post_id {
@@ -296,11 +314,11 @@ impl Handler<AddedCategory> for CacheService {
 
     fn handle(&mut self, msg: AddedCategory, ctx: &mut Self::Context) -> Self::Result {
         let c = msg.0;
-        let mut pipe = pipe();
-        pipe.atomic();
-        pipe.cmd("rpush").arg("category_id:meta").arg(c.id);
-        pipe.cmd("HMSET").arg(&format!("category:{}:set", c.id)).arg(c.sort_hash());
-        let f = pipe
+        let mut pip = pipe();
+        pip.atomic();
+        pip.cmd("rpush").arg("category_id:meta").arg(c.id).ignore()
+            .cmd("HMSET").arg(&format!("category:{}:set", c.id)).arg(c.sort_hash()).ignore();
+        let f = pip
             .query_async(self.get_conn())
             .into_actor(self)
             .map_err(|_, _, _| ())
@@ -335,7 +353,7 @@ impl Handler<GetTopicCache> for CacheService {
                         if ids.len() == 0 {
                             return Either::A(ft_err(ServiceError::NoContent));
                         }
-                        let ids = ids.into_iter().map(|i|LEX_BASE - i).collect();
+                        let ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                         Either::B(get_cache_multi_with_id(&ids, "post", conn)
                             .map_err(|_| ServiceError::IdsFromCache(ids))
                             .map(|(v, i, _)| (v, i)))
@@ -356,6 +374,17 @@ impl Handler<GetPostsCache> for CacheService {
                     get_users(conn, &uids).map(|u| (p, u))
                 });
         Box::new(f)
+    }
+}
+
+impl Handler<GetUsersCache> for CacheService {
+    type Result = ResponseFuture<Vec<User>, Vec<u32>>;
+
+    fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
+        msg.0.sort();
+        msg.0.dedup();
+        Box::new(get_users(self.get_conn(), &msg.0)
+            .map_err(|_| msg.0))
     }
 }
 
@@ -392,14 +421,14 @@ impl Handler<DeleteCache> for CacheService {
             }
         };
 
-        let mut pipe = pipe();
-        pipe.atomic();
+        let mut pip = pipe();
+        pip.atomic();
 
         for f in fields.to_vec() {
-            pipe.cmd("hdel").arg(&key).arg(f);
+            pip.cmd("hdel").arg(&key).arg(f);
         }
 
-        ctx.spawn(pipe
+        ctx.spawn(pip
             .query_async(self.get_conn())
             .into_actor(self)
             .map_err(|_, _, _| ())
@@ -415,13 +444,13 @@ impl Handler<AddMail> for CacheService {
         //ToDo: add stringify error handler.
 
         if let Some(s) = serde_json::to_string(&mail).ok() {
-            let mut pipe = pipe();
-            pipe.atomic();
-            pipe.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(s.as_str());
-            pipe.cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash());
-            pipe.cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE);
+            let mut pip = pipe();
+            pip.atomic();
+            pip.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(s.as_str()).ignore()
+                .cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash()).ignore()
+                .cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE).ignore();
 
-            let f = pipe
+            let f = pip
                 .query_async(self.get_conn())
                 .into_actor(self)
                 .map_err(|_, _, _| ())
@@ -674,23 +703,6 @@ fn trim_list(
         })
 }
 
-pub struct GetUsersCache(pub Vec<u32>);
-
-impl Message for GetUsersCache {
-    type Result = Result<Vec<User>, Vec<u32>>;
-}
-
-impl Handler<GetUsersCache> for CacheService {
-    type Result = ResponseFuture<Vec<User>, Vec<u32>>;
-
-    fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
-        msg.0.sort();
-        msg.0.dedup();
-        Box::new(get_users(self.get_conn(), &msg.0)
-            .map_err(|_| msg.0))
-    }
-}
-
 fn get_categories(
     conn: SharedConn,
 ) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
@@ -733,40 +745,25 @@ pub fn build_hmsets<T>(
     conn: SharedConn,
     vec: Vec<T>,
     key: &'static str,
+    should_expire: bool,
 ) -> impl Future<Item=(), Error=ServiceError>
     where T: GetSelfId + SortHash {
-    let mut pipe = pipe();
-    pipe.atomic();
+    let mut pip = pipe();
+    pip.atomic();
     for v in vec.iter() {
-        pipe.cmd("HMSET")
-            .arg(&format!("{}:{}:set", key, v.self_id()))
-            .arg(v.sort_hash());
-    }
-    pipe.query_async(conn)
-        .from_err()
-        .map(|(_, ())| ())
-}
-
-pub fn build_hmsets_expire<T>(
-    conn: SharedConn,
-    vec: Vec<T>,
-    key: &'static str,
-) -> impl Future<Item=(), Error=ServiceError>
-    where T: GetSelfId + SortHash {
-    let mut pipe = pipe();
-    pipe.atomic();
-    for v in vec.iter() {
-        let key_expire = format!("{}:{}:set", key, v.self_id());
-        pipe.cmd("HMSET")
-            .arg(key_expire.as_str())
+        let key = format!("{}:{}:set", key, v.self_id());
+        pip.cmd("HMSET")
+            .arg(key.as_str())
             .arg(v.sort_hash())
-            .ignore()
-            .cmd("expire")
-            .arg(key_expire.as_str())
-            .arg(HASH_LIFE)
             .ignore();
+        if should_expire {
+            pip.cmd("expire")
+                .arg(key.as_str())
+                .arg(HASH_LIFE)
+                .ignore();
+        }
     }
-    pipe.query_async(conn)
+    pip.query_async(conn)
         .from_err()
         .map(|(_, ())| ())
 }
@@ -778,12 +775,21 @@ pub fn build_list(
     cmd: &'static str,
     key: String,
 ) -> impl Future<Item=(), Error=ServiceError> {
-    let mut pipe = pipe();
-    pipe.atomic();
-    for v in vec.into_iter() {
-        pipe.cmd(cmd).arg(&key).arg(v);
+    let mut pip = pipe();
+    pip.atomic();
+
+    pip.cmd("del")
+        .arg(key.as_str())
+        .ignore();
+
+    if vec.len() > 0 {
+        pip.cmd(cmd)
+            .arg(key.as_str())
+            .arg(vec)
+            .ignore();
     }
-    pipe.query_async(conn)
+
+    pip.query_async(conn)
         .from_err()
         .map(|(_, ())| ())
 }
@@ -850,40 +856,7 @@ fn get_hmsets_multi<'a, T>(
         .map(move |(conn, hm)| (len, hm, conn))
 }
 
-pub fn from_mail_queue(
-    conn: SharedConn,
-) -> impl Future<Item=(SharedConn, String), Error=ServiceError> {
-    cmd("zrange")
-        .arg("mail_queue")
-        .arg(0)
-        .arg(0)
-        .query_async(conn)
-        .from_err()
-        .and_then(move |(conn, mut s): (_, Vec<String>)| {
-            let s = s.pop().ok_or(ServiceError::InternalServerError)?;
-            Ok((conn, s))
-        })
-}
-
-pub fn delete_mail_queue(
-    key: &str,
-    conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
-    cmd("zrem")
-        .arg("mail_queue")
-        .arg(key)
-        .query_async(conn)
-        .from_err()
-        .map(|(_, ())| ())
-}
-
 // startup helper fn
-pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
-    let client = Client::open(redis_url).expect("failed to connect to redis server");
-    let mut conn = client.get_connection().expect("failed to get redis connection");
-    Ok(redis::cmd("flushall").query(&mut conn)?)
-}
-
 pub fn build_topics_cache_list(
     vec: Vec<(u32, u32, u32, NaiveDateTime)>,
     conn: SharedConn,
@@ -893,6 +866,7 @@ pub fn build_topics_cache_list(
 
     for (tid, cid, count, time) in vec.into_iter() {
         let time = time.timestamp_millis();
+        // ToDo: query existing cache for topic's real last reply time.
         pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
             .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
             .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
@@ -923,3 +897,9 @@ pub fn build_posts_cache_list(
         .from_err()
         .map(|(_, ())| ())
 }
+
+//pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
+//    let client = redis::Client::open(redis_url).expect("failed to connect to redis server");
+//    let mut conn = client.get_connection().expect("failed to get redis connection");
+//    Ok(redis::cmd("flushall").query(&mut conn)?)
+//}

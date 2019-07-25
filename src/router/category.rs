@@ -10,7 +10,7 @@ use crate::handler::{
 use crate::model::{
     errors::ServiceError,
     actors::{DB, CACHE},
-    topic::{Topic, TopicWithUser},
+    topic::Topic,
 };
 
 pub fn get_all(
@@ -102,7 +102,7 @@ fn attach_users_form_res(
         .from_err()
         .and_then(move |r| match r {
             Ok(u) => {
-                let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+                let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
                 if update_t {
                     let _ = cache.do_send(UpdateCache::Topic(t));
                 }
@@ -114,7 +114,7 @@ fn attach_users_form_res(
                 .and_then(|r| r)
                 .from_err()
                 .and_then(move |u| {
-                    let res = HttpResponse::Ok().json(TopicWithUser::new(&t, &u));
+                    let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
                     let _ = cache.do_send(UpdateCache::User(u));
                     if update_t {
                         let _ = cache.do_send(UpdateCache::Topic(t));

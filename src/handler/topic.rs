@@ -94,7 +94,6 @@ impl Handler<UpdateTopic> for DatabaseService {
     }
 }
 
-//ToDo: add multiple category_ids query
 impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
 

@@ -3,7 +3,8 @@ use std::error::Error;
 use derive_more::Display;
 use actix_web::{error::ResponseError, HttpResponse};
 
-#[derive(Debug, Display)]
+// service errors use from trait to convert error types and generate http response or added to error report.
+#[derive(Debug, Display, Eq, PartialEq, Hash)]
 pub enum ServiceError {
     #[display(fmt = "Internal Server Error")]
     InternalServerError,
@@ -26,17 +27,21 @@ pub enum ServiceError {
     #[display(fmt = "Forbidden")]
     Unauthorized,
     #[display(fmt = "Forbidden")]
-    NOTACTIVE,
+    NotActive,
     #[display(fmt = "Forbidden")]
-    BLOCKED,
+    Blocked,
     #[display(fmt = "Forbidden")]
     AuthTimeout,
     #[display(fmt = "MailError")]
     MailServiceError,
+    #[display(fmt = "RedisError")]
+    RedisError,
     #[display(fmt = "Internal Server Error")]
     PARSE,
-    #[display(fmt = "NoContent")]
+    #[display(fmt = "No Content Found")]
     NoContent,
+    #[display(fmt = "No Cache Found")]
+    NoCache,
     #[display(fmt = "Ids From Cache")]
     IdsFromCache(Vec<u32>),
     #[display(fmt = "Connection Time Out")]
@@ -44,7 +49,7 @@ pub enum ServiceError {
     #[display(fmt = "Connection Error")]
     ConnectError,
     #[display(fmt = "Invalid Url")]
-    InvalidUrl(String)
+    InvalidUrl(String),
 }
 
 impl ResponseError for ServiceError {
@@ -63,8 +68,8 @@ impl ResponseError for ServiceError {
             ServiceError::Unauthorized => HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized")),
             ServiceError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout.Please login again")),
             ServiceError::PARSE => HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing error")),
-            ServiceError::NOTACTIVE => HttpResponse::Forbidden().json(ErrorMessage::new("User is not activated yet")),
-            ServiceError::BLOCKED => HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked")),
+            ServiceError::NotActive => HttpResponse::Forbidden().json(ErrorMessage::new("User is not activated yet")),
+            ServiceError::Blocked => HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked")),
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
         }
     }
@@ -81,7 +86,6 @@ impl From<awc::error::SendRequestError> for ServiceError {
         }
     }
 }
-
 
 impl From<tokio_postgres::error::Error> for ServiceError {
     fn from(e: tokio_postgres::error::Error) -> ServiceError {
@@ -112,10 +116,10 @@ impl From<actix::MailboxError> for ServiceError {
 
 impl From<redis::RedisError> for ServiceError {
     fn from(e: redis::RedisError) -> ServiceError {
-        ServiceError::BadRequestDb(DatabaseErrorMessage {
-            category: Some(e.category().to_owned()),
-            description: e.description().to_owned(),
-        })
+        if e.is_connection_dropped() || e.is_connection_refusal() || e.is_timeout() {
+            return ServiceError::RedisError;
+        }
+        ServiceError::InternalServerError
     }
 }
 
@@ -137,7 +141,7 @@ impl From<chrono::format::ParseError> for ServiceError {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Eq, PartialEq, Hash)]
 pub struct DatabaseErrorMessage {
     category: Option<String>,
     description: String,
@@ -151,5 +155,36 @@ struct ErrorMessage<'a> {
 impl<'a> ErrorMessage<'a> {
     fn new(msg: &'a str) -> Self {
         ErrorMessage { error: msg }
+    }
+}
+
+use std::collections::HashMap;
+
+// error collection is passed to messenger service actor.
+#[derive(Debug)]
+pub struct ErrorCollection {
+    pub is_active: bool,
+    pub errors: HashMap<ServiceError, u32>,
+}
+
+impl ErrorCollection {
+    pub fn to_report(&mut self) -> Result<HashMap<String, String>, ()> {
+        if self.is_active {
+            let mut result = HashMap::with_capacity(1);
+            let mut message = String::from("Got error: ");
+
+            let err = &mut self.errors;
+
+            if let Some(v) = err.get_mut(&ServiceError::MailServiceError) {
+                if *v > 2 {
+                    message.push_str("MailServiceError");
+                    *v = 0;
+                }
+            }
+            result.insert("message".to_owned(), message);
+            Ok(result)
+        } else {
+            Err(())
+        }
     }
 }

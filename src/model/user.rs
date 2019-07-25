@@ -44,12 +44,24 @@ pub struct UserRef<'a> {
     pub last_online: Option<&'a NaiveDateTime>,
 }
 
+pub trait AttachUser<'u>{
+    type Output;
+    fn self_user_id(&self) -> &u32;
+    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output;
+    fn make_field(&self, users: &'u Vec<User>) -> Option<UserRef<'u>> {
+        users.iter()
+            .filter(|u| u.self_id() == self.self_user_id())
+            .map(|u| u.to_ref())
+            .next()
+    }
+}
+
+// convert user to mail and add to mail queue for user activation
 impl User {
     pub fn to_mail(&self) -> Mail {
         Mail::from_user(self)
     }
 }
-
 
 pub trait ToUserRef {
     fn to_ref(&self) -> UserRef;
@@ -90,6 +102,7 @@ pub struct NewUser<'a> {
     pub signature: &'a str,
 }
 
+// handle incoming json request for authentication
 #[derive(Deserialize)]
 pub struct AuthRequest {
     pub username: String,
@@ -120,6 +133,7 @@ pub struct AuthResponse {
     pub user: User,
 }
 
+// handle incoming json request for user data update
 #[derive(Deserialize, Debug)]
 pub struct UpdateRequest {
     pub id: Option<u32>,

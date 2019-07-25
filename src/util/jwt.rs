@@ -43,12 +43,12 @@ impl JwtPayLoad {
         if self.privilege > 1 {
             Ok(())
         } else {
-            Err(ServiceError::NOTACTIVE)
+            Err(ServiceError::NotActive)
         }
     }
     pub fn check_blocked(&self) -> Result<(), ServiceError> {
         if self.privilege == 0 {
-            Err(ServiceError::BLOCKED)
+            Err(ServiceError::Blocked)
         } else {
             Ok(())
         }

@@ -349,8 +349,8 @@ pub fn auth_response_from_msg(
 
 pub fn unique_username_email_check(
     opt: &Option<SimpleQueryMessage>,
-    req: AuthRequest,
-) -> Result<AuthRequest, ServiceError> {
+    req: & AuthRequest,
+) -> Result<(), ServiceError> {
     match opt {
         Some(msg) => match msg {
             SimpleQueryMessage::Row(row) => {
@@ -361,7 +361,7 @@ pub fn unique_username_email_check(
                     Err(ServiceError::EmailTaken)
                 }
             }
-            _ => Ok(req)
+            _ => Ok(())
         }
         None => Err(ServiceError::BadRequest)
     }

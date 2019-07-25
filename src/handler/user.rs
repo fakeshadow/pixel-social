@@ -1,7 +1,15 @@
 use std::fmt::Write;
-use futures::{Future, future};
 
-use actix::prelude::*;
+use actix::prelude::{
+    ActorFuture,
+    fut::{err, Either},
+    Future,
+    Handler,
+    Message,
+    ResponseFuture,
+    ResponseActFuture,
+    WrapFuture,
+};
 
 use crate::model::{
     actors::DatabaseService,
@@ -9,14 +17,12 @@ use crate::model::{
     errors::ServiceError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::db::{query_multi, query_one, auth_response_from_msg, unique_username_email_check, simple_query, query_one_simple};
+use crate::handler::db;
 use crate::util::hash;
 
 pub struct GetUsers(pub Vec<u32>);
 
 pub struct UpdateUser(pub UpdateRequest);
-
-pub struct PreRegister(pub AuthRequest);
 
 pub struct Register(pub AuthRequest, pub GlobalGuard);
 
@@ -35,10 +41,6 @@ impl Message for UpdateUser {
     type Result = Result<User, ServiceError>;
 }
 
-impl Message for PreRegister {
-    type Result = Result<AuthRequest, ServiceError>;
-}
-
 impl Message for Login {
     type Result = Result<AuthResponse, ServiceError>;
 }
@@ -51,7 +53,7 @@ impl Handler<GetUsers> for DatabaseService {
         ids.sort();
         ids.dedup();
 
-        Box::new(query_multi(
+        Box::new(db::query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
             &[&ids],
@@ -59,48 +61,46 @@ impl Handler<GetUsers> for DatabaseService {
     }
 }
 
-impl Handler<PreRegister> for DatabaseService {
-    type Result = ResponseFuture<AuthRequest, ServiceError>;
+impl Handler<Register> for DatabaseService {
+    type Result = ResponseActFuture<Self, User, ServiceError>;
 
-    fn handle(&mut self, msg: PreRegister, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
+    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
+        let Register(req, global) = msg;
         let query = format!(
             "SELECT username, email FROM users
              WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
 
-        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
-            .and_then(|msg| unique_username_email_check(&msg, req)))
-    }
-}
+        let f = db::simple_query(self.db.as_mut().unwrap(), &query)
+            .into_actor(self)
+            .and_then(move |m, act, _| {
+                if let Some(e) = db::unique_username_email_check(&m, &req).err() {
+                    return Either::A(err(e));
+                }
+                let hash = match hash::hash_password(&req.password) {
+                    Ok(hash) => hash,
+                    Err(e) => return Either::A(err(e))
+                };
+                let id = match global.lock() {
+                    Ok(mut var) => var.next_uid(),
+                    Err(_) => return Either::A(err(ServiceError::InternalServerError))
+                };
+                let u = match req.make_user(&id, &hash) {
+                    Ok(u) => u,
+                    Err(e) => return Either::A(err(e))
+                };
+                Either::B(db::query_one(
+                    act.db.as_mut().unwrap(),
+                    act.insert_user.as_ref().unwrap(),
+                    &[&u.id,
+                        &u.username,
+                        &u.email,
+                        &u.hashed_password,
+                        &u.avatar_url,
+                        &u.signature])
+                    .into_actor(act))
+            });
 
-impl Handler<Register> for DatabaseService {
-    type Result = ResponseFuture<User, ServiceError>;
-
-    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-
-        let hash = match hash::hash_password(&req.password) {
-            Ok(hash) => hash,
-            Err(e) => return Box::new(future::err(e))
-        };
-        let id = match msg.1.lock() {
-            Ok(mut var) => var.next_uid(),
-            Err(_) => return Box::new(future::err(ServiceError::InternalServerError))
-        };
-        let u = match req.make_user(&id, &hash) {
-            Ok(u) => u,
-            Err(e) => return Box::new(future::err(e))
-        };
-
-        Box::new(query_one(
-            self.db.as_mut().unwrap(),
-            self.insert_user.as_ref().unwrap(),
-            &[&u.id,
-                &u.username,
-                &u.email,
-                &u.hashed_password,
-                &u.avatar_url,
-                &u.signature]))
+        Box::new(f)
     }
 }
 
@@ -111,8 +111,8 @@ impl Handler<Login> for DatabaseService {
         let req = msg.0;
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        Box::new(simple_query(self.db.as_mut().unwrap(), &query)
-            .and_then(move |msg| auth_response_from_msg(&msg, &req.password)))
+        Box::new(db::simple_query(self.db.as_mut().unwrap(), &query)
+            .and_then(move |msg| db::auth_response_from_msg(&msg, &req.password)))
     }
 }
 
@@ -144,9 +144,9 @@ impl Handler<UpdateUser> for DatabaseService {
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {} RETURNING *", u.id.unwrap());
         } else {
-            return Box::new(future::err(ServiceError::BadRequest));
+            return Box::new(futures::future::err(ServiceError::BadRequest));
         }
 
-        Box::new(query_one_simple(self.db.as_mut().unwrap(), query.as_str()))
+        Box::new(db::query_one_simple(self.db.as_mut().unwrap(), query.as_str()))
     }
 }

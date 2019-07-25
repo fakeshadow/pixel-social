@@ -30,13 +30,13 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
     let c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
     let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
-    // Load all categories and make hash set.
+    // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
     let categories = rt.block_on(query_all_simple::<Category>(&mut c, query)).unwrap();
-    rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
 
-    // build list by last reply time desc order for each category. build category meta list with all category ids
+    // build list by create_time desc order for each category. build category meta list with all category ids
 
     let mut last_tid = 1;
     let mut category_ids = Vec::new();
@@ -59,6 +59,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
             .map(|(_, ())| ());
         rt.block_on(f).unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
+        // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
         let (t, _): (Vec<Topic>, _) = rt.block_on(query_multi_simple_with_id(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
@@ -177,7 +178,6 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
         })
         .collect::<Vec<(u32, u32, u32)>>();
 
-
     if posts.len() > 0 {
         let _ = rt.block_on(build_posts_cache_list(posts.clone(), c_cache.clone())).unwrap_or_else(|_| panic!("Failed to load posts"));
 
@@ -212,7 +212,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
     for u in users.iter() {
         if u.id > last_uid { last_uid = u.id };
     }
-    rt.block_on(build_hmsets(c_cache.clone(), users, "user")).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    rt.block_on(build_hmsets(c_cache.clone(), users, "user", false)).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
 
     let p = c.prepare("SELECT * FROM talks");
     let st = rt.block_on(p).unwrap();

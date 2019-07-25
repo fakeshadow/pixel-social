@@ -9,8 +9,8 @@ use crate::handler::{
 };
 use crate::model::{
     actors::{DB, CACHE},
-    common::{GlobalGuard, AttachUser},
-    post::{PostRequest, PostWithUser},
+    common::GlobalGuard,
+    post::{Post, PostRequest},
 };
 
 pub fn add(
@@ -72,10 +72,7 @@ pub fn get(
     cache.send(GetPostsCache(vec![id]))
         .from_err()
         .and_then(move |r| match r {
-            Ok((p, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&p
-                .iter()
-                .map(|p| p.attach_user(&u))
-                .collect::<Vec<PostWithUser>>()))),
+            Ok((p, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&Post::attach_users(&p, &u)))),
             Err(_) => Either::B(db
                 .send(GetPosts(vec![id]))
                 .from_err()
@@ -87,10 +84,7 @@ pub fn get(
                         .and_then(|r| r)
                         .from_err()
                         .and_then(move |u| {
-                            let res = HttpResponse::Ok().json(&p
-                                .iter()
-                                .map(|p| p.attach_user(&u))
-                                .collect::<Vec<PostWithUser>>());
+                            let res = HttpResponse::Ok().json(&Post::attach_users(&p, &u));
                             let _ = cache.do_send(UpdateCache::Post(p));
                             res
                         })

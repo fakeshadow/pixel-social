@@ -25,6 +25,7 @@ use tokio_postgres::{
 };
 
 use crate::model::{
+    errors::ErrorCollection,
     common::{GlobalTalksGuard, GlobalSessionsGuard},
     mail::{Mailer, Twilio},
 };
@@ -40,8 +41,9 @@ pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;
-pub type MAILER = Addr<MailService>;
+pub type MAILER = Addr<MessageService>;
 
+// actor handles database query for categories ,topics, posts, users.
 pub struct DatabaseService {
     pub db: Option<Client>,
     pub topics_by_id: Option<Statement>,
@@ -52,6 +54,8 @@ pub struct DatabaseService {
     pub insert_user: Option<Statement>,
 }
 
+// actor handles communication between websocket sessions actors
+// with a database connection(each actor) for messages and talks query. a redis connection(each actor) for users' cache info query.
 pub struct TalkService {
     pub talks: GlobalTalksGuard,
     pub sessions: GlobalSessionsGuard,
@@ -65,20 +69,25 @@ pub struct TalkService {
     pub join_talk: Option<Statement>,
 }
 
+// actor handles redis cache for categories,topics,posts,users.
 pub struct CacheService {
     pub cache: Option<SharedConn>
 }
 
+// actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
     pub cache: Option<SharedConn>
 }
 
-pub struct MailService {
+// actor handles email and sms messages.
+pub struct MessageService {
     pub cache: Option<SharedConn>,
     pub mailer: Mailer,
     pub twilio: Option<Twilio>,
+    pub errors: ErrorCollection,
 }
 
+// actor handles individual user's websocket connection and communicate with TalkService Actors.
 pub struct WsChatSession {
     pub id: u32,
     pub hb: Instant,
@@ -97,8 +106,7 @@ impl Actor for CacheUpdateService {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.update_list_pop(ctx);
-        self.trim_list_pop(ctx);
+        self.start_interval(ctx);
     }
 }
 
@@ -106,12 +114,11 @@ impl Actor for TalkService {
     type Context = Context<Self>;
 }
 
-impl Actor for MailService {
+impl Actor for MessageService {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.process_mail(ctx);
-        self.process_sms(ctx);
+        self.start_interval(ctx);
     }
 }
 
@@ -233,6 +240,9 @@ impl CacheUpdateService {
             addr
         })
     }
+    pub fn get_conn(&self) -> SharedConn {
+        self.cache.as_ref().unwrap().clone()
+    }
 }
 
 impl TalkService {
@@ -301,15 +311,16 @@ impl TalkService {
     }
 }
 
-impl MailService {
+impl MessageService {
     pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
 
-        MailService::create(move |ctx| {
-            let addr = MailService {
+        MessageService::create(move |ctx| {
+            let addr = MessageService {
                 cache: None,
                 mailer: Self::generate_mailer(),
                 twilio: Self::generate_twilio(),
+                errors: Self::generate_errors(),
             };
 
             client.get_shared_async_connection()

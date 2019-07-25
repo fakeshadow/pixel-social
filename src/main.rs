@@ -21,13 +21,12 @@ mod router;
 mod util;
 
 use crate::{
-    handler::cache::clear_cache,
     model::actors::{
         CacheService,
         CacheUpdateService,
         DatabaseService,
         TalkService,
-        MailService,
+        MessageService,
     },
     util::startup::{
         create_table,
@@ -39,8 +38,8 @@ use crate::{
 fn main() -> std::io::Result<()> {
     dotenv().ok();
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
@@ -56,21 +55,27 @@ fn main() -> std::io::Result<()> {
             create_table(&database_url);
         }
     }
+    // clear cache is only for test.
+//    use crate::handler::cache::clear_cache;
+//    let _ = clear_cache(&redis_url);
 
-    let _ = clear_cache(&redis_url);
-
+    // build_cache function returns global variables.
     let (global, global_talks, global_sessions) =
         build_cache(&database_url, &redis_url).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 
     // mail actor and cache update service are not passed into data.
-    // mail is added directly into redis when registering and changing password.
-    let _ = MailService::connect(&redis_url);
-    // actor for sorting popular categories and topics run with a 5 seconds interval.
+    let _ = MessageService::connect(&redis_url);
     let _ = CacheUpdateService::connect(&redis_url);
 
     HttpServer::new(move || {
+        // Use a cache pass through flow for data. Anything can't be find in redis will hit database and trigger an cache update.
+        // Most cache have a expire time or can be removed manually.
+        // Only a small portion of data are stored permanently in redis (Mainly the reply_count and reply_timestamp of topics/categories/posts).
+        // Removing them will result in some ordering issue.
+
+        // the server will generate one async actor for each worker. The num of workers is tied to cpu core count.
         let db = DatabaseService::connect(&database_url);
         let cache = CacheService::connect(&redis_url);
         let talk = TalkService::connect(&database_url, &redis_url, global_talks.clone(), global_sessions.clone());
@@ -128,6 +133,6 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/upload").route(web::post().to_async(router::stream::upload_file)))
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
-    }).bind(format!("{}:{}", &server_ip, &server_port))?.workers(12).start();
+    }).bind(format!("{}:{}", &server_ip, &server_port))?.start();
     sys.run()
 }

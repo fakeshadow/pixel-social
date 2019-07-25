@@ -6,12 +6,11 @@ use actix::prelude::Addr;
 use hashbrown::HashMap;
 
 use crate::model::{
+    actors::WsChatSession,
     errors::ServiceError,
     talk::Talk,
-    user::{ToUserRef, UserRef},
 };
 use crate::util::validation as validate;
-use crate::model::actors::WsChatSession;
 
 pub trait GetSelfCategory {
     fn self_category(&self) -> &u32;
@@ -23,19 +22,6 @@ pub trait GetSelfId {
 
 pub trait GetUserId {
     fn get_user_id(&self) -> u32;
-}
-
-pub trait AttachUser<'u, T>
-    where T: GetSelfId + ToUserRef {
-    type Output;
-    fn self_user_id(&self) -> &u32;
-    fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output;
-    fn make_field(&self, users: &'u Vec<T>) -> Option<UserRef<'u>> {
-        users.iter()
-            .filter(|u| u.self_id() == self.self_user_id())
-            .map(|u| u.to_ref())
-            .next()
-    }
 }
 
 //ToDo: need to improve validator with regex

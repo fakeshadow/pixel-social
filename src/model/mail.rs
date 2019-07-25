@@ -12,6 +12,7 @@ pub struct Mailer {
 
 pub struct Twilio {
     pub url: String,
+    pub self_number: String,
     pub account_id: String,
     pub auth_token: String,
 }

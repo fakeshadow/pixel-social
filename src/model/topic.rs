@@ -1,10 +1,10 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{AttachUser, GetSelfId, GetUserId},
+    common::{GetSelfId, GetUserId},
     errors::ServiceError,
     post::{Post, PostWithUser},
-    user::{ToUserRef, User, UserRef},
+    user::{User, UserRef, AttachUser},
 };
 
 #[derive(Serialize, Debug, Clone)]
@@ -18,11 +18,26 @@ pub struct Topic {
     pub thumbnail: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    // last_reply_time stores only in redis and will return none if query database
     pub last_reply_time: Option<NaiveDateTime>,
     pub is_locked: bool,
+    // the same as last_reply_time only stores in redis.
     pub reply_count: Option<u32>,
 }
 
+impl Topic {
+    pub fn attach_users_with_post<'a>(t: Option<&'a Topic>, p: &'a Vec<Post>, u: &'a Vec<User>) -> TopicWithPost<'a> {
+        TopicWithPost {
+            topic: t.map(|t| t.attach_user(&u)),
+            posts: p.iter().map(|p| p.attach_user(&u)).collect(),
+        }
+    }
+    pub fn attach_users<'a>(t: &'a Vec<Topic>, u: &'a Vec<User>) -> Vec<TopicWithUser<'a>> {
+        t.iter().map(|t| t.attach_user(&u)).collect()
+    }
+}
+
+// handle incoming json request.
 #[derive(Deserialize)]
 pub struct TopicRequest {
     pub id: Option<u32>,
@@ -67,11 +82,10 @@ impl GetUserId for Topic {
     fn get_user_id(&self) -> u32 { self.user_id }
 }
 
-impl<'u, T> AttachUser<'u, T> for Topic
-    where T: GetSelfId + ToUserRef {
+impl<'u> AttachUser<'u> for Topic {
     type Output = TopicWithUser<'u>;
     fn self_user_id(&self) -> &u32 { &self.user_id }
-    fn attach_user(&'u self, users: &'u Vec<T>) -> Self::Output {
+    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output {
         TopicWithUser {
             user: self.make_field(&users),
             topic: self,
@@ -86,24 +100,8 @@ pub struct TopicWithUser<'a> {
     pub user: Option<UserRef<'a>>,
 }
 
-impl<'a> TopicWithUser<'a> {
-    pub fn new(t: &'a Vec<Topic>, u: &'a Vec<User>) -> Vec<Self> {
-        t.iter().map(|t| t.attach_user(&u)).collect()
-    }
-
-}
-
 #[derive(Serialize)]
 pub struct TopicWithPost<'a> {
     pub topic: Option<TopicWithUser<'a>>,
     pub posts: Vec<PostWithUser<'a>>,
-}
-
-impl<'a> TopicWithPost<'a> {
-    pub fn new(t: Option<&'a Topic>, p: &'a Vec<Post>, u: &'a Vec<User>) -> Self {
-        TopicWithPost {
-            topic: t.map(|t| t.attach_user(&u)),
-            posts: p.iter().map(|p| p.attach_user(&u)).collect(),
-        }
-    }
 }
