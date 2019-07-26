@@ -3,7 +3,7 @@ use std::env;
 use chrono::{Duration, Local};
 use jsonwebtoken::{decode, encode, Header, Validation};
 
-use crate::model::errors::ServiceError;
+use crate::model::errors::ResError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JwtPayLoad {
@@ -20,35 +20,35 @@ impl JwtPayLoad {
             privilege,
         }
     }
-    pub fn from(string: &str) -> Result<JwtPayLoad, ServiceError> {
+    pub fn from(string: &str) -> Result<JwtPayLoad, ResError> {
         let token: JwtPayLoad = decode::<JwtPayLoad>(string, get_secret().as_ref(), &Validation::default())
             .map(|data| data.claims.into())
-            .map_err(|_| ServiceError::Unauthorized)?;
+            .map_err(|_| ResError::Unauthorized)?;
         if token.exp as i64 - Local::now().timestamp() < 0 {
-            Err(ServiceError::AuthTimeout)
+            Err(ResError::AuthTimeout)
         } else {
             Ok(token)
         }
     }
-    pub fn sign(&self) -> Result<String, ServiceError> {
+    pub fn sign(&self) -> Result<String, ResError> {
         encode(&Header::default(), &self, get_secret().as_ref())
-            .map_err(|_| ServiceError::InternalServerError)
+            .map_err(|_| ResError::InternalServerError)
     }
-    pub fn check_privilege(&self) -> Result<(), ServiceError> {
+    pub fn check_privilege(&self) -> Result<(), ResError> {
         self.check_active()?;
         self.check_blocked()?;
         Ok(())
     }
-    pub fn check_active(&self) -> Result<(), ServiceError> {
+    pub fn check_active(&self) -> Result<(), ResError> {
         if self.privilege > 1 {
             Ok(())
         } else {
-            Err(ServiceError::NotActive)
+            Err(ResError::NotActive)
         }
     }
-    pub fn check_blocked(&self) -> Result<(), ServiceError> {
+    pub fn check_blocked(&self) -> Result<(), ResError> {
         if self.privilege == 0 {
-            Err(ServiceError::Blocked)
+            Err(ResError::Blocked)
         } else {
             Ok(())
         }

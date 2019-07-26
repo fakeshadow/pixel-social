@@ -3,7 +3,7 @@ use actix_web::{Error, HttpResponse, web::Data};
 
 use crate::model::{
     actors::{DB, CACHE},
-    common::GlobalGuard,
+    common::GlobalVars,
     topic::TopicRequest,
 };
 use crate::handler::{
@@ -19,7 +19,7 @@ pub fn hello_world() -> Result<HttpResponse, Error> {
 }
 
 pub fn add_topic(
-    global: Data<GlobalGuard>,
+    global: Data<GlobalVars>,
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -44,7 +44,7 @@ pub fn add_topic(
 }
 
 pub fn add_post(
-    global: Data<GlobalGuard>,
+    global: Data<GlobalVars>,
     db: Data<DB>,
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {

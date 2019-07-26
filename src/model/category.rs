@@ -1,6 +1,6 @@
 use crate::model::{
     common::GetSelfId,
-    errors::ServiceError,
+    errors::ResError,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -29,16 +29,16 @@ impl GetSelfId for Category {
 }
 
 impl CategoryRequest {
-    pub fn check_new(&self) -> Result<(), ServiceError> {
+    pub fn check_new(&self) -> Result<(), ResError> {
         if self.name.is_none() || self.thumbnail.is_none() {
-            Err(ServiceError::BadRequest)
+            Err(ResError::BadRequest)
         } else {
             Ok(())
         }
     }
-    pub fn check_update(&self) -> Result<(), ServiceError> {
+    pub fn check_update(&self) -> Result<(), ResError> {
         if self.id.is_none() {
-            Err(ServiceError::BadRequest)
+            Err(ResError::BadRequest)
         } else {
             Ok(())
         }

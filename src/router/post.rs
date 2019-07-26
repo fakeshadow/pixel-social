@@ -9,7 +9,7 @@ use crate::handler::{
 };
 use crate::model::{
     actors::{DB, CACHE},
-    common::GlobalGuard,
+    common::GlobalVars,
     post::{Post, PostRequest},
 };
 
@@ -18,7 +18,7 @@ pub fn add(
     db: Data<DB>,
     cache: Data<CACHE>,
     req: Json<PostRequest>,
-    global: Data<GlobalGuard>,
+    global: Data<GlobalVars>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     jwt.check_privilege()
         .into_future()

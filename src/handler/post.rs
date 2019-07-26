@@ -6,40 +6,39 @@ use chrono::Utc;
 
 use crate::model::{
     actors::DatabaseService,
-    errors::ServiceError,
-    common::GlobalGuard,
+    errors::ResError,
+    common::GlobalVars,
     post::{Post, PostRequest},
 };
-use crate::handler::db::{query_one, query_one_simple, query_multi_with_id};
 
-pub struct ModifyPost(pub PostRequest, pub Option<GlobalGuard>);
+pub struct ModifyPost(pub PostRequest, pub Option<GlobalVars>);
 
 pub struct GetPosts(pub Vec<u32>);
 
 impl Message for ModifyPost {
-    type Result = Result<Post, ServiceError>;
+    type Result = Result<Post, ResError>;
 }
 
 impl Message for GetPosts {
-    type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = Result<(Vec<Post>, Vec<u32>), ResError>;
 }
 
 
 impl Handler<ModifyPost> for DatabaseService {
-    type Result = ResponseFuture<Post, ServiceError>;
+    type Result = ResponseFuture<Post, ResError>;
 
     fn handle(&mut self, msg: ModifyPost, _: &mut Self::Context) -> Self::Result {
         match msg.1 {
             Some(g) => {
                 let id = match g.lock() {
                     Ok(mut var) => var.next_pid(),
-                    Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
+                    Err(_) => return Box::new(ft_err(ResError::InternalServerError))
                 };
 
                 let p = msg.0;
                 let now = Utc::now().naive_local();
 
-                Box::new(query_one(
+                Box::new(Self::query_one(
                     self.db.as_mut().unwrap(),
                     self.insert_post.as_ref().unwrap(),
                     &[&id,
@@ -51,6 +50,7 @@ impl Handler<ModifyPost> for DatabaseService {
                         &now,
                         &now
                     ],
+                    self.error_reprot.as_ref().map(|e| e.clone()),
                 ))
             }
             None => {
@@ -74,7 +74,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 if query.ends_with(",") {
                     let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {}", p.id.unwrap());
                 } else {
-                    return Box::new(ft_err(ServiceError::BadRequest));
+                    return Box::new(ft_err(ResError::BadRequest));
                 }
 
                 if let Some(s) = p.user_id {
@@ -82,21 +82,25 @@ impl Handler<ModifyPost> for DatabaseService {
                 }
                 query.push_str(" RETURNING *");
 
-                Box::new(query_one_simple(self.db.as_mut().unwrap(), &query))
+                Box::new(Self::query_one_simple(
+                    self.db.as_mut().unwrap(),
+                    &query,
+                    self.error_reprot.as_ref().map(|e| e.clone())))
             }
         }
     }
 }
 
 impl Handler<GetPosts> for DatabaseService {
-    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
         Box::new(
-            query_multi_with_id(
+            Self::query_multi_with_id(
                 self.db.as_mut().unwrap(),
                 self.posts_by_id.as_ref().unwrap(),
-                &[&msg.0])
+                &[&msg.0],
+                self.error_reprot.as_ref().map(|e| e.clone()))
                 .map(move |(mut t, uids): (Vec<Post>, Vec<u32>)| {
                     let mut result = Vec::with_capacity(t.len());
                     for i in 0..msg.0.len() {

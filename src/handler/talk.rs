@@ -16,12 +16,12 @@ use hashbrown::HashMap;
 use redis::cmd;
 
 use crate::model::{
-    actors::{TalkService, WsChatSession},
-    errors::ServiceError,
+    actors::{DatabaseService, TalkService, WsChatSession},
+    errors::ResError,
     talk::{Talk, SessionMessage},
 };
 use crate::handler::{
-    db::{query_single_row, simple_query, query_one_simple},
+    db::simple_query,
     cache::get_users,
 };
 
@@ -73,10 +73,10 @@ impl TalkService {
             });
     }
 
-    fn remove_talk(&self, tid: &u32) -> Result<(), ServiceError> {
+    fn remove_talk(&self, tid: &u32) -> Result<(), ResError> {
         self.talks
             .write()
-            .map_err(|_| ServiceError::InternalServerError)
+            .map_err(|_| ResError::InternalServerError)
             .map(|mut t| {
                 t.remove(tid);
             })
@@ -325,7 +325,7 @@ impl Handler<Create> for TalkService {
         let query = "SELECT Max(id) FROM talks";
 
         let f =
-            query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
+            DatabaseService::query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0, None)
                 .into_actor(self)
                 // ToDo: handle error.
                 .map_err(|_, _, _| ())
@@ -337,7 +337,7 @@ impl Handler<Create> for TalkService {
                     VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
                     RETURNING *", cid, msg.name, msg.description, msg.owner, cid, cid);
 
-                    query_one_simple::<Talk>(act.db.as_mut().unwrap(), &query)
+                    DatabaseService::query_one_simple::<Talk>(act.db.as_mut().unwrap(), &query, None)
                         .into_actor(act)
                         // ToDo: handle error.
                         .map_err(|_, _, _| ())
@@ -496,10 +496,10 @@ impl Handler<GetHistory> for TalkService {
                                 time: row.get(1),
                                 message: row.get(2),
                             });
-                            Ok::<Vec<HistoryMessage>, ServiceError>(msgs)
+                            Ok::<Vec<HistoryMessage>, ResError>(msgs)
                         })
                         .into_actor(self)
-                        .then(move |r: Result<Vec<HistoryMessage>, ServiceError>, _, _| {
+                        .then(move |r: Result<Vec<HistoryMessage>, ResError>, _, _| {
                             match r {
                                 Ok(h) => {
                                     let s = serde_json::to_string(&h).unwrap_or("!!! Stringify Error".to_owned());
@@ -555,7 +555,7 @@ impl Handler<RemoveUser> for TalkService {
                     return;
                 };
 
-                let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)
+                let f = DatabaseService::query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query, None)
                     .into_actor(self)
                     .then(move |r, act, _| {
                         match r {
@@ -600,7 +600,7 @@ impl Handler<Admin> for TalkService {
         }
         query.push_str(&format!(" WHERE id = {}", tid));
 
-        let f = query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query)
+        let f = DatabaseService::query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query, None)
             .into_actor(self)
             .then(move |r, act, _| {
                 match r {

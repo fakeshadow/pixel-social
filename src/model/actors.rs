@@ -25,8 +25,8 @@ use tokio_postgres::{
 };
 
 use crate::model::{
-    errors::ErrorCollection,
-    common::{GlobalTalksGuard, GlobalSessionsGuard},
+    errors::ErrorReport,
+    common::{GlobalTalks, GlobalSessions},
     messenger::{Mailer, Twilio},
 };
 use crate::handler::{
@@ -42,10 +42,12 @@ pub type DB = Addr<DatabaseService>;
 pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;
 pub type MAILER = Addr<MessageService>;
+pub type ErrorReportRecipient = actix::prelude::Recipient<crate::handler::messenger::ErrorReportMessage>;
 
 // actor handles database query for categories ,topics, posts, users.
 pub struct DatabaseService {
     pub db: Option<Client>,
+    pub error_reprot: Option<ErrorReportRecipient>,
     pub topics_by_id: Option<Statement>,
     pub posts_by_id: Option<Statement>,
     pub users_by_id: Option<Statement>,
@@ -57,8 +59,8 @@ pub struct DatabaseService {
 // actor handles communication between websocket sessions actors
 // with a database connection(each actor) for messages and talks query. a redis connection(each actor) for users' cache info query.
 pub struct TalkService {
-    pub talks: GlobalTalksGuard,
-    pub sessions: GlobalSessionsGuard,
+    pub talks: GlobalTalks,
+    pub sessions: GlobalSessions,
     pub db: Option<Client>,
     pub cache: Option<SharedConn>,
     pub insert_pub_msg: Option<Statement>,
@@ -79,12 +81,12 @@ pub struct CacheUpdateService {
     pub cache: Option<SharedConn>
 }
 
-// actor handles email and sms messages.
+// actor handles error report, sending email and sms messages.
 pub struct MessageService {
     pub cache: Option<SharedConn>,
     pub mailer: Mailer,
     pub twilio: Option<Twilio>,
-    pub errors: ErrorCollection,
+    pub error_report: ErrorReport,
 }
 
 // actor handles individual user's websocket connection and communicate with TalkService Actors.
@@ -136,12 +138,13 @@ impl Actor for WsChatSession {
 }
 
 impl DatabaseService {
-    pub fn connect(postgres_url: &str) -> DB {
+    pub fn connect(postgres_url: &str, send_error: Option<ErrorReportRecipient>) -> DB {
         let hs = connect(postgres_url, NoTls);
 
         DatabaseService::create(move |ctx| {
             let addr = DatabaseService {
                 db: None,
+                error_reprot: send_error,
                 topics_by_id: None,
                 posts_by_id: None,
                 users_by_id: None,
@@ -246,7 +249,7 @@ impl CacheUpdateService {
 }
 
 impl TalkService {
-    pub fn connect(postgres_url: &str, redis_url: &str, talks: GlobalTalksGuard, sessions: GlobalSessionsGuard) -> TALK {
+    pub fn connect(postgres_url: &str, redis_url: &str, talks: GlobalTalks, sessions: GlobalSessions) -> TALK {
         let hs = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
@@ -320,7 +323,7 @@ impl MessageService {
                 cache: None,
                 mailer: Self::generate_mailer(),
                 twilio: Self::generate_twilio(),
-                errors: Self::generate_errors(),
+                error_report: Self::generate_error_report(),
             };
 
             client.get_shared_async_connection()

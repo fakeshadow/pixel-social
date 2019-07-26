@@ -7,7 +7,7 @@ use hashbrown::HashMap;
 
 use crate::model::{
     actors::WsChatSession,
-    errors::ServiceError,
+    errors::ResError,
     talk::Talk,
 };
 use crate::util::validation as validate;
@@ -30,53 +30,53 @@ pub trait Validator {
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
 
-    fn check_self_id(&self) -> Result<(), ServiceError>;
+    fn check_self_id(&self) -> Result<(), ResError>;
 
-    fn check_username(&self) -> Result<(), ServiceError> {
+    fn check_username(&self) -> Result<(), ResError> {
         let username = self.get_username();
         if validate::validate_username(username) {
             Ok(())
         } else {
-            Err(ServiceError::InvalidUsername)
+            Err(ResError::InvalidUsername)
         }
     }
 
-    fn check_password(&self) -> Result<(), ServiceError> {
+    fn check_password(&self) -> Result<(), ResError> {
         let password = self.get_password();
         if validate::validate_password(password) {
             Ok(())
         } else {
-            Err(ServiceError::InvalidPassword)
+            Err(ResError::InvalidPassword)
         }
     }
 
-    fn check_email(&self) -> Result<(), ServiceError> {
+    fn check_email(&self) -> Result<(), ResError> {
         let email = self.get_email();
         if !email.contains("@") {
-            return Err(ServiceError::InvalidEmail);
+            return Err(ResError::InvalidEmail);
         }
         let email_str_vec: Vec<&str> = email.rsplitn(2, "@").collect();
         if validate::validate_email(email_str_vec) {
             Ok(())
         } else {
-            Err(ServiceError::InvalidEmail)
+            Err(ResError::InvalidEmail)
         }
     }
 
-    fn check_update(&self) -> Result<(), ServiceError> {
+    fn check_update(&self) -> Result<(), ResError> {
         &self.check_self_id()?;
         &self.check_username()?;
         Ok(())
     }
 
-    fn check_register(&self) -> Result<(), ServiceError> {
+    fn check_register(&self) -> Result<(), ResError> {
         &self.check_email()?;
         &self.check_password()?;
         &self.check_username()?;
         Ok(())
     }
 
-    fn check_login(&self) -> Result<(), ServiceError> {
+    fn check_login(&self) -> Result<(), ResError> {
         &self.check_password()?;
         &self.check_username()?;
         Ok(())
@@ -84,11 +84,11 @@ pub trait Validator {
 }
 
 // type and struct for global vars
-pub type GlobalGuard = Arc<Mutex<GlobalVar>>;
-pub type GlobalSessionsGuard = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
-pub type GlobalTalksGuard = Arc<RwLock<HashMap<u32, Talk>>>;
+pub type GlobalVars = Arc<Mutex<GlobalVar>>;
+pub type GlobalTalks = Arc<RwLock<HashMap<u32, Talk>>>;
+pub type GlobalSessions = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
 
-pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalksGuard, GlobalSessionsGuard) {
+pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalks, GlobalSessions) {
     let mut talks = HashMap::new();
 
     for t in talks_vec.into_iter() {
@@ -106,7 +106,7 @@ pub struct GlobalVar {
 }
 
 impl GlobalVar {
-    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32) -> GlobalGuard {
+    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32) -> GlobalVars {
         Arc::new(Mutex::new(GlobalVar {
             last_uid,
             last_pid,

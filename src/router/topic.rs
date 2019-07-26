@@ -2,9 +2,9 @@ use actix_web::{HttpResponse, Error, web::{Data, Json, Path}, ResponseError};
 use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
 use crate::model::{
-    errors::ServiceError,
+    errors::ResError,
     actors::{DB, CACHE},
-    common::GlobalGuard,
+    common::GlobalVars,
     post::Post,
     topic::{Topic, TopicRequest},
 };
@@ -21,7 +21,7 @@ pub fn add(
     db: Data<DB>,
     cache: Data<CACHE>,
     req: Json<TopicRequest>,
-    global: Data<GlobalGuard>,
+    global: Data<GlobalVars>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     jwt.check_privilege()
         .into_future()
@@ -102,7 +102,7 @@ fn get(
                 }
             }),
             Err(e) => Either::B(match e {
-                ServiceError::IdsFromCache(ids) => Either::B(db
+                ResError::IdsFromCache(ids) => Either::B(db
                     .send(GetPosts(ids))
                     .from_err()
                     .and_then(|r| r)
@@ -135,7 +135,7 @@ fn get_topic_attach_user_form_res(
                 Either::A(attach_user_form_res(db, cache, ids, t, p, false, update_p))
             }
             Err(e) => Either::B(match e {
-                ServiceError::IdsFromCache(tids) => Either::A(db
+                ResError::IdsFromCache(tids) => Either::A(db
                     .send(GetTopics(tids))
                     .from_err()
                     .and_then(|r| r)

@@ -1,4 +1,4 @@
-use std::{env, time::Duration, collections::HashMap};
+use std::{env, time::Duration};
 use futures::{
     future::{Either, ok as ft_ok},
     IntoFuture,
@@ -9,6 +9,8 @@ use actix::prelude::{
     AsyncContext,
     Context,
     Future,
+    Handler,
+    Message,
     WrapFuture,
 };
 
@@ -28,7 +30,7 @@ use lettre_email::Email;
 use crate::MessageService;
 use crate::model::{
     messenger::{Mail, Mailer, Twilio, SmsMessage},
-    errors::{ErrorCollection, ServiceError},
+    errors::{ErrorReport, ResError, RepError},
 };
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(2000);
@@ -41,10 +43,10 @@ impl MessageService {
         self.process_mail(ctx);
         self.process_sms(ctx);
     }
-    // errors are sent right away with sms and mail. instead of using queue.
+    // rep errors are sent right away with sms and mail. instead of using queue.
     fn process_errors(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(ERROR_TIME_GAP, move |act, ctx| {
-            if let Some(s) = act.errors.to_report().ok() {
+            if let Some(s) = act.error_report.stringify_report().ok() {
                 ctx.spawn(act
                     .send_sms_admin(s)
                     .into_actor(act)
@@ -60,7 +62,7 @@ impl MessageService {
                 .from_queue("mail_queue")
                 .into_actor(act)
                 .map_err(|e, _, _| match e {
-                    ServiceError::NoCache => (),
+                    ResError::NoCache => (),
                     _ => println!("mail error is : {:?}", e)
                 })
                 .and_then(|s, act, _| act
@@ -77,7 +79,7 @@ impl MessageService {
                 .from_queue("sms_queue")
                 .into_actor(act)
                 .map_err(|e, _, _| match e {
-                    ServiceError::NoCache => (),
+                    ResError::NoCache => (),
                     _ => println!("sms error is : {:?}", e)
                 })
                 .and_then(|s, act, _| act
@@ -132,16 +134,16 @@ impl MessageService {
         }
     }
 
-    pub fn generate_errors() -> ErrorCollection {
-        let is_active = env::var("USE_ERROR_SMS_REPORT").unwrap_or("".to_owned()).parse::<bool>().unwrap_or(false);
+    pub fn generate_error_report() -> ErrorReport {
+        let use_report = env::var("USE_ERROR_SMS_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
-        ErrorCollection {
-            is_active,
-            errors: HashMap::new(),
+        ErrorReport {
+            use_report,
+            reports: hashbrown::HashMap::new(),
         }
     }
 
-    fn send_sms_admin(&mut self, msg: String) -> impl Future<Item=(), Error=ServiceError> {
+    fn send_sms_admin(&mut self, msg: String) -> impl Future<Item=(), Error=RepError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg,
@@ -149,7 +151,7 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ServiceError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=RepError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
             Err(_) => return Either::A(ft_ok(()))
@@ -157,7 +159,7 @@ impl MessageService {
         Either::B(self.send_sms(msg))
     }
 
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ServiceError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=RepError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
@@ -179,7 +181,7 @@ impl MessageService {
             .map(|_| ())
     }
 
-    fn send_mail(&mut self, s: &str) -> Result<(), ServiceError> {
+    fn send_mail(&mut self, s: &str) -> Result<(), RepError> {
         let mailer = &mut self.mailer;
 
         let mail = serde_json::from_str::<Mail>(s)?;
@@ -190,7 +192,7 @@ impl MessageService {
             .subject("Activate your PixelShare account")
             .alternative(format!("<p>Please click the link below </br> {}/activation/{} </p>", &mailer.server_url, mail.uuid), "Activation link")
             .build()
-            .map_err(|_| ServiceError::MailServiceError)?
+            .map_err(|_| RepError::MailBuilder)?
             .into();
 
         mailer
@@ -199,8 +201,81 @@ impl MessageService {
             .map(|_| ())
             .map_err(|e| {
                 println!("{:?}", e);
-                ServiceError::MailServiceError
+                RepError::MailTransport
             })
     }
 }
 
+#[derive(Message)]
+pub struct ErrorReportMessage(pub RepError);
+
+impl Handler<ErrorReportMessage> for MessageService {
+    type Result = ();
+
+    fn handle(&mut self, msg: ErrorReportMessage, _: &mut Context<Self>) {
+        let err = msg.0;
+        match self.error_report.reports.get_mut(&err) {
+            Some(v) => {
+                *v += 1;
+            }
+            None => {
+                self.error_report.reports.insert(err, 1);
+            }
+        }
+    }
+}
+
+impl ErrorReport {
+    pub fn stringify_report(&mut self) -> Result<String, ()> {
+        if self.use_report {
+            let now = chrono::Utc::now().naive_utc();
+            let mut message = format!("Time: {} /br Got erros:", now);
+
+            let rep = &mut self.reports;
+
+            if let Some(v) = rep.get_mut(&RepError::SMS) {
+                if *v > 2 {
+                    message.push_str("/br SMS Service Error(Could be lost connection to twilio API)");
+                    *v = 0;
+                }
+            }
+            if let Some(v) = rep.get_mut(&RepError::MailBuilder) {
+                if *v > 3 {
+                    message.push_str("/br Mail Service Error(Can not build sendable email)");
+                    *v = 0;
+                }
+            }
+            if let Some(v) = rep.get_mut(&RepError::MailTransport) {
+                if *v > 2 {
+                    message.push_str("/br Mail Service Error(Can not transport email. Could be email server offline)");
+                    *v = 0;
+                }
+            }
+            if let Some(v) = rep.get_mut(&RepError::HttpClient) {
+                if *v > 3 {
+                    message.push_str("/br Http Client Error(Could be network issue with target API entry)");
+                    *v = 0;
+                }
+            }
+            if let Some(v) = rep.get_mut(&RepError::Redis) {
+                if *v > 2 {
+                    message.push_str("/br Redis Service Error(Could be redis server offline/IO error)");
+                    *v = 0;
+                }
+            }
+            if let Some(v) = rep.get_mut(&RepError::Database) {
+                if *v > 2 {
+                    message.push_str("/br Database Service Error(Could be database server offline/IO error)");
+                    *v = 0;
+                }
+            }
+            if !message.ends_with(":") {
+                Ok(message)
+            } else {
+                Err(())
+            }
+        } else {
+            Err(())
+        }
+    }
+}

@@ -2,19 +2,19 @@ use std::env;
 
 use bcrypt::{DEFAULT_COST, hash, verify};
 
-use crate::model::errors::ServiceError;
+use crate::model::errors::ResError;
 
-pub fn hash_password(password: &str) -> Result<String, ServiceError> {
+pub fn hash_password(password: &str) -> Result<String, ResError> {
     let hash_cost: u32 = match env::var("HASH_ROUNDS") {
         Ok(cost) => cost.parse::<u32>().unwrap_or(DEFAULT_COST),
         _ => DEFAULT_COST,
     };
-    hash(password, hash_cost).map_err(|_| ServiceError::InternalServerError)
+    hash(password, hash_cost).map_err(|_| ResError::InternalServerError)
 }
 
-pub fn verify_password(password: &str, password_hash: &str) -> Result<(), ServiceError> {
+pub fn verify_password(password: &str, password_hash: &str) -> Result<(), ResError> {
     match verify(password, password_hash) {
-        Ok(valid) =>  if valid { Ok(()) } else { Err(ServiceError::WrongPwd) },
-        _ => Err(ServiceError::InternalServerError),
+        Ok(valid) =>  if valid { Ok(()) } else { Err(ResError::WrongPwd) },
+        _ => Err(ResError::InternalServerError),
     }
 }

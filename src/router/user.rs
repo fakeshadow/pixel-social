@@ -3,7 +3,7 @@ use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
 use crate::model::{
     actors::{DB, CACHE},
-    common::{GlobalGuard, Validator},
+    common::{GlobalVars, Validator},
     user::{AuthRequest, UpdateRequest, ToUserRef},
 };
 use crate::handler::{
@@ -88,7 +88,7 @@ pub fn login(
 pub fn register(
     db: Data<DB>,
     cache: Data<CACHE>,
-    global: Data<GlobalGuard>,
+    global: Data<GlobalVars>,
     req: Json<AuthRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     req.check_register()

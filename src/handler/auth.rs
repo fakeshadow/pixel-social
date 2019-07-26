@@ -1,7 +1,7 @@
 use actix_web::{dev, FromRequest, HttpRequest};
 
 use crate::model::{
-    errors::ServiceError
+    errors::ResError
 };
 use crate::util::jwt::JwtPayLoad;
 
@@ -9,8 +9,8 @@ pub type UserJwt = JwtPayLoad;
 
 /// jwt token extractor from request
 impl FromRequest for JwtPayLoad {
-    type Error = ServiceError;
-    type Future = Result<UserJwt, ServiceError>;
+    type Error = ResError;
+    type Future = Result<UserJwt, ResError>;
     type Config = ();
 
     fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
@@ -23,7 +23,7 @@ impl FromRequest for JwtPayLoad {
                     .collect();
                 JwtPayLoad::from(vec[0])
             }
-            None => Err(ServiceError::Unauthorized)
+            None => Err(ResError::Unauthorized)
         }
     }
 }

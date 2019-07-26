@@ -7,43 +7,41 @@ use chrono::Utc;
 use crate::model::{
     actors::DatabaseService,
     topic::TopicRequest,
-    common::GlobalGuard,
-    errors::ServiceError,
+    common::GlobalVars,
+    errors::ResError,
     topic::Topic,
 };
-use crate::handler::db::{query_multi_with_id, query_one_simple, query_one};
 
-
-pub struct AddTopic(pub TopicRequest, pub GlobalGuard);
+pub struct AddTopic(pub TopicRequest, pub GlobalVars);
 
 pub struct UpdateTopic(pub TopicRequest);
 
 pub struct GetTopics(pub Vec<u32>);
 
 impl Message for AddTopic {
-    type Result = Result<Topic, ServiceError>;
+    type Result = Result<Topic, ResError>;
 }
 
 impl Message for UpdateTopic {
-    type Result = Result<Topic, ServiceError>;
+    type Result = Result<Topic, ResError>;
 }
 
 impl Message for GetTopics {
-    type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
+    type Result = Result<(Vec<Topic>, Vec<u32>), ResError>;
 }
 
 impl Handler<AddTopic> for DatabaseService {
-    type Result = ResponseFuture<Topic, ServiceError>;
+    type Result = ResponseFuture<Topic, ResError>;
 
     fn handle(&mut self, msg: AddTopic, _: &mut Self::Context) -> Self::Result {
         let id = match msg.1.lock() {
             Ok(mut var) => var.next_tid(),
-            Err(_) => return Box::new(ft_err(ServiceError::InternalServerError))
+            Err(_) => return Box::new(ft_err(ResError::InternalServerError))
         };
         let t = msg.0;
         let now = &Utc::now().naive_local();
 
-        Box::new(query_one(
+        Box::new(Self::query_one(
             self.db.as_mut().unwrap(),
             self.insert_topic.as_ref().unwrap(),
             &[&id,
@@ -53,13 +51,14 @@ impl Handler<AddTopic> for DatabaseService {
                 &t.title.unwrap(),
                 &t.body.unwrap(),
                 now,
-                now]))
+                now],
+            self.error_reprot.as_ref().map(|r| r.clone())))
     }
 }
 
 //ToDo: add query for moving topic to other table.
 impl Handler<UpdateTopic> for DatabaseService {
-    type Result = ResponseFuture<Topic, ServiceError>;
+    type Result = ResponseFuture<Topic, ResError>;
 
     fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
         let t = msg.0;
@@ -81,7 +80,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at=DEFAULT");
         } else {
-            return Box::new(ft_err(ServiceError::BadRequest));
+            return Box::new(ft_err(ResError::BadRequest));
         }
 
         let _ = write!(&mut query, " WHERE id={} ", t.id.unwrap());
@@ -90,19 +89,23 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(query_one_simple(self.db.as_mut().unwrap(), &query))
+        Box::new(Self::query_one_simple(
+            self.db.as_mut().unwrap(),
+            &query,
+            self.error_reprot.as_ref().map(|r| r.clone())))
     }
 }
 
 impl Handler<GetTopics> for DatabaseService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
+    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
         Box::new(
-            query_multi_with_id(
+            Self::query_multi_with_id(
                 self.db.as_mut().unwrap(),
                 self.topics_by_id.as_ref().unwrap(),
-                &[&msg.0])
+                &[&msg.0],
+                self.error_reprot.as_ref().map(|r| r.clone()))
                 .map(move |(mut t, uids): (Vec<Topic>, Vec<u32>)| {
                     let mut result = Vec::with_capacity(t.len());
                     for i in 0..msg.0.len() {

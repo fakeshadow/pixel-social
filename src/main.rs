@@ -37,12 +37,15 @@ use crate::{
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
+//    std::env::set_var("RUST_LOG", "actix_server=info,actix_web=trace");
+//    env_logger::init();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
+    let use_report = env::var("USE_ERROR_SMS_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
     // create or clear database tables
     let args: Vec<String> = env::args().collect();
@@ -65,9 +68,14 @@ fn main() -> std::io::Result<()> {
 
     let sys = System::new("PixelShare");
 
-    // mail actor and cache update service are not passed into data.
-    let _ = MessageService::connect(&redis_url);
+    // cache update actor is not passed into data.
     let _ = CacheUpdateService::connect(&redis_url);
+
+    // msg actor pass a recpient of RepError type message to other actors and handle.
+    let msg = MessageService::connect(&redis_url);
+
+    // a Option<Recipent> is passed to every actor for sending errors to message actor.
+    let recipient = if use_report { Some(msg.recipient()) } else { None };
 
     HttpServer::new(move || {
         // Use a cache pass through flow for data. Anything can't be find in redis will hit database and trigger an cache update.
@@ -76,7 +84,7 @@ fn main() -> std::io::Result<()> {
         // Removing them will result in some ordering issue.
 
         // the server will generate one async actor for each worker. The num of workers is tied to cpu core count.
-        let db = DatabaseService::connect(&database_url);
+        let db = DatabaseService::connect(&database_url, recipient.clone());
         let cache = CacheService::connect(&redis_url);
         let talk = TalkService::connect(&database_url, &redis_url, global_talks.clone(), global_sessions.clone());
 

@@ -8,13 +8,13 @@ use actix::prelude::{
     Message,
     ResponseFuture,
     ResponseActFuture,
-    WrapFuture
+    WrapFuture,
 };
 
 use crate::model::{
     actors::DatabaseService,
     category::{Category, CategoryRequest},
-    errors::ServiceError,
+    errors::ResError,
 };
 use crate::handler::db;
 
@@ -27,23 +27,23 @@ pub struct UpdateCategory(pub CategoryRequest);
 pub struct RemoveCategory(pub u32);
 
 impl Message for GetCategories {
-    type Result = Result<Vec<Category>, ServiceError>;
+    type Result = Result<Vec<Category>, ResError>;
 }
 
 impl Message for AddCategory {
-    type Result = Result<Category, ServiceError>;
+    type Result = Result<Category, ResError>;
 }
 
 impl Message for UpdateCategory {
-    type Result = Result<Vec<Category>, ServiceError>;
+    type Result = Result<Vec<Category>, ResError>;
 }
 
 impl Message for RemoveCategory {
-    type Result = Result<(), ServiceError>;
+    type Result = Result<(), ResError>;
 }
 
 impl Handler<RemoveCategory> for DatabaseService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ResponseFuture<(), ResError>;
 
     fn handle(&mut self, msg: RemoveCategory, _: &mut Self::Context) -> Self::Result {
         let query = format!("
@@ -55,25 +55,31 @@ impl Handler<RemoveCategory> for DatabaseService {
 }
 
 impl Handler<GetCategories> for DatabaseService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+    type Result = ResponseFuture<Vec<Category>, ResError>;
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        let query = "SELECT * FROM categories";
-        Box::new(db::query_all_simple(self.db.as_mut().unwrap(), query))
+        Box::new(Self::query_multi_simple_no_limit(
+            self.db.as_mut().unwrap(),
+            "SELECT * FROM categories",
+            self.error_reprot.as_ref().map(|e| e.clone())))
     }
 }
 
 impl Handler<AddCategory> for DatabaseService {
-    type Result = ResponseActFuture<Self, Category, ServiceError>;
+    type Result = ResponseActFuture<Self, Category, ResError>;
 
     fn handle(&mut self, msg: AddCategory, _: &mut Self::Context) -> Self::Result {
         let c = msg.0;
 
         let query = "SELECT MAX(id) FROM categories";
 
-        let f = db::query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0)
+        let f = Self::query_single_row::<u32>(
+            self.db.as_mut().unwrap(),
+            query,
+            0,
+            self.error_reprot.as_ref().map(|e| e.clone()))
             .into_actor(self)
-            .and_then(move |cid, addr, _| {
+            .and_then(move |cid, act, _| {
                 let cid = cid + 1;
                 let query = format!("
                     INSERT INTO categories
@@ -81,8 +87,11 @@ impl Handler<AddCategory> for DatabaseService {
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                db::query_one_simple(addr.db.as_mut().unwrap(), &query)
-                    .into_actor(addr)
+                Self::query_one_simple(
+                    act.db.as_mut().unwrap(),
+                    query.as_str(),
+                    act.error_reprot.as_ref().map(|e| e.clone()))
+                    .into_actor(act)
             });
 
         Box::new(f)
@@ -90,7 +99,7 @@ impl Handler<AddCategory> for DatabaseService {
 }
 
 impl Handler<UpdateCategory> for DatabaseService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+    type Result = ResponseFuture<Vec<Category>, ResError>;
 
     fn handle(&mut self, msg: UpdateCategory, _: &mut Self::Context) -> Self::Result {
         let c = msg.0;
@@ -107,10 +116,13 @@ impl Handler<UpdateCategory> for DatabaseService {
             query.remove(query.len() - 1);
             let _ = write!(&mut query, " WHERE id='{}' RETURNING *", c.id.unwrap());
         } else {
-            return Box::new(ft_err(ServiceError::BadRequest));
+            return Box::new(ft_err(ResError::BadRequest));
         };
 
-        Box::new(db::query_one_simple(self.db.as_mut().unwrap(), query.as_str())
+        Box::new(Self::query_one_simple(
+            self.db.as_mut().unwrap(),
+            query.as_str(),
+            self.error_reprot.as_ref().map(|e| e.clone()))
             .map(|c| vec![c]))
     }
 }

@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     messenger::Mail,
-    errors::ServiceError,
+    errors::ResError,
     common::{GetSelfId, Validator},
 };
 
@@ -111,11 +111,11 @@ pub struct AuthRequest {
 }
 
 impl AuthRequest {
-    pub fn extract_email(&self) -> Result<&str, ServiceError> {
-        self.email.as_ref().map(String::as_str).ok_or(ServiceError::BadRequest)
+    pub fn extract_email(&self) -> Result<&str, ResError> {
+        self.email.as_ref().map(String::as_str).ok_or(ResError::BadRequest)
     }
 
-    pub fn make_user<'a>(&'a self, id: &'a u32, hashed_password: &'a str) -> Result<NewUser<'a>, ServiceError> {
+    pub fn make_user<'a>(&'a self, id: &'a u32, hashed_password: &'a str) -> Result<NewUser<'a>, ResError> {
         Ok(NewUser {
             id,
             username: &self.username,
@@ -179,7 +179,7 @@ impl Validator for AuthRequest {
     fn get_password(&self) -> &str { &self.password }
     fn get_email(&self) -> &str { self.email.as_ref().map(String::as_str).unwrap_or("") }
 
-    fn check_self_id(&self) -> Result<(), ServiceError> { Ok(()) }
+    fn check_self_id(&self) -> Result<(), ResError> { Ok(()) }
 }
 
 impl Validator for UpdateRequest {
@@ -190,7 +190,7 @@ impl Validator for UpdateRequest {
     fn get_password(&self) -> &str { "" }
     fn get_email(&self) -> &str { "" }
 
-    fn check_self_id(&self) -> Result<(), ServiceError> {
-        self.id.as_ref().ok_or(ServiceError::BadRequest).map(|_| ())
+    fn check_self_id(&self) -> Result<(), ResError> {
+        self.id.as_ref().ok_or(ResError::BadRequest).map(|_| ())
     }
 }

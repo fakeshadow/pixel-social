@@ -8,7 +8,7 @@ use crate::handler::{
     user::GetUsers,
 };
 use crate::model::{
-    errors::ServiceError,
+    errors::ResError,
     actors::{DB, CACHE},
     topic::Topic,
 };
@@ -73,7 +73,7 @@ fn get(
         .and_then(move |r| match r {
             Ok((t, ids)) => Either::A(attach_users_form_res(ids, t, db, cache, false)),
             Err(e) => Either::B(match e {
-                ServiceError::IdsFromCache(ids) => Either::B(topics_from_db(ids, db, cache)),
+                ResError::IdsFromCache(ids) => Either::B(topics_from_db(ids, db, cache)),
                 _ => Either::A(ft_ok(e.render_response()))
             })
         })

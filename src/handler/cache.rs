@@ -23,7 +23,7 @@ use crate::{
 };
 use crate::model::{
     actors::{SharedConn, MessageService},
-    errors::ServiceError,
+    errors::ResError,
     category::Category,
     post::Post,
     topic::Topic,
@@ -47,7 +47,7 @@ const HASH_LIFE: usize = 172800;
 const MAIL_LIFE: usize = 3600;
 
 impl MessageService {
-    pub fn from_queue(&self, key: &str) -> impl Future<Item=String, Error=ServiceError> {
+    pub fn from_queue(&self, key: &str) -> impl Future<Item=String, Error=ResError> {
         let mut pip = pipe();
         pip.atomic();
         pip.cmd("zrange")
@@ -61,7 +61,7 @@ impl MessageService {
         pip.query_async(self.get_conn())
             .from_err()
             .and_then(|(_, (mut s, ())): (_, (Vec<String>, _))| s
-                .pop().ok_or(ServiceError::NoCache))
+                .pop().ok_or(ResError::NoCache))
     }
 }
 
@@ -172,23 +172,23 @@ pub struct RemoveCategoryCache(pub u32);
 pub struct ActivateUser(pub String);
 
 impl Message for ActivateUser {
-    type Result = Result<u32, ServiceError>;
+    type Result = Result<u32, ResError>;
 }
 
 impl Message for GetCategoriesCache {
-    type Result = Result<Vec<Category>, ServiceError>;
+    type Result = Result<Vec<Category>, ResError>;
 }
 
 impl Message for GetTopicsCache {
-    type Result = Result<(Vec<Topic>, Vec<u32>), ServiceError>;
+    type Result = Result<(Vec<Topic>, Vec<u32>), ResError>;
 }
 
 impl Message for GetTopicCache {
-    type Result = Result<(Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = Result<(Vec<Post>, Vec<u32>), ResError>;
 }
 
 impl Message for GetPostsCache {
-    type Result = Result<(Vec<Post>, Vec<User>), ServiceError>;
+    type Result = Result<(Vec<Post>, Vec<User>), ResError>;
 }
 
 impl Message for GetUsersCache {
@@ -196,7 +196,7 @@ impl Message for GetUsersCache {
 }
 
 impl Message for RemoveCategoryCache {
-    type Result = Result<(), ServiceError>;
+    type Result = Result<(), ResError>;
 }
 
 impl<T> Handler<UpdateCache<T>> for CacheService
@@ -221,7 +221,7 @@ impl<T> Handler<UpdateCache<T>> for CacheService
 }
 
 impl Handler<GetCategoriesCache> for CacheService {
-    type Result = ResponseFuture<Vec<Category>, ServiceError>;
+    type Result = ResponseFuture<Vec<Category>, ResError>;
 
     fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
         Box::new(get_categories(self.get_conn()))
@@ -328,7 +328,7 @@ impl Handler<AddedCategory> for CacheService {
 }
 
 impl Handler<GetTopicCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ServiceError>;
+    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopicCache, _: &mut Self::Context) -> Self::Result {
         match msg {
@@ -350,11 +350,11 @@ impl Handler<GetTopicCache> for CacheService {
                     .from_err()
                     .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
                         if ids.len() == 0 {
-                            return Either::A(ft_err(ServiceError::NoContent));
+                            return Either::A(ft_err(ResError::NoContent));
                         }
                         let ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                         Either::B(get_cache_multi_with_id(&ids, "post", conn)
-                            .map_err(|_| ServiceError::IdsFromCache(ids))
+                            .map_err(|_| ResError::IdsFromCache(ids))
                             .map(|(v, i, _)| (v, i)))
                     }))
         }
@@ -362,7 +362,7 @@ impl Handler<GetTopicCache> for CacheService {
 }
 
 impl Handler<GetPostsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Post>, Vec<User>), ServiceError>;
+    type Result = ResponseFuture<(Vec<Post>, Vec<User>), ResError>;
 
     fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
         let f =
@@ -389,7 +389,7 @@ impl Handler<GetUsersCache> for CacheService {
 
 //ToDo: move this handler to delete cache enum
 impl Handler<RemoveCategoryCache> for CacheService {
-    type Result = ResponseFuture<(), ServiceError>;
+    type Result = ResponseFuture<(), ResError>;
 
     fn handle(&mut self, msg: RemoveCategoryCache, _: &mut Self::Context) -> Self::Result {
         let key = format!("category:{}:set", msg.0);
@@ -461,7 +461,7 @@ impl Handler<AddMail> for CacheService {
 }
 
 impl Handler<ActivateUser> for CacheService {
-    type Result = ResponseFuture<u32, ServiceError>;
+    type Result = ResponseFuture<u32, ResError>;
 
     fn handle(&mut self, msg: ActivateUser, _: &mut Self::Context) -> Self::Result {
         let f = cmd("HGETALL")
@@ -473,7 +473,7 @@ impl Handler<ActivateUser> for CacheService {
                 if msg.0 == m.uuid {
                     Ok(m.user_id)
                 } else {
-                    Err(ServiceError::Unauthorized)
+                    Err(ResError::Unauthorized)
                 }
             });
         Box::new(f)
@@ -481,7 +481,7 @@ impl Handler<ActivateUser> for CacheService {
 }
 
 impl Handler<GetTopicsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ServiceError>;
+    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
         match msg {
@@ -505,7 +505,7 @@ impl Handler<GetTopicsCache> for CacheService {
                     self.get_conn())),
             GetTopicsCache::Ids(ids) =>
                 Box::new(get_cache_multi_with_id(&ids, "topic", self.get_conn())
-                    .map_err(|_| ServiceError::IdsFromCache(ids))
+                    .map_err(|_| ResError::IdsFromCache(ids))
                     .map(|(v, i, _)| (v, i)))
         }
     }
@@ -516,7 +516,7 @@ fn topics_posts_from_list<T>(
     list_key: &str,
     set_key: &'static str,
     conn: SharedConn,
-) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ServiceError>
+) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
     where T: GetUserId + FromHashSetMulti {
     let start = (page as isize - 1) * 20;
 
@@ -528,10 +528,10 @@ fn topics_posts_from_list<T>(
         .from_err()
         .and_then(move |(conn, ids): (SharedConn, Vec<u32>)| {
             if ids.len() == 0 {
-                return Either::A(ft_err(ServiceError::NoContent));
+                return Either::A(ft_err(ResError::NoContent));
             }
             Either::B(get_cache_multi_with_id(&ids, set_key, conn)
-                .map_err(|_| ServiceError::IdsFromCache(ids))
+                .map_err(|_| ResError::IdsFromCache(ids))
                 .map(|(v, i, _)| (v, i))
             )
         })
@@ -542,7 +542,7 @@ fn update_post_count(
     cid: u32,
     yesterday: i64,
     conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
 
@@ -566,7 +566,7 @@ fn update_list(
     cid: Option<u32>,
     yesterday: i64,
     conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
             format!("category:{}:list_pop", cid),
@@ -656,7 +656,7 @@ fn trim_list(
     cid: Option<u32>,
     yesterday: i64,
     conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let (time_key, reply_key, time_key_post) = match cid.as_ref() {
         Some(cid) => (
             format!("category:{}:topics_time", cid),
@@ -704,7 +704,7 @@ fn trim_list(
 
 fn get_categories(
     conn: SharedConn,
-) -> impl Future<Item=Vec<Category>, Error=ServiceError> {
+) -> impl Future<Item=Vec<Category>, Error=ResError> {
     cmd("lrange")
         .arg("category_id:meta")
         .arg(0)
@@ -716,14 +716,14 @@ fn get_categories(
             .iter()
             .map(|hash| hash
                 .parse::<Category>())
-            .collect::<Result<Vec<Category>, ServiceError>>())
+            .collect::<Result<Vec<Category>, ResError>>())
 }
 
 // consume connection as users usually the last query.
 pub fn get_users(
     conn: SharedConn,
     uids: &Vec<u32>,
-) -> impl Future<Item=Vec<User>, Error=ServiceError> {
+) -> impl Future<Item=Vec<User>, Error=ResError> {
     get_hmsets(conn, &uids, "user")
         .and_then(move |(target_len, hm, _)| {
             let mut u = Vec::new();
@@ -733,7 +733,7 @@ pub fn get_users(
                 }
             };
             if u.len() != target_len {
-                return Err(ServiceError::InternalServerError);
+                return Err(ResError::InternalServerError);
             };
             Ok(u)
         })
@@ -745,7 +745,7 @@ pub fn build_hmsets<T>(
     vec: Vec<T>,
     key: &'static str,
     should_expire: bool,
-) -> impl Future<Item=(), Error=ServiceError>
+) -> impl Future<Item=(), Error=ResError>
     where T: GetSelfId + SortHash {
     let mut pip = pipe();
     pip.atomic();
@@ -773,7 +773,7 @@ pub fn build_list(
     // pass lpush or rpush as cmd
     cmd: &'static str,
     key: String,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -797,7 +797,7 @@ fn get_hmsets<'a, T>(
     conn: SharedConn,
     vec: &'a Vec<T>,
     key: &'a str,
-) -> impl Future<Item=(usize, Vec<HashMap<String, String>>, SharedConn), Error=ServiceError>
+) -> impl Future<Item=(usize, Vec<HashMap<String, String>>, SharedConn), Error=ResError>
     where T: std::fmt::Display {
     let mut pipe = pipe();
     pipe.atomic();
@@ -814,7 +814,7 @@ fn get_cache_multi_with_id<'a, T>(
     ids: &'a Vec<u32>,
     set_key: &'a str,
     conn: SharedConn,
-) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ServiceError>
+) -> impl Future<Item=(Vec<T>, Vec<u32>, SharedConn), Error=ResError>
     where T: GetUserId + FromHashSetMulti {
     get_hmsets_multi(conn, ids, set_key)
         .and_then(|(len, hm, conn): (usize, Vec<(HashMap<String, String>, HashMap<String, String>)>, SharedConn)| {
@@ -831,7 +831,7 @@ fn get_cache_multi_with_id<'a, T>(
                 }
             }
             if res.len() != len {
-                return Err(ServiceError::InternalServerError);
+                return Err(ResError::InternalServerError);
             };
             Ok((res, uids, conn))
         })
@@ -841,7 +841,7 @@ fn get_hmsets_multi<'a, T>(
     conn: SharedConn,
     vec: &'a Vec<T>,
     key: &'a str,
-) -> impl Future<Item=(usize, Vec<(HashMap<String, String>, HashMap<String, String>)>, SharedConn), Error=ServiceError>
+) -> impl Future<Item=(usize, Vec<(HashMap<String, String>, HashMap<String, String>)>, SharedConn), Error=ResError>
     where T: std::fmt::Display {
     let mut pipe = pipe();
     pipe.atomic();
@@ -859,7 +859,7 @@ fn get_hmsets_multi<'a, T>(
 pub fn build_topics_cache_list(
     vec: Vec<(u32, u32, u32, NaiveDateTime)>,
     conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 
@@ -882,7 +882,7 @@ pub fn build_topics_cache_list(
 pub fn build_posts_cache_list(
     vec: Vec<(u32, u32, u32)>,
     conn: SharedConn,
-) -> impl Future<Item=(), Error=ServiceError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 

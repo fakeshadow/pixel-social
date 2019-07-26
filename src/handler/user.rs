@@ -13,8 +13,8 @@ use actix::prelude::{
 
 use crate::model::{
     actors::DatabaseService,
-    common::GlobalGuard,
-    errors::ServiceError,
+    common::GlobalVars,
+    errors::ResError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
 use crate::handler::db;
@@ -24,45 +24,46 @@ pub struct GetUsers(pub Vec<u32>);
 
 pub struct UpdateUser(pub UpdateRequest);
 
-pub struct Register(pub AuthRequest, pub GlobalGuard);
+pub struct Register(pub AuthRequest, pub GlobalVars);
 
 pub struct Login(pub AuthRequest);
 
 
 impl Message for GetUsers {
-    type Result = Result<Vec<User>, ServiceError>;
+    type Result = Result<Vec<User>, ResError>;
 }
 
 impl Message for Register {
-    type Result = Result<User, ServiceError>;
+    type Result = Result<User, ResError>;
 }
 
 impl Message for UpdateUser {
-    type Result = Result<User, ServiceError>;
+    type Result = Result<User, ResError>;
 }
 
 impl Message for Login {
-    type Result = Result<AuthResponse, ServiceError>;
+    type Result = Result<AuthResponse, ResError>;
 }
 
 impl Handler<GetUsers> for DatabaseService {
-    type Result = ResponseFuture<Vec<User>, ServiceError>;
+    type Result = ResponseFuture<Vec<User>, ResError>;
 
     fn handle(&mut self, msg: GetUsers, _: &mut Self::Context) -> Self::Result {
         let mut ids = msg.0;
         ids.sort();
         ids.dedup();
 
-        Box::new(db::query_multi(
+        Box::new(Self::query_multi_limit(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
             &[&ids],
+            self.error_reprot.as_ref().map(|e| e.clone()),
         ))
     }
 }
 
 impl Handler<Register> for DatabaseService {
-    type Result = ResponseActFuture<Self, User, ServiceError>;
+    type Result = ResponseActFuture<Self, User, ResError>;
 
     fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
         let Register(req, global) = msg;
@@ -82,13 +83,13 @@ impl Handler<Register> for DatabaseService {
                 };
                 let id = match global.lock() {
                     Ok(mut var) => var.next_uid(),
-                    Err(_) => return Either::A(err(ServiceError::InternalServerError))
+                    Err(_) => return Either::A(err(ResError::InternalServerError))
                 };
                 let u = match req.make_user(&id, &hash) {
                     Ok(u) => u,
                     Err(e) => return Either::A(err(e))
                 };
-                Either::B(db::query_one(
+                Either::B(Self::query_one(
                     act.db.as_mut().unwrap(),
                     act.insert_user.as_ref().unwrap(),
                     &[&u.id,
@@ -96,7 +97,8 @@ impl Handler<Register> for DatabaseService {
                         &u.email,
                         &u.hashed_password,
                         &u.avatar_url,
-                        &u.signature])
+                        &u.signature],
+                    act.error_reprot.as_ref().map(|e| e.clone()))
                     .into_actor(act))
             });
 
@@ -105,7 +107,7 @@ impl Handler<Register> for DatabaseService {
 }
 
 impl Handler<Login> for DatabaseService {
-    type Result = ResponseFuture<AuthResponse, ServiceError>;
+    type Result = ResponseFuture<AuthResponse, ResError>;
 
     fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
         let req = msg.0;
@@ -117,7 +119,7 @@ impl Handler<Login> for DatabaseService {
 }
 
 impl Handler<UpdateUser> for DatabaseService {
-    type Result = ResponseFuture<User, ServiceError>;
+    type Result = ResponseFuture<User, ResError>;
 
     fn handle(&mut self, msg: UpdateUser, _: &mut Self::Context) -> Self::Result {
         let u = msg.0;
@@ -144,9 +146,13 @@ impl Handler<UpdateUser> for DatabaseService {
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {} RETURNING *", u.id.unwrap());
         } else {
-            return Box::new(futures::future::err(ServiceError::BadRequest));
+            return Box::new(futures::future::err(ResError::BadRequest));
         }
 
-        Box::new(db::query_one_simple(self.db.as_mut().unwrap(), query.as_str()))
+        Box::new(Self::query_one_simple(
+            self.db.as_mut().unwrap(),
+            query.as_str(),
+            self.error_reprot.as_ref().map(|e| e.clone()),
+        ))
     }
 }

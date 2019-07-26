@@ -5,7 +5,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     category::Category,
-    errors::ServiceError,
+    errors::ResError,
     post::Post,
     topic::Topic,
     user::User,
@@ -80,72 +80,72 @@ impl SortHash for Mail {
 }
 
 pub trait Parser {
-    fn skip(&self) -> Result<(), ServiceError>;
-    fn parse_string(&self, key: &str) -> Result<String, ServiceError>;
-    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError>;
-    fn parse_other<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
+    fn skip(&self) -> Result<(), ResError>;
+    fn parse_string(&self, key: &str) -> Result<String, ResError>;
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ResError>;
+    fn parse_other<K: FromStr>(&self, key: &str) -> Result<K, ResError>;
 
-    fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError>;
+    fn parse<X: FromHashSet>(&self) -> Result<X, ResError>;
 }
 
 impl Parser for HashMap<String, String> {
-    fn skip(&self) -> Result<(), ServiceError> {
-        if self.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
+    fn skip(&self) -> Result<(), ResError> {
+        if self.is_empty() { Err(ResError::InternalServerError) } else { Ok(()) }
     }
-    fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
-        Ok(self.get(key).ok_or(ServiceError::InternalServerError)?.to_owned())
+    fn parse_string(&self, key: &str) -> Result<String, ResError> {
+        Ok(self.get(key).ok_or(ResError::InternalServerError)?.to_owned())
     }
-    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
-        Ok(NaiveDateTime::parse_from_str(self.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ResError> {
+        Ok(NaiveDateTime::parse_from_str(self.get(key).ok_or(ResError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
     }
-    fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
+    fn parse_other<K>(&self, key: &str) -> Result<K, ResError>
         where K: FromStr {
-        self.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
+        self.get(key).ok_or(ResError::InternalServerError)?.parse::<K>().map_err(|_| ResError::ParseError)
     }
-    fn parse<X: FromHashSet>(&self) -> Result<X, ServiceError> {
+    fn parse<X: FromHashSet>(&self) -> Result<X, ResError> {
         FromHashSet::from_hash(self)
     }
 }
 
 pub trait ParserMulti {
-    fn skip(&self) -> Result<(), ServiceError>;
-    fn parse_string(&self, key: &str) -> Result<String, ServiceError>;
-    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError>;
-    fn parse_other<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
-    fn parse_other_perm<K: FromStr>(&self, key: &str) -> Result<K, ServiceError>;
-    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ServiceError>;
+    fn skip(&self) -> Result<(), ResError>;
+    fn parse_string(&self, key: &str) -> Result<String, ResError>;
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ResError>;
+    fn parse_other<K: FromStr>(&self, key: &str) -> Result<K, ResError>;
+    fn parse_other_perm<K: FromStr>(&self, key: &str) -> Result<K, ResError>;
+    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ResError>;
 }
 
 impl ParserMulti for (HashMap<String, String>, HashMap<String, String>) {
-    fn skip(&self) -> Result<(), ServiceError> {
-        if self.0.is_empty() { Err(ServiceError::InternalServerError) } else { Ok(()) }
+    fn skip(&self) -> Result<(), ResError> {
+        if self.0.is_empty() { Err(ResError::InternalServerError) } else { Ok(()) }
     }
-    fn parse_string(&self, key: &str) -> Result<String, ServiceError> {
-        Ok(self.0.get(key).ok_or(ServiceError::InternalServerError)?.to_owned())
+    fn parse_string(&self, key: &str) -> Result<String, ResError> {
+        Ok(self.0.get(key).ok_or(ResError::InternalServerError)?.to_owned())
     }
-    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ServiceError> {
-        Ok(NaiveDateTime::parse_from_str(self.0.get(key).ok_or(ServiceError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
+    fn parse_date(&self, key: &str) -> Result<NaiveDateTime, ResError> {
+        Ok(NaiveDateTime::parse_from_str(self.0.get(key).ok_or(ResError::InternalServerError)?, "%Y-%m-%d %H:%M:%S%.f")?)
     }
-    fn parse_other<K>(&self, key: &str) -> Result<K, ServiceError>
+    fn parse_other<K>(&self, key: &str) -> Result<K, ResError>
         where K: FromStr {
-        self.0.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
+        self.0.get(key).ok_or(ResError::InternalServerError)?.parse::<K>().map_err(|_| ResError::ParseError)
     }
-    fn parse_other_perm<K>(&self, key: &str) -> Result<K, ServiceError>
+    fn parse_other_perm<K>(&self, key: &str) -> Result<K, ResError>
         where K: FromStr {
-        self.1.get(key).ok_or(ServiceError::InternalServerError)?.parse::<K>().map_err(|_| ServiceError::PARSE)
+        self.1.get(key).ok_or(ResError::InternalServerError)?.parse::<K>().map_err(|_| ResError::ParseError)
     }
-    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ServiceError> {
+    fn parse<X: FromHashSetMulti>(&self) -> Result<X, ResError> {
         FromHashSetMulti::from_hash(self)
     }
 }
 
 pub trait FromHashSetMulti
     where Self: Sized {
-    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Self, ServiceError>;
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Self, ResError>;
 }
 
 impl FromHashSetMulti for Topic {
-    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Topic, ServiceError> {
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Topic, ResError> {
         hash.skip()?;
         Ok(Topic {
             id: hash.parse_other::<u32>("id")?,
@@ -164,7 +164,7 @@ impl FromHashSetMulti for Topic {
 }
 
 impl FromHashSetMulti for Post {
-    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Post, ServiceError> {
+    fn from_hash(hash: &(HashMap<String, String>, HashMap<String, String>)) -> Result<Post, ResError> {
         hash.skip()?;
         let post_id = match hash.parse_other::<u32>("post_id").ok() {
             Some(id) => if id == 0 { None } else { Some(id) },
@@ -188,11 +188,11 @@ impl FromHashSetMulti for Post {
 
 pub trait FromHashSet
     where Self: Sized {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Self, ServiceError>;
+    fn from_hash(hash: &HashMap<String, String>) -> Result<Self, ResError>;
 }
 
 impl FromHashSet for User {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<User, ServiceError> {
+    fn from_hash(hash: &HashMap<String, String>) -> Result<User, ResError> {
         hash.skip()?;
         Ok(User {
             id: hash.parse_other::<u32>("id")?,
@@ -211,7 +211,7 @@ impl FromHashSet for User {
 }
 
 impl FromHashSet for Category {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Category, ServiceError> {
+    fn from_hash(hash: &HashMap<String, String>) -> Result<Category, ResError> {
         hash.skip()?;
         Ok(Category {
             id: hash.parse_other::<u32>("id")?,
@@ -226,7 +226,7 @@ impl FromHashSet for Category {
 }
 
 impl FromHashSet for Mail {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Mail, ServiceError> {
+    fn from_hash(hash: &HashMap<String, String>) -> Result<Mail, ResError> {
         hash.skip()?;
         Ok(Mail {
             user_id: hash.parse_other::<u32>("user_id")?,

@@ -4,25 +4,26 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
-    db::{query_multi_simple_with_id, query_all, simple_query, query_all_simple, query_single_row},
+    db::simple_query,
     cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list},
 };
 use crate::model::{
+    actors::DatabaseService,
     topic::Topic,
     user::User,
     talk::Talk,
     category::Category,
     common::{
-        GlobalTalksGuard,
-        GlobalSessionsGuard,
+        GlobalTalks,
+        GlobalSessions,
         new_global_talks_sessions,
         GlobalVar,
-        GlobalGuard,
+        GlobalVars,
     },
 };
 
 //return global arc after building cache
-pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, GlobalTalksGuard, GlobalSessionsGuard), ()> {
+pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
@@ -32,7 +33,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
-    let categories = rt.block_on(query_all_simple::<Category>(&mut c, query)).unwrap();
+    let categories = rt.block_on(DatabaseService::query_multi_simple_no_limit::<Category>(&mut c, query, None)).unwrap();
     rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
 
@@ -45,11 +46,11 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
 
         // count posts and topics for each category and write to redis
         let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
-        let f = query_single_row::<u32>(&mut c, query.as_str(), 0);
+        let f = DatabaseService::query_single_row::<u32>(&mut c, query.as_str(), 0, None);
         let t_count = rt.block_on(f).unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let f = query_single_row::<u32>(&mut c, query.as_str(), 0);
+        let f = DatabaseService::query_single_row::<u32>(&mut c, query.as_str(), 0, None);
         let p_count = rt.block_on(f).unwrap_or(0);
 
         let f = redis::cmd("HMSET")
@@ -62,7 +63,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
-        let (t, _): (Vec<Topic>, _) = rt.block_on(query_multi_simple_with_id(&mut c, &query)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let (t, _): (Vec<Topic>, _) = rt.block_on(DatabaseService::query_multi_simple_with_id(&mut c, &query, None))
+            .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
         let query = format!("SELECT COUNT(topic_id), topic_id FROM posts WHERE category_id = {} GROUP BY topic_id", cat.id);
@@ -204,7 +206,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
 
     let p = c.prepare("SELECT * FROM users");
     let st = rt.block_on(p).unwrap();
-    let users = rt.block_on(query_all::<User>(&mut c, &st, &[])).unwrap_or_else(|_| panic!("Failed to load users"));
+    let users = rt.block_on(DatabaseService::query_multi_no_limit::<User>(&mut c, &st, &[], None)).unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
@@ -217,14 +219,14 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalGuard, 
     let p = c.prepare("SELECT * FROM talks");
     let st = rt.block_on(p).unwrap();
 
-    let talks = rt.block_on(query_all::<Talk>(&mut c, &st, &[])).unwrap_or_else(|_| panic!("Failed to load talks"));
+    let talks = rt.block_on(DatabaseService::query_multi_no_limit::<Talk>(&mut c, &st, &[], None)).unwrap_or_else(|_| panic!("Failed to load talks"));
 
 
-    let (talks_guard, sessions_guard) = new_global_talks_sessions(talks);
+    let (talks, sessions, ) = new_global_talks_sessions(talks);
 
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
-    Ok((GlobalVar::new(last_uid, last_pid, last_tid), talks_guard, sessions_guard))
+    Ok((GlobalVar::new(last_uid, last_pid, last_tid), talks, sessions))
 }
 
 pub fn create_table(postgres_url: &str) {
@@ -233,7 +235,7 @@ pub fn create_table(postgres_url: &str) {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if let Some(_) = rt.block_on(query_all_simple::<Category>(&mut c, query)).ok() {
+    if let Some(_) = rt.block_on(DatabaseService::query_multi_simple_no_limit::<Category>(&mut c, query, None)).ok() {
         return;
     }
 

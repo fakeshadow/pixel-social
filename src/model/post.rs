@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 
 use crate::model::{
     common::{GetSelfId, GetUserId},
-    errors::ServiceError,
+    errors::ResError,
     user::{User, UserRef,AttachUser},
 };
 
@@ -49,18 +49,18 @@ impl PostRequest {
         self
     }
 
-    pub fn check_new(&self) -> Result<(), ServiceError> {
+    pub fn check_new(&self) -> Result<(), ResError> {
         if self.topic_id.is_none() ||
             self.post_content.is_none() {
-            Err(ServiceError::BadRequest)
+            Err(ResError::BadRequest)
         } else {
             Ok(())
         }
     }
 
-    pub fn check_update(&mut self) -> Result<(), ServiceError> {
+    pub fn check_update(&mut self) -> Result<(), ResError> {
         if self.id.is_none() {
-            return Err(ServiceError::BadRequest);
+            return Err(ResError::BadRequest);
         }
         if let Some(_) = self.user_id {
             self.topic_id = None;
