@@ -4,7 +4,7 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
-    cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list},
+    cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list, build_users_cache},
 };
 use crate::model::{
     actors::DatabaseService,
@@ -207,7 +207,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
     let p = c.prepare("SELECT * FROM users");
     let st = rt.block_on(p).unwrap();
-    let users = rt.block_on(DatabaseService::query_multi_no_limit::<User>(&mut c, &st, &[], None)).unwrap_or_else(|_| panic!("Failed to load users"));
+    let users = rt.block_on(DatabaseService::query_multi_no_limit::<User>(&mut c, &st, &[], None))
+        .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
@@ -215,12 +216,14 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     for u in users.iter() {
         if u.id > last_uid { last_uid = u.id };
     }
-    rt.block_on(build_hmsets(c_cache.clone(), users, "user", false)).unwrap_or_else(|_| panic!("Failed to update categories hash set"));
+    rt.block_on(build_users_cache(&users, c_cache.clone()))
+        .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
     let p = c.prepare("SELECT * FROM talks");
     let st = rt.block_on(p).unwrap();
 
-    let talks = rt.block_on(DatabaseService::query_multi_no_limit::<Talk>(&mut c, &st, &[], None)).unwrap_or_else(|_| panic!("Failed to load talks"));
+    let talks = rt.block_on(DatabaseService::query_multi_no_limit::<Talk>(&mut c, &st, &[], None))
+        .unwrap_or_else(|_| panic!("Failed to load talks"));
 
 
     let (talks, sessions, ) = new_global_talks_sessions(talks);

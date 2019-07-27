@@ -44,9 +44,7 @@ impl SortHash for User {
             ("signature", self.signature.to_owned()),
             ("created_at", self.created_at.to_string()),
             ("privilege", self.privilege.to_string()),
-            ("show_email", self.show_email.to_string()),
-            ("online_status", "".to_string()),
-            ("last_online", "".to_string())]
+            ("show_email", self.show_email.to_string())]
     }
 }
 

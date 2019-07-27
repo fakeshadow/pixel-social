@@ -849,6 +849,30 @@ fn get_hmsets_multi<'a, T>(
         .map(move |(conn, hm)| (len, hm, conn))
 }
 
+pub fn build_users_cache(
+    vec: &Vec<User>,
+    conn: SharedConn,
+) -> impl Future<Item=(), Error=ResError> {
+    let mut pip = pipe();
+    pip.atomic();
+    for v in vec.iter() {
+        let key = format!("user:{}:set", v.self_id());
+        pip.cmd("HMSET")
+            .arg(key.as_str())
+            .arg(v.sort_hash())
+            .ignore()
+            .cmd("HMSET")
+            .arg(key.as_str())
+            .arg(&[
+                ("online_status", "".to_string()),
+                ("last_online", "".to_string())])
+            .ignore();
+    }
+    pip.query_async(conn)
+        .from_err()
+        .map(|(_, ())| ())
+}
+
 // startup helper fn
 pub fn build_topics_cache_list(
     is_init: bool,
