@@ -16,7 +16,7 @@ use hashbrown::HashMap;
 use redis::cmd;
 
 use crate::model::{
-    actors::{DatabaseService, TalkService, WsChatSession},
+    actors::{TalkService, WsChatSession},
     errors::ResError,
     talk::{Talk, SessionMessage},
 };
@@ -209,7 +209,8 @@ impl Handler<Disconnect> for TalkService {
             .write()
             .map_err(|_| self.send_message(&msg.session_id, "!!! Disconnect failed"))
             .map(|mut t| {
-                let f = cmd("HMSET").arg(&format!("user:{}:set", msg.session_id))
+                let f = cmd("HMSET")
+                    .arg(&format!("user:{}:set", msg.session_id))
                     .arg(&[("online_status", 0.to_string()), ("last_online", Utc::now().naive_local().to_string())])
                     .query_async(self.cache.as_ref().unwrap().clone())
                     .into_actor(self)
@@ -231,11 +232,10 @@ impl Handler<GotMessages> for TalkService {
         match msg.talk_id {
             Some(id) => {
                 let now = Utc::now().naive_local();
-                ctx.spawn(self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.insert_pub_msg.as_ref().unwrap(), &[&id, &msg.msg, &now])
-                    .into_future()
+                ctx.spawn(Self::query_one(
+                    self.db.as_mut().unwrap(),
+                    self.insert_pub_msg.as_ref().unwrap(),
+                    &[&id, &msg.msg, &now])
                     .into_actor(self)
                     .then(move |r, act, _| match r {
                         Ok(_) => {
@@ -263,12 +263,10 @@ impl Handler<GotMessages> for TalkService {
                     None => return self.send_message(&msg.session_id.unwrap(), "!!! No user found")
                 };
                 let now = Utc::now().naive_local();
-                ctx.spawn(self.db
-                    .as_mut()
-                    .unwrap()
-                    .query(self.insert_prv_msg.as_ref().unwrap(),
-                           &[&msg.session_id.unwrap(), &id, &msg.msg])
-                    .into_future()
+                ctx.spawn(Self::query_one(
+                    self.db.as_mut().unwrap(),
+                    self.insert_prv_msg.as_ref().unwrap(),
+                    &[&msg.session_id.unwrap(), &id, &msg.msg])
                     .into_actor(self)
                     // ToDo: handle error.
                     .map_err(|_, _, _| ())
@@ -304,7 +302,8 @@ impl Handler<Connect> for TalkService {
             .write()
             .map_err(|_| ())
             .map(|mut t| {
-                let f = cmd("HMSET").arg(&format!("user:{}:set", msg.session_id))
+                let f = cmd("HMSET")
+                    .arg(&format!("user:{}:set", msg.session_id))
                     .arg(&[("online_status", msg.online_status.to_string())])
                     .query_async(self.cache.as_ref().unwrap().clone())
                     .into_actor(self)
@@ -324,7 +323,7 @@ impl Handler<Create> for TalkService {
         let query = "SELECT Max(id) FROM talks";
 
         let f =
-            DatabaseService::query_single_row::<u32>(self.db.as_mut().unwrap(), query, 0, None)
+            self.simple_query_single_row::<u32>(query, 0)
                 .into_actor(self)
                 // ToDo: handle error.
                 .map_err(|_, _, _| ())
@@ -336,7 +335,7 @@ impl Handler<Create> for TalkService {
                     VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
                     RETURNING *", cid, msg.name, msg.description, msg.owner, cid, cid);
 
-                    DatabaseService::query_one_simple::<Talk>(act.db.as_mut().unwrap(), &query, None)
+                    act.simple_query_talk(query.as_str())
                         .into_actor(act)
                         // ToDo: handle error.
                         .map_err(|_, _, _| ())
@@ -365,25 +364,17 @@ impl Handler<Join> for TalkService {
                 return;
             };
 
-            let f = self.db
-                .as_mut()
-                .unwrap()
-                // ToDo: in case sql failed.
-                .query(self.join_talk.as_ref().unwrap(),
-                       &[&session_id, &talk_id])
-                .into_future()
+            let f = Self::query_one(
+                self.db.as_mut().unwrap(),
+                self.join_talk.as_ref().unwrap(),
+                &[&session_id, &talk_id])
                 .into_actor(self)
                 .then(move |r, act, _| {
                     match r {
-                        Ok((row, _)) => match row {
-                            Some(_) => {
-                                act.insert_user(talk_id, session_id);
-                                act.send_message(&session_id, "!! Joined");
-                            }
-                            None => {
-                                act.send_message(&session_id, "!!! Joined failed");
-                            }
-                        },
+                        Ok(_) => {
+                            act.insert_user(talk_id, session_id);
+                            act.send_message(&session_id, "!! Joined");
+                        }
                         Err(_) => act.send_message(&session_id, "!!! Database Error")
                     };
                     fut::ok(())
@@ -554,7 +545,7 @@ impl Handler<RemoveUser> for TalkService {
                     return;
                 };
 
-                let f = DatabaseService::query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query, None)
+                let f = self.simple_query_talk(query.as_str())
                     .into_actor(self)
                     .then(move |r, act, _| {
                         match r {
@@ -599,7 +590,7 @@ impl Handler<Admin> for TalkService {
         }
         query.push_str(&format!(" WHERE id = {}", tid));
 
-        let f = DatabaseService::query_one_simple::<Talk>(self.db.as_mut().unwrap(), &query, None)
+        let f = self.simple_query_talk(query.as_str())
             .into_actor(self)
             .then(move |r, act, _| {
                 match r {
@@ -621,10 +612,7 @@ impl Handler<Delete> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: Delete, ctx: &mut Context<Self>) {
-        if let Some(g) = self.talks.read().ok() {
-            if !g.contains_key(&msg.talk_id) {
-                return;
-            }
+        if let Some(_) = self.get_talk(&msg.talk_id) {
             let session_id = msg.session_id.unwrap();
 
             //ToDo: delete talk table and messages here.
@@ -632,22 +620,16 @@ impl Handler<Delete> for TalkService {
                         DELETE FROM talks
                         WHERE id = {}", msg.talk_id);
 
-            let f = DatabaseService::simple_query(
-                self.db.as_mut().unwrap(),
-                query.as_str(),
-                None)
+            let f = self.simple_query_talk(query.as_str())
                 .into_actor(self)
                 .map_err(move |_, act, _| {
                     act.send_message(&session_id, "!!! Database Error")
                 })
-                .and_then(move |r, act, _| {
-                    let string = match r {
-                        Some(_) => if act.remove_talk(&msg.talk_id).is_ok() {
-                            "!! Delete talk success"
-                        } else {
-                            "!!! Talk not found in hash map. But delete is success."
-                        },
-                        None => "!!! Failed to delete talk"
+                .and_then(move |_, act, _| {
+                    let string = if act.remove_talk(&msg.talk_id).is_ok() {
+                        "!! Delete talk success"
+                    } else {
+                        "!!! Talk not found in hash map. But delete is success."
                     };
                     act.send_message(&session_id, string);
                     fut::ok(())

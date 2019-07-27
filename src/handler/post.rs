@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use futures::{Future, future::err as ft_err};
+use futures::{future::err as ft_err};
 
 use actix::prelude::*;
 use chrono::Utc;
@@ -36,7 +36,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 };
 
                 let p = msg.0;
-                let now = Utc::now().naive_local();
+                let now = &Utc::now().naive_local();
 
                 Box::new(Self::query_one(
                     self.db.as_mut().unwrap(),
@@ -47,11 +47,9 @@ impl Handler<ModifyPost> for DatabaseService {
                         &p.category_id,
                         &p.post_id,
                         p.post_content.as_ref().unwrap(),
-                        &now,
-                        &now
-                    ],
-                    self.error_reprot.as_ref().map(|e| e.clone()),
-                ))
+                        now,
+                        now],
+                    self.error_reprot.as_ref().map(|r| r.clone())))
             }
             None => {
                 let p = msg.0;
@@ -82,10 +80,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 }
                 query.push_str(" RETURNING *");
 
-                Box::new(Self::query_one_simple(
-                    self.db.as_mut().unwrap(),
-                    &query,
-                    self.error_reprot.as_ref().map(|e| e.clone())))
+                Box::new(self.simple_query_one(query.as_str()))
             }
         }
     }
@@ -95,24 +90,11 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
-        Box::new(
-            Self::query_multi_with_id(
-                self.db.as_mut().unwrap(),
-                self.posts_by_id.as_ref().unwrap(),
-                &[&msg.0],
-                self.error_reprot.as_ref().map(|e| e.clone()))
-                .map(move |(mut t, uids): (Vec<Post>, Vec<u32>)| {
-                    let mut result = Vec::with_capacity(t.len());
-                    for i in 0..msg.0.len() {
-                        for j in 0..t.len() {
-                            if msg.0[i] == t[j].id {
-                                result.push(t.swap_remove(j));
-                                break;
-                            }
-                        }
-                    }
-                    (result, uids)
-                }))
+        Box::new(Self::query_multi_with_uid(
+            self.db.as_mut().unwrap(),
+            self.posts_by_id.as_ref().unwrap(),
+            msg.0,
+            self.error_reprot.as_ref().map(Clone::clone)))
     }
 }
 

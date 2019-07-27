@@ -49,10 +49,8 @@ impl Handler<RemoveCategory> for DatabaseService {
         DELETE FROM categories
         WHERE id={}", msg.0);
 
-        Box::new(Self::simple_query(
-            self.db.as_mut().unwrap(),
-            query.as_str(),
-            self.error_reprot.as_ref().map(|e| e.clone()))
+        Box::new(self
+            .simple_query_one::<Category>(query.as_str())
             .map(|_| ()))
     }
 }
@@ -61,10 +59,7 @@ impl Handler<GetCategories> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ResError>;
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        Box::new(Self::query_multi_simple_no_limit(
-            self.db.as_mut().unwrap(),
-            "SELECT * FROM categories",
-            self.error_reprot.as_ref().map(|e| e.clone())))
+        Box::new(self.simple_query_multi_no_limit("SELECT * FROM categories"))
     }
 }
 
@@ -76,11 +71,8 @@ impl Handler<AddCategory> for DatabaseService {
 
         let query = "SELECT MAX(id) FROM categories";
 
-        let f = Self::query_single_row::<u32>(
-            self.db.as_mut().unwrap(),
-            query,
-            0,
-            self.error_reprot.as_ref().map(|e| e.clone()))
+        let f = self
+            .simple_query_single_row::<u32>(query, 0)
             .into_actor(self)
             .and_then(move |cid, act, _| {
                 let cid = cid + 1;
@@ -90,10 +82,7 @@ impl Handler<AddCategory> for DatabaseService {
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                Self::query_one_simple(
-                    act.db.as_mut().unwrap(),
-                    query.as_str(),
-                    act.error_reprot.as_ref().map(|e| e.clone()))
+                act.simple_query_one(query.as_str())
                     .into_actor(act)
             });
 
@@ -122,10 +111,7 @@ impl Handler<UpdateCategory> for DatabaseService {
             return Box::new(ft_err(ResError::BadRequest));
         };
 
-        Box::new(Self::query_one_simple(
-            self.db.as_mut().unwrap(),
-            query.as_str(),
-            self.error_reprot.as_ref().map(|e| e.clone()))
+        Box::new(self.simple_query_one(query.as_str())
             .map(|c| vec![c]))
     }
 }

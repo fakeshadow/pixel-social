@@ -1,7 +1,11 @@
 use std::fmt::Write;
-use futures::{Future, future::err as ft_err};
+use futures::future::err as ft_err;
 
-use actix::prelude::*;
+use actix::prelude::{
+    Handler,
+    Message,
+    ResponseFuture,
+};
 use chrono::Utc;
 
 use crate::model::{
@@ -89,10 +93,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(Self::query_one_simple(
-            self.db.as_mut().unwrap(),
-            &query,
-            self.error_reprot.as_ref().map(|r| r.clone())))
+        Box::new(self.simple_query_one(query.as_str()))
     }
 }
 
@@ -100,24 +101,10 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        Box::new(
-            Self::query_multi_with_id(
-                self.db.as_mut().unwrap(),
-                self.topics_by_id.as_ref().unwrap(),
-                &[&msg.0],
-                self.error_reprot.as_ref().map(|r| r.clone()))
-                .map(move |(mut t, uids): (Vec<Topic>, Vec<u32>)| {
-                    let mut result = Vec::with_capacity(t.len());
-                    for i in 0..msg.0.len() {
-                        for j in 0..t.len() {
-                            if msg.0[i] == t[j].id {
-                                result.push(t.swap_remove(j));
-                                break;
-                            }
-                        }
-                    }
-                    (result, uids)
-                })
-        )
+        Box::new(Self::query_multi_with_uid(
+            self.db.as_mut().unwrap(),
+            self.topics_by_id.as_ref().unwrap(),
+            msg.0,
+            self.error_reprot.as_ref().map(Clone::clone)))
     }
 }

@@ -29,17 +29,15 @@ impl Message for GetUsers {
 impl Handler<GetUsers> for DatabaseService {
     type Result = ResponseFuture<Vec<User>, ResError>;
 
-    fn handle(&mut self, msg: GetUsers, _: &mut Self::Context) -> Self::Result {
-        let mut ids = msg.0;
-        ids.sort();
-        ids.dedup();
+    fn handle(&mut self, mut msg: GetUsers, _: &mut Self::Context) -> Self::Result {
+        msg.0.sort();
+        msg.0.dedup();
 
-        Box::new(Self::query_multi_limit(
+        Box::new(Self::query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
-            &[&ids],
-            self.error_reprot.as_ref().map(|e| e.clone()),
-        ))
+            &msg.0,
+            self.error_reprot.as_ref().map(Clone::clone)))
     }
 }
 
@@ -81,11 +79,7 @@ impl Handler<UpdateUser> for DatabaseService {
             return Box::new(futures::future::err(ResError::BadRequest));
         }
 
-        Box::new(Self::query_one_simple(
-            self.db.as_mut().unwrap(),
-            query.as_str(),
-            self.error_reprot.as_ref().map(|e| e.clone()),
-        ))
+        Box::new(self.simple_query_one(query.as_str()))
     }
 }
 
@@ -105,10 +99,8 @@ impl Handler<Register> for DatabaseService {
             "SELECT username, email FROM users
              WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
 
-        let f = Self::simple_query(
-            self.db.as_mut().unwrap(),
-            query.as_str(),
-            self.error_reprot.as_ref().map(|e| e.clone()))
+        let f = self
+            .simple_query_row(query.as_str())
             .into_actor(self)
             .and_then(move |m, act, _| {
                 if let Some(e) = db::unique_username_email_check(&m, &req).err() {
@@ -129,13 +121,15 @@ impl Handler<Register> for DatabaseService {
                 Either::B(Self::query_one(
                     act.db.as_mut().unwrap(),
                     act.insert_user.as_ref().unwrap(),
-                    &[&u.id,
+                    &[
+                        &u.id,
                         &u.username,
                         &u.email,
                         &u.hashed_password,
                         &u.avatar_url,
-                        &u.signature],
-                    act.error_reprot.as_ref().map(|e| e.clone()))
+                        &u.signature
+                    ],
+                    act.error_reprot.as_ref().map(|r| r.clone()))
                     .into_actor(act))
             });
 
@@ -157,10 +151,8 @@ impl Handler<Login> for DatabaseService {
         let req = msg.0;
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        Box::new(Self::simple_query(
-            self.db.as_mut().unwrap(),
-            query.as_str(),
-            self.error_reprot.as_ref().map(|e| e.clone()))
-            .and_then(move |msg| db::auth_response_from_msg(&msg, &req.password)))
+        Box::new(self.simple_query_row(
+            query.as_str())
+            .and_then(move |msg| db::auth_response_from_simple_row(msg, &req.password)))
     }
 }

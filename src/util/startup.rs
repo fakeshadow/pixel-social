@@ -7,10 +7,8 @@ use crate::handler::{
     cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list, build_users_cache},
 };
 use crate::model::{
-    actors::DatabaseService,
     topic::Topic,
     user::User,
-    talk::Talk,
     category::Category,
     common::{
         GlobalTalks,
@@ -32,7 +30,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
-    let categories = rt.block_on(DatabaseService::query_multi_simple_no_limit::<Category>(&mut c, query, None)).unwrap();
+    let categories = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query,None)).unwrap();
     rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
 
@@ -45,11 +43,11 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
         // count posts and topics for each category and write to redis
         let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
-        let f = DatabaseService::query_single_row::<u32>(&mut c, query.as_str(), 0, None);
+        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0, None);
         let t_count = rt.block_on(f).unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let f = DatabaseService::query_single_row::<u32>(&mut c, query.as_str(), 0, None);
+        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0, None);
         let p_count = rt.block_on(f).unwrap_or(0);
 
         let f = redis::cmd("HMSET")
@@ -62,7 +60,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
-        let t: Vec<Topic> = rt.block_on(DatabaseService::query_multi_simple_no_limit(&mut c, &query, None))
+        let t = rt.block_on(crate::handler::db::load_all::<Topic>(&mut c, &query,None))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -205,9 +203,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
         let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
     }
 
-    let p = c.prepare("SELECT * FROM users");
-    let st = rt.block_on(p).unwrap();
-    let users = rt.block_on(DatabaseService::query_multi_no_limit::<User>(&mut c, &st, &[], None))
+    let query = "SELECT * FROM users";
+    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, query,None))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
@@ -219,10 +216,9 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     rt.block_on(build_users_cache(&users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
-    let p = c.prepare("SELECT * FROM talks");
-    let st = rt.block_on(p).unwrap();
+    let query = "SELECT * FROM talks";
 
-    let talks = rt.block_on(DatabaseService::query_multi_no_limit::<Talk>(&mut c, &st, &[], None))
+    let talks = rt.block_on(crate::handler::db::load_all(&mut c, query,None))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
 
@@ -239,7 +235,7 @@ pub fn create_table(postgres_url: &str) {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if let Some(_) = rt.block_on(DatabaseService::query_multi_simple_no_limit::<Category>(&mut c, query, None)).ok() {
+    if let Some(_) = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query,None)).ok() {
         return;
     }
 
@@ -402,7 +398,7 @@ DROP FUNCTION IF EXISTS adding_topic();
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 
-    let _ = rt.block_on(DatabaseService::simple_query(&mut c, query, None).and_then(|_| {
+    let _ = rt.block_on(crate::handler::db::simple_query_one_handler(&mut c, query, None).and_then(|_| {
         println!("All tables have been drop. pixel_rs exited");
         Ok(())
     })).expect("failed to clear db");
