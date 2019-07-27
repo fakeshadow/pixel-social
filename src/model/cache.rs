@@ -9,7 +9,6 @@ use crate::model::{
     post::Post,
     topic::Topic,
     user::User,
-    messenger::Mail,
 };
 
 // all cache are use hashmap sets to store individual struct.
@@ -45,7 +44,9 @@ impl SortHash for User {
             ("signature", self.signature.to_owned()),
             ("created_at", self.created_at.to_string()),
             ("privilege", self.privilege.to_string()),
-            ("show_email", self.show_email.to_string())]
+            ("show_email", self.show_email.to_string()),
+            ("online_status", "".to_string()),
+            ("last_online", "".to_string())]
     }
 }
 
@@ -68,14 +69,6 @@ impl SortHash for Category {
         vec![("id", self.id.to_string()),
              ("name", self.name.to_owned()),
              ("thumbnail", self.thumbnail.to_owned())]
-    }
-}
-
-impl SortHash for Mail {
-    fn sort_hash(&self) -> Vec<(&str, String)> {
-        vec![
-            ("user_id", self.user_id.to_string()),
-            ("uuid", self.uuid.to_owned())]
     }
 }
 
@@ -221,18 +214,6 @@ impl FromHashSet for Category {
             post_count: hash.parse_other::<u32>("post_count").ok(),
             topic_count_new: hash.parse_other::<u32>("topic_count_new").ok(),
             post_count_new: hash.parse_other::<u32>("post_count_new").ok(),
-        })
-    }
-}
-
-impl FromHashSet for Mail {
-    fn from_hash(hash: &HashMap<String, String>) -> Result<Mail, ResError> {
-        hash.skip()?;
-        Ok(Mail {
-            user_id: hash.parse_other::<u32>("user_id")?,
-            username: "".to_string(),
-            uuid: hash.parse_string("uuid")?,
-            address: "".to_string(),
         })
     }
 }

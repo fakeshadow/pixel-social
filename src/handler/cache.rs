@@ -30,7 +30,6 @@ use crate::model::{
     user::User,
     cache::{FromHashSetMulti, Parser, SortHash},
     common::{GetSelfId, GetUserId},
-    messenger::Mail,
 };
 
 // page offsets of list query
@@ -62,6 +61,33 @@ impl MessageService {
             .from_err()
             .and_then(|(_, (mut s, ())): (_, (Vec<String>, _))| s
                 .pop().ok_or(ResError::NoCache))
+    }
+}
+
+#[derive(Message)]
+pub struct AddActivationMail(pub User);
+
+impl Handler<AddActivationMail> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddActivationMail, ctx: &mut Self::Context) {
+        let user = msg.0;
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let mail = crate::model::messenger::Mail::new_activation(user.email.as_str(), uuid.as_str());
+
+        if let Some(s) = serde_json::to_string(&mail).ok() {
+            let mut pip = pipe();
+            pip.atomic();
+            pip.cmd("ZADD").arg("mail_queue").arg(user.id).arg(s.as_str()).ignore()
+                .cmd("HSET").arg(uuid.as_str()).arg("user_id").arg(user.id).ignore()
+                .cmd("EXPIRE").arg(uuid.as_str()).arg(MAIL_LIFE).ignore();
+
+            ctx.spawn(pip
+                .query_async(self.get_conn())
+                .into_actor(self)
+                .map_err(|_, _, _| ())
+                .map(|(_, ()), _, _| ()));
+        }
     }
 }
 
@@ -164,8 +190,6 @@ pub enum DeleteCache {
     Mail(String),
 }
 
-#[derive(Message)]
-pub struct AddMail(pub Mail);
 
 pub struct RemoveCategoryCache(pub u32);
 
@@ -435,31 +459,6 @@ impl Handler<DeleteCache> for CacheService {
     }
 }
 
-impl Handler<AddMail> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddMail, ctx: &mut Self::Context) -> Self::Result {
-        let mail = msg.0;
-        //ToDo: add stringify error handler.
-
-        if let Some(s) = serde_json::to_string(&mail).ok() {
-            let mut pip = pipe();
-            pip.atomic();
-            pip.cmd("ZADD").arg("mail_queue").arg(mail.user_id).arg(s.as_str()).ignore()
-                .cmd("HMSET").arg(&mail.uuid).arg(mail.sort_hash()).ignore()
-                .cmd("EXPIRE").arg(&mail.uuid).arg(MAIL_LIFE).ignore();
-
-            let f = pip
-                .query_async(self.get_conn())
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|(_, ()), _, _| ());
-
-            ctx.spawn(f);
-        }
-    }
-}
-
 impl Handler<ActivateUser> for CacheService {
     type Result = ResponseFuture<u32, ResError>;
 
@@ -469,12 +468,7 @@ impl Handler<ActivateUser> for CacheService {
             .query_async(self.get_conn())
             .from_err()
             .and_then(move |(_, hm): (_, HashMap<String, String>)| {
-                let m = hm.parse::<Mail>()?;
-                if msg.0 == m.uuid {
-                    Ok(m.user_id)
-                } else {
-                    Err(ResError::Unauthorized)
-                }
+                Ok(hm.get("user_id").map(String::as_str).ok_or(ResError::Unauthorized)?.parse::<u32>()?)
             });
         Box::new(f)
     }
@@ -857,24 +851,27 @@ fn get_hmsets_multi<'a, T>(
 
 // startup helper fn
 pub fn build_topics_cache_list(
+    is_init: bool,
     vec: Vec<(u32, u32, u32, NaiveDateTime)>,
     conn: SharedConn,
 ) -> impl Future<Item=(), Error=ResError> {
-    let mut pipe = pipe();
-    pipe.atomic();
+    let mut pip = pipe();
+    pip.atomic();
 
     for (tid, cid, count, time) in vec.into_iter() {
-        let time = time.timestamp_millis();
-        // ToDo: query existing cache for topic's real last reply time.
-        pipe.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
-            .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
-            .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
-            .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore()
-            // set topic's reply count to perm key that never expire.
-            .cmd("HSET").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(count).ignore();
+        if is_init {
+            let time = time.timestamp_millis();
+            // ToDo: query existing cache for topic's real last reply time.
+            pip.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
+                .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
+                .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
+                .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore();
+        }
+        // set topic's reply count to perm key that never expire.
+        pip.cmd("HSET").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(count).ignore();
     }
 
-    pipe.query_async(conn)
+    pip.query_async(conn)
         .from_err()
         .map(|(_, ())| ())
 }
@@ -897,8 +894,8 @@ pub fn build_posts_cache_list(
         .map(|(_, ())| ())
 }
 
-//pub fn clear_cache(redis_url: &str) -> Result<(), ServiceError> {
-//    let client = redis::Client::open(redis_url).expect("failed to connect to redis server");
-//    let mut conn = client.get_connection().expect("failed to get redis connection");
-//    Ok(redis::cmd("flushall").query(&mut conn)?)
-//}
+pub fn clear_cache(redis_url: &str) -> Result<(), ResError> {
+    let client = redis::Client::open(redis_url).expect("failed to connect to redis server");
+    let mut conn = client.get_connection().expect("failed to get redis connection");
+    Ok(redis::cmd("flushall").query(&mut conn)?)
+}

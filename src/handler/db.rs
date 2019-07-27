@@ -8,7 +8,6 @@ use crate::util::{hash, jwt};
 
 use crate::model::{
     actors::{ErrorReportRecipient, DatabaseService},
-    common::GetUserId,
     errors::{ResError, RepError},
     post::Post,
     user::{User, AuthRequest, AuthResponse},
@@ -19,31 +18,28 @@ use crate::model::{
 use crate::handler::messenger::ErrorReportMessage;
 
 impl DatabaseService {
-    pub fn query_one<T>(c: &mut Client, st: &Statement, p: &[&dyn ToSql], rep: Option<ErrorReportRecipient>) -> impl Future<Item=T, Error=ResError>
+    pub fn query_one<T>(
+        c: &mut Client,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl Future<Item=T, Error=ResError>
         where T: FromRow {
-        c.query(st, p)
-            .into_future()
-            .map_err(move |(e, _)| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
-            .and_then(|(r, _)| match r {
+        Self::query(c, st, p, rep)
+            .and_then(|r| match r {
                 Some(row) => Ok(FromRow::from_row(&row)),
                 None => Err(ResError::BadRequest)
             })
     }
 
-    pub fn query_one_simple<T>(c: &mut Client, query: &str, rep: Option<ErrorReportRecipient>) -> impl Future<Item=T, Error=ResError>
+    pub fn query_one_simple<T>(
+        c: &mut Client,
+        query: &str,
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl Future<Item=T, Error=ResError>
         where T: FromSimpleRow {
-        c.simple_query(&query)
-            .into_future()
-            .map_err(move |(e, _)| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
-            .and_then(|(opt, _)| match opt {
+        Self::simple_query(c, query, rep)
+            .and_then(|r| match r {
                 Some(msg) => match msg {
                     SimpleQueryMessage::Row(row) => FromSimpleRow::from_row(&row),
                     _ => Err(ResError::InternalServerError)
@@ -52,16 +48,15 @@ impl DatabaseService {
             })
     }
 
-    pub fn query_single_row<T>(c: &mut Client, query: &str, index: usize, rep: Option<ErrorReportRecipient>) -> impl Future<Item=T, Error=ResError>
+    pub fn query_single_row<T>(
+        c: &mut Client,
+        query: &str,
+        index: usize,
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl Future<Item=T, Error=ResError>
         where T: std::str::FromStr {
-        c.simple_query(query)
-            .into_future()
-            .map_err(move |(e, _)| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
-            .and_then(move |(opt, _)| match opt {
+        Self::simple_query(c, query, rep)
+            .and_then(move |r| match r {
                 Some(msg) => match msg {
                     SimpleQueryMessage::Row(row) => row
                         .get(index)
@@ -74,43 +69,17 @@ impl DatabaseService {
             })
     }
 
-    pub fn query_multi_simple_with_id<T>(c: &mut Client, query: &str, rep: Option<ErrorReportRecipient>) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: GetUserId + FromSimpleRow {
-        let vec = Vec::with_capacity(20);
-        let ids: Vec<u32> = Vec::with_capacity(21);
-
-        c.simple_query(&query)
-            .map_err(move |e| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
-            .fold((vec, ids), move |(mut vec, mut ids), row| {
-                match row {
-                    SimpleQueryMessage::Row(row) => {
-                        let res: Option<T> = FromSimpleRow::from_row(&row).ok();
-                        if let Some(v) = res {
-                            ids.push(v.get_user_id());
-                            vec.push(v);
-                        }
-                    }
-                    _ => ()
-                }
-                Ok::<(_, Vec<u32>), ResError>((vec, ids))
-            })
-    }
-
-    pub fn query_multi_with_id<T>(c: &mut Client, st: &Statement, p: &[&dyn ToSql], rep: Option<ErrorReportRecipient>) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+    pub fn query_multi_with_id<T>(
+        c: &mut Client,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        rep: Option<ErrorReportRecipient>
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where T: FromRow {
         let vec = Vec::with_capacity(20);
         let ids = Vec::with_capacity(21);
 
-        c.query(st, p)
-            .map_err(move |e| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
+        Self::query_stream(c, st, p, rep)
             .fold((vec, ids), move |(mut vec, mut ids), row| {
                 ids.push(row.get(1));
                 vec.push(FromRow::from_row(&row));
@@ -134,21 +103,13 @@ impl DatabaseService {
         rep: Option<ErrorReportRecipient>,
     ) -> impl Future<Item=Vec<T>, Error=ResError>
         where T: FromSimpleRow {
-        c.simple_query(&query)
-            .map_err(move |e| {
-                Self::send_err_rep(rep.as_ref());
-                e
-            })
-            .from_err()
+        Self::simple_query_stream(c, query, rep)
             .fold(vec, move |mut vec, row| {
-                match row {
-                    SimpleQueryMessage::Row(row) => {
-                        let res: Option<T> = FromSimpleRow::from_row(&row).ok();
-                        if let Some(v) = res {
-                            vec.push(v);
-                        }
+                if let SimpleQueryMessage::Row(row) = row {
+                    let res: Option<T> = FromSimpleRow::from_row(&row).ok();
+                    if let Some(v) = res {
+                        vec.push(v);
                     }
-                    _ => ()
                 }
                 Ok::<_, ResError>(vec)
             })
@@ -163,6 +124,7 @@ impl DatabaseService {
         where T: FromRow {
         Self::query_multi(c, st, p, Vec::new(), rep)
     }
+
     pub fn query_multi_limit<T>(
         c: &mut Client,
         st: &Statement,
@@ -172,6 +134,7 @@ impl DatabaseService {
         where T: FromRow {
         Self::query_multi(c, st, p, Vec::with_capacity(21), rep)
     }
+
     fn query_multi<T>(
         c: &mut Client,
         st: &Statement,
@@ -180,16 +143,61 @@ impl DatabaseService {
         rep: Option<ErrorReportRecipient>,
     ) -> impl Future<Item=Vec<T>, Error=ResError>
         where T: FromRow {
+        Self::query_stream(c, st, p, rep)
+            .fold(vec, move |mut vec, row| {
+                vec.push(FromRow::from_row(&row));
+                Ok::<_, ResError>(vec)
+            })
+    }
+
+    pub fn simple_query(
+        c: &mut Client,
+        query: &str,
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl Future<Item=Option<SimpleQueryMessage>, Error=ResError> {
+        Self::simple_query_stream(c, query, rep)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .map(|(r, _)| r)
+    }
+
+    fn query(
+        c: &mut Client,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl Future<Item=Option<Row>, Error=ResError> {
+        Self::query_stream(c, st, p, rep)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .map(|(r, _)| r)
+    }
+
+    fn query_stream(
+        c: &mut Client,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl futures::Stream<Item=Row, Error=ResError> {
         c.query(st, p)
             .map_err(move |e| {
                 Self::send_err_rep(rep.as_ref());
                 e
             })
             .from_err()
-            .fold(vec, move |mut vec, row| {
-                vec.push(FromRow::from_row(&row));
-                Ok::<_, ResError>(vec)
+    }
+
+    fn simple_query_stream(
+        c: &mut Client,
+        query: &str,
+        rep: Option<ErrorReportRecipient>,
+    ) -> impl futures::Stream<Item=SimpleQueryMessage, Error=ResError> {
+        c.simple_query(&query)
+            .map_err(move |e| {
+                Self::send_err_rep(rep.as_ref());
+                e
             })
+            .from_err()
     }
 
     fn send_err_rep(rep: Option<&ErrorReportRecipient>) {
@@ -362,16 +370,6 @@ impl FromRow for Topic {
             reply_count: None,
         }
     }
-}
-
-pub fn simple_query(
-    c: &mut Client,
-    query: &str,
-) -> impl Future<Item=Option<SimpleQueryMessage>, Error=ResError> {
-    c.simple_query(query)
-        .into_future()
-        .from_err()
-        .map(|(msg, _)| msg)
 }
 
 pub fn auth_response_from_msg(

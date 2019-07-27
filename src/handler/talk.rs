@@ -21,7 +21,6 @@ use crate::model::{
     talk::{Talk, SessionMessage},
 };
 use crate::handler::{
-    db::simple_query,
     cache::get_users,
 };
 
@@ -633,7 +632,10 @@ impl Handler<Delete> for TalkService {
                         DELETE FROM talks
                         WHERE id = {}", msg.talk_id);
 
-            let f = simple_query(self.db.as_mut().unwrap(), &query)
+            let f = DatabaseService::simple_query(
+                self.db.as_mut().unwrap(),
+                query.as_str(),
+                None)
                 .into_actor(self)
                 .map_err(move |_, act, _| {
                     act.send_message(&session_id, "!!! Database Error")

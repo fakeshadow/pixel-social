@@ -22,27 +22,8 @@ use crate::util::hash;
 
 pub struct GetUsers(pub Vec<u32>);
 
-pub struct UpdateUser(pub UpdateRequest);
-
-pub struct Register(pub AuthRequest, pub GlobalVars);
-
-pub struct Login(pub AuthRequest);
-
-
 impl Message for GetUsers {
     type Result = Result<Vec<User>, ResError>;
-}
-
-impl Message for Register {
-    type Result = Result<User, ResError>;
-}
-
-impl Message for UpdateUser {
-    type Result = Result<User, ResError>;
-}
-
-impl Message for Login {
-    type Result = Result<AuthResponse, ResError>;
 }
 
 impl Handler<GetUsers> for DatabaseService {
@@ -62,60 +43,11 @@ impl Handler<GetUsers> for DatabaseService {
     }
 }
 
-impl Handler<Register> for DatabaseService {
-    type Result = ResponseActFuture<Self, User, ResError>;
 
-    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
-        let Register(req, global) = msg;
-        let query = format!(
-            "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
+pub struct UpdateUser(pub UpdateRequest);
 
-        let f = db::simple_query(self.db.as_mut().unwrap(), &query)
-            .into_actor(self)
-            .and_then(move |m, act, _| {
-                if let Some(e) = db::unique_username_email_check(&m, &req).err() {
-                    return Either::A(err(e));
-                }
-                let hash = match hash::hash_password(&req.password) {
-                    Ok(hash) => hash,
-                    Err(e) => return Either::A(err(e))
-                };
-                let id = match global.lock() {
-                    Ok(mut var) => var.next_uid(),
-                    Err(_) => return Either::A(err(ResError::InternalServerError))
-                };
-                let u = match req.make_user(&id, &hash) {
-                    Ok(u) => u,
-                    Err(e) => return Either::A(err(e))
-                };
-                Either::B(Self::query_one(
-                    act.db.as_mut().unwrap(),
-                    act.insert_user.as_ref().unwrap(),
-                    &[&u.id,
-                        &u.username,
-                        &u.email,
-                        &u.hashed_password,
-                        &u.avatar_url,
-                        &u.signature],
-                    act.error_reprot.as_ref().map(|e| e.clone()))
-                    .into_actor(act))
-            });
-
-        Box::new(f)
-    }
-}
-
-impl Handler<Login> for DatabaseService {
-    type Result = ResponseFuture<AuthResponse, ResError>;
-
-    fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-        let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
-
-        Box::new(db::simple_query(self.db.as_mut().unwrap(), &query)
-            .and_then(move |msg| db::auth_response_from_msg(&msg, &req.password)))
-    }
+impl Message for UpdateUser {
+    type Result = Result<User, ResError>;
 }
 
 impl Handler<UpdateUser> for DatabaseService {
@@ -154,5 +86,81 @@ impl Handler<UpdateUser> for DatabaseService {
             query.as_str(),
             self.error_reprot.as_ref().map(|e| e.clone()),
         ))
+    }
+}
+
+
+pub struct Register(pub AuthRequest, pub GlobalVars);
+
+impl Message for Register {
+    type Result = Result<User, ResError>;
+}
+
+impl Handler<Register> for DatabaseService {
+    type Result = ResponseActFuture<Self, User, ResError>;
+
+    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
+        let Register(req, global) = msg;
+        let query = format!(
+            "SELECT username, email FROM users
+             WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
+
+        let f = Self::simple_query(
+            self.db.as_mut().unwrap(),
+            query.as_str(),
+            self.error_reprot.as_ref().map(|e| e.clone()))
+            .into_actor(self)
+            .and_then(move |m, act, _| {
+                if let Some(e) = db::unique_username_email_check(&m, &req).err() {
+                    return Either::A(err(e));
+                }
+                let hash = match hash::hash_password(&req.password) {
+                    Ok(hash) => hash,
+                    Err(e) => return Either::A(err(e))
+                };
+                let id = match global.lock() {
+                    Ok(mut var) => var.next_uid(),
+                    Err(_) => return Either::A(err(ResError::InternalServerError))
+                };
+                let u = match req.make_user(&id, &hash) {
+                    Ok(u) => u,
+                    Err(e) => return Either::A(err(e))
+                };
+                Either::B(Self::query_one(
+                    act.db.as_mut().unwrap(),
+                    act.insert_user.as_ref().unwrap(),
+                    &[&u.id,
+                        &u.username,
+                        &u.email,
+                        &u.hashed_password,
+                        &u.avatar_url,
+                        &u.signature],
+                    act.error_reprot.as_ref().map(|e| e.clone()))
+                    .into_actor(act))
+            });
+
+        Box::new(f)
+    }
+}
+
+
+pub struct Login(pub AuthRequest);
+
+impl Message for Login {
+    type Result = Result<AuthResponse, ResError>;
+}
+
+impl Handler<Login> for DatabaseService {
+    type Result = ResponseFuture<AuthResponse, ResError>;
+
+    fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
+        let req = msg.0;
+        let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
+
+        Box::new(Self::simple_query(
+            self.db.as_mut().unwrap(),
+            query.as_str(),
+            self.error_reprot.as_ref().map(|e| e.clone()))
+            .and_then(move |msg| db::auth_response_from_msg(&msg, &req.password)))
     }
 }

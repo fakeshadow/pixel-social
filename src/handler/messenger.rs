@@ -33,7 +33,7 @@ use crate::model::{
     errors::{ErrorReport, ResError, RepError},
 };
 
-const MAIL_TIME_GAP: Duration = Duration::from_millis(2000);
+const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
 const SMS_TIME_GAP: Duration = Duration::from_millis(1000);
 const ERROR_TIME_GAP: Duration = Duration::from_millis(1000);
 
@@ -47,8 +47,10 @@ impl MessageService {
     fn process_errors(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(ERROR_TIME_GAP, move |act, ctx| {
             if let Some(s) = act.error_report.stringify_report().ok() {
-                ctx.spawn(act
-                    .send_sms_admin(s)
+                let f1 = act.send_sms_admin(s.as_str());
+                let f2 = act.send_mail_admin(s.as_str());
+
+                ctx.spawn(f1.join(f2)
                     .into_actor(act)
                     .map_err(|_, _, _| ())
                     .map(|_, _, _| ()));
@@ -66,7 +68,7 @@ impl MessageService {
                     _ => println!("mail error is : {:?}", e)
                 })
                 .and_then(|s, act, _| act
-                    .send_mail(s.as_str())
+                    .send_mail_user(s.as_str())
                     .into_future()
                     .into_actor(act)
                     .map_err(|_, _, _| ())));
@@ -143,10 +145,10 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: String) -> impl Future<Item=(), Error=RepError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=RepError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
-            message: msg,
+            message: msg.to_owned(),
         };
         self.send_sms(msg)
     }
@@ -159,6 +161,7 @@ impl MessageService {
         Either::B(self.send_sms(msg))
     }
 
+    // twilio api handler.
     fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=RepError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
@@ -181,16 +184,42 @@ impl MessageService {
             .map(|_| ())
     }
 
-    fn send_mail(&mut self, s: &str) -> Result<(), RepError> {
-        let mailer = &mut self.mailer;
+    fn send_mail_admin(&mut self, rep: &str) -> Result<(), RepError> {
+        let mail = Mail::ErrorReport {
+            report: rep,
+        };
+        self.send_mail(&mail)
+    }
 
+    fn send_mail_user(&mut self, s: &str) -> Result<(), RepError> {
         let mail = serde_json::from_str::<Mail>(s)?;
 
+        self.send_mail(&mail)
+    }
+
+    fn send_mail(&mut self, mail: &Mail) -> Result<(), RepError> {
+        let mailer = &mut self.mailer;
+
+        let (to, subject, html, text) = match *mail {
+            Mail::Activation { to, uuid } => {
+                (to,
+                 "Activate your PixelShare account",
+                 format!("<p>Please click the link below </br> {}/activation/{} </p>", &mailer.server_url, uuid),
+                 "Activation link")
+            }
+            Mail::ErrorReport { report } => {
+                (mailer.self_addr.as_str(),
+                 "Error Report",
+                 report.to_owned(),
+                 "")
+            }
+        };
+
         let mail = Email::builder()
-            .to(mail.address)
-            .from((&mailer.self_addr, &mailer.self_name))
-            .subject("Activate your PixelShare account")
-            .alternative(format!("<p>Please click the link below </br> {}/activation/{} </p>", &mailer.server_url, mail.uuid), "Activation link")
+            .to(to)
+            .from((mailer.self_addr.as_str(), mailer.self_name.as_str()))
+            .subject(subject)
+            .alternative(html.as_str(), text)
             .build()
             .map_err(|_| RepError::MailBuilder)?
             .into();
@@ -241,7 +270,7 @@ impl ErrorReport {
             }
             if let Some(v) = rep.get_mut(&RepError::MailBuilder) {
                 if *v > 3 {
-                    message.push_str("/br Mail Service Error(Can not build sendable email)");
+                    message.push_str("/br Mail Service Error(Can not build email)");
                     *v = 0;
                 }
             }

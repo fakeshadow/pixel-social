@@ -1,12 +1,11 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    messenger::Mail,
     errors::ResError,
     common::{GetSelfId, Validator},
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct User {
     pub id: u32,
     pub username: String,
@@ -44,7 +43,7 @@ pub struct UserRef<'a> {
     pub last_online: Option<&'a NaiveDateTime>,
 }
 
-pub trait AttachUser<'u>{
+pub trait AttachUser<'u> {
     type Output;
     fn self_user_id(&self) -> &u32;
     fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output;
@@ -53,13 +52,6 @@ pub trait AttachUser<'u>{
             .filter(|u| u.self_id() == self.self_user_id())
             .map(|u| u.to_ref())
             .next()
-    }
-}
-
-// convert user to mail and add to mail queue for user activation
-impl User {
-    pub fn to_mail(&self) -> Mail {
-        Mail::from_user(self)
     }
 }
 

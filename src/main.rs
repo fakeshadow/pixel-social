@@ -47,24 +47,23 @@ fn main() -> std::io::Result<()> {
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
     let use_report = env::var("USE_ERROR_SMS_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
-    // create or clear database tables
+    // create or clear database tables as well as redis cache
     let args: Vec<String> = env::args().collect();
     for arg in args.iter() {
         if arg == "drop" {
             drop_table(&database_url);
+            let _ = crate::handler::cache::clear_cache(&redis_url);
             std::process::exit(1);
         }
         if arg == "build" {
             create_table(&database_url);
+            let _ = build_cache(&database_url, &redis_url, true).expect("Unable to build cache");
         }
     }
-    // clear cache is only for test.
-//    use crate::handler::cache::clear_cache;
-//    let _ = clear_cache(&redis_url);
 
     // build_cache function returns global variables.
     let (global, global_talks, global_sessions) =
-        build_cache(&database_url, &redis_url).expect("Unable to build cache");
+        build_cache(&database_url, &redis_url, false).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 

@@ -8,7 +8,7 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, GetUsersCache, AddMail, ActivateUser, DeleteCache},
+    cache::{UpdateCache, GetUsersCache, AddActivationMail, ActivateUser, DeleteCache},
     user::{Login, Register, UpdateUser, GetUsers},
 };
 
@@ -101,7 +101,7 @@ pub fn register(
             .from_err()
             .and_then(move |u| {
                 let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(AddMail(u.to_mail()));
+                let _ = cache.do_send(AddActivationMail(u.clone()));
                 let _ = cache.do_send(UpdateCache::User(vec![u]));
                 res
             })

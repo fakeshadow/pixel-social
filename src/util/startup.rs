@@ -4,7 +4,6 @@ use actix_rt::Runtime;
 use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
-    db::simple_query,
     cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list},
 };
 use crate::model::{
@@ -23,7 +22,7 @@ use crate::model::{
 };
 
 //return global arc after building cache
-pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
+pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
@@ -63,7 +62,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalVars, G
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
-        let (t, _): (Vec<Topic>, _) = rt.block_on(DatabaseService::query_multi_simple_with_id(&mut c, &query, None))
+        let t: Vec<Topic> = rt.block_on(DatabaseService::query_multi_simple_no_limit(&mut c, &query, None))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -111,9 +110,11 @@ pub fn build_cache(postgres_url: &str, redis_url: &str) -> Result<(GlobalVars, G
             if t.id > last_tid { last_tid = t.id };
         }
 
-        let _ = rt.block_on(build_topics_cache_list(sets, c_cache.clone())).unwrap_or_else(|_| panic!("Failed to build category sets"));
-        let key = format!("category:{}:list", &cat.id);
-        let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        let _ = rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone())).unwrap_or_else(|_| panic!("Failed to build category sets"));
+        if is_init {
+            let key = format!("category:{}:list", &cat.id);
+            let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+        }
     }
     let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "rpush", "category_id:meta".to_owned())).unwrap_or_else(|_| panic!("Failed to build category lists"));
 
@@ -398,7 +399,7 @@ DROP FUNCTION IF EXISTS adding_topic();
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 
-    let _ = rt.block_on(simple_query(&mut c, query).and_then(|_| {
+    let _ = rt.block_on(DatabaseService::simple_query(&mut c, query, None).and_then(|_| {
         println!("All tables have been drop. pixel_rs exited");
         Ok(())
     })).expect("failed to clear db");

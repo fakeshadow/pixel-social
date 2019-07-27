@@ -16,7 +16,6 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ResError,
 };
-use crate::handler::db;
 
 pub struct GetCategories;
 
@@ -50,7 +49,11 @@ impl Handler<RemoveCategory> for DatabaseService {
         DELETE FROM categories
         WHERE id={}", msg.0);
 
-        Box::new(db::simple_query(self.db.as_mut().unwrap(), &query).map(|_| ()))
+        Box::new(Self::simple_query(
+            self.db.as_mut().unwrap(),
+            query.as_str(),
+            self.error_reprot.as_ref().map(|e| e.clone()))
+            .map(|_| ()))
     }
 }
 

@@ -138,13 +138,13 @@ impl Actor for WsChatSession {
 }
 
 impl DatabaseService {
-    pub fn connect(postgres_url: &str, send_error: Option<ErrorReportRecipient>) -> DB {
+    pub fn connect(postgres_url: &str, error_reprot: Option<ErrorReportRecipient>) -> DB {
         let hs = connect(postgres_url, NoTls);
 
         DatabaseService::create(move |ctx| {
             let addr = DatabaseService {
                 db: None,
-                error_reprot: send_error,
+                error_reprot,
                 topics_by_id: None,
                 posts_by_id: None,
                 users_by_id: None,
