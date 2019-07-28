@@ -18,17 +18,17 @@ use crate::model::{
 };
 use crate::handler::{
     talk::{
-        Auth,
-        Connect,
-        Create,
-        Delete,
-        GetTalks,
-        GetUsers,
-        Join,
+        AuthRequest,
+        ConnectRequest,
+        CreateTalkRequest,
+        DeleteTalkRequest,
+        TalkByIdRequest,
+        UsersByIdRequest,
+        JoinTalkRequest,
         Admin,
-        RemoveUser,
-        GotMessages,
-        GetRelation,
+        RemoveUserRequest,
+        TextMessageRequest,
+        UserRelationRequest,
         GetHistory,
     },
 };
@@ -85,17 +85,17 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                     }
                 } else {
                     match v[0] {
-                        "/msg" => general_msg_handler::<GotMessages>(self, v[1], ctx),
+                        "/msg" => general_msg_handler::<TextMessageRequest>(self, v[1], ctx),
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
-                        "/remove" => general_msg_handler::<RemoveUser>(self, v[1], ctx),
+                        "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
                         // request talk_id 0 to get all talks details.
-                        "/users" => general_msg_handler::<GetUsers>(self, v[1], ctx),
-                        "/talks" => general_msg_handler::<GetTalks>(self, v[1], ctx),
-                        "/relation" => general_msg_handler::<GetRelation>(self, v[1], ctx),
-                        "/join" => general_msg_handler::<Join>(self, v[1], ctx),
-                        "/create" => general_msg_handler::<Create>(self, v[1], ctx),
-                        "/delete" => general_msg_handler::<Delete>(self, v[1], ctx),
+                        "/users" => general_msg_handler::<UsersByIdRequest>(self, v[1], ctx),
+                        "/talks" => general_msg_handler::<TalkByIdRequest>(self, v[1], ctx),
+                        "/relation" => general_msg_handler::<UserRelationRequest>(self, v[1], ctx),
+                        "/join" => general_msg_handler::<JoinTalkRequest>(self, v[1], ctx),
+                        "/create" => general_msg_handler::<CreateTalkRequest>(self, v[1], ctx),
+                        "/delete" => general_msg_handler::<DeleteTalkRequest>(self, v[1], ctx),
                         _ => ctx.text("!!! Unknown command")
                     }
                 }
@@ -115,7 +115,7 @@ impl AttachSessionId for Admin {
     }
 }
 
-impl AttachSessionId for RemoveUser {
+impl AttachSessionId for RemoveUserRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
@@ -127,44 +127,44 @@ impl AttachSessionId for GetHistory {
     }
 }
 
-impl AttachSessionId for GotMessages {
+impl AttachSessionId for TextMessageRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for Join {
+impl AttachSessionId for JoinTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for Delete {
+impl AttachSessionId for DeleteTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for Create {
+impl AttachSessionId for CreateTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.owner = id;
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for GetTalks {
+impl AttachSessionId for TalkByIdRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for GetUsers {
+impl AttachSessionId for UsersByIdRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for GetRelation {
+impl AttachSessionId for UserRelationRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
@@ -193,12 +193,12 @@ fn auth(
     ctx: &mut ws::WebsocketContext<WsChatSession>,
 ) {
     println!("{}", text);
-    let r: Result<Auth, _> = serde_json::from_str(text);
+    let r: Result<AuthRequest, _> = serde_json::from_str(text);
     match r {
         Ok(auth) => match JwtPayLoad::from(&auth.token) {
             Ok(j) => {
                 session.id = j.user_id;
-                let _ = session.addr.do_send(Connect {
+                let _ = session.addr.do_send(ConnectRequest {
                     session_id: session.id,
                     online_status: auth.online_status,
                     addr: ctx.address(),

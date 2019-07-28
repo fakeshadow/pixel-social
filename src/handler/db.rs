@@ -15,239 +15,230 @@ use crate::model::{
     user::{User, AuthRequest, AuthResponse},
     category::Category,
     topic::Topic,
-    talk::Talk,
+    talk::{Talk, PublicMessage, PrivateMessage},
 };
 
-impl TalkService {
-    pub fn query_one(
-        c: &mut Client,
-        st: &Statement,
-        p: &[&dyn ToSql],
-    ) -> impl Future<Item=(), Error=ResError> {
-        query_one_handler(c, st, p, None).map(|_|())
+impl DatabaseService {
+    pub fn unique_username_email_check(&mut self, q: &str, req: AuthRequest) -> Box<dyn Future<Item=AuthRequest, Error=ResError>> {
+        Box::new(self
+            .simple_query_row(q)
+            .then(|r| {
+                if let Some(r) = r.ok() {
+                    if let Some(r) = r.get(0) {
+                        if r == &req.username {
+                            return Err(ResError::UsernameTaken);
+                        } else {
+                            return Err(ResError::EmailTaken);
+                        }
+                    }
+                }
+                Ok(req)
+            }))
     }
 
-    pub fn simple_query_talk(
-        &mut self,
-        q: &str,
-    ) -> impl Future<Item=Talk, Error=ResError> {
-        simple_query_one_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            None)
-            .map(Talk::from)
-    }
+    pub fn generate_auth_response(&mut self, q: &str, pass: String) -> Box<dyn Future<Item=AuthResponse, Error=ResError>> {
+        Box::new(self
+            .simple_query_row(q)
+            .and_then(move |r| {
+                let hash = r.get(3).ok_or(ResError::InternalServerError)?;
+                let _ = hash::verify_password(pass.as_str(), hash)?;
 
-    pub fn simple_query_single_row<T>(
-        &mut self,
-        q: &str,
-        index: usize,
-    ) -> impl Future<Item=T, Error=ResError>
-        where T: std::str::FromStr {
-        simple_query_single_row_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            index,
-            None)
+                let user = User::from(r);
+                let token = jwt::JwtPayLoad::new(user.id, user.privilege).sign()?;
+
+                Ok(AuthResponse { token, user })
+            })
+        )
     }
 }
 
 
-impl DatabaseService {
-    pub fn query_one<T>(
+pub trait SimpleQuery {
+    fn simple_query_stream(
+        &mut self,
+        query: &str,
+    ) -> Box<dyn futures::Stream<Item=SimpleQueryMessage, Error=ResError>> {
+        let (c, rep) = self.get_client_and_report();
+        Box::new(c
+            .simple_query(&query)
+            .map_err(move |e| {
+                send_rep(rep.as_ref());
+                e
+            })
+            .from_err())
+    }
+    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>);
+}
+
+impl SimpleQuery for DatabaseService {
+    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>) {
+        (self.db.as_mut().unwrap(), self.error_reprot.as_ref().map(Clone::clone))
+    }
+}
+
+impl SimpleQuery for TalkService {
+    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>) {
+        (self.db.as_mut().unwrap(), None)
+    }
+}
+
+pub trait Query {
+    fn query_stream(
         c: &mut Client,
         st: &Statement,
         p: &[&dyn ToSql],
         rep: Option<ErrorReportRecipient>,
-    ) -> impl Future<Item=T, Error=ResError>
-        where T: From<Row> {
-        query_one_handler(c, st, p, rep).map(T::from)
+    ) -> Box<dyn futures::Stream<Item=Row, Error=ResError>> {
+        Box::new(c
+            .query(st, p)
+            .map_err(move |e| {
+                send_rep(rep.as_ref());
+                e
+            })
+            .from_err())
+    }
+}
+
+impl Query for DatabaseService {}
+
+impl Query for TalkService {}
+
+
+pub trait SimpleQueryOne
+    where Self: SimpleQuery {
+    fn simple_query_single_row<T>(&mut self, q: &str, i: usize) -> Box<dyn Future<Item=T, Error=ResError>>
+        where T: std::str::FromStr + 'static {
+        Box::new(self
+            .simple_query_row(q)
+            .and_then(move |r| r
+                .get(i)
+                .ok_or(ResError::BadRequest)?
+                .parse::<T>()
+                .map_err(|_| ResError::ParseError)))
     }
 
-    pub fn simple_query_one<T>(
-        &mut self,
-        q: &str,
-    ) -> impl Future<Item=T, Error=ResError>
-        where T: From<SimpleQueryRow> {
-        simple_query_one_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            self.error_reprot.as_ref().map(Clone::clone))
-            .map(T::from)
+    fn simple_query_one<T>(&mut self, q: &str) -> Box<dyn Future<Item=T, Error=ResError>>
+        where T: From<SimpleQueryRow> + 'static {
+        Box::new(self
+            .simple_query_row(q)
+            .map(T::from))
     }
 
-    pub fn query_multi<T>(
+    fn simple_query_row(&mut self, q: &str) -> Box<dyn Future<Item=SimpleQueryRow, Error=ResError>> {
+        Box::new(self
+            .simple_query_stream(q)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .and_then(|(r, _)| match r {
+                Some(m) => match m {
+                    SimpleQueryMessage::Row(r) => Ok(r),
+                    _ => Err(ResError::NoContent)
+                }
+                None => Err(ResError::BadRequest)
+            }))
+    }
+}
+
+impl SimpleQueryOne for TalkService {}
+
+impl SimpleQueryOne for DatabaseService {}
+
+pub trait SimpleQueryMulti
+    where Self: SimpleQuery {
+    fn simple_query_multi<T>(&mut self, q: &str, v: Vec<T>) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where T: From<SimpleQueryRow> + 'static {
+        Box::new(self
+            .simple_query_stream(q)
+            .fold(v, move |mut v, r| {
+                if let SimpleQueryMessage::Row(r) = r {
+                    v.push(T::from(r))
+                }
+                Ok::<_, ResError>(v)
+            }))
+    }
+}
+
+impl SimpleQueryMulti for DatabaseService {}
+
+pub trait QueryOne
+    where Self: Query {
+    fn query_one<T>(
         c: &mut Client,
         st: &Statement,
-        ids: &Vec<u32>,
+        p: &[&dyn ToSql],
         rep: Option<ErrorReportRecipient>,
-    ) -> impl Future<Item=Vec<T>, Error=ResError>
-        where T: From<Row> + GetSelfId {
-        query_stream_handler(c, st, &[&ids], rep)
-            .fold(Vec::with_capacity(ids.len()), move |mut vec, row| {
+    ) -> Box<dyn Future<Item=T, Error=ResError>>
+        where T: From<Row> + 'static {
+        Box::new(Self::query_stream(c, st, p, rep)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .and_then(|(r, _)| r.ok_or(ResError::BadRequest))
+            .map(T::from))
+    }
+}
+
+impl QueryOne for DatabaseService {}
+
+impl QueryOne for TalkService {}
+
+pub trait QueryMulti
+    where Self: Query {
+    fn query_multi<T>(
+        c: &mut Client,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        vec: Vec<T>,
+        rep: Option<ErrorReportRecipient>,
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where T: From<Row> + 'static {
+        Box::new(Self::query_stream(c, st, p, rep)
+            .fold(vec, move |mut vec, row| {
                 vec.push(T::from(row));
                 Ok::<_, ResError>(vec)
-            })
+            }))
     }
+}
 
-    pub fn query_multi_with_uid<T>(
+impl QueryMulti for DatabaseService {}
+
+impl QueryMulti for TalkService {}
+
+pub trait QueryMultiWithUids
+    where Self: Query {
+    fn query_multi_with_uid<T>(
         c: &mut Client,
         st: &Statement,
         ids_org: Vec<u32>,
         rep: Option<ErrorReportRecipient>,
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: From<Row> + GetSelfId {
+    ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
+        where T: From<Row> + GetSelfId + 'static {
         let len = ids_org.len();
         let vec = Vec::with_capacity(len);
         let ids = Vec::with_capacity(len);
 
-        query_stream_handler(c, st, &[&ids_org], rep)
+        Box::new(Self::query_stream(c, st, &[&ids_org], rep)
             .fold((vec, ids), move |(mut vec, mut ids), row| {
                 let user_id: u32 = row.get(1);
                 ids.push(user_id);
                 vec.push(T::from(row));
                 Ok::<_, ResError>((vec, ids))
             })
-            .map(move |(p, uids)| (sort_vec(p, ids_org), uids))
-    }
-
-    pub fn simple_query_multi_no_limit<T>(
-        &mut self,
-        q: &str,
-    ) -> impl Future<Item=Vec<T>, Error=ResError>
-        where T: From<SimpleQueryRow> {
-        simple_query_multi_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            self.error_reprot.as_ref().map(Clone::clone),
-            Vec::new())
-    }
-
-    pub fn simple_query_single_row<T>(
-        &mut self,
-        q: &str,
-        i: usize,
-    ) -> impl Future<Item=T, Error=ResError>
-        where T: std::str::FromStr {
-        simple_query_single_row_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            i,
-            self.error_reprot.as_ref().map(Clone::clone))
-    }
-
-    pub fn simple_query_row(
-        &mut self,
-        q: &str,
-    ) -> impl Future<Item=SimpleQueryRow, Error=ResError> {
-        simple_query_one_handler(
-            self.db.as_mut().unwrap(),
-            q,
-            self.error_reprot.as_ref().map(Clone::clone))
+            .map(move |(mut v, uids)| {
+                let mut result = Vec::with_capacity(v.len());
+                for i in 0..uids.len() {
+                    for j in 0..v.len() {
+                        if &uids[i] == v[j].self_id() {
+                            result.push(v.swap_remove(j));
+                            break;
+                        }
+                    }
+                }
+                (result, uids)
+            }))
     }
 }
 
-pub fn load_all<T>(
-    c: &mut Client,
-    q: &str,
-    rep: Option<ErrorReportRecipient>,
-) -> impl Future<Item=Vec<T>, Error=ResError>
-    where T: From<SimpleQueryRow> {
-    simple_query_multi_handler(c, q, rep, Vec::new())
-}
-
-pub fn simple_query_single_row_handler<T>(
-    c: &mut Client,
-    query: &str,
-    index: usize,
-    rep: Option<ErrorReportRecipient>,
-) -> impl Future<Item=T, Error=ResError>
-    where T: std::str::FromStr {
-    simple_query_one_handler(c, query, rep)
-        .and_then(move |r| r
-            .get(index)
-            .ok_or(ResError::BadRequest)?
-            .parse::<T>()
-            .map_err(|_| ResError::ParseError))
-}
-
-fn simple_query_multi_handler<T>(
-    c: &mut Client,
-    q: &str,
-    rep: Option<ErrorReportRecipient>,
-    vec: Vec<T>,
-) -> impl Future<Item=Vec<T>, Error=ResError>
-    where T: From<SimpleQueryRow> {
-    simple_query_stream_handler(c, q, rep)
-        .fold(vec, move |mut vec, row| {
-            if let SimpleQueryMessage::Row(row) = row {
-                vec.push(T::from(row))
-            }
-            Ok::<_, ResError>(vec)
-        })
-}
-
-fn query_one_handler(
-    c: &mut Client,
-    st: &Statement,
-    p: &[&dyn ToSql],
-    rep: Option<ErrorReportRecipient>,
-) -> impl Future<Item=Row, Error=ResError> {
-    query_stream_handler(c, st, p, rep)
-        .into_future()
-        .map_err(|(e, _)| e)
-        .and_then(|(r, _)| r.ok_or(ResError::BadRequest))
-}
-
-pub fn simple_query_one_handler(
-    c: &mut Client,
-    query: &str,
-    rep: Option<ErrorReportRecipient>,
-) -> impl Future<Item=SimpleQueryRow, Error=ResError> {
-    simple_query_stream_handler(c, query, rep)
-        .into_future()
-        .map_err(|(e, _)| e)
-        .and_then(|(r, _)| match r {
-            Some(msg) => match msg {
-                SimpleQueryMessage::Row(row) => Ok(row),
-                _ => Err(ResError::InternalServerError)
-            }
-            None => Err(ResError::BadRequest)
-        })
-}
-
-fn query_stream_handler(
-    c: &mut Client,
-    st: &Statement,
-    p: &[&dyn ToSql],
-    rep: Option<ErrorReportRecipient>,
-) -> impl futures::Stream<Item=Row, Error=ResError> {
-    c.query(st, p)
-        .map_err(move |e| {
-            send_err_rep(rep.as_ref());
-            e
-        })
-        .from_err()
-}
-
-fn simple_query_stream_handler(
-    c: &mut Client,
-    query: &str,
-    rep: Option<ErrorReportRecipient>,
-) -> impl futures::Stream<Item=SimpleQueryMessage, Error=ResError> {
-    c.simple_query(&query)
-        .map_err(move |e| {
-            send_err_rep(rep.as_ref());
-            e
-        })
-        .from_err()
-}
-
-fn send_err_rep(rep: Option<&ErrorReportRecipient>) {
-    if let Some(rep) = rep {
-        let _ = rep.do_send(crate::handler::messenger::ErrorReportMessage(RepError::Database));
-    }
-}
+impl QueryMultiWithUids for DatabaseService {}
 
 impl From<Row> for User {
     fn from(row: Row) -> Self {
@@ -299,6 +290,41 @@ impl From<Row> for Post {
             last_reply_time: None,
             is_locked: row.get(8),
             reply_count: None,
+        }
+    }
+}
+
+impl From<Row> for Talk {
+    fn from(row: Row) -> Self {
+        Talk {
+            id: row.get(0),
+            name: row.get(1),
+            description: row.get(2),
+            secret: row.get(3),
+            privacy: row.get(4),
+            owner: row.get(5),
+            admin: vec![],
+            users: vec![],
+        }
+    }
+}
+
+impl From<Row> for PublicMessage {
+    fn from(row: Row) -> Self {
+        PublicMessage {
+            talk_id: row.get(0),
+            time: row.get(1),
+            text: row.get(2),
+        }
+    }
+}
+
+impl From<Row> for PrivateMessage {
+    fn from(row: Row) -> Self {
+        PrivateMessage {
+            user_id: row.get(0),
+            time: row.get(2),
+            text: row.get(3),
         }
     }
 }
@@ -390,42 +416,47 @@ impl From<SimpleQueryRow> for Talk {
     }
 }
 
-fn sort_vec<T>(mut v: Vec<T>, ids: Vec<u32>) -> Vec<T>
-    where T: GetSelfId + From<Row> {
-    let mut result = Vec::with_capacity(v.len());
-    for i in 0..ids.len() {
-        for j in 0..v.len() {
-            if &ids[i] == v[j].self_id() {
-                result.push(v.swap_remove(j));
-                break;
+fn send_rep(rep: Option<&ErrorReportRecipient>) {
+    if let Some(rep) = rep {
+        let _ = rep.do_send(crate::handler::messenger::ErrorReportMessage(RepError::Database));
+    }
+}
+
+// helper functions for build cache on startup
+pub fn load_all<T>(
+    c: &mut Client,
+    q: &str,
+) -> impl Future<Item=Vec<T>, Error=ResError>
+    where T: From<SimpleQueryRow> {
+    c.simple_query(&q)
+        .from_err()
+        .fold(Vec::new(), move |mut vec, row| {
+            if let SimpleQueryMessage::Row(row) = row {
+                vec.push(T::from(row))
             }
-        }
-    }
-    result
+            Ok::<_, ResError>(vec)
+        })
 }
 
-
-pub fn auth_response_from_simple_row(
-    row: SimpleQueryRow,
-    pass: &str,
-) -> Result<AuthResponse, ResError> {
-    let hash = row.get(3).ok_or(ResError::InternalServerError)?;
-    let _ = hash::verify_password(pass, hash)?;
-
-    let user = User::from(row);
-    let token = jwt::JwtPayLoad::new(user.id, user.privilege).sign()?;
-
-    Ok(AuthResponse { token, user })
-}
-
-pub fn unique_username_email_check(
-    r: &SimpleQueryRow,
-    req: &AuthRequest,
-) -> Result<(), ResError> {
-    let r = r.get(0).ok_or(ResError::InternalServerError)?;
-    if r == &req.username {
-        Err(ResError::UsernameTaken)
-    } else {
-        Err(ResError::EmailTaken)
-    }
+pub fn simple_query_single_row_handler<T>(
+    c: &mut Client,
+    query: &str,
+    index: usize,
+) -> impl Future<Item=T, Error=ResError>
+    where T: std::str::FromStr {
+    c.simple_query(&query)
+        .from_err()
+        .into_future()
+        .map_err(|(e, _)| e)
+        .and_then(move |(r, _)| match r {
+            Some(msg) => match msg {
+                SimpleQueryMessage::Row(row) => row
+                    .get(index)
+                    .ok_or(ResError::BadRequest)?
+                    .parse::<T>()
+                    .map_err(|_| ResError::ParseError),
+                _ => Err(ResError::NoContent)
+            }
+            None => Err(ResError::BadRequest)
+        })
 }

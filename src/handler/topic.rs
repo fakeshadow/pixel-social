@@ -15,6 +15,7 @@ use crate::model::{
     errors::ResError,
     topic::Topic,
 };
+use crate::handler::db::SimpleQueryOne;
 
 pub struct AddTopic(pub TopicRequest, pub GlobalVars);
 
@@ -45,6 +46,7 @@ impl Handler<AddTopic> for DatabaseService {
         let t = msg.0;
         let now = &Utc::now().naive_local();
 
+        use crate::handler::db::QueryOne;
         Box::new(Self::query_one(
             self.db.as_mut().unwrap(),
             self.insert_topic.as_ref().unwrap(),
@@ -101,6 +103,7 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
+        use crate::handler::db::QueryMultiWithUids;
         Box::new(Self::query_multi_with_uid(
             self.db.as_mut().unwrap(),
             self.topics_by_id.as_ref().unwrap(),

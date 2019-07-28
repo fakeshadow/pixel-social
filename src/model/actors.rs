@@ -30,7 +30,7 @@ use crate::model::{
     messenger::{Mailer, Twilio},
 };
 use crate::handler::{
-    talk::Disconnect,
+    talk::DisconnectRequest,
 };
 
 // websocket heartbeat and connection time out time.
@@ -132,7 +132,7 @@ impl Actor for WsChatSession {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(Disconnect { session_id: self.id });
+        self.addr.do_send(DisconnectRequest { session_id: self.id });
         Running::Stop
     }
 }
@@ -216,10 +216,6 @@ impl CacheService {
             addr
         })
     }
-
-    pub fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
 }
 
 impl CacheUpdateService {
@@ -280,8 +276,8 @@ impl TalkService {
             hs.map_err(|_| panic!("Can't connect to database"))
                 .into_actor(&addr)
                 .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, message, time) VALUES ($1, $2, $3)");
-                    let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, message) VALUES ($1, $2, $3)");
+                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)");
+                    let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)");
                     let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
                     let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
                     let p5 = db.prepare("SELECT * FROM relations WHERE id = $1");
@@ -308,10 +304,6 @@ impl TalkService {
             addr
         })
     }
-
-    pub fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
 }
 
 impl MessageService {
@@ -336,10 +328,6 @@ impl MessageService {
                 .wait(ctx);
             addr
         })
-    }
-
-    pub fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
     }
 }
 

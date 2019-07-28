@@ -16,6 +16,11 @@ use crate::model::{
     category::{Category, CategoryRequest},
     errors::ResError,
 };
+use crate::handler::db::{
+    SimpleQueryOne,
+    SimpleQueryMulti
+};
+
 
 pub struct GetCategories;
 
@@ -59,7 +64,7 @@ impl Handler<GetCategories> for DatabaseService {
     type Result = ResponseFuture<Vec<Category>, ResError>;
 
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.simple_query_multi_no_limit("SELECT * FROM categories"))
+        Box::new(self.simple_query_multi("SELECT * FROM categories", Vec::new()))
     }
 }
 

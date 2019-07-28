@@ -3,7 +3,6 @@ use std::fmt::Write;
 use actix::prelude::{
     ActorFuture,
     fut::{err, Either},
-    Future,
     Handler,
     Message,
     ResponseFuture,
@@ -17,7 +16,7 @@ use crate::model::{
     errors::ResError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::db;
+use crate::handler::db::SimpleQueryOne;
 use crate::util::hash;
 
 pub struct GetUsers(pub Vec<u32>);
@@ -33,10 +32,12 @@ impl Handler<GetUsers> for DatabaseService {
         msg.0.sort();
         msg.0.dedup();
 
+        use crate::handler::db::QueryMulti;
         Box::new(Self::query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
-            &msg.0,
+            &[&msg.0],
+            Vec::with_capacity(msg.0.len()),
             self.error_reprot.as_ref().map(Clone::clone)))
     }
 }
@@ -100,12 +101,9 @@ impl Handler<Register> for DatabaseService {
              WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
 
         let f = self
-            .simple_query_row(query.as_str())
+            .unique_username_email_check(query.as_str(), req)
             .into_actor(self)
-            .and_then(move |m, act, _| {
-                if let Some(e) = db::unique_username_email_check(&m, &req).err() {
-                    return Either::A(err(e));
-                }
+            .and_then(move |req: AuthRequest, act, _| {
                 let hash = match hash::hash_password(&req.password) {
                     Ok(hash) => hash,
                     Err(e) => return Either::A(err(e))
@@ -118,6 +116,7 @@ impl Handler<Register> for DatabaseService {
                     Ok(u) => u,
                     Err(e) => return Either::A(err(e))
                 };
+                use crate::handler::db::QueryOne;
                 Either::B(Self::query_one(
                     act.db.as_mut().unwrap(),
                     act.insert_user.as_ref().unwrap(),
@@ -151,8 +150,6 @@ impl Handler<Login> for DatabaseService {
         let req = msg.0;
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        Box::new(self.simple_query_row(
-            query.as_str())
-            .and_then(move |msg| db::auth_response_from_simple_row(msg, &req.password)))
+        Box::new(self.generate_auth_response(query.as_str(), req.password))
     }
 }

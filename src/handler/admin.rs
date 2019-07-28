@@ -48,12 +48,14 @@ impl Handler<UpdateUserCheck> for DatabaseService {
     fn handle(&mut self, msg: UpdateUserCheck, _: &mut Self::Context) -> Self::Result {
         let self_lv = msg.0;
         let req = msg.1;
-        let id = vec![req.id.as_ref().map(|u|*u).unwrap_or(0)];
+        let id = vec![req.id.as_ref().map(|u| *u).unwrap_or(0)];
 
+        use crate::handler::db::QueryMulti;
         Box::new(Self::query_multi(
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
-            &id,
+            &[&id],
+            Vec::with_capacity(id.len()),
             self.error_reprot.as_ref().map(Clone::clone))
             .and_then(move |u: Vec<User>| {
                 let u = u.first().ok_or(ResError::BadRequest)?;

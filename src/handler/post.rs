@@ -10,6 +10,7 @@ use crate::model::{
     common::GlobalVars,
     post::{Post, PostRequest},
 };
+use crate::handler::db::SimpleQueryOne;
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalVars>);
 
@@ -38,6 +39,7 @@ impl Handler<ModifyPost> for DatabaseService {
                 let p = msg.0;
                 let now = &Utc::now().naive_local();
 
+                use crate::handler::db::QueryOne;
                 Box::new(Self::query_one(
                     self.db.as_mut().unwrap(),
                     self.insert_post.as_ref().unwrap(),
@@ -90,6 +92,7 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
+        use crate::handler::db::QueryMultiWithUids;
         Box::new(Self::query_multi_with_uid(
             self.db.as_mut().unwrap(),
             self.posts_by_id.as_ref().unwrap(),

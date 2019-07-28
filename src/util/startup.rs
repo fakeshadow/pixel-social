@@ -22,16 +22,25 @@ use crate::model::{
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
     let mut rt = Runtime::new().unwrap();
-    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+    let (mut c, conn) = rt
+        .block_on(connect(postgres_url, NoTls))
+        .unwrap_or_else(|_| panic!("Can't connect to db"));
+
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    let c_cache = redis::Client::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
-    let c_cache = rt.block_on(c_cache.get_shared_async_connection()).unwrap_or_else(|_| panic!("Can't get connection from redis"));
+    let c_cache = redis::Client::open(redis_url)
+        .unwrap_or_else(|_| panic!("Can't connect to cache"));
+    let c_cache = rt
+        .block_on(c_cache.get_shared_async_connection())
+        .unwrap_or_else(|_| panic!("Can't get connection from redis"));
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
-    let categories = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query,None)).unwrap();
-    rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
+    let categories = rt
+        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
+        .unwrap_or_else(|_| panic!("Failed to load categories from db"));
+    rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false))
+        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
 
     // build list by create_time desc order for each category. build category meta list with all category ids
@@ -43,11 +52,11 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
         // count posts and topics for each category and write to redis
         let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
-        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0, None);
+        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
         let t_count = rt.block_on(f).unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0, None);
+        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
         let p_count = rt.block_on(f).unwrap_or(0);
 
         let f = redis::cmd("HMSET")
@@ -60,7 +69,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
         let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
-        let t = rt.block_on(crate::handler::db::load_all::<Topic>(&mut c, &query,None))
+        let t = rt.block_on(crate::handler::db::load_all::<Topic>(&mut c, &query))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -108,13 +117,16 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
             if t.id > last_tid { last_tid = t.id };
         }
 
-        let _ = rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone())).unwrap_or_else(|_| panic!("Failed to build category sets"));
+        let _ = rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
+            .unwrap_or_else(|_| panic!("Failed to build category sets"));
         if is_init {
             let key = format!("category:{}:list", &cat.id);
-            let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build category lists"));
+            let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key))
+                .unwrap_or_else(|_| panic!("Failed to build category lists"));
         }
     }
-    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "rpush", "category_id:meta".to_owned())).unwrap_or_else(|_| panic!("Failed to build category lists"));
+    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "rpush", "category_id:meta".to_owned()))
+        .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // Load all posts with topic id and build a list of posts for each topic
     let mut last_pid = 1;
@@ -162,7 +174,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
             Ok(reply_count)
         });
 
-    let mut reply_count: Vec<(u32, u32)> = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+    let mut reply_count: Vec<(u32, u32)> = rt.block_on(f)
+        .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
     // attach reply count to posts
     let posts = posts
@@ -180,7 +193,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
         .collect::<Vec<(u32, u32, u32)>>();
 
     if posts.len() > 0 {
-        let _ = rt.block_on(build_posts_cache_list(posts.clone(), c_cache.clone())).unwrap_or_else(|_| panic!("Failed to load posts"));
+        let _ = rt.block_on(build_posts_cache_list(posts.clone(), c_cache.clone()))
+            .unwrap_or_else(|_| panic!("Failed to load posts"));
 
         let mut temp = Vec::new();
         let mut index: u32 = posts[0].0;
@@ -193,18 +207,20 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
                 temp.push(pid)
             } else {
                 let key = format!("topic:{}:list", &index);
-                let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+                let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key))
+                    .unwrap_or_else(|_| panic!("Failed to build topic lists"));
                 temp = Vec::new();
                 index = tid;
                 temp.push(pid);
             }
         }
         let key = format!("topic:{}:list", &index);
-        let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key)).unwrap_or_else(|_| panic!("Failed to build topic lists"));
+        let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key))
+            .unwrap_or_else(|_| panic!("Failed to build topic lists"));
     }
 
     let query = "SELECT * FROM users";
-    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, query,None))
+    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, query))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
@@ -218,7 +234,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
     let query = "SELECT * FROM talks";
 
-    let talks = rt.block_on(crate::handler::db::load_all(&mut c, query,None))
+    let talks = rt.block_on(crate::handler::db::load_all(&mut c, query))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
 
@@ -231,11 +247,15 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
 pub fn create_table(postgres_url: &str) {
     let mut rt = Runtime::new().unwrap();
-    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+
+    let (mut c, conn) = rt
+        .block_on(connect(postgres_url, NoTls))
+        .unwrap_or_else(|_| panic!("Can't connect to db"));
+
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if let Some(_) = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query,None)).ok() {
+    if let Some(_) = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query)).ok() {
         return;
     }
 
@@ -314,7 +334,7 @@ CREATE TABLE public_messages1
 (
     talk_id     OID          NOT NULL PRIMARY KEY,
     time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    message     VARCHAR(1024)NOT NULL
+    text     VARCHAR(1024)NOT NULL
 );
 
 CREATE TABLE private_messages1
@@ -322,7 +342,7 @@ CREATE TABLE private_messages1
     from_id     OID          NOT NULL,
     to_id       OID          NOT NULL PRIMARY KEY,
     time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    message     VARCHAR(1024)NOT NULL
+    text     VARCHAR(1024)NOT NULL
 );
 
 CREATE INDEX pub_message_time_order ON public_messages1 (time DESC);
@@ -368,17 +388,22 @@ VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented commu
 INSERT INTO posts (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
-    let f = c.simple_query(&query).into_future();
+    let f = c
+        .simple_query(&query)
+        .into_future();
 
-    let _ = rt.block_on(f).and_then(|_| {
-        println!("dummy tables generated");
-        Ok(())
-    }).unwrap_or_else(|_| panic!("fail to create default tables"));
+    let _ = rt.block_on(f)
+        .map(|_| println!("dummy tables generated"))
+        .unwrap_or_else(|_| panic!("fail to create default tables"));
 }
 
 pub fn drop_table(postgres_url: &str) {
     let mut rt = Runtime::new().unwrap();
-    let (mut c, conn) = rt.block_on(connect(postgres_url, NoTls)).unwrap_or_else(|_| panic!("Can't connect to db"));
+
+    let (mut c, conn) = rt
+        .block_on(connect(postgres_url, NoTls))
+        .unwrap_or_else(|_| panic!("Can't connect to db"));
+
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "
@@ -398,8 +423,12 @@ DROP FUNCTION IF EXISTS adding_topic();
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 
-    let _ = rt.block_on(crate::handler::db::simple_query_one_handler(&mut c, query, None).and_then(|_| {
-        println!("All tables have been drop. pixel_rs exited");
-        Ok(())
-    })).expect("failed to clear db");
+    let f = c
+        .simple_query(query)
+        .into_future()
+        .map_err(|(e, _)| println!("{:?}", e));
+
+    let _ = rt.block_on(f)
+        .map(|_| println!("All tables have been drop. pixel_rs exited"))
+        .expect("failed to clear db");
 }
