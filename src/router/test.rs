@@ -5,14 +5,12 @@ use crate::model::{
     actors::{DB, CACHE},
     common::GlobalVars,
     topic::TopicRequest,
+    post::PostRequest,
 };
 use crate::handler::{
-    topic::AddTopic,
-    cache::AddedTopic,
+    topic::{AddTopic, AddTopicCache},
+    post::{AddPostCache, ModifyPost},
 };
-use crate::model::post::PostRequest;
-use crate::handler::post::ModifyPost;
-use crate::handler::cache::AddedPost;
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json("hello world"))
@@ -38,7 +36,7 @@ pub fn add_topic(
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(AddedTopic(t));
+            let _ = cache.do_send(AddTopicCache(t));
             res
         })
 }
@@ -63,7 +61,7 @@ pub fn add_post(
         .from_err()
         .and_then(move |p| {
             let res = HttpResponse::Ok().json(&p);
-            let _ = cache.do_send(AddedPost(p));
+            let _ = cache.do_send(AddPostCache(p));
             res
         })
 }

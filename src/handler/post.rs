@@ -1,16 +1,19 @@
 use std::fmt::Write;
-use futures::{future::err as ft_err};
+use futures::future::err as ft_err;
 
 use actix::prelude::*;
 use chrono::Utc;
 
+use crate::{
+    CacheService,
+    DatabaseService,
+};
+
 use crate::model::{
-    actors::DatabaseService,
     errors::ResError,
     common::GlobalVars,
     post::{Post, PostRequest},
 };
-use crate::handler::db::SimpleQueryOne;
 
 pub struct ModifyPost(pub PostRequest, pub Option<GlobalVars>);
 
@@ -39,19 +42,17 @@ impl Handler<ModifyPost> for DatabaseService {
                 let p = msg.0;
                 let now = &Utc::now().naive_local();
 
-                use crate::handler::db::QueryOne;
-                Box::new(Self::query_one(
-                    self.db.as_mut().unwrap(),
-                    self.insert_post.as_ref().unwrap(),
-                    &[&id,
+                Box::new(self
+                    .insert_post(&[
+                        &id,
                         p.user_id.as_ref().unwrap(),
                         &p.topic_id.as_ref().unwrap(),
                         &p.category_id,
                         &p.post_id,
                         p.post_content.as_ref().unwrap(),
                         now,
-                        now],
-                    self.error_reprot.as_ref().map(|r| r.clone())))
+                        now
+                    ]))
             }
             None => {
                 let p = msg.0;
@@ -92,12 +93,46 @@ impl Handler<GetPosts> for DatabaseService {
     type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetPosts, _: &mut Self::Context) -> Self::Result {
-        use crate::handler::db::QueryMultiWithUids;
-        Box::new(Self::query_multi_with_uid(
-            self.db.as_mut().unwrap(),
-            self.posts_by_id.as_ref().unwrap(),
-            msg.0,
-            self.error_reprot.as_ref().map(Clone::clone)))
+        Box::new(self.get_posts_by_id_with_uid(msg.0))
     }
 }
 
+#[derive(Message)]
+pub struct AddPostCache(pub Post);
+
+impl Handler<AddPostCache> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddPostCache, ctx: &mut Self::Context) -> Self::Result {
+        ctx.spawn(self
+            .add_post_cache(msg.0)
+            .into_actor(self));
+    }
+}
+
+
+pub enum GetPostsCache {
+    Old(u32, i64),
+    Popular(u32, i64),
+    Ids(Vec<u32>)
+}
+
+impl Message for GetPostsCache {
+    type Result = Result<(Vec<Post>, Vec<u32>), ResError>;
+}
+
+impl Handler<GetPostsCache> for CacheService {
+    type Result = ResponseFuture<(Vec<Post>, Vec<u32>), ResError>;
+
+    fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
+        match msg {
+            GetPostsCache::Old(tid, page) => Box::new(self
+                .get_cache_with_uids_from_list(&format!("topic:{}:list", tid), page, "post")),
+
+            GetPostsCache::Popular(tid, page) => Box::new(self
+                .get_cache_with_uids_from_zrange(&format!("topic:{}:posts_reply", tid), page, "post")),
+            GetPostsCache::Ids(ids) =>  Box::new(self
+                .get_posts_cache_by_ids_with_uids(ids))
+        }
+    }
+}

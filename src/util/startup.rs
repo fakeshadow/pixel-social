@@ -229,7 +229,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     for u in users.iter() {
         if u.id > last_uid { last_uid = u.id };
     }
-    rt.block_on(build_users_cache(&users, c_cache.clone()))
+    rt.block_on(build_users_cache(users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
     let query = "SELECT * FROM talks";

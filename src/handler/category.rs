@@ -11,14 +11,13 @@ use actix::prelude::{
     WrapFuture,
 };
 
+use crate::{
+    CacheService,
+    DatabaseService
+};
 use crate::model::{
-    actors::DatabaseService,
     category::{Category, CategoryRequest},
     errors::ResError,
-};
-use crate::handler::db::{
-    SimpleQueryOne,
-    SimpleQueryMulti
 };
 
 
@@ -118,5 +117,20 @@ impl Handler<UpdateCategory> for DatabaseService {
 
         Box::new(self.simple_query_one(query.as_str())
             .map(|c| vec![c]))
+    }
+}
+
+
+pub struct GetCategoriesCache;
+
+impl Message for GetCategoriesCache {
+    type Result = Result<Vec<Category>, ResError>;
+}
+
+impl Handler<GetCategoriesCache> for CacheService {
+    type Result = ResponseFuture<Vec<Category>, ResError>;
+
+    fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
+        Box::new(self.get_categories_cache())
     }
 }

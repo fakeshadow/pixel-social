@@ -8,6 +8,8 @@ use actix_web::{error::ResponseError, HttpResponse};
 pub enum ResError {
     #[display(fmt = "Internal Server Error")]
     InternalServerError,
+    #[display(fmt = "Fail Getting Rows from DB")]
+    DataBaseReadError,
     #[display(fmt = "BadRequest")]
     BadRequestDb(DatabaseErrorMessage),
     #[display(fmt = "BadRequest")]
@@ -48,6 +50,7 @@ impl ResponseError for ResError {
             ResError::InternalServerError => HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error")),
             ResError::BadRequest => HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request")),
             ResError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
+            ResError::DataBaseReadError => HttpResponse::InternalServerError().json(ErrorMessage::new("Database Reading Error. Data could be corrupted")),
             ResError::NoContent => HttpResponse::NoContent().finish(),
             ResError::UsernameTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Username already taken")),
             ResError::EmailTaken => HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered")),
@@ -70,15 +73,6 @@ impl From<tokio_postgres::error::Error> for ResError {
         ResError::BadRequestDb(DatabaseErrorMessage {
             category: None,
             description: e.description().to_string(),
-        })
-    }
-}
-
-impl<T> From<(tokio_postgres::error::Error, T)> for ResError {
-    fn from(e: (tokio_postgres::error::Error, T)) -> ResError {
-        ResError::BadRequestDb(DatabaseErrorMessage {
-            category: None,
-            description: e.0.description().to_owned(),
         })
     }
 }

@@ -11,7 +11,6 @@ pub struct User {
     pub username: String,
     pub email: String,
     #[serde(skip_serializing)]
-    #[serde(default = "default_password")]
     pub hashed_password: String,
     pub avatar_url: String,
     pub signature: String,
@@ -22,10 +21,6 @@ pub struct User {
     // online_status and last_online are stored in redis only. return None when querying database.
     pub online_status: Option<u32>,
     pub last_online: Option<NaiveDateTime>,
-}
-
-fn default_password() -> String {
-    "1".to_string()
 }
 
 //user ref is attached to post and topic after privacy filter.

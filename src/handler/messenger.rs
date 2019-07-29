@@ -61,7 +61,7 @@ impl MessageService {
     fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
             ctx.spawn(act
-                .from_queue("mail_queue")
+                .get_queue("mail_queue")
                 .into_actor(act)
                 .map_err(|e, _, _| match e {
                     ResError::NoCache => (),
@@ -78,7 +78,7 @@ impl MessageService {
     fn process_sms(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(SMS_TIME_GAP, move |act, ctx| {
             ctx.spawn(act
-                .from_queue("sms_queue")
+                .get_queue("sms_queue")
                 .into_actor(act)
                 .map_err(|e, _, _| match e {
                     ResError::NoCache => (),

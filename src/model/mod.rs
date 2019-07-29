@@ -1,4 +1,3 @@
-pub mod cache;
 pub mod messenger;
 pub mod category;
 pub mod common;

@@ -16,7 +16,6 @@ use crate::model::{
     errors::ResError,
     user::{AuthRequest, AuthResponse, User, UpdateRequest},
 };
-use crate::handler::db::SimpleQueryOne;
 use crate::util::hash;
 
 pub struct GetUsers(pub Vec<u32>);
@@ -32,13 +31,24 @@ impl Handler<GetUsers> for DatabaseService {
         msg.0.sort();
         msg.0.dedup();
 
-        use crate::handler::db::QueryMulti;
-        Box::new(Self::query_multi(
-            self.db.as_mut().unwrap(),
-            self.users_by_id.as_ref().unwrap(),
-            &[&msg.0],
-            Vec::with_capacity(msg.0.len()),
-            self.error_reprot.as_ref().map(Clone::clone)))
+        Box::new(self.get_users_by_id(&msg.0))
+    }
+}
+
+
+pub struct GetUsersCache(pub Vec<u32>);
+
+impl Message for GetUsersCache {
+    type Result = Result<Vec<User>, ResError>;
+}
+
+impl Handler<GetUsersCache> for crate::model::actors::CacheService {
+    type Result = ResponseFuture<Vec<User>, ResError>;
+
+    fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
+        msg.0.sort();
+        msg.0.dedup();
+        Box::new(self.get_users_cache(msg.0))
     }
 }
 
@@ -116,19 +126,15 @@ impl Handler<Register> for DatabaseService {
                     Ok(u) => u,
                     Err(e) => return Either::A(err(e))
                 };
-                use crate::handler::db::QueryOne;
-                Either::B(Self::query_one(
-                    act.db.as_mut().unwrap(),
-                    act.insert_user.as_ref().unwrap(),
-                    &[
+                Either::B(act
+                    .insert_user(&[
                         &u.id,
                         &u.username,
                         &u.email,
                         &u.hashed_password,
                         &u.avatar_url,
                         &u.signature
-                    ],
-                    act.error_reprot.as_ref().map(|r| r.clone()))
+                    ])
                     .into_actor(act))
             });
 

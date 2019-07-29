@@ -1,13 +1,14 @@
-use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
+use actix_web::{HttpResponse, Error, web::{Data, Json, Path}, ResponseError};
 use futures::{Future, future::{Either, ok as ft_ok, IntoFuture}};
 
 use crate::handler::{
     auth::UserJwt,
-    user::GetUsers,
-    post::{GetPosts, ModifyPost},
-    cache::{UpdateCache, GetPostsCache, AddedPost},
+    user::{GetUsers, GetUsersCache},
+    post::{GetPosts, GetPostsCache, ModifyPost, AddPostCache},
+    cache::UpdateCache,
 };
 use crate::model::{
+    errors::ResError,
     actors::{DB, CACHE},
     common::GlobalVars,
     post::{Post, PostRequest},
@@ -35,7 +36,7 @@ pub fn add(
                     .from_err()
                     .and_then(move |p| {
                         let res = HttpResponse::Ok().json(&p);
-                        let _ = cache.do_send(AddedPost(p));
+                        let _ = cache.do_send(AddPostCache(p));
                         res
                     }))
         })
@@ -69,25 +70,51 @@ pub fn get(
     cache: Data<CACHE>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
-    cache.send(GetPostsCache(vec![id]))
+    cache.send(GetPostsCache::Ids(vec![id]))
         .from_err()
         .and_then(move |r| match r {
-            Ok((p, u)) => Either::A(ft_ok(HttpResponse::Ok().json(&Post::attach_users(&p, &u)))),
+            Ok((p, i)) => Either::A(attach_users_form_res(i, p, db, cache, false)),
             Err(_) => Either::B(db
                 .send(GetPosts(vec![id]))
                 .from_err()
                 .and_then(|r| r)
                 .from_err()
-                .and_then(move |(p, ids)| {
-                    db.send(GetUsers(ids))
-                        .from_err()
-                        .and_then(|r| r)
-                        .from_err()
-                        .and_then(move |u| {
-                            let res = HttpResponse::Ok().json(&Post::attach_users(&p, &u));
+                .and_then(move |(p, i)| attach_users_form_res(i, p, db, cache, true)))
+        })
+}
+
+fn attach_users_form_res(
+    ids: Vec<u32>,
+    p: Vec<Post>,
+    db: Data<DB>,
+    cache: Data<CACHE>,
+    update_p: bool,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    cache.send(GetUsersCache(ids))
+        .from_err()
+        .and_then(move |r| match r {
+            Ok(u) => {
+                let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
+                if update_p {
+                    let _ = cache.do_send(UpdateCache::Post(p));
+                }
+                Either::A(ft_ok(res))
+            }
+            Err(e) => Either::B(match e {
+                ResError::IdsFromCache(ids) => Either::B(db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        if update_p {
                             let _ = cache.do_send(UpdateCache::Post(p));
-                            res
-                        })
-                }))
+                        }
+                        res
+                    })),
+                _ => Either::A(ft_ok(e.render_response()))
+            })
         })
 }

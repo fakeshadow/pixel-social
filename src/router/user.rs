@@ -8,8 +8,8 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, GetUsersCache, AddActivationMail, ActivateUser, DeleteCache},
-    user::{Login, Register, UpdateUser, GetUsers},
+    cache::{UpdateCache, AddActivationMail, ActivateUser, DeleteCache},
+    user::{Login, Register, UpdateUser, GetUsers, GetUsersCache},
 };
 
 pub fn get(

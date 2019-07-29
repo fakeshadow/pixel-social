@@ -2,20 +2,21 @@ use std::fmt::Write;
 use futures::future::err as ft_err;
 
 use actix::prelude::{
+    AsyncContext,
     Handler,
     Message,
     ResponseFuture,
+    WrapFuture,
 };
 use chrono::Utc;
 
 use crate::model::{
-    actors::DatabaseService,
+    actors::{DatabaseService, CacheService},
     topic::TopicRequest,
     common::GlobalVars,
     errors::ResError,
     topic::Topic,
 };
-use crate::handler::db::SimpleQueryOne;
 
 pub struct AddTopic(pub TopicRequest, pub GlobalVars);
 
@@ -46,19 +47,17 @@ impl Handler<AddTopic> for DatabaseService {
         let t = msg.0;
         let now = &Utc::now().naive_local();
 
-        use crate::handler::db::QueryOne;
-        Box::new(Self::query_one(
-            self.db.as_mut().unwrap(),
-            self.insert_topic.as_ref().unwrap(),
-            &[&id,
+        Box::new(self
+            .insert_topic(&[
+                &id,
                 &t.user_id.unwrap(),
                 &t.category_id,
                 &t.thumbnail.unwrap(),
                 &t.title.unwrap(),
                 &t.body.unwrap(),
                 now,
-                now],
-            self.error_reprot.as_ref().map(|r| r.clone())))
+                now
+            ]))
     }
 }
 
@@ -103,11 +102,47 @@ impl Handler<GetTopics> for DatabaseService {
     type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
 
     fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        use crate::handler::db::QueryMultiWithUids;
-        Box::new(Self::query_multi_with_uid(
-            self.db.as_mut().unwrap(),
-            self.topics_by_id.as_ref().unwrap(),
-            msg.0,
-            self.error_reprot.as_ref().map(Clone::clone)))
+        Box::new(self.get_topics_by_id_with_uid(msg.0))
+    }
+}
+
+
+pub enum GetTopicsCache {
+    Latest(u32, i64),
+    Popular(u32, i64),
+    PopularAll(i64),
+    Ids(Vec<u32>),
+}
+
+impl Message for GetTopicsCache {
+    type Result = Result<(Vec<Topic>, Vec<u32>), ResError>;
+}
+
+impl Handler<GetTopicsCache> for CacheService {
+    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
+
+    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
+        match msg {
+            GetTopicsCache::Popular(id, page) =>
+                Box::new(self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", id), page, "topic")),
+            GetTopicsCache::PopularAll(page) =>
+                Box::new(self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")),
+            GetTopicsCache::Latest(id, page) =>
+                Box::new(self.get_cache_with_uids_from_list(&format!("category:{}:list", id), page, "topic")),
+            GetTopicsCache::Ids(ids) =>
+                Box::new(self.get_topics_cache_by_ids_with_uids(ids))
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct AddTopicCache(pub Topic);
+
+impl Handler<AddTopicCache> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddTopicCache, ctx: &mut Self::Context) -> Self::Result {
+        ctx.spawn(self.add_topic_cache(msg.0)
+            .into_actor(self));
     }
 }

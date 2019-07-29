@@ -2,10 +2,10 @@ use actix_web::{HttpResponse, Error, web::{Data, Path}, ResponseError};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
-    cache::{GetCategoriesCache, GetTopicsCache, UpdateCache, GetUsersCache},
-    topic::GetTopics,
-    category::GetCategories,
-    user::GetUsers,
+    cache::UpdateCache,
+    topic::{GetTopics, GetTopicsCache},
+    category::{GetCategories, GetCategoriesCache},
+    user::{GetUsersCache, GetUsers},
 };
 use crate::model::{
     errors::ResError,
@@ -108,19 +108,21 @@ fn attach_users_form_res(
                 }
                 Either::A(ft_ok(res))
             }
-            Err(ids) => Either::B(db
-                .send(GetUsers(ids))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |u| {
-                    let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
-                    let _ = cache.do_send(UpdateCache::User(u));
-                    if update_t {
-                        let _ = cache.do_send(UpdateCache::Topic(t));
-                    }
-                    res
-                })
-            )
+            Err(e) => Either::B(match e {
+                ResError::IdsFromCache(ids) => Either::B(db
+                    .send(GetUsers(ids))
+                    .from_err()
+                    .and_then(|r| r)
+                    .from_err()
+                    .and_then(move |u| {
+                        let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
+                        let _ = cache.do_send(UpdateCache::User(u));
+                        if update_t {
+                            let _ = cache.do_send(UpdateCache::Topic(t));
+                        }
+                        res
+                    })),
+                _ => Either::A(ft_ok(e.render_response()))
+            })
         })
 }

@@ -4,7 +4,7 @@ use actix::prelude::*;
 
 use crate::model::{
     actors::DatabaseService,
-    user::{User, UpdateRequest},
+    user::UpdateRequest,
     category::CategoryRequest,
     errors::ResError,
     post::PostRequest,
@@ -50,14 +50,8 @@ impl Handler<UpdateUserCheck> for DatabaseService {
         let req = msg.1;
         let id = vec![req.id.as_ref().map(|u| *u).unwrap_or(0)];
 
-        use crate::handler::db::QueryMulti;
-        Box::new(Self::query_multi(
-            self.db.as_mut().unwrap(),
-            self.users_by_id.as_ref().unwrap(),
-            &[&id],
-            Vec::with_capacity(id.len()),
-            self.error_reprot.as_ref().map(Clone::clone))
-            .and_then(move |u: Vec<User>| {
+        Box::new(self.get_users_by_id(&id)
+            .and_then(move |u| {
                 let u = u.first().ok_or(ResError::BadRequest)?;
                 check_admin_level(&req.privilege, &self_lv, 9)?;
                 if self_lv <= u.privilege { return Err(ResError::Unauthorized); }

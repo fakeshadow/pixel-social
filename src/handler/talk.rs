@@ -20,8 +20,6 @@ use crate::model::{
     errors::ResError,
     talk::{Talk, PublicMessage, PrivateMessage, SessionMessage},
 };
-use crate::handler::db::SimpleQueryOne;
-use crate::handler::db::QueryOne;
 
 impl TalkService {
     // ToDo: add online offline filter
@@ -262,11 +260,8 @@ impl Handler<TextMessageRequest> for TalkService {
         match msg.talk_id {
             Some(id) => {
                 let now = Utc::now().naive_local();
-                ctx.spawn(Self::query_one::<PublicMessage>(
-                    self.db.as_mut().unwrap(),
-                    self.insert_pub_msg.as_ref().unwrap(),
-                    &[&id, &msg.text, &now],
-                    None)
+                ctx.spawn(self
+                    .insert_pub_msg(&[&id, &msg.text, &now])
                     .into_actor(self)
                     .then(move |r, act, _| match r {
                         Ok(_) => {
@@ -291,11 +286,8 @@ impl Handler<TextMessageRequest> for TalkService {
                     None => return self.send_message(&msg.session_id.unwrap(), "!!! No user found")
                 };
                 let now = Utc::now().naive_local();
-                ctx.spawn(Self::query_one::<PrivateMessage>(
-                    self.db.as_mut().unwrap(),
-                    self.insert_prv_msg.as_ref().unwrap(),
-                    &[&msg.session_id.unwrap(), &id, &msg.text, &now],
-                    None)
+                ctx.spawn(self
+                    .insert_prv_msg(&[&msg.session_id.unwrap(), &id, &msg.text, &now])
                     .into_actor(self)
                     // ToDo: handle error.
                     .map_err(|_, _, _| ())
@@ -393,11 +385,8 @@ impl Handler<JoinTalkRequest> for TalkService {
                 return;
             };
 
-            ctx.spawn(Self::query_one::<Talk>(
-                self.db.as_mut().unwrap(),
-                self.join_talk.as_ref().unwrap(),
-                &[&session_id, &talk_id],
-                None)
+            ctx.spawn(self
+                .join_talk(&[&session_id, &talk_id])
                 .into_actor(self)
                 .then(move |r, act, _| {
                     match r {
@@ -500,13 +489,8 @@ impl Handler<GetHistory> for TalkService {
 
             match msg.talk_id {
                 Some(tid) => {
-                    use crate::handler::db::QueryMulti;
-                    let f = Self::query_multi(
-                        self.db.as_mut().unwrap(),
-                        self.get_pub_msg.as_ref().unwrap(),
-                        &[&tid, &time],
-                        Vec::with_capacity(20),
-                        None)
+                    let f = self
+                        .get_pub_msg(&[&tid, &time])
                         .into_actor(self)
                         .then(move |r: Result<Vec<PublicMessage>, ResError>, _, _| {
                             match r {
