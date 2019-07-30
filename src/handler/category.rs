@@ -3,6 +3,7 @@ use futures::future::err as ft_err;
 
 use actix::prelude::{
     ActorFuture,
+    AsyncContext,
     Future,
     Handler,
     Message,
@@ -13,7 +14,7 @@ use actix::prelude::{
 
 use crate::{
     CacheService,
-    DatabaseService
+    DatabaseService,
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -21,25 +22,7 @@ use crate::model::{
 };
 
 
-pub struct GetCategories;
-
-pub struct AddCategory(pub CategoryRequest);
-
-pub struct UpdateCategory(pub CategoryRequest);
-
 pub struct RemoveCategory(pub u32);
-
-impl Message for GetCategories {
-    type Result = Result<Vec<Category>, ResError>;
-}
-
-impl Message for AddCategory {
-    type Result = Result<Category, ResError>;
-}
-
-impl Message for UpdateCategory {
-    type Result = Result<Vec<Category>, ResError>;
-}
 
 impl Message for RemoveCategory {
     type Result = Result<(), ResError>;
@@ -49,14 +32,17 @@ impl Handler<RemoveCategory> for DatabaseService {
     type Result = ResponseFuture<(), ResError>;
 
     fn handle(&mut self, msg: RemoveCategory, _: &mut Self::Context) -> Self::Result {
-        let query = format!("
-        DELETE FROM categories
-        WHERE id={}", msg.0);
+        let query = format!("DELETE FROM categories WHERE id={}", msg.0);
 
-        Box::new(self
-            .simple_query_one::<Category>(query.as_str())
-            .map(|_| ()))
+        Box::new(self.simple_query_one::<Category>(query.as_str()).map(|_| ()))
     }
+}
+
+
+pub struct GetCategories;
+
+impl Message for GetCategories {
+    type Result = Result<Vec<Category>, ResError>;
 }
 
 impl Handler<GetCategories> for DatabaseService {
@@ -65,6 +51,13 @@ impl Handler<GetCategories> for DatabaseService {
     fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
         Box::new(self.simple_query_multi("SELECT * FROM categories", Vec::new()))
     }
+}
+
+
+pub struct AddCategory(pub CategoryRequest);
+
+impl Message for AddCategory {
+    type Result = Result<Category, ResError>;
 }
 
 impl Handler<AddCategory> for DatabaseService {
@@ -86,12 +79,18 @@ impl Handler<AddCategory> for DatabaseService {
                     VALUES ('{}', '{}', '{}')
                     RETURNING *", cid, c.name.unwrap(), c.thumbnail.unwrap());
 
-                act.simple_query_one(query.as_str())
-                    .into_actor(act)
+                act.simple_query_one(query.as_str()).into_actor(act)
             });
 
         Box::new(f)
     }
+}
+
+
+pub struct UpdateCategory(pub CategoryRequest);
+
+impl Message for UpdateCategory {
+    type Result = Result<Vec<Category>, ResError>;
 }
 
 impl Handler<UpdateCategory> for DatabaseService {
@@ -115,8 +114,7 @@ impl Handler<UpdateCategory> for DatabaseService {
             return Box::new(ft_err(ResError::BadRequest));
         };
 
-        Box::new(self.simple_query_one(query.as_str())
-            .map(|c| vec![c]))
+        Box::new(self.simple_query_one(query.as_str()).map(|c| vec![c]))
     }
 }
 
@@ -132,5 +130,17 @@ impl Handler<GetCategoriesCache> for CacheService {
 
     fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
         Box::new(self.get_categories_cache())
+    }
+}
+
+
+#[derive(Message)]
+pub struct AddedCategory(pub Category);
+
+impl Handler<AddedCategory> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddedCategory, ctx: &mut Self::Context) -> Self::Result {
+        ctx.spawn(self.add_category_cache(msg.0).into_actor(self));
     }
 }

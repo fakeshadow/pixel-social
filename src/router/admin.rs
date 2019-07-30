@@ -13,10 +13,10 @@ use crate::model::{
 use crate::handler::{
     auth::UserJwt,
     user::UpdateUser,
-    category::{UpdateCategory, AddCategory, RemoveCategory},
+    category::{UpdateCategory, AddCategory, AddedCategory, RemoveCategory},
     post::ModifyPost,
     topic::UpdateTopic,
-    cache::{UpdateCache, AddedCategory, RemoveCategoryCache},
+    cache::{UpdateCache, RemoveCategoryCache},
     admin::{
         UpdatePostCheck,
         UpdateCategoryCheck,

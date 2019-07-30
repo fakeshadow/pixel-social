@@ -48,7 +48,7 @@ impl Handler<GetUsersCache> for crate::model::actors::CacheService {
     fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
         msg.0.sort();
         msg.0.dedup();
-        Box::new(self.get_users_cache(msg.0))
+        Box::new(self.get_users_cache_from_ids(msg.0))
     }
 }
 

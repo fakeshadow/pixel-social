@@ -428,7 +428,7 @@ impl Handler<UsersByIdRequest> for TalkService {
         let session_id = msg.session_id.unwrap();
         if let Some(addr) = self.get_session(&session_id) {
             let f = self.
-                get_users_cache(msg.user_id)
+                get_users_cache_from_ids(msg.user_id)
                 .into_actor(self)
                 .then(move |r, _, _| {
                     match r {

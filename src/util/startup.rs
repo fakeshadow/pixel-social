@@ -18,6 +18,7 @@ use crate::model::{
         GlobalVars,
     },
 };
+use chrono::NaiveDateTime;
 
 //return global arc after building cache
 pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
@@ -39,6 +40,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     let categories = rt
         .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .unwrap_or_else(|_| panic!("Failed to load categories from db"));
+
     rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false))
         .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
@@ -119,30 +121,21 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 
         let _ = rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build category sets"));
-        if is_init {
-            let key = format!("category:{}:list", &cat.id);
-            let _ = rt.block_on(build_list(c_cache.clone(), tids, "rpush", key))
-                .unwrap_or_else(|_| panic!("Failed to build category lists"));
-        }
     }
-    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "rpush", "category_id:meta".to_owned()))
+    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned()))
         .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
-    // Load all posts with topic id and build a list of posts for each topic
-    let mut last_pid = 1;
-    let query = "SELECT topic_id, id FROM posts ORDER BY topic_id ASC, id ASC";
-    let posts: Vec<(u32, u32, u32)> = Vec::new();
+    // load all posts with tid id and created_at
     let f = c
-        .simple_query(query)
+        .simple_query("SELECT topic_id, id, created_at FROM posts")
         .map_err(|e| panic!("{}", e))
-        .fold(posts, |mut posts, row| {
+        .fold(Vec::new(), |mut posts, row| {
             match row {
                 SimpleQueryMessage::Row(row) => {
-                    if let Some(tid) = row.get(0).unwrap().parse::<u32>().ok() {
-                        if let Some(pid) = row.get(1).unwrap().parse::<u32>().ok() {
-                            posts.push((tid, pid, 0));
-                        }
-                    }
+                    let tid = row.get(0).unwrap().parse::<u32>().unwrap();
+                    let pid = row.get(1).unwrap().parse::<u32>().unwrap();
+                    let time = NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f").unwrap();
+                    posts.push((tid, pid, None, time));
                 }
                 _ => ()
             }
@@ -152,11 +145,10 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
 
     // load topics reply count
-    let query = "SELECT COUNT(post_id), post_id FROM posts GROUP BY post_id";
-    let reply_count = Vec::new();
-    let f = c.simple_query(&query)
+    let f = c
+        .simple_query("SELECT COUNT(post_id), post_id FROM posts GROUP BY post_id")
         .map_err(|e| panic!("{}", e))
-        .fold(reply_count, |mut reply_count, row| {
+        .fold(Vec::new(), |mut reply_count, row| {
             match row {
                 SimpleQueryMessage::Row(row) => {
                     if let Some(str) = row.get(0) {
@@ -177,50 +169,31 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     let mut reply_count: Vec<(u32, u32)> = rt.block_on(f)
         .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
+    let mut last_pid = 1;
+
     // attach reply count to posts
     let posts = posts
         .into_iter()
         .map(|mut p| {
+            if p.1 > last_pid { last_pid = p.1; }
+
             for i in 0..reply_count.len() {
                 if p.1 == reply_count[i].0 {
-                    p.2 = reply_count[i].1;
+                    p.2 = Some(reply_count[i].1);
                     reply_count.remove(i);
                     break;
                 }
             }
             p
         })
-        .collect::<Vec<(u32, u32, u32)>>();
+        .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
     if posts.len() > 0 {
-        let _ = rt.block_on(build_posts_cache_list(posts.clone(), c_cache.clone()))
-            .unwrap_or_else(|_| panic!("Failed to load posts"));
-
-        let mut temp = Vec::new();
-        let mut index: u32 = posts[0].0;
-        for post in posts.into_iter() {
-            let (tid, pid, _) = post;
-
-            if pid > last_pid { last_pid = pid };
-
-            if tid == index {
-                temp.push(pid)
-            } else {
-                let key = format!("topic:{}:list", &index);
-                let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key))
-                    .unwrap_or_else(|_| panic!("Failed to build topic lists"));
-                temp = Vec::new();
-                index = tid;
-                temp.push(pid);
-            }
-        }
-        let key = format!("topic:{}:list", &index);
-        let _ = rt.block_on(build_list(c_cache.clone(), temp, "rpush", key))
-            .unwrap_or_else(|_| panic!("Failed to build topic lists"));
+        let _ = rt.block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
+            .unwrap_or_else(|_| panic!("Failed to build posts cache"));
     }
 
-    let query = "SELECT * FROM users";
-    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, query))
+    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, "SELECT * FROM users"))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
@@ -232,9 +205,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     rt.block_on(build_users_cache(users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
-    let query = "SELECT * FROM talks";
 
-    let talks = rt.block_on(crate::handler::db::load_all(&mut c, query))
+    let talks = rt.block_on(crate::handler::db::load_all(&mut c, "SELECT * FROM talks"))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
 

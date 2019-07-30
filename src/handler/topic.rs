@@ -45,7 +45,7 @@ impl Handler<AddTopic> for DatabaseService {
             Err(_) => return Box::new(ft_err(ResError::InternalServerError))
         };
         let t = msg.0;
-        let now = &Utc::now().naive_local();
+        let now = &Utc::now().naive_utc();
 
         Box::new(self
             .insert_topic(&[
@@ -128,9 +128,9 @@ impl Handler<GetTopicsCache> for CacheService {
             GetTopicsCache::PopularAll(page) =>
                 Box::new(self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")),
             GetTopicsCache::Latest(id, page) =>
-                Box::new(self.get_cache_with_uids_from_list(&format!("category:{}:list", id), page, "topic")),
+                Box::new(self.get_cache_with_uids_from_zrevrange(&format!("category:{}:topics_time", id), page, "topic")),
             GetTopicsCache::Ids(ids) =>
-                Box::new(self.get_topics_cache_by_ids_with_uids(ids))
+                Box::new(self.get_cache_with_uids_from_ids(ids, "topic"))
         }
     }
 }
@@ -142,7 +142,6 @@ impl Handler<AddTopicCache> for CacheService {
     type Result = ();
 
     fn handle(&mut self, msg: AddTopicCache, ctx: &mut Self::Context) -> Self::Result {
-        ctx.spawn(self.add_topic_cache(msg.0)
-            .into_actor(self));
+        ctx.spawn(self.add_topic_cache(msg.0).into_actor(self));
     }
 }

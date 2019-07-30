@@ -114,7 +114,7 @@ impl Handler<AddPostCache> for CacheService {
 pub enum GetPostsCache {
     Old(u32, i64),
     Popular(u32, i64),
-    Ids(Vec<u32>)
+    Ids(Vec<u32>),
 }
 
 impl Message for GetPostsCache {
@@ -127,12 +127,11 @@ impl Handler<GetPostsCache> for CacheService {
     fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
         match msg {
             GetPostsCache::Old(tid, page) => Box::new(self
-                .get_cache_with_uids_from_list(&format!("topic:{}:list", tid), page, "post")),
-
+                .get_cache_with_uids_from_zrange(&format!("topic:{}:posts_time", tid), page, "post")),
             GetPostsCache::Popular(tid, page) => Box::new(self
-                .get_cache_with_uids_from_zrange(&format!("topic:{}:posts_reply", tid), page, "post")),
-            GetPostsCache::Ids(ids) =>  Box::new(self
-                .get_posts_cache_by_ids_with_uids(ids))
+                .get_cache_with_uids_from_zrevrange_reverse_lex(&format!("topic:{}:posts_reply", tid), page, "post")),
+            GetPostsCache::Ids(ids) => Box::new(self
+                .get_cache_with_uids_from_ids(ids, "post"))
         }
     }
 }

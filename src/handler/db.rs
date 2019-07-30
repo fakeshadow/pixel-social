@@ -346,9 +346,9 @@ trait QueryMultiWithUids
             })
             .map(move |(mut v, uids)| {
                 let mut result = Vec::with_capacity(v.len());
-                for i in 0..uids.len() {
+                for i in 0..ids_org.len() {
                     for j in 0..v.len() {
-                        if &uids[i] == v[j].self_id() {
+                        if &ids_org[i] == v[j].self_id() {
                             result.push(v.swap_remove(j));
                             break;
                         }

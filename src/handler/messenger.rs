@@ -137,7 +137,8 @@ impl MessageService {
     }
 
     pub fn generate_error_report() -> ErrorReport {
-        let use_report = env::var("USE_ERROR_SMS_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
+        let use_report = env::var("USE_ERROR_SMS_REPORT")
+            .unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
         ErrorReport {
             use_report,
@@ -258,43 +259,43 @@ impl ErrorReport {
     pub fn stringify_report(&mut self) -> Result<String, ()> {
         if self.use_report {
             let now = chrono::Utc::now().naive_utc();
-            let mut message = format!("Time: {} /br Got erros:", now);
+            let mut message = format!("Time: {}%0aGot erros:", now);
 
             let rep = &mut self.reports;
 
             if let Some(v) = rep.get_mut(&RepError::SMS) {
                 if *v > 2 {
-                    message.push_str("/br SMS Service Error(Could be lost connection to twilio API)");
+                    message.push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
                     *v = 0;
                 }
             }
             if let Some(v) = rep.get_mut(&RepError::MailBuilder) {
                 if *v > 3 {
-                    message.push_str("/br Mail Service Error(Can not build email)");
+                    message.push_str("%0aMail Service Error(Can not build email)");
                     *v = 0;
                 }
             }
             if let Some(v) = rep.get_mut(&RepError::MailTransport) {
                 if *v > 2 {
-                    message.push_str("/br Mail Service Error(Can not transport email. Could be email server offline)");
+                    message.push_str("%0aMail Service Error(Can not transport email. Could be email server offline)");
                     *v = 0;
                 }
             }
             if let Some(v) = rep.get_mut(&RepError::HttpClient) {
                 if *v > 3 {
-                    message.push_str("/br Http Client Error(Could be network issue with target API entry)");
+                    message.push_str("%0aHttp Client Error(Could be network issue with target API entry)");
                     *v = 0;
                 }
             }
             if let Some(v) = rep.get_mut(&RepError::Redis) {
                 if *v > 2 {
-                    message.push_str("/br Redis Service Error(Could be redis server offline/IO error)");
+                    message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
                     *v = 0;
                 }
             }
             if let Some(v) = rep.get_mut(&RepError::Database) {
                 if *v > 2 {
-                    message.push_str("/br Database Service Error(Could be database server offline/IO error)");
+                    message.push_str("%0aDatabase Service Error(Could be database server offline/IO error)");
                     *v = 0;
                 }
             }
