@@ -115,7 +115,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
         let mut sets = Vec::new();
         for t in t.clone().into_iter() {
             tids.push(t.id);
-            sets.push((t.id, t.category_id, t.reply_count.unwrap_or(0), t.created_at));
+            sets.push((t.id, t.category_id, t.reply_count, t.created_at));
             if t.id > last_tid { last_tid = t.id };
         }
 
@@ -217,7 +217,8 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
     Ok((GlobalVar::new(last_uid, last_pid, last_tid), talks, sessions))
 }
 
-pub fn create_table(postgres_url: &str) {
+// return true if built tables success
+pub fn create_table(postgres_url: &str) -> bool{
     let mut rt = Runtime::new().unwrap();
 
     let (mut c, conn) = rt
@@ -228,7 +229,7 @@ pub fn create_table(postgres_url: &str) {
 
     let query = "SELECT * FROM categories";
     if let Some(_) = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query)).ok() {
-        return;
+        return false;
     }
 
     // create default table
@@ -367,6 +368,8 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
     let _ = rt.block_on(f)
         .map(|_| println!("dummy tables generated"))
         .unwrap_or_else(|_| panic!("fail to create default tables"));
+
+    true
 }
 
 pub fn drop_table(postgres_url: &str) {

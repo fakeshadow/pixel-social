@@ -127,7 +127,7 @@ impl Handler<GetPostsCache> for CacheService {
     fn handle(&mut self, msg: GetPostsCache, _: &mut Self::Context) -> Self::Result {
         match msg {
             GetPostsCache::Old(tid, page) => Box::new(self
-                .get_cache_with_uids_from_zrange(&format!("topic:{}:posts_time", tid), page, "post")),
+                .get_cache_with_uids_from_zrange(&format!("topic:{}:posts_time_created", tid), page, "post")),
             GetPostsCache::Popular(tid, page) => Box::new(self
                 .get_cache_with_uids_from_zrevrange_reverse_lex(&format!("topic:{}:posts_reply", tid), page, "post")),
             GetPostsCache::Ids(ids) => Box::new(self

@@ -145,9 +145,6 @@ impl CacheService {
             // set expire time for above set
             .cmd("EXPIRE").arg(key.as_str()).arg(HASH_LIFE).ignore()
 
-            // set non expire hash map set
-            .cmd("HINCRBY").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(0).ignore()
-
             // update category's topic_count
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("topic_count").arg(1).ignore()
 
@@ -185,9 +182,6 @@ impl CacheService {
 
             // set expire time for above set
             .cmd("EXPIRE").arg(post_key.as_str()).arg(HASH_LIFE).ignore()
-
-            // set non expire hash map set
-            .cmd("HINCRBY").arg(&format!("post:{}:set_perm", pid)).arg("reply_count").arg(0).ignore()
 
             // update category's post_count
             .cmd("HINCRBY").arg(&format!("category:{}:set", cid)).arg("post_count").arg(1).ignore()
@@ -1071,7 +1065,7 @@ pub fn build_users_cache(
 // startup helper fn
 pub fn build_topics_cache_list(
     is_init: bool,
-    vec: Vec<(u32, u32, u32, NaiveDateTime)>,
+    vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConn,
 ) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
@@ -1083,12 +1077,13 @@ pub fn build_topics_cache_list(
             let time = time.timestamp_millis();
             // ToDo: query existing cache for topic's real last reply time.
             pip.cmd("ZADD").arg("category:all:topics_time").arg(time).arg(tid).ignore()
-                .cmd("ZADD").arg("category:all:topics_reply").arg(count).arg(tid).ignore()
+                .cmd("ZADD").arg("category:all:topics_reply").arg(count.unwrap_or(0)).arg(tid).ignore()
                 .cmd("ZADD").arg(&format!("category:{}:topics_time", cid)).arg(time).arg(tid).ignore()
-                .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count).arg(tid).ignore();
+                .cmd("ZADD").arg(&format!("category:{}:topics_reply", cid)).arg(count.unwrap_or(0)).arg(tid).ignore();
         }
-        // set topic's reply count to perm key that never expire.
-        pip.cmd("HSET").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(count).ignore();
+        if let Some(count) = count {
+            pip.cmd("HSET").arg(&format!("topic:{}:set_perm", tid)).arg("reply_count").arg(count).ignore();
+        }
     }
 
     pip.query_async(conn)
@@ -1105,6 +1100,7 @@ pub fn build_posts_cache_list(
     pipe.atomic();
 
     for (tid, pid, count, time) in vec.into_iter() {
+        // only build these two zrange when init a new database.
         if is_init {
             let time = time.timestamp_millis();
             pipe.cmd("ZADD").arg(&format!("topic:{}:posts_time_created", tid)).arg(time).arg(pid).ignore();

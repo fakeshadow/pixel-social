@@ -49,6 +49,7 @@ fn main() -> std::io::Result<()> {
 
     // create or clear database tables as well as redis cache
     let args: Vec<String> = env::args().collect();
+    let mut is_init = false;
     for arg in args.iter() {
         if arg == "drop" {
             drop_table(&database_url);
@@ -56,14 +57,18 @@ fn main() -> std::io::Result<()> {
             std::process::exit(1);
         }
         if arg == "build" {
-            create_table(&database_url);
-            let _ = build_cache(&database_url, &redis_url, true).expect("Unable to build cache");
+            let success = create_table(&database_url);
+            if success {
+                is_init = true;
+            } else {
+                println!("tables already exists. building cache with is_init = false");
+            }
         }
     }
 
     // build_cache function returns global variables.
     let (global, global_talks, global_sessions) =
-        build_cache(&database_url, &redis_url, false).expect("Unable to build cache");
+        build_cache(&database_url, &redis_url, is_init).expect("Unable to build cache");
 
     let sys = System::new("PixelShare");
 
