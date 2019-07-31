@@ -27,15 +27,19 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::MessageService;
+use crate::{
+    CacheService,
+    MessageService,
+};
 use crate::model::{
+    user::User,
     messenger::{Mail, Mailer, Twilio, SmsMessage},
     errors::{ErrorReport, ResError, RepError},
 };
 
-const MAIL_TIME_GAP: Duration = Duration::from_millis(1000);
-const SMS_TIME_GAP: Duration = Duration::from_millis(1000);
-const ERROR_TIME_GAP: Duration = Duration::from_millis(1000);
+const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
+const SMS_TIME_GAP: Duration = Duration::from_millis(500);
+const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
 
 impl MessageService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
@@ -236,6 +240,27 @@ impl MessageService {
     }
 }
 
+
+#[derive(Message)]
+pub struct AddActivationMail(pub User);
+
+impl Handler<AddActivationMail> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: AddActivationMail, ctx: &mut Self::Context) {
+        let u = msg.0;
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
+
+        if let Some(m) = serde_json::to_string(&mail).ok() {
+            ctx.spawn(self
+                .add_activation_mail(u.id, uuid, m)
+                .into_actor(self));
+        }
+    }
+}
+
+
 #[derive(Message)]
 pub struct ErrorReportMessage(pub RepError);
 
@@ -266,38 +291,44 @@ impl ErrorReport {
             if let Some(v) = rep.get_mut(&RepError::SMS) {
                 if *v > 2 {
                     message.push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
-                    *v = 0;
                 }
+                *v = 0;
             }
             if let Some(v) = rep.get_mut(&RepError::MailBuilder) {
                 if *v > 3 {
                     message.push_str("%0aMail Service Error(Can not build email)");
-                    *v = 0;
                 }
+                *v = 0;
             }
             if let Some(v) = rep.get_mut(&RepError::MailTransport) {
                 if *v > 2 {
                     message.push_str("%0aMail Service Error(Can not transport email. Could be email server offline)");
-                    *v = 0;
                 }
+                *v = 0;
             }
             if let Some(v) = rep.get_mut(&RepError::HttpClient) {
                 if *v > 3 {
                     message.push_str("%0aHttp Client Error(Could be network issue with target API entry)");
-                    *v = 0;
                 }
+                *v = 0;
             }
-            if let Some(v) = rep.get_mut(&RepError::Redis) {
-                if *v > 2 {
+            if let Some(v) = rep.get_mut(&RepError::RedisRead) {
+                if *v > 5 {
                     message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
-                    *v = 0;
                 }
+                *v = 0;
+            }
+            if let Some(v) = rep.get_mut(&RepError::RedisWrite) {
+                if *v > 0 {
+                    message.push_str("%0aRedis Writing Error !!! Need to be fix asap");
+                }
+                *v = 0;
             }
             if let Some(v) = rep.get_mut(&RepError::Database) {
                 if *v > 2 {
                     message.push_str("%0aDatabase Service Error(Could be database server offline/IO error)");
-                    *v = 0;
                 }
+                *v = 0;
             }
             if !message.ends_with(":") {
                 Ok(message)

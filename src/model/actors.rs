@@ -47,7 +47,7 @@ pub type ErrorReportRecipient = actix::prelude::Recipient<crate::handler::messen
 // actor handles database query for categories ,topics, posts, users.
 pub struct DatabaseService {
     pub db: Option<Client>,
-    pub error_reprot: Option<ErrorReportRecipient>,
+    pub error_report: Option<ErrorReportRecipient>,
     pub topics_by_id: Option<Statement>,
     pub posts_by_id: Option<Statement>,
     pub users_by_id: Option<Statement>,
@@ -63,6 +63,7 @@ pub struct TalkService {
     pub sessions: GlobalSessions,
     pub db: Option<Client>,
     pub cache: Option<SharedConn>,
+    pub error_report: Option<ErrorReportRecipient>,
     pub insert_pub_msg: Option<Statement>,
     pub insert_prv_msg: Option<Statement>,
     pub get_pub_msg: Option<Statement>,
@@ -73,7 +74,8 @@ pub struct TalkService {
 
 // actor handles redis cache for categories,topics,posts,users.
 pub struct CacheService {
-    pub cache: Option<SharedConn>
+    pub cache: Option<SharedConn>,
+    pub error_report: Option<ErrorReportRecipient>,
 }
 
 // actor the same as CacheService except it runs interval functions on start up.
@@ -137,6 +139,21 @@ impl Actor for WsChatSession {
     }
 }
 
+trait GetSharedConn {
+    fn get_conn(c: redis::Client) -> Box<dyn Future<Item=SharedConn, Error=()>> {
+        Box::new(c
+            .get_shared_async_connection()
+            .map_err(|_| panic!("failed to get redis connection")))
+    }
+}
+
+impl GetSharedConn for CacheService {}
+
+impl GetSharedConn for CacheUpdateService {}
+
+impl GetSharedConn for MessageService {}
+
+
 impl DatabaseService {
     pub fn connect(postgres_url: &str, error_reprot: Option<ErrorReportRecipient>) -> DB {
         let hs = connect(postgres_url, NoTls);
@@ -144,7 +161,7 @@ impl DatabaseService {
         DatabaseService::create(move |ctx| {
             let addr = DatabaseService {
                 db: None,
-                error_reprot,
+                error_report: error_reprot,
                 topics_by_id: None,
                 posts_by_id: None,
                 users_by_id: None,
@@ -195,18 +212,19 @@ impl DatabaseService {
     }
 }
 
+
 impl CacheService {
-    pub fn connect(redis_url: &str) -> CACHE {
+    pub fn connect(redis_url: &str, error_report: Option<ErrorReportRecipient>) -> CACHE {
         let client = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         CacheService::create(move |ctx| {
             let addr = CacheService {
-                cache: None
+                cache: None,
+                error_report,
             };
 
-            client.get_shared_async_connection()
-                .map_err(|_| panic!("failed to get redis connection"))
+            Self::get_conn(client)
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
                     addr.cache = Some(conn);
@@ -217,6 +235,7 @@ impl CacheService {
         })
     }
 }
+
 
 impl CacheUpdateService {
     pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
@@ -228,8 +247,7 @@ impl CacheUpdateService {
                 cache: None
             };
 
-            client.get_shared_async_connection()
-                .map_err(|_| panic!("failed to get redis connection"))
+            Self::get_conn(client)
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
                     addr.cache = Some(conn);
@@ -239,13 +257,17 @@ impl CacheUpdateService {
             addr
         })
     }
-    pub fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
 }
 
+
 impl TalkService {
-    pub fn connect(postgres_url: &str, redis_url: &str, talks: GlobalTalks, sessions: GlobalSessions) -> TALK {
+    pub fn connect(
+        postgres_url: &str,
+        redis_url: &str,
+        talks: GlobalTalks,
+        sessions: GlobalSessions,
+        error_report: Option<ErrorReportRecipient>,
+    ) -> TALK {
         let hs = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
@@ -256,6 +278,7 @@ impl TalkService {
                 sessions,
                 db: None,
                 cache: None,
+                error_report,
                 insert_pub_msg: None,
                 insert_prv_msg: None,
                 get_pub_msg: None,
@@ -306,6 +329,7 @@ impl TalkService {
     }
 }
 
+
 impl MessageService {
     pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
@@ -318,8 +342,7 @@ impl MessageService {
                 error_report: Self::generate_error_report(),
             };
 
-            client.get_shared_async_connection()
-                .map_err(|_| panic!("failed to get redis connection"))
+            Self::get_conn(client)
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
                     addr.cache = Some(conn);
@@ -330,6 +353,7 @@ impl MessageService {
         })
     }
 }
+
 
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {

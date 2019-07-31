@@ -39,7 +39,7 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.insert_topic.as_ref().unwrap(),
             p,
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn insert_post(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Post, Error=ResError> {
@@ -47,7 +47,7 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.insert_post.as_ref().unwrap(),
             p,
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn insert_user(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=User, Error=ResError> {
@@ -55,7 +55,7 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.insert_user.as_ref().unwrap(),
             p,
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn get_users_by_id(&mut self, ids: &Vec<u32>) -> impl Future<Item=Vec<User>, Error=ResError> {
@@ -64,7 +64,7 @@ impl DatabaseService {
             self.users_by_id.as_ref().unwrap(),
             &[ids],
             Vec::with_capacity(ids.len()),
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn get_topics_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
@@ -72,7 +72,7 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.topics_by_id.as_ref().unwrap(),
             ids,
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn get_posts_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ResError> {
@@ -80,7 +80,7 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.posts_by_id.as_ref().unwrap(),
             ids,
-            self.error_reprot.as_ref().map(Clone::clone))
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn unique_username_email_check(&mut self, q: &str, req: AuthRequest) -> impl Future<Item=AuthRequest, Error=ResError> {
@@ -109,8 +109,7 @@ impl DatabaseService {
                 let token = jwt::JwtPayLoad::new(user.id, user.privilege).sign()?;
 
                 Ok(AuthResponse { token, user })
-            }
-            )
+            })
     }
 }
 
@@ -120,7 +119,7 @@ impl TalkService {
             self.db.as_mut().unwrap(),
             self.insert_pub_msg.as_ref().unwrap(),
             p,
-            None)
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn insert_prv_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=PrivateMessage, Error=ResError> {
@@ -128,7 +127,7 @@ impl TalkService {
             self.db.as_mut().unwrap(),
             self.insert_prv_msg.as_ref().unwrap(),
             p,
-            None)
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn get_pub_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Vec<PublicMessage>, Error=ResError> {
@@ -137,7 +136,7 @@ impl TalkService {
             self.get_pub_msg.as_ref().unwrap(),
             p,
             Vec::with_capacity(20),
-            None)
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn join_talk(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Talk, Error=ResError> {
@@ -145,7 +144,7 @@ impl TalkService {
             self.db.as_mut().unwrap(),
             self.join_talk.as_ref().unwrap(),
             p,
-            None)
+            self.error_report.as_ref().map(Clone::clone))
     }
 
     pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
@@ -183,7 +182,7 @@ trait SimpleQuery {
 
 impl SimpleQuery for DatabaseService {
     fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>) {
-        (self.db.as_mut().unwrap(), self.error_reprot.as_ref().map(Clone::clone))
+        (self.db.as_mut().unwrap(), self.error_report.as_ref().map(Clone::clone))
     }
 }
 
@@ -555,6 +554,7 @@ fn send_rep(rep: Option<&ErrorReportRecipient>) {
         let _ = rep.do_send(crate::handler::messenger::ErrorReportMessage(RepError::Database));
     }
 }
+
 
 // helper functions for build cache on startup
 pub fn load_all<T>(

@@ -50,12 +50,8 @@ pub trait AttachUser<'u> {
     }
 }
 
-pub trait ToUserRef {
-    fn to_ref(&self) -> UserRef;
-}
-
-impl ToUserRef for User {
-    fn to_ref(&self) -> UserRef {
+impl User {
+    pub fn to_ref(&self) -> UserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };
         UserRef {
             id: &self.id,

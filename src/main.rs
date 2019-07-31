@@ -89,8 +89,13 @@ fn main() -> std::io::Result<()> {
 
         // the server will generate one async actor for each worker. The num of workers is tied to cpu core count.
         let db = DatabaseService::connect(&database_url, recipient.clone());
-        let cache = CacheService::connect(&redis_url);
-        let talk = TalkService::connect(&database_url, &redis_url, global_talks.clone(), global_sessions.clone());
+        let cache = CacheService::connect(&redis_url, recipient.clone());
+        let talk = TalkService::connect(
+            &database_url,
+            &redis_url,
+            global_talks.clone(),
+            global_sessions.clone(),
+            recipient.clone());
 
         App::new()
             .data(global.clone())

@@ -4,11 +4,12 @@ use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 use crate::model::{
     actors::{DB, CACHE},
     common::{GlobalVars, Validator},
-    user::{AuthRequest, UpdateRequest, ToUserRef},
+    user::{AuthRequest, UpdateRequest},
 };
 use crate::handler::{
     auth::UserJwt,
-    cache::{UpdateCache, AddActivationMail, ActivateUser, DeleteCache},
+    messenger::AddActivationMail,
+    cache::{UpdateCache, ActivateUser, DeleteCache},
     user::{Login, Register, UpdateUser, GetUsers, GetUsersCache},
 };
 

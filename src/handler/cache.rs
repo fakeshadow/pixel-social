@@ -25,21 +25,23 @@ use crate::{
     TalkService,
 };
 use crate::model::{
-    actors::SharedConn,
-    errors::ResError,
+    actors::{SharedConn, ErrorReportRecipient},
+    errors::{ResError, RepError},
     category::Category,
     post::Post,
     topic::Topic,
     user::User,
     common::{GetSelfId, GetUserId},
 };
+use crate::handler::messenger::ErrorReportMessage;
+
 
 // page offsets of list query
 const LIMIT: isize = 20;
 // use LEX_BASE minus pid and tid before adding to zrange.
 const LEX_BASE: u32 = std::u32::MAX;
 // list_pop update interval time gap in seconds
-const LIST_TIME_GAP: Duration = Duration::from_secs(5);
+const LIST_TIME_GAP: Duration = Duration::from_secs(10);
 // hash life is expire time of topic and post hash in seconds.
 const HASH_LIFE: usize = 172800;
 // mail life is expire time of mail hash in seconds
@@ -247,6 +249,30 @@ impl CacheService {
             .map_err(|_| ())
             .map(|(_, ())| ())
     }
+
+    // 
+    pub fn add_activation_mail(&self, uid: u32, uuid: String, mail: String) -> impl Future<Item=(), Error=()> {
+        cmd("ZCOUNT")
+            .arg("mail_queue")
+            .arg(uid)
+            .arg(uid)
+            .query_async(self.get_conn())
+            .map_err(|_| ())
+            .and_then(move |(conn, count): (_, usize)| {
+                if count > 0 {
+                    return Either::A(ft_ok(()));
+                }
+                let mut pip = pipe();
+                pip.atomic();
+                pip.cmd("ZADD").arg("mail_queue").arg(uid).arg(mail.as_str()).ignore()
+                    .cmd("HSET").arg(uuid.as_str()).arg("user_id").arg(uid).ignore()
+                    .cmd("EXPIRE").arg(uuid.as_str()).arg(MAIL_LIFE).ignore();
+
+                Either::B(pip.query_async(conn)
+                    .map_err(|_| ())
+                    .map(|(_, ())| ()))
+            })
+    }
 }
 
 impl TalkService {
@@ -296,7 +322,7 @@ impl CacheUpdateService {
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
                         let conn = act.get_conn();
-                        let yesterday = Utc::now().timestamp_millis() - 864000000;
+                        let yesterday = Utc::now().naive_utc().timestamp_millis() - 86400000;
                         let mut vec = Vec::new();
 
                         for c in cat.iter() {
@@ -343,6 +369,49 @@ impl GetSharedConn for MessageService {
     }
 }
 
+// send error report to message actor when redis cmds returns an error.
+// pipeline query are not included in error report as pipeline error usually result query hit database so it's not fatal.
+trait QueryAsync
+    where Self: GetSharedConn {
+    fn query_cmd<T>(
+        &self,
+        c: &mut redis::Cmd,
+    ) -> Box<dyn Future<Item=(SharedConn, T), Error=ResError>>
+        where T: std::marker::Send + redis::FromRedisValue + 'static {
+        let r = self.get_rep();
+
+        Box::new(c
+            .query_async(self.get_conn())
+            .map_err(|e| {
+                if let Some(r) = r {
+                    let _ = r.do_send(ErrorReportMessage(RepError::RedisRead));
+                }
+                e
+            })
+            .from_err())
+    }
+
+    fn get_rep(&self) -> Option<ErrorReportRecipient>;
+}
+
+impl QueryAsync for TalkService {
+    fn get_rep(&self) -> Option<ErrorReportRecipient> {
+        self.error_report.as_ref().map(Clone::clone)
+    }
+}
+
+impl QueryAsync for CacheService {
+    fn get_rep(&self) -> Option<ErrorReportRecipient> {
+        self.error_report.as_ref().map(Clone::clone)
+    }
+}
+
+impl QueryAsync for CacheUpdateService {
+    fn get_rep(&self) -> Option<ErrorReportRecipient> {
+        None
+    }
+}
+
 
 fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32>), ResError> {
     if ids.len() == 0 {
@@ -352,51 +421,55 @@ fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32
     }
 }
 
-trait IdsFromCacheList
-    where Self: GetSharedConn {
+trait IdsFromList
+    where Self: GetSharedConn + QueryAsync {
     fn ids_from_cache_list(
         &self,
         list_key: &str,
         start: isize,
         end: isize,
     ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
-        Box::new(cmd("lrange")
-            .arg(list_key)
-            .arg(start)
-            .arg(end)
-            .query_async(self.get_conn())
-            .from_err()
+        Box::new(self
+            .query_cmd(cmd("lrange")
+                .arg(list_key)
+                .arg(start)
+                .arg(end))
             .and_then(count_ids))
     }
 }
 
-impl IdsFromCacheList for CacheService {}
+impl IdsFromList for CacheService {}
 
-impl IdsFromCacheList for CacheUpdateService {}
+impl IdsFromList for CacheUpdateService {}
 
-trait IdsFromCacheZrange
-    where Self: GetSharedConn {
-    fn ids_from_cache_zrange(&self, is_rev: bool, list_key: &str, offset: usize) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
+
+trait IdsFromSortedSet
+    where Self: GetSharedConn + QueryAsync {
+    fn ids_from_cache_zrange(
+        &self,
+        is_rev: bool,
+        list_key: &str,
+        offset: usize,
+    ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
             ("zrangebyscore", "-inf", "+inf")
         };
 
-        Box::new(cmd(cmd_key)
-            .arg(list_key)
-            .arg(start)
-            .arg(end)
-            .arg("LIMIT")
-            .arg(offset)
-            .arg(20)
-            .query_async(self.get_conn())
-            .from_err()
+        Box::new(self
+            .query_cmd(cmd(cmd_key)
+                .arg(list_key)
+                .arg(start)
+                .arg(end)
+                .arg("LIMIT")
+                .arg(offset)
+                .arg(20))
             .and_then(count_ids))
     }
 }
 
-impl IdsFromCacheZrange for CacheService {}
+impl IdsFromSortedSet for CacheService {}
 
 
 trait HashMapsFromCache {
@@ -519,7 +592,7 @@ impl UsersFromCache for CacheService {}
 
 
 trait CategoriesFromCache
-    where Self: HashMapsFromCache + GetSharedConn + IdsFromCacheList + ParseHashMaps {
+    where Self: HashMapsFromCache + GetSharedConn + IdsFromList + ParseHashMaps {
     fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(self
             .ids_from_cache_list("category_id:meta", 0, -1)
@@ -705,34 +778,6 @@ impl Into<Vec<(&str, String)>> for Category {
 }
 
 
-#[derive(Message)]
-pub struct AddActivationMail(pub User);
-
-impl Handler<AddActivationMail> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddActivationMail, ctx: &mut Self::Context) {
-        let user = msg.0;
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let mail = crate::model::messenger::Mail::new_activation(user.email.as_str(), uuid.as_str());
-
-        if let Some(s) = serde_json::to_string(&mail).ok() {
-            let mut pip = pipe();
-            pip.atomic();
-            pip.cmd("ZADD").arg("mail_queue").arg(user.id).arg(s.as_str()).ignore()
-                .cmd("HSET").arg(uuid.as_str()).arg("user_id").arg(user.id).ignore()
-                .cmd("EXPIRE").arg(uuid.as_str()).arg(MAIL_LIFE).ignore();
-
-            ctx.spawn(pip
-                .query_async(self.get_conn())
-                .into_actor(self)
-                .map_err(|_, _, _| ())
-                .map(|(_, ()), _, _| ()));
-        }
-    }
-}
-
-
 pub struct ActivateUser(pub String);
 
 impl Message for ActivateUser {
@@ -779,17 +824,24 @@ impl<T> Handler<UpdateCache<T>> for CacheService
 
         ctx.spawn(f
             .into_actor(self)
-            .map_err(|_, _, _| ())
+            .map_err(|_, act, _| {
+                // send error report when updating cache return an error.
+                // Failed cahe update could result in fork of data between database and cache and it's need to be fixed with a cache refresh.
+                if let Some(r) = act.error_report.as_ref() {
+                    let _ = r.do_send(ErrorReportMessage(RepError::RedisWrite));
+                }
+            })
             .map(|_, _, _| ()));
     }
 }
 
+//ToDo: add a buffer to store failed update cache request.
 pub fn build_hmsets<T>(
     conn: SharedConn,
     vec: Vec<T>,
     key: &'static str,
     should_expire: bool,
-) -> impl Future<Item=(), Error=ResError>
+) -> impl Future<Item=(), Error=()>
     where T: GetSelfId + Into<Vec<(&'static str, String)>> {
     let mut pip = pipe();
     pip.atomic();
@@ -809,7 +861,7 @@ pub fn build_hmsets<T>(
         }
     }
     pip.query_async(conn)
-        .from_err()
+        .map_err(|_| ())
         .map(|(_, ())| ())
 }
 
@@ -956,7 +1008,12 @@ fn update_list(
 
     pip.query_async(conn)
         .from_err()
-        .and_then(move |(conn, (tids, mut counts)): (_, (HashMap<u32, i64>, Vec<(u32, u32)>))| {
+        .and_then(move |(conn, (tids, counts)): (_, (HashMap<u32, i64>, Vec<(u32, u32)>))| {
+            let mut counts = counts
+                .into_iter()
+                .filter(|(tid, _)| tids.contains_key(tid))
+                .collect::<Vec<(u32, u32)>>();
+
             use std::cmp::Ordering;
             counts.sort_by(|(a0, a1), (b0, b1)| {
                 if a1 == b1 {
@@ -1013,6 +1070,7 @@ fn update_list(
 }
 
 
+// helper functions for build cache when server start.
 pub fn build_list(
     conn: SharedConn,
     vec: Vec<u32>,

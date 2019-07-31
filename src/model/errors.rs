@@ -136,7 +136,8 @@ pub enum RepError {
     MailBuilder,
     MailTransport,
     SMS,
-    Redis,
+    RedisRead,
+    RedisWrite,
     HttpClient,
 }
 
