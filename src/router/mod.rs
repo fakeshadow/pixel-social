@@ -6,3 +6,4 @@ pub mod user;
 pub mod admin;
 pub mod stream;
 pub mod talk;
+pub mod auth;

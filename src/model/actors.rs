@@ -303,7 +303,7 @@ impl TalkService {
                     let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)");
                     let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
                     let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
-                    let p5 = db.prepare("SELECT * FROM relations WHERE id = $1");
+                    let p5 = db.prepare("SELECT friends FROM relations WHERE id = $1");
                     let p6 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
 
                     ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])

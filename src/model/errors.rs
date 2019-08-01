@@ -8,6 +8,8 @@ use actix_web::{error::ResponseError, HttpResponse};
 pub enum ResError {
     #[display(fmt = "Internal Server Error")]
     InternalServerError,
+    #[display(fmt = "Not Found")]
+    NotFound,
     #[display(fmt = "Fail Getting Rows from DB")]
     DataBaseReadError,
     #[display(fmt = "BadRequest")]
@@ -68,6 +70,15 @@ impl ResponseError for ResError {
     }
 }
 
+impl ResError {
+    pub fn stringify(&self) -> &'static str {
+        match self {
+            ResError::NotFound => "Not Found",
+            _ => "Internal Server Error"
+        }
+    }
+}
+
 impl From<tokio_postgres::error::Error> for ResError {
     fn from(e: tokio_postgres::error::Error) -> ResError {
         ResError::BadRequestDb(DatabaseErrorMessage {
@@ -118,12 +129,13 @@ pub struct DatabaseErrorMessage {
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {
+    msg: Option<&'a str>,
     error: &'a str,
 }
 
 impl<'a> ErrorMessage<'a> {
     fn new(msg: &'a str) -> Self {
-        ErrorMessage { error: msg }
+        ErrorMessage { msg: None, error: msg }
     }
 }
 

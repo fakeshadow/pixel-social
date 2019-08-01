@@ -1,22 +1,19 @@
 use std::fmt::Write;
 
 use actix::prelude::{
-    ActorFuture,
-    fut::{err, Either},
     Handler,
     Message,
     ResponseFuture,
-    ResponseActFuture,
-    WrapFuture,
 };
 
-use crate::model::{
-    actors::DatabaseService,
-    common::GlobalVars,
-    errors::ResError,
-    user::{AuthRequest, AuthResponse, User, UpdateRequest},
+use crate::{
+    CacheService,
+    DatabaseService
 };
-use crate::util::hash;
+use crate::model::{
+    errors::ResError,
+    user::{User, UpdateRequest},
+};
 
 pub struct GetUsers(pub Vec<u32>);
 
@@ -42,7 +39,7 @@ impl Message for GetUsersCache {
     type Result = Result<Vec<User>, ResError>;
 }
 
-impl Handler<GetUsersCache> for crate::model::actors::CacheService {
+impl Handler<GetUsersCache> for CacheService {
     type Result = ResponseFuture<Vec<User>, ResError>;
 
     fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
@@ -91,71 +88,5 @@ impl Handler<UpdateUser> for DatabaseService {
         }
 
         Box::new(self.simple_query_one(query.as_str()))
-    }
-}
-
-
-pub struct Register(pub AuthRequest, pub GlobalVars);
-
-impl Message for Register {
-    type Result = Result<User, ResError>;
-}
-
-impl Handler<Register> for DatabaseService {
-    type Result = ResponseActFuture<Self, User, ResError>;
-
-    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
-        let Register(req, global) = msg;
-        let query = format!(
-            "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
-
-        let f = self
-            .unique_username_email_check(query.as_str(), req)
-            .into_actor(self)
-            .and_then(move |req: AuthRequest, act, _| {
-                let hash = match hash::hash_password(&req.password) {
-                    Ok(hash) => hash,
-                    Err(e) => return Either::A(err(e))
-                };
-                let id = match global.lock() {
-                    Ok(mut var) => var.next_uid(),
-                    Err(_) => return Either::A(err(ResError::InternalServerError))
-                };
-                let u = match req.make_user(&id, &hash) {
-                    Ok(u) => u,
-                    Err(e) => return Either::A(err(e))
-                };
-                Either::B(act
-                    .insert_user(&[
-                        &u.id,
-                        &u.username,
-                        &u.email,
-                        &u.hashed_password,
-                        &u.avatar_url,
-                        &u.signature
-                    ])
-                    .into_actor(act))
-            });
-
-        Box::new(f)
-    }
-}
-
-
-pub struct Login(pub AuthRequest);
-
-impl Message for Login {
-    type Result = Result<AuthResponse, ResError>;
-}
-
-impl Handler<Login> for DatabaseService {
-    type Result = ResponseFuture<AuthResponse, ResError>;
-
-    fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
-        let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
-
-        Box::new(self.generate_auth_response(query.as_str(), req.password))
     }
 }

@@ -15,7 +15,7 @@ use crate::model::{
     user::{User, AuthRequest, AuthResponse},
     category::Category,
     topic::Topic,
-    talk::{Talk, PublicMessage, PrivateMessage},
+    talk::{Talk, Relation, PublicMessage, PrivateMessage},
 };
 
 impl DatabaseService {
@@ -143,6 +143,14 @@ impl TalkService {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.join_talk.as_ref().unwrap(),
+            p,
+            self.error_report.as_ref().map(Clone::clone))
+    }
+
+    pub fn get_relations(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Relation, Error=ResError> {
+        Self::query_one_trait(
+            self.db.as_mut().unwrap(),
+            self.get_relations.as_ref().unwrap(),
             p,
             self.error_report.as_ref().map(Clone::clone))
     }
@@ -430,6 +438,15 @@ impl TryFrom<Row> for Talk {
             owner: row.try_get(5)?,
             admin: row.try_get(6)?,
             users: row.try_get(7)?,
+        })
+    }
+}
+
+impl TryFrom<Row> for Relation {
+    type Error = ResError;
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Relation {
+            friends: row.try_get(0)?,
         })
     }
 }

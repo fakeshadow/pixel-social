@@ -56,6 +56,10 @@ impl CacheService {
         self.categories_from_cache()
     }
 
+    pub fn get_hash_map(&self, key: &str) -> impl Future<Item=HashMap<String, String>, Error=ResError> {
+        self.hash_map_from_cache(key)
+    }
+
     pub fn get_cache_with_uids_from_list<T>(
         &self,
         list_key: &str,
@@ -250,7 +254,6 @@ impl CacheService {
             .map(|(_, ())| ())
     }
 
-    // 
     pub fn add_activation_mail(&self, uid: u32, uuid: String, mail: String) -> impl Future<Item=(), Error=()> {
         cmd("ZCOUNT")
             .arg("mail_queue")
@@ -276,12 +279,23 @@ impl CacheService {
 }
 
 impl TalkService {
-    pub fn set_online_status(&self, uid: u32, status: u32) -> impl Future<Item=(), Error=ResError> {
-        cmd("HMSET")
-            .arg(&format!("user:{}:set", uid))
-            .arg(&[("online_status", status)])
-            .query_async(self.cache.as_ref().unwrap().clone())
-            .from_err()
+    pub fn set_online_status(
+        &self,
+        uid: u32,
+        status: u32,
+        set_last_online_time: bool,
+    ) -> impl Future<Item=(), Error=ResError> {
+        let mut arg = Vec::with_capacity(2);
+        arg.push(("online_status", status.to_string()));
+
+        if set_last_online_time {
+            arg.push(("last_online", Utc::now().naive_utc().to_string()))
+        }
+
+        self.query_cmd(
+            cmd("HMSET")
+                .arg(&format!("user:{}:set", uid))
+                .arg(arg))
             .map(|(_, ())| ())
     }
 
@@ -370,7 +384,7 @@ impl GetSharedConn for MessageService {
 }
 
 // send error report to message actor when redis cmds returns an error.
-// pipeline query are not included in error report as pipeline error usually result query hit database so it's not fatal.
+// pipeline query are not included in error report as pipeline error usually result in query hit database so it's not fatal.
 trait QueryAsync
     where Self: GetSharedConn {
     fn query_cmd<T>(
@@ -472,11 +486,27 @@ trait IdsFromSortedSet
 impl IdsFromSortedSet for CacheService {}
 
 
+trait HashMapFromCache
+    where Self: GetSharedConn + QueryAsync {
+    fn hash_map_from_cache(
+        &self,
+        key: &str,
+    ) -> Box<dyn Future<Item=HashMap<String, String>, Error=ResError>> {
+        Box::new(self
+            .query_cmd(cmd("HGETALL").arg(key))
+            .map(|(_, hm)| hm))
+    }
+}
+
+impl HashMapFromCache for CacheService {}
+
+
 trait HashMapsFromCache {
     fn hmsets_from_cache(
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
+        // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
     ) -> Box<dyn Future<Item=(Vec<HashMap<String, String>>, Vec<u32>), Error=ResError>> {
         let mut pip = pipe();
         pip.atomic();
@@ -506,6 +536,7 @@ trait HashMapsTupleFromCache {
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
+        // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
     ) -> Box<dyn Future<Item=(Vec<(HashMap<String, String>, HashMap<String, String>)>, Vec<u32>), Error=ResError>> {
         let mut pip = pipe();
         pip.atomic();
@@ -778,28 +809,6 @@ impl Into<Vec<(&str, String)>> for Category {
 }
 
 
-pub struct ActivateUser(pub String);
-
-impl Message for ActivateUser {
-    type Result = Result<u32, ResError>;
-}
-
-impl Handler<ActivateUser> for CacheService {
-    type Result = ResponseFuture<u32, ResError>;
-
-    fn handle(&mut self, msg: ActivateUser, _: &mut Self::Context) -> Self::Result {
-        let f = cmd("HGETALL")
-            .arg(&msg.0)
-            .query_async(self.get_conn())
-            .from_err()
-            .and_then(move |(_, hm): (_, HashMap<String, String>)| {
-                Ok(hm.get("user_id").map(String::as_str).ok_or(ResError::Unauthorized)?.parse::<u32>()?)
-            });
-        Box::new(f)
-    }
-}
-
-
 #[derive(Message)]
 pub enum UpdateCache<T> {
     Topic(Vec<T>),
@@ -946,7 +955,7 @@ impl Handler<DeleteCache> for CacheService {
             .query_async(self.get_conn())
             .into_actor(self)
             .map_err(|_, _, _| ())
-            .map(|(_, _): (_, usize), _, _| ()));
+            .map(|(_, ()), _, _| ()));
     }
 }
 
@@ -959,14 +968,14 @@ fn update_post_count(
     let set_key = format!("category:{}:set", cid);
 
     cmd("ZCOUNT")
-        .arg(&time_key)
+        .arg(time_key.as_str())
         .arg(yesterday)
         .arg("+inf")
         .query_async(conn)
         .from_err()
         .and_then(move |(conn, count): (_, u32)| {
             cmd("HMSET")
-                .arg(&set_key)
+                .arg(set_key.as_str())
                 .arg(&[("post_count_new", count)])
                 .query_async(conn)
                 .from_err()
@@ -996,12 +1005,12 @@ fn update_list(
     let mut pip = pipe();
     pip.atomic();
     pip.cmd("ZREVRANGEBYSCORE")
-        .arg(&time_key)
+        .arg(time_key.as_str())
         .arg("+inf")
         .arg(yesterday)
         .arg("WITHSCORES")
         .cmd("ZREVRANGEBYSCORE")
-        .arg(&reply_key)
+        .arg(reply_key.as_str())
         .arg("+inf")
         .arg("-inf")
         .arg("WITHSCORES");
@@ -1120,7 +1129,6 @@ pub fn build_users_cache(
         .map(|(_, ())| ())
 }
 
-// startup helper fn
 pub fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,

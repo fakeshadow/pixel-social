@@ -22,9 +22,9 @@ use crate::handler::{
         UpdateCategoryCheck,
         UpdateTopicCheck,
         UpdateUserCheck,
+        RemoveCategoryCheck
     },
 };
-use crate::handler::admin::RemoveCategoryCheck;
 
 pub fn add_category(
     jwt: UserJwt,

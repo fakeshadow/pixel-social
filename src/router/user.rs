@@ -3,14 +3,13 @@ use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
 use crate::model::{
     actors::{DB, CACHE},
-    common::{GlobalVars, Validator},
-    user::{AuthRequest, UpdateRequest},
+    common::Validator,
+    user::UpdateRequest,
 };
 use crate::handler::{
     auth::UserJwt,
-    messenger::AddActivationMail,
-    cache::{UpdateCache, ActivateUser, DeleteCache},
-    user::{Login, Register, UpdateUser, GetUsers, GetUsersCache},
+    cache::{UpdateCache},
+    user::{ UpdateUser, GetUsers, GetUsersCache},
 };
 
 pub fn get(
@@ -67,69 +66,6 @@ pub fn update(
             .and_then(move |u| {
                 let res = HttpResponse::Ok().json(&u);
                 let _ = cache.do_send(UpdateCache::User(vec![u]));
-                res
-            }))
-}
-
-pub fn login(
-    db: Data<DB>,
-    req: Json<AuthRequest>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.check_login()
-        .into_future()
-        .from_err()
-        .and_then(move |_| db
-            .send(Login(req.into_inner()))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(|t| HttpResponse::Ok().json(&t)))
-}
-
-pub fn register(
-    db: Data<DB>,
-    cache: Data<CACHE>,
-    global: Data<GlobalVars>,
-    req: Json<AuthRequest>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    req.check_register()
-        .into_future()
-        .from_err()
-        .and_then(move |_| db
-            .send(Register(req.into_inner(), global.get_ref().clone()))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(AddActivationMail(u.clone()));
-                let _ = cache.do_send(UpdateCache::User(vec![u]));
-                res
-            })
-        )
-}
-
-pub fn activation(
-    db: Data<DB>,
-    cache: Data<CACHE>,
-    req: Path<(String)>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    let uuid = req.into_inner();
-
-    cache.send(ActivateUser(uuid.clone()))
-        .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |uid| db
-            .send(UpdateUser(UpdateRequest::make_active(uid)))
-            .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                //ToDo: sign a new jwt token and return auth response instead of user object.
-                let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(UpdateCache::User(vec![u]));
-                let _ = cache.do_send(DeleteCache::Mail(uuid));
                 res
             }))
 }

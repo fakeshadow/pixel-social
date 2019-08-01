@@ -14,6 +14,10 @@ pub struct Talk {
     pub users: Vec<u32>,
 }
 
+pub struct Relation {
+    pub friends: Vec<u32>,
+}
+
 #[derive(Serialize)]
 pub struct PublicMessage {
     pub talk_id: u32,

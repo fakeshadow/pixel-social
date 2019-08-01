@@ -70,12 +70,10 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
                     ctx.text("!!! Empty command");
-                    ctx.stop();
                     return;
                 }
                 if v[0].len() > 10 || v[1].len() > 2560 {
                     ctx.text("!!! Message out of range");
-                    ctx.stop();
                     return;
                 }
                 if self.id <= 0 {
@@ -105,66 +103,66 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     }
 }
 
-trait AttachSessionId {
+trait SessionId {
     fn attach_session_id(&mut self, id: u32);
 }
 
-impl AttachSessionId for Admin {
+impl SessionId for Admin {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for RemoveUserRequest {
+impl SessionId for RemoveUserRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for GetHistory {
+impl SessionId for GetHistory {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for TextMessageRequest {
+impl SessionId for TextMessageRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for JoinTalkRequest {
+impl SessionId for JoinTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for DeleteTalkRequest {
+impl SessionId for DeleteTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for CreateTalkRequest {
+impl SessionId for CreateTalkRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.owner = id;
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for TalkByIdRequest {
+impl SessionId for TalkByIdRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for UsersByIdRequest {
+impl SessionId for UsersByIdRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
 }
 
-impl AttachSessionId for UserRelationRequest {
+impl SessionId for UserRelationRequest {
     fn attach_session_id(&mut self, id: u32) {
         self.session_id = Some(id);
     }
@@ -174,7 +172,7 @@ fn general_msg_handler<'a, T>(
     session: &mut WsChatSession,
     text: &'a str,
     ctx: &mut ws::WebsocketContext<WsChatSession>,
-) where T: AttachSessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
+) where T: SessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
         <T as Message>::Result: std::marker::Send,
         TalkService: Handler<T> {
     let r: Result<T, _> = serde_json::from_str::<T>(text);
