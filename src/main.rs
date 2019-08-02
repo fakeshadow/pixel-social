@@ -70,7 +70,7 @@ fn main() -> std::io::Result<()> {
     let (global, global_talks, global_sessions) =
         build_cache(&database_url, &redis_url, is_init).expect("Unable to build cache");
 
-    let sys = System::new("PixelShare");
+    let mut sys = System::new("PixelShare");
 
     // cache update actor is not passed into data.
     let _ = CacheUpdateService::connect(&redis_url);
@@ -80,6 +80,9 @@ fn main() -> std::io::Result<()> {
 
     // a Option<Recipent> is passed to every actor for sending errors to message actor.
     let recipient = if use_report { Some(msg.recipient()) } else { None };
+
+    // async connection pool test. currently running much slower than actor pattern.
+    let pool = crate::router::test::build_pool(&database_url, &mut sys);
 
     HttpServer::new(move || {
         // Use a cache pass through flow for data. Anything can't be find in redis will hit database and trigger an cache update.
@@ -102,6 +105,7 @@ fn main() -> std::io::Result<()> {
             .data(talk)
             .data(db)
             .data(cache)
+            .data(pool.clone())
             .wrap(Logger::default())
             .wrap(actix_cors::Cors::new()
                 .allowed_origin(&cors_origin)
@@ -146,6 +150,8 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/activation/mail/{uuid}").route(web::get().to_async(router::auth::activate_by_mail)))
             )
             .service(web::scope("/test")
+                .service(web::resource("/pg_actor").route(web::get().to_async(router::test::actor)))
+                .service(web::resource("/bb8_pool").route(web::get().to_async(router::test::pool)))
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/topic").route(web::get().to_async(router::test::add_topic)))
                 .service(web::resource("/post").route(web::get().to_async(router::test::add_post)))

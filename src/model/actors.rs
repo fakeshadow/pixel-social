@@ -358,6 +358,7 @@ impl MessageService {
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            // ToDo: remove session from talk actor and make request to redis to update user's online status and last online time.
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 ctx.stop();
                 return;
