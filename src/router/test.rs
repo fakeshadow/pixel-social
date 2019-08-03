@@ -70,23 +70,28 @@ use crate::model::topic::Topic;
 use crate::model::errors::ResError;
 use std::convert::TryFrom;
 use crate::handler::topic::GetTopics;
+use crate::model::actors::DatabaseServiceRaw;
 
-type Pool = bb8::Pool<bb8_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
+pub type Pool = l337::Pool<l337_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
 
-pub fn build_pool(database_url: &str, sys: &mut actix_rt::SystemRunner) -> Pool {
-    let bb8_manager = bb8_postgres::PostgresConnectionManager::new(
-        database_url,
+pub fn build_pool(sys: &mut actix_rt::SystemRunner) -> Pool {
+    let config = tokio_postgres::Config::new()
+        .host("localhost")
+        .user("postgres")
+        .password("123")
+        .dbname("test").clone();
+
+    let manager = l337_postgres::PostgresConnectionManager::new(
+        config,
         tokio_postgres::NoTls,
     );
 
-    use futures::lazy;
-    sys.block_on(lazy(|| {
-        bb8::Pool::builder()
-            .max_size(12)
-            .build(bb8_manager)
-            .map_err(|e| bb8::RunError::User(e))
-            .map_err(|e| panic!("{:?}", e))
-    })).unwrap()
+    let cfg = l337::Config {
+        min_size: 1,
+        max_size: 12,
+    };
+
+    sys.block_on(l337::Pool::new(manager, cfg)).unwrap()
 }
 
 pub fn pool(
@@ -100,34 +105,59 @@ pub fn pool(
 pub fn actor(
     db: Data<DB>
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    db.send(GetTopics(vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
+    db.send(GetTopics(vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]))
         .from_err()
         .and_then(|r| r)
         .from_err()
         .and_then(|(t, _)| HttpResponse::Ok().json(&t))
 }
 
-fn test_pool(
-    pool: &Pool
-) -> impl Future<Item=Vec<Topic>, Error=ResError> {
-    pool.run(|mut c| {
-        c.prepare("SELECT * FROM topics WHERE id = ANY($1)")
-            .then(|res| match res {
-                Ok(stmt) => Ok((stmt, c)),
-                Err(e) => Err((e, c))
-            })
-            .and_then(|(stmt, mut c)| c
-                .query(&stmt, &[&vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
-                .fold(Vec::with_capacity(10), move |mut v, r| {
+pub fn raw(
+    db: Data<DatabaseServiceRaw>
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    db.test()
+        .from_err()
+        .and_then(|t| HttpResponse::Ok().json(&t))
+}
+
+
+impl DatabaseServiceRaw {
+    fn test(&self) -> impl Future<Item=Vec<Topic>, Error=ResError> {
+
+        match self.client.lock() {
+            Ok(mut c) => futures::future::Either::B(c
+                .query(&self.topics_by_id, &[&vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]])
+                .fold(Vec::with_capacity(20), move |mut v, r| {
                     if let Some(r) = Topic::try_from(r).ok() {
                         v.push(r)
                     }
                     Ok::<_, _>(v)
+                }).map_err(|_| ResError::InternalServerError)
+            ),
+            Err(_) => futures::future::Either::A(futures::future::err(ResError::InternalServerError))
+        }
+    }
+}
+
+
+fn test_pool(
+    pool: &Pool
+) -> impl Future<Item=Vec<Topic>, Error=ResError> {
+    pool.connection()
+        .map_err(|_| ResError::InternalServerError)
+        .and_then(|mut c| {
+            c.client
+                .prepare("SELECT * FROM topics WHERE id = ANY($1)")
+                .map_err(|_| ResError::InternalServerError)
+                .and_then(move |stmt| {
+                    c.client
+                        .query(&stmt, &[&vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]])
+                        .fold(Vec::with_capacity(20), move |mut v, r| {
+                            if let Some(r) = Topic::try_from(r).ok() {
+                                v.push(r)
+                            }
+                            Ok::<_, _>(v)
+                        }).map_err(|_| ResError::InternalServerError)
                 })
-                .then( |r| match r {
-                    Ok(t) => Ok((t, c)),
-                    Err(e) => Err((e, c))
-                })
-            )
-    }).map_err(|_| ResError::InternalServerError)
+        })
 }

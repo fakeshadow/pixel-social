@@ -5,12 +5,11 @@ use actix::prelude::*;
 use chrono::NaiveDateTime;
 use tokio_postgres::{Row, SimpleQueryRow, SimpleQueryMessage, Statement, Client, types::ToSql};
 
+use crate::{DatabaseService, TalkService};
 use crate::util::{hash, jwt};
-
 use crate::model::{
-    actors::{ErrorReportRecipient, DatabaseService, TalkService},
     common::{GetSelfId, GetUserId},
-    errors::{ResError, RepError},
+    errors::{ResError},
     post::Post,
     user::{User, AuthRequest, AuthResponse},
     category::Category,
@@ -38,24 +37,21 @@ impl DatabaseService {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.insert_topic.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn insert_post(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Post, Error=ResError> {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.insert_post.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn insert_user(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=User, Error=ResError> {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.insert_user.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn get_users_by_id(&mut self, ids: &Vec<u32>) -> impl Future<Item=Vec<User>, Error=ResError> {
@@ -63,24 +59,21 @@ impl DatabaseService {
             self.db.as_mut().unwrap(),
             self.users_by_id.as_ref().unwrap(),
             &[ids],
-            Vec::with_capacity(ids.len()),
-            self.error_report.as_ref().map(Clone::clone))
+            Vec::with_capacity(ids.len()))
     }
 
     pub fn get_topics_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
         Self::query_multi_with_uid(
             self.db.as_mut().unwrap(),
             self.topics_by_id.as_ref().unwrap(),
-            ids,
-            self.error_report.as_ref().map(Clone::clone))
+            ids)
     }
 
     pub fn get_posts_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ResError> {
         Self::query_multi_with_uid(
             self.db.as_mut().unwrap(),
             self.posts_by_id.as_ref().unwrap(),
-            ids,
-            self.error_report.as_ref().map(Clone::clone))
+            ids)
     }
 
     pub fn unique_username_email_check(&mut self, q: &str, req: AuthRequest) -> impl Future<Item=AuthRequest, Error=ResError> {
@@ -118,16 +111,14 @@ impl TalkService {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.insert_pub_msg.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn insert_prv_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=PrivateMessage, Error=ResError> {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.insert_prv_msg.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn get_pub_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Vec<PublicMessage>, Error=ResError> {
@@ -135,24 +126,21 @@ impl TalkService {
             self.db.as_mut().unwrap(),
             self.get_pub_msg.as_ref().unwrap(),
             p,
-            Vec::with_capacity(20),
-            self.error_report.as_ref().map(Clone::clone))
+            Vec::with_capacity(20))
     }
 
     pub fn join_talk(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Talk, Error=ResError> {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.join_talk.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn get_relations(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Relation, Error=ResError> {
         Self::query_one_trait(
             self.db.as_mut().unwrap(),
             self.get_relations.as_ref().unwrap(),
-            p,
-            self.error_report.as_ref().map(Clone::clone))
+            p)
     }
 
     pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
@@ -176,27 +164,23 @@ trait SimpleQuery {
         &mut self,
         query: &str,
     ) -> Box<dyn futures::Stream<Item=SimpleQueryMessage, Error=ResError>> {
-        let (c, rep) = self.get_client_and_report();
-        Box::new(c
+        Box::new(self
+            .get_client()
             .simple_query(&query)
-            .map_err(move |e| {
-                send_rep(rep.as_ref());
-                e
-            })
             .from_err())
     }
-    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>);
+    fn get_client(&mut self) -> &mut Client;
 }
 
 impl SimpleQuery for DatabaseService {
-    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>) {
-        (self.db.as_mut().unwrap(), self.error_report.as_ref().map(Clone::clone))
+    fn get_client(&mut self) -> &mut Client {
+        self.db.as_mut().unwrap()
     }
 }
 
 impl SimpleQuery for TalkService {
-    fn get_client_and_report(&mut self) -> (&mut Client, Option<ErrorReportRecipient>) {
-        (self.db.as_mut().unwrap(), None)
+    fn get_client(&mut self) -> &mut Client {
+        self.db.as_mut().unwrap()
     }
 }
 
@@ -206,14 +190,9 @@ trait Query {
         c: &mut Client,
         st: &Statement,
         p: &[&dyn ToSql],
-        rep: Option<ErrorReportRecipient>,
     ) -> Box<dyn futures::Stream<Item=Row, Error=ResError>> {
         Box::new(c
             .query(st, p)
-            .map_err(move |e| {
-                send_rep(rep.as_ref());
-                e
-            })
             .from_err())
     }
 }
@@ -289,10 +268,9 @@ trait QueryOne
         c: &mut Client,
         st: &Statement,
         p: &[&dyn ToSql],
-        rep: Option<ErrorReportRecipient>,
     ) -> Box<dyn Future<Item=T, Error=ResError>>
         where T: TryFrom<Row, Error=ResError> + 'static {
-        Box::new(Self::query_stream(c, st, p, rep)
+        Box::new(Self::query_stream(c, st, p)
             .into_future()
             .map_err(|(e, _)| e)
             .and_then(|(r, _)| r.ok_or(ResError::BadRequest))
@@ -312,10 +290,9 @@ trait QueryMulti
         st: &Statement,
         p: &[&dyn ToSql],
         vec: Vec<T>,
-        rep: Option<ErrorReportRecipient>,
     ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
         where T: TryFrom<Row> + 'static {
-        Box::new(Self::query_stream(c, st, p, rep)
+        Box::new(Self::query_stream(c, st, p)
             .fold(vec, move |mut vec, r| {
                 if let Some(r) = T::try_from(r).ok() {
                     vec.push(r);
@@ -336,14 +313,13 @@ trait QueryMultiWithUids
         c: &mut Client,
         st: &Statement,
         ids_org: Vec<u32>,
-        rep: Option<ErrorReportRecipient>,
     ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
         where T: TryFrom<Row> + GetSelfId + GetUserId + 'static {
         let len = ids_org.len();
         let vec = Vec::with_capacity(len);
         let ids = Vec::with_capacity(len);
 
-        Box::new(Self::query_stream(c, st, &[&ids_org], rep)
+        Box::new(Self::query_stream(c, st, &[&ids_org])
             .fold((vec, ids), move |(mut vec, mut ids), r| {
                 if let Some(v) = T::try_from(r).ok() {
                     ids.push(v.get_user_id());
@@ -562,13 +538,6 @@ impl TryFrom<SimpleQueryRow> for Talk {
             admin: vec![],
             users: vec![],
         })
-    }
-}
-
-
-fn send_rep(rep: Option<&ErrorReportRecipient>) {
-    if let Some(rep) = rep {
-        let _ = rep.do_send(crate::handler::messenger::ErrorReportMessage(RepError::Database));
     }
 }
 

@@ -21,7 +21,11 @@ use crate::model::{
 use chrono::NaiveDateTime;
 
 //return global arc after building cache
-pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
+pub fn build_cache(
+    postgres_url: &str,
+    redis_url: &str,
+    is_init: bool,
+) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt
         .block_on(connect(postgres_url, NoTls))
@@ -218,7 +222,7 @@ pub fn build_cache(postgres_url: &str, redis_url: &str, is_init: bool) -> Result
 }
 
 // return true if built tables success
-pub fn create_table(postgres_url: &str) -> bool{
+pub fn create_table(postgres_url: &str) -> bool {
     let mut rt = Runtime::new().unwrap();
 
     let (mut c, conn) = rt

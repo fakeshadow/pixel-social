@@ -145,11 +145,10 @@ pub enum RepError {
     Ignore,
     JsonIO,
     Database,
+    Redis,
     MailBuilder,
     MailTransport,
     SMS,
-    RedisRead,
-    RedisWrite,
     HttpClient,
 }
 
@@ -172,4 +171,5 @@ impl From<serde_json::Error> for RepError {
 pub struct ErrorReport {
     pub use_report: bool,
     pub reports: hashbrown::HashMap<RepError, u32>,
+    pub last_report_time: std::time::Instant,
 }

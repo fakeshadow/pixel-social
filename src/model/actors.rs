@@ -25,12 +25,13 @@ use tokio_postgres::{
 };
 
 use crate::model::{
-    errors::ErrorReport,
+    errors::{RepError, ErrorReport},
     common::{GlobalTalks, GlobalSessions},
     messenger::{Mailer, Twilio},
 };
 use crate::handler::{
     talk::DisconnectRequest,
+    messenger::ErrorReportMessage,
 };
 
 // websocket heartbeat and connection time out time.
@@ -47,7 +48,6 @@ pub type ErrorReportRecipient = actix::prelude::Recipient<crate::handler::messen
 // actor handles database query for categories ,topics, posts, users.
 pub struct DatabaseService {
     pub db: Option<Client>,
-    pub error_report: Option<ErrorReportRecipient>,
     pub topics_by_id: Option<Statement>,
     pub posts_by_id: Option<Statement>,
     pub users_by_id: Option<Statement>,
@@ -63,7 +63,6 @@ pub struct TalkService {
     pub sessions: GlobalSessions,
     pub db: Option<Client>,
     pub cache: Option<SharedConn>,
-    pub error_report: Option<ErrorReportRecipient>,
     pub insert_pub_msg: Option<Statement>,
     pub insert_prv_msg: Option<Statement>,
     pub get_pub_msg: Option<Statement>,
@@ -75,7 +74,6 @@ pub struct TalkService {
 // actor handles redis cache for categories,topics,posts,users.
 pub struct CacheService {
     pub cache: Option<SharedConn>,
-    pub error_report: Option<ErrorReportRecipient>,
 }
 
 // actor the same as CacheService except it runs interval functions on start up.
@@ -147,21 +145,74 @@ trait GetSharedConn {
     }
 }
 
-impl GetSharedConn for CacheService {}
-
 impl GetSharedConn for CacheUpdateService {}
 
 impl GetSharedConn for MessageService {}
 
 
+pub struct DatabaseServiceRaw {
+    pub client: std::sync::Mutex<Client>,
+    pub topics_by_id: Statement,
+    pub posts_by_id: Statement,
+    pub users_by_id: Statement,
+    pub insert_topic: Statement,
+    pub insert_post: Statement,
+    pub insert_user: Statement,
+}
+
+impl DatabaseServiceRaw {
+    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseServiceRaw, Error=()> {
+        println!("constructed");
+        let conn = connect(postgres_url, NoTls);
+
+        conn.then(|r| match r {
+            Err(e) => {
+                panic!("{:?}", e);
+            }
+            Ok((mut c, conn)) => {
+                actix_rt::spawn(conn.map_err(|e| panic!("{}", e)));
+
+                let p1 = c.prepare("SELECT * FROM topics WHERE id = ANY($1)");
+                let p2 = c.prepare("SELECT * FROM posts WHERE id = ANY($1)");
+                let p3 = c.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                let p4 = c.prepare("INSERT INTO topics
+                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING *");
+                let p5 = c.prepare("INSERT INTO posts
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            RETURNING *");
+                let p6 = c.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING *");
+
+                join_all(vec![p6, p5, p4, p3, p2, p1])
+                    .map_err(move |e| {
+                        panic!("{:?}", e);
+                    })
+                    .map(|mut v| DatabaseServiceRaw {
+                        client: std::sync::Mutex::new(c),
+                        topics_by_id: v.pop().unwrap(),
+                        posts_by_id: v.pop().unwrap(),
+                        users_by_id: v.pop().unwrap(),
+                        insert_topic: v.pop().unwrap(),
+                        insert_post: v.pop().unwrap(),
+                        insert_user: v.pop().unwrap(),
+                    })
+            }
+        })
+    }
+}
+
+
 impl DatabaseService {
-    pub fn connect(postgres_url: &str, error_reprot: Option<ErrorReportRecipient>) -> DB {
-        let hs = connect(postgres_url, NoTls);
+    pub fn connect(postgres_url: &str, rep: Option<ErrorReportRecipient>) -> DB {
+        let conn = connect(postgres_url, NoTls);
 
         DatabaseService::create(move |ctx| {
-            let addr = DatabaseService {
+            let act = DatabaseService {
                 db: None,
-                error_report: error_reprot,
                 topics_by_id: None,
                 posts_by_id: None,
                 users_by_id: None,
@@ -170,65 +221,81 @@ impl DatabaseService {
                 insert_user: None,
             };
 
-            hs.map_err(|_| panic!("Can't connect to database"))
-                .into_actor(&addr)
-                .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("SELECT * FROM topics WHERE id = ANY($1)");
-                    let p2 = db.prepare("SELECT * FROM posts WHERE id = ANY($1)");
-                    let p3 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
-                    let p4 = db.prepare("INSERT INTO posts
+            conn.into_actor(&act)
+                .then(move |r, act, ctx| match r {
+                    Err(e) => {
+                        send_rep(rep.as_ref(), RepError::Database);
+                        panic!("{:?}", e);
+                    }
+                    Ok((mut db, conn)) => {
+                        let p1 = db.prepare("SELECT * FROM topics WHERE id = ANY($1)");
+                        let p2 = db.prepare("SELECT * FROM posts WHERE id = ANY($1)");
+                        let p3 = db.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                        let p4 = db.prepare("INSERT INTO posts
                             (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             RETURNING *");
-                    let p5 = db.prepare("INSERT INTO topics
+                        let p5 = db.prepare("INSERT INTO topics
                         (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         RETURNING *");
-                    let p6 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+                        let p6 = db.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
                         VALUES ($1, $2, $3, $4, $5, $6)
                         RETURNING *");
 
-                    ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
-                        .map_err(|_| panic!("query prepare failed"))
-                        .into_actor(addr)
-                        .and_then(|mut v, addr, _| {
-                            addr.topics_by_id = v.pop();
-                            addr.posts_by_id = v.pop();
-                            addr.users_by_id = v.pop();
-                            addr.insert_post = v.pop();
-                            addr.insert_topic = v.pop();
-                            addr.insert_user = v.pop();
+                        ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
+                            .map_err(move |e| {
+                                send_rep(rep.as_ref(), RepError::Database);
+                                panic!("{:?}", e);
+                            })
+                            .into_actor(act)
+                            .and_then(|mut v, act, _| {
+                                act.topics_by_id = v.pop();
+                                act.posts_by_id = v.pop();
+                                act.users_by_id = v.pop();
+                                act.insert_post = v.pop();
+                                act.insert_topic = v.pop();
+                                act.insert_user = v.pop();
 
-                            fut::ok(())
-                        })
-                    );
-                    addr.db = Some(db);
-                    Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));
-                    fut::ok(())
+                                fut::ok(())
+                            })
+                        );
+                        act.db = Some(db);
+                        Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
+                        fut::ok(())
+                    }
                 })
                 .wait(ctx);
-            addr
+            act
         })
     }
 }
 
 
 impl CacheService {
-    pub fn connect(redis_url: &str, error_report: Option<ErrorReportRecipient>) -> CACHE {
-        let client = RedisClient::open(redis_url)
-            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+    pub fn connect(redis_url: &str, rep: Option<ErrorReportRecipient>) -> CACHE {
+        let c = RedisClient::open(redis_url)
+            .unwrap_or_else(|e| {
+                send_rep(rep.as_ref(), RepError::Redis);
+                panic!("{:?}", e);
+            });
 
         CacheService::create(move |ctx| {
             let addr = CacheService {
                 cache: None,
-                error_report,
             };
 
-            Self::get_conn(client)
+            c.get_shared_async_connection()
                 .into_actor(&addr)
-                .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
-                    fut::ok(())
+                .then(move |r, addr, _| match r {
+                    Ok(conn) => {
+                        addr.cache = Some(conn);
+                        fut::ok(())
+                    }
+                    Err(e) => {
+                        send_rep(rep.as_ref(), RepError::Redis);
+                        panic!("{:?}", e);
+                    }
                 })
                 .wait(ctx);
             addr
@@ -237,7 +304,8 @@ impl CacheService {
 }
 
 
-impl CacheUpdateService {
+impl
+CacheUpdateService {
     pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
         let client = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
@@ -259,26 +327,24 @@ impl CacheUpdateService {
     }
 }
 
-
 impl TalkService {
     pub fn connect(
         postgres_url: &str,
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-        error_report: Option<ErrorReportRecipient>,
+        rep: Option<ErrorReportRecipient>,
     ) -> TALK {
-        let hs = connect(postgres_url, NoTls);
+        let conn = connect(postgres_url, NoTls);
         let cache = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         TalkService::create(move |ctx| {
-            let addr = TalkService {
+            let act = TalkService {
                 talks,
                 sessions,
                 db: None,
                 cache: None,
-                error_report,
                 insert_pub_msg: None,
                 insert_prv_msg: None,
                 get_pub_msg: None,
@@ -289,42 +355,50 @@ impl TalkService {
 
             cache.get_shared_async_connection()
                 .map_err(|_| panic!("failed to get redis connection"))
-                .into_actor(&addr)
-                .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
+                .into_actor(&act)
+                .and_then(|conn, act, _| {
+                    act.cache = Some(conn);
                     fut::ok(())
                 })
                 .wait(ctx);
 
-            hs.map_err(|_| panic!("Can't connect to database"))
-                .into_actor(&addr)
-                .and_then(|(mut db, conn), addr, ctx| {
-                    let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)");
-                    let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)");
-                    let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
-                    let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
-                    let p5 = db.prepare("SELECT friends FROM relations WHERE id = $1");
-                    let p6 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
+            conn.into_actor(&act)
+                .then(move |r, act, ctx| match r {
+                    Err(e) => {
+                        send_rep(rep.as_ref(), RepError::Database);
+                        panic!("{:?}", e);
+                    }
+                    Ok((mut db, conn)) => {
+                        let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)");
+                        let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)");
+                        let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
+                        let p4 = db.prepare("SELECT * FROM private_messages1 WHERE to_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
+                        let p5 = db.prepare("SELECT friends FROM relations WHERE id = $1");
+                        let p6 = db.prepare("UPDATE talks SET users=array_append(users, $1) WHERE id= $2");
 
-                    ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
-                        .map_err(|e| panic!("{}", e))
-                        .into_actor(addr)
-                        .and_then(|mut vec, addr, _| {
-                            addr.insert_pub_msg = vec.pop();
-                            addr.insert_prv_msg = vec.pop();
-                            addr.get_pub_msg = vec.pop();
-                            addr.get_prv_msg = vec.pop();
-                            addr.get_relations = vec.pop();
-                            addr.join_talk = vec.pop();
-                            fut::ok(())
-                        }));
+                        ctx.wait(join_all(vec![p6, p5, p4, p3, p2, p1])
+                            .map_err(move |e| {
+                                send_rep(rep.as_ref(), RepError::Database);
+                                panic!("{:?}", e);
+                            })
+                            .into_actor(act)
+                            .and_then(|mut vec, act, _| {
+                                act.insert_pub_msg = vec.pop();
+                                act.insert_prv_msg = vec.pop();
+                                act.get_pub_msg = vec.pop();
+                                act.get_prv_msg = vec.pop();
+                                act.get_relations = vec.pop();
+                                act.join_talk = vec.pop();
+                                fut::ok(())
+                            }));
 
-                    addr.db = Some(db);
-                    Arbiter::spawn(conn.map_err(|e| panic!("{}", e)));
-                    fut::ok(())
+                        act.db = Some(db);
+                        Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
+                        fut::ok(())
+                    }
                 })
                 .wait(ctx);
-            addr
+            act
         })
     }
 }
@@ -358,7 +432,7 @@ impl MessageService {
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // ToDo: remove session from talk actor and make request to redis to update user's online status and last online time.
+            // ToDo: remove session from talk actor and make request to redis to update user
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 ctx.stop();
                 return;
@@ -367,3 +441,11 @@ impl WsChatSession {
         });
     }
 }
+
+
+fn send_rep(rep: Option<&ErrorReportRecipient>, e: RepError) {
+    if let Some(a) = rep.as_ref() {
+        let _ = a.do_send(ErrorReportMessage(e));
+    }
+}
+

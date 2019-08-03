@@ -64,7 +64,7 @@ impl TalkService {
         )
     }
 
-    fn insert_talk(&self, sid: &u32, talk: Talk) -> Result<(), ResError> {
+    fn insert_talk(&self, talk: Talk) -> Result<(), ResError> {
         self.write_talks(|mut t| t
             .insert(talk.id, talk)
             .map(|_| ())
@@ -72,7 +72,7 @@ impl TalkService {
         )
     }
 
-    fn remove_talk(&self, sid: &u32, tid: &u32) -> Result<(), ResError> {
+    fn remove_talk(&self, tid: &u32) -> Result<(), ResError> {
         self.write_talks(|mut t| t
             .remove(tid)
             .map(|_| ())
@@ -100,6 +100,14 @@ impl TalkService {
         where F: FnOnce(RwLockReadGuard<HashMap<u32, Talk>>) -> Result<T, ResError> {
         self.talks
             .try_read()
+            .map_err(|_| ResError::InternalServerError)
+            .and_then(|t| f(t))
+    }
+
+    fn write_sessions<F>(&self, f: F) -> Result<(), ResError>
+        where F: FnOnce(RwLockWriteGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<(), ResError> {
+        self.sessions
+            .try_write()
             .map_err(|_| ResError::InternalServerError)
             .and_then(|t| f(t))
     }
@@ -227,18 +235,22 @@ impl Handler<DisconnectRequest> for TalkService {
 
     fn handle(&mut self, msg: DisconnectRequest, ctx: &mut Context<Self>) {
         let sid = msg.session_id;
-        let _ = self.sessions
-            .write()
-            .map_err(|_| self
-                .send_message(&sid, SendMessage::Error("Disconnect Failed").stringify().as_str()))
-            .map(|mut t| {
+
+        let _ = self
+            .write_sessions(|mut t| t
+                .remove(&sid)
+                .map(|_| ())
+                .ok_or(ResError::InternalServerError)
+            )
+            .map_err(|e| self.parse_send_res_error(&sid, &e))
+            .map(|_| {
                 ctx.spawn(self
                     .set_online_status(sid, 0, true)
                     .into_actor(self)
-                    .map_err(|_, _, _| ())
+                    .map_err(move |e, act, _| act
+                        .parse_send_res_error(&sid, &e)
+                    )
                     .map(|_, _, _| ()));
-
-                t.remove(&sid);
             });
     }
 }
@@ -248,58 +260,49 @@ impl Handler<TextMessageRequest> for TalkService {
 
     fn handle(&mut self, msg: TextMessageRequest, ctx: &mut Context<Self>) {
 // ToDo: batch insert messages to database.
-
         let sid = msg.session_id.unwrap();
-        match msg.talk_id {
-            Some(tid) => {
-                let now = Utc::now().naive_utc();
-                ctx.spawn(self
-                    .insert_pub_msg(&[&tid, &msg.text, &now])
-                    .into_actor(self)
-                    .then(move |r, act, _| {
-                        match r {
-                            Ok(_) => {
-                                let s = SendMessage::PublicMessage(&vec![PublicMessage {
-                                    text: msg.text,
-                                    time: now,
-                                    talk_id: msg.talk_id.unwrap(),
-                                }]).stringify();
 
-                                act.send_message_many(&sid, &tid, s.as_str());
-                            }
-                            Err(e) => act.parse_send_res_error(&sid, &e)
-                        }
-                        fut::ok(())
-                    }));
-            }
-            None => {
-                let id = match msg.user_id {
-                    Some(id) => id,
-                    None => return self.parse_send_res_error(msg.session_id.as_ref().unwrap(), &ResError::NotFound)
-                };
-                let now = Utc::now().naive_utc();
-                ctx.spawn(self
-                    .insert_prv_msg(&[&msg.session_id.unwrap(), &id, &msg.text, &now])
-                    .into_actor(self)
-                    .then(move |r, act, _| match r {
-                        Ok(_) => {
-                            let s = SendMessage::PrivateMessage(&vec![
-                                PrivateMessage {
-                                    user_id: msg.user_id.unwrap(),
-                                    text: msg.text,
-                                    time: now,
-                                }]).stringify();
+        if let Some(tid) = msg.talk_id {
+            let now = Utc::now().naive_utc();
+            ctx.spawn(self
+                .insert_pub_msg(&[&tid, &msg.text, &now])
+                .into_actor(self)
+                .map_err(move |e, act, _|
+                    act.parse_send_res_error(&sid, &e)
+                )
+                .map(move |_, act, _| {
+                    let s = SendMessage::PublicMessage(
+                        &vec![PublicMessage {
+                            text: msg.text,
+                            time: now,
+                            talk_id: msg.talk_id.unwrap(),
+                        }]
+                    ).stringify();
 
-                            act.send_message(&id, s.as_str());
-                            fut::ok(())
-                        }
-                        Err(e) => {
-                            act.parse_send_res_error(msg.session_id.as_ref().unwrap(), &e);
-                            fut::ok(())
-                        }
-                    }));
-            }
-        };
+                    act.send_message_many(&sid, &tid, s.as_str());
+                }));
+            return;
+        }
+
+        if let Some(uid) = msg.user_id {
+            let now = Utc::now().naive_utc();
+            ctx.spawn(self
+                .insert_prv_msg(&[&msg.session_id.unwrap(), &uid, &msg.text, &now])
+                .into_actor(self)
+                .map_err(move |e, act, _|
+                    act.parse_send_res_error(&sid, &e)
+                )
+                .map(move |_, act, _| {
+                    let s = SendMessage::PrivateMessage(&vec![
+                        PrivateMessage {
+                            user_id: msg.user_id.unwrap(),
+                            text: msg.text,
+                            time: now,
+                        }]).stringify();
+
+                    act.send_message(&uid, s.as_str());
+                }));
+        }
     }
 }
 
@@ -336,13 +339,13 @@ impl Handler<CreateTalkRequest> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: CreateTalkRequest, ctx: &mut Context<Self>) {
-        let query = "SELECT Max(id) FROM talks";
+        let sid = msg.session_id.unwrap();
 
         let f = self
-            .simple_query_single_row::<u32>(query, 0)
+            .simple_query_single_row::<u32>("SELECT Max(id) FROM talks", 0)
             .into_actor(self)
             // ToDo: handle error.
-            .map_err(|_, _, _| ())
+            .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
             .and_then(move |cid, act, _| {
                 //ToDo: in case query array failed.
                 let query = format!("
@@ -353,14 +356,15 @@ impl Handler<CreateTalkRequest> for TalkService {
 
                 act.simple_query_one(query.as_str())
                     .into_actor(act)
-                    .map_err(|_, _, _| ())
-                    // ToDo: handle error.
-                    .and_then(move |t, act, _| {
-                        let s = serde_json::to_string(&t)
-                            .unwrap_or("!!! Stringify Error. But Talk Creation is success".to_owned());
-                        act.insert_talk(msg.session_id.as_ref().unwrap(), t);
-                        act.send_message(&msg.owner, &s);
-                        fut::ok(())
+                    .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
+                    .map(move |t, act, _| {
+                        let s = SendMessage::Talks(vec![&t]).stringify();
+                        let _ = act
+                            .insert_talk(t)
+                            .map_err(|e| act.parse_send_res_error(&sid, &e))
+                            .map(|_| {
+                                let _ = act.send_message(&msg.owner, s.as_str());
+                            });
                     })
             });
         ctx.spawn(f);
@@ -377,23 +381,21 @@ impl Handler<JoinTalkRequest> for TalkService {
         match self.get_talk(&tid) {
             Ok(t) => {
                 if t.users.contains(&sid) {
-                    self.send_message(&sid, "Already joined");
+                    self.send_message(&sid, SendMessage::Error("Already Joined").stringify().as_str());
                     return;
                 };
 
                 ctx.spawn(self
                     .join_talk(&[&sid, &tid])
                     .into_actor(self)
-                    .then(move |r, act, _| {
-                        match r {
-                            Ok(_) => {
-                                act.insert_user(&sid, &tid);
-                                act.send_message(&sid, "!! Joined");
-                            }
-                            Err(e) => act.parse_send_res_error(&sid, &e)
-                        };
-                        fut::ok(())
-                    }));
+                    .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
+                    .map(move |_, act, _| {
+                        let _ = act
+                            .insert_user(&sid, &tid)
+                            .map_err(|e| act.parse_send_res_error(&sid, &e))
+                            .map(|_| act.send_message(&sid, SendMessage::Success("Join Talk Success").stringify().as_str()));
+                    })
+                );
             }
             Err(e) => self.parse_send_res_error(&sid, &e)
         }
@@ -524,10 +526,10 @@ impl Handler<RemoveUserRequest> for TalkService {
 
                     let query = if self_is_owner && other_is_admin {
                         format!("UPDATE talks SET admin=array_remove(admin, {}), users=array_remove(users, {})
-                WHERE id={} AND owner={}", uid, uid, tid, sid)
+                        WHERE id={} AND owner={}", uid, uid, tid, sid)
                     } else if (self_is_admin || self_is_owner) && !other_is_admin && !other_is_owner {
                         format!("UPDATE talks SET users=array_remove(users, {})
-                WHERE id={}", uid, tid)
+                        WHERE id={}", uid, tid)
                     } else {
                         let _ = addr.do_send(SessionMessage("!!! Unauthorized".to_owned()));
                         return;
@@ -542,7 +544,7 @@ impl Handler<RemoveUserRequest> for TalkService {
                                     let s = serde_json::to_string(&t)
                                         .unwrap_or("!!! Stringify Error.But user removal success".to_owned());
 
-                                    match act.insert_talk(&sid, t) {
+                                    match act.insert_talk(t) {
                                         Ok(_) => act.send_message_many(&sid, &tid, &s),
                                         Err(e) => act.parse_send_res_error(&sid, &e)
                                     };
@@ -589,8 +591,10 @@ impl Handler<Admin> for TalkService {
                 match r {
                     Ok(t) => {
                         let s = SendMessage::Talks(vec![&t]).stringify();
-                        act.insert_talk(&sid, t);
-                        act.send_message(&sid, &s);
+                        let _ = act
+                            .insert_talk(t)
+                            .map_err(|e| act.parse_send_res_error(&sid, &e))
+                            .map(|_| act.send_message(&sid, s.as_str()));
                     }
                     Err(e) => act.parse_send_res_error(&sid, &e)
                 };
@@ -604,24 +608,31 @@ impl Handler<DeleteTalkRequest> for TalkService {
     type Result = ();
 
     fn handle(&mut self, msg: DeleteTalkRequest, ctx: &mut Context<Self>) {
-        if let Some(_) = self.get_talk(&msg.talk_id).ok() {
-            let session_id = msg.session_id.unwrap();
+        let tid = msg.talk_id;
+
+        if let Some(_) = self.get_talk(&tid).ok() {
+            let sid = msg.session_id.unwrap();
 
             //ToDo: delete talk table and messages here.
             let query = format!("
                         DELETE FROM talks
-                        WHERE id = {}", msg.talk_id);
+                        WHERE id = {}", tid);
 
-            let f = self.simple_query_row(query.as_str())
+            ctx.spawn(self
+                .simple_query_row(query.as_str())
                 .into_actor(self)
-                .map_err(move |_, act, _| {
-                    act.send_message(&session_id, "!!! Database Error")
-                })
-                .map(move |_, act, _| {
-                    act.remove_talk(&session_id, &msg.talk_id);
-                });
-
-            ctx.spawn(f);
+                .then(move |r, act, _| {
+                    match r {
+                        Ok(_) => {
+                            let _ = act
+                                .remove_talk(&msg.talk_id)
+                                .map_err(|e| act.parse_send_res_error(&sid, &e))
+                                .map(|_| act.send_message(&sid, SendMessage::Success("Delete Talk Success").stringify().as_str()));
+                        }
+                        Err(e) => act.parse_send_res_error(&sid, &e)
+                    };
+                    fut::ok(())
+                }));
         }
     }
 }

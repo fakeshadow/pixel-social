@@ -25,15 +25,14 @@ use crate::{
     TalkService,
 };
 use crate::model::{
-    actors::{SharedConn, ErrorReportRecipient},
-    errors::{ResError, RepError},
+    actors::SharedConn,
+    errors::ResError,
     category::Category,
     post::Post,
     topic::Topic,
     user::User,
     common::{GetSelfId, GetUserId},
 };
-use crate::handler::messenger::ErrorReportMessage;
 
 
 // page offsets of list query
@@ -292,10 +291,11 @@ impl TalkService {
             arg.push(("last_online", Utc::now().naive_utc().to_string()))
         }
 
-        self.query_cmd(
-            cmd("HMSET")
-                .arg(&format!("user:{}:set", uid))
-                .arg(arg))
+        cmd("HMSET")
+            .arg(&format!("user:{}:set", uid))
+            .arg(arg)
+            .query_async(self.get_conn())
+            .from_err()
             .map(|(_, ())| ())
     }
 
@@ -366,64 +366,15 @@ impl GetSharedConn for TalkService {
 }
 
 impl GetSharedConn for CacheService {
-    fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
+    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
 }
 
 impl GetSharedConn for CacheUpdateService {
-    fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
+    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
 }
 
 impl GetSharedConn for MessageService {
-    fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
-    }
-}
-
-// send error report to message actor when redis cmds returns an error.
-// pipeline query are not included in error report as pipeline error usually result in query hit database so it's not fatal.
-trait QueryAsync
-    where Self: GetSharedConn {
-    fn query_cmd<T>(
-        &self,
-        c: &mut redis::Cmd,
-    ) -> Box<dyn Future<Item=(SharedConn, T), Error=ResError>>
-        where T: std::marker::Send + redis::FromRedisValue + 'static {
-        let r = self.get_rep();
-
-        Box::new(c
-            .query_async(self.get_conn())
-            .map_err(|e| {
-                if let Some(r) = r {
-                    let _ = r.do_send(ErrorReportMessage(RepError::RedisRead));
-                }
-                e
-            })
-            .from_err())
-    }
-
-    fn get_rep(&self) -> Option<ErrorReportRecipient>;
-}
-
-impl QueryAsync for TalkService {
-    fn get_rep(&self) -> Option<ErrorReportRecipient> {
-        self.error_report.as_ref().map(Clone::clone)
-    }
-}
-
-impl QueryAsync for CacheService {
-    fn get_rep(&self) -> Option<ErrorReportRecipient> {
-        self.error_report.as_ref().map(Clone::clone)
-    }
-}
-
-impl QueryAsync for CacheUpdateService {
-    fn get_rep(&self) -> Option<ErrorReportRecipient> {
-        None
-    }
+    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
 }
 
 
@@ -436,18 +387,19 @@ fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32
 }
 
 trait IdsFromList
-    where Self: GetSharedConn + QueryAsync {
+    where Self: GetSharedConn {
     fn ids_from_cache_list(
         &self,
         list_key: &str,
         start: isize,
         end: isize,
     ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
-        Box::new(self
-            .query_cmd(cmd("lrange")
-                .arg(list_key)
-                .arg(start)
-                .arg(end))
+        Box::new(cmd("lrange")
+            .arg(list_key)
+            .arg(start)
+            .arg(end)
+            .query_async(self.get_conn())
+            .from_err()
             .and_then(count_ids))
     }
 }
@@ -458,7 +410,7 @@ impl IdsFromList for CacheUpdateService {}
 
 
 trait IdsFromSortedSet
-    where Self: GetSharedConn + QueryAsync {
+    where Self: GetSharedConn {
     fn ids_from_cache_zrange(
         &self,
         is_rev: bool,
@@ -471,14 +423,15 @@ trait IdsFromSortedSet
             ("zrangebyscore", "-inf", "+inf")
         };
 
-        Box::new(self
-            .query_cmd(cmd(cmd_key)
-                .arg(list_key)
-                .arg(start)
-                .arg(end)
-                .arg("LIMIT")
-                .arg(offset)
-                .arg(20))
+        Box::new(cmd(cmd_key)
+            .arg(list_key)
+            .arg(start)
+            .arg(end)
+            .arg("LIMIT")
+            .arg(offset)
+            .arg(20)
+            .query_async(self.get_conn())
+            .from_err()
             .and_then(count_ids))
     }
 }
@@ -487,13 +440,15 @@ impl IdsFromSortedSet for CacheService {}
 
 
 trait HashMapFromCache
-    where Self: GetSharedConn + QueryAsync {
+    where Self: GetSharedConn {
     fn hash_map_from_cache(
         &self,
         key: &str,
     ) -> Box<dyn Future<Item=HashMap<String, String>, Error=ResError>> {
-        Box::new(self
-            .query_cmd(cmd("HGETALL").arg(key))
+        Box::new(cmd("HGETALL")
+            .arg(key)
+            .query_async(self.get_conn())
+            .from_err()
             .map(|(_, hm)| hm))
     }
 }
@@ -833,13 +788,7 @@ impl<T> Handler<UpdateCache<T>> for CacheService
 
         ctx.spawn(f
             .into_actor(self)
-            .map_err(|_, act, _| {
-                // send error report when updating cache return an error.
-                // Failed cahe update could result in fork of data between database and cache and it's need to be fixed with a cache refresh.
-                if let Some(r) = act.error_report.as_ref() {
-                    let _ = r.do_send(ErrorReportMessage(RepError::RedisWrite));
-                }
-            })
+            .map_err(|_, _, _| ())
             .map(|_, _, _| ()));
     }
 }

@@ -45,7 +45,7 @@ fn main() -> std::io::Result<()> {
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
-    let use_report = env::var("USE_ERROR_SMS_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
+    let use_report = env::var("USE_ERROR_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
     // create or clear database tables as well as redis cache
     let args: Vec<String> = env::args().collect();
@@ -82,7 +82,8 @@ fn main() -> std::io::Result<()> {
     let recipient = if use_report { Some(msg.recipient()) } else { None };
 
     // async connection pool test. currently running much slower than actor pattern.
-    let pool = crate::router::test::build_pool(&database_url, &mut sys);
+//    let pool = crate::router::test::build_pool(&mut sys);
+
 
     HttpServer::new(move || {
         // Use a cache pass through flow for data. Anything can't be find in redis will hit database and trigger an cache update.
@@ -105,7 +106,11 @@ fn main() -> std::io::Result<()> {
             .data(talk)
             .data(db)
             .data(cache)
-            .data(pool.clone())
+            .data_factory(|| {
+                let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
+                crate::model::actors::DatabaseServiceRaw::init(database_url.as_str())
+            })
+//            .data(pool.clone())
             .wrap(Logger::default())
             .wrap(actix_cors::Cors::new()
                 .allowed_origin(&cors_origin)
@@ -150,8 +155,9 @@ fn main() -> std::io::Result<()> {
                 .service(web::resource("/activation/mail/{uuid}").route(web::get().to_async(router::auth::activate_by_mail)))
             )
             .service(web::scope("/test")
+                .service(web::resource("/raw").route(web::get().to_async(router::test::raw)))
                 .service(web::resource("/pg_actor").route(web::get().to_async(router::test::actor)))
-                .service(web::resource("/bb8_pool").route(web::get().to_async(router::test::pool)))
+                .service(web::resource("/l337_pool").route(web::get().to_async(router::test::pool)))
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/topic").route(web::get().to_async(router::test::add_topic)))
                 .service(web::resource("/post").route(web::get().to_async(router::test::add_post)))

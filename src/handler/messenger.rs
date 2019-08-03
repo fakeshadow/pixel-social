@@ -40,6 +40,7 @@ use crate::model::{
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
 const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
+const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
 
 impl MessageService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
@@ -147,6 +148,7 @@ impl MessageService {
         ErrorReport {
             use_report,
             reports: hashbrown::HashMap::new(),
+            last_report_time: std::time::Instant::now(),
         }
     }
 
@@ -288,6 +290,19 @@ impl ErrorReport {
 
             let rep = &mut self.reports;
 
+            if let Some(v) = rep.get_mut(&RepError::Redis) {
+                if *v > 2 {
+                    message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
+                }
+                *v = 0;
+            }
+            if let Some(v) = rep.get_mut(&RepError::Database) {
+                if *v > 2 {
+                    message.push_str("%0aDatabase Service Error(Could be database server offline/IO error)");
+                }
+                *v = 0;
+            }
+
             if let Some(v) = rep.get_mut(&RepError::SMS) {
                 if *v > 2 {
                     message.push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
@@ -312,25 +327,7 @@ impl ErrorReport {
                 }
                 *v = 0;
             }
-            if let Some(v) = rep.get_mut(&RepError::RedisRead) {
-                if *v > 5 {
-                    message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
-                }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::RedisWrite) {
-                if *v > 0 {
-                    message.push_str("%0aRedis Writing Error !!! Need to be fix asap");
-                }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::Database) {
-                if *v > 2 {
-                    message.push_str("%0aDatabase Service Error(Could be database server offline/IO error)");
-                }
-                *v = 0;
-            }
-            if !message.ends_with(":") {
+            if !message.ends_with(":") && std::time::Instant::now().duration_since(self.last_report_time) > REPORT_TIME_GAP {
                 Ok(message)
             } else {
                 Err(())
