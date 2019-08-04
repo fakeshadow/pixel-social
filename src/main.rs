@@ -23,8 +23,6 @@ mod util;
 use crate::{
     model::actors::{
         CacheUpdateService,
-        DatabaseService,
-        TalkService,
         MessageService,
     },
     util::startup::{
@@ -44,7 +42,6 @@ fn main() -> std::io::Result<()> {
     let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
     let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
     let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
-    let use_report = env::var("USE_ERROR_REPORT").unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
 
     // create or clear database tables as well as redis cache
     let args: Vec<String> = env::args().collect();
@@ -68,52 +65,51 @@ fn main() -> std::io::Result<()> {
     // build_cache function returns global variables.
     let (global, global_talks, global_sessions) =
         build_cache(&database_url, &redis_url, is_init).expect("Unable to build cache");
+    let global = web::Data::new(global);
 
     let mut sys = System::new("PixelShare");
 
-    // cache update actor is not passed into data.
+    // cache update and message actor are not passed into data.
     let _ = CacheUpdateService::connect(&redis_url);
-
-    // msg actor pass a recpient of RepError type message to other actors and handle.
-    let msg = MessageService::connect(&redis_url);
-
-    // a Option<Recipent> is passed to every actor for sending errors to message actor.
-    let recipient = if use_report { Some(msg.recipient()) } else { None };
+    let _ = MessageService::connect(&redis_url);
 
     // async connection pool test. currently running much slower than actor pattern.
-//    let pool = crate::router::test::build_pool(&mut sys);
-
+    let pool = crate::router::test::build_pool(&mut sys);
 
     HttpServer::new(move || {
-        // Use a cache pass through flow for data. Anything can't be find in redis will hit database and trigger an cache update.
-        // Most cache have a expire time or can be removed manually.
-        // Only a small portion of data are stored permanently in redis (Mainly the reply_count and reply_timestamp of topics/categories/posts).
+        // Use a cache pass through flow for data.
+        // Anything can't be find in redis will hit postgres and trigger an redis update.
+        // Most data have a expire time in redis or can be removed manually.
+        // Only a small portion of data are stored permanently in redis
+        // (Mainly the reply_count and reply_timestamp of topics/categories/posts). The online status and last online time for user
         // Removing them will result in some ordering issue.
 
-        // the server will generate one async actor for each worker. The num of workers is tied to cpu core count.
-        let db = DatabaseService::connect(&database_url, recipient.clone());
+        let talks = global_talks.clone();
+        let sessions = global_sessions.clone();
 
+        let db_url = database_url.clone();
+        let rd_url = redis_url.clone();
 
-        let talk = TalkService::connect(
-            &database_url,
-            &redis_url,
-            global_talks.clone(),
-            global_sessions.clone(),
-            recipient.clone());
+        let db_url_2 = database_url.clone();
+        let rd_url_2 = redis_url.clone();
 
         App::new()
-            .data(global.clone())
-            .data(talk)
-            .data(db)
-            .data_factory(|| {
-                let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
-                crate::handler::db::DatabaseServiceRaw::init(database_url.as_str())
-            })
-            .data_factory(|| {
-                let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
-                crate::handler::cache::CacheServiceRaw::init(redis_url.as_str())
-            })
-//            .data(pool.clone())
+            .register_data(global.clone())
+            // The server will generate one async actor for each worker. The num of workers is tied to cpu core count.
+            // talks and sessions are shared between threads. postgres and redis connections are local thread only.
+            .data_factory(move ||
+                crate::model::actors::TalkService::init(
+                    db_url.as_str(),
+                    rd_url.as_str(),
+                    talks.clone(),
+                    sessions.clone(),
+                )
+            )
+            // db service and cache service are data struct contains postgres connection, prepared querys and redis connections.
+            // They are not shared between threads.
+            .data_factory(move || crate::handler::db::DatabaseService::init(db_url_2.as_str()))
+            .data_factory(move || crate::handler::cache::CacheService::init(rd_url_2.as_str()))
+            .data(pool.clone())
             .wrap(Logger::default())
             .wrap(actix_cors::Cors::new()
                 .allowed_origin(&cors_origin)

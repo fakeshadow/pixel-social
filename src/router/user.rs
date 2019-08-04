@@ -6,13 +6,13 @@ use crate::model::{
     user::UpdateRequest,
 };
 use crate::handler::auth::UserJwt;
-use crate::handler::db::DatabaseServiceRaw;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::db::DatabaseService;
+use crate::handler::cache::CacheService;
 
 pub fn get(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Path<(u32)>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = req.into_inner();
@@ -44,8 +44,8 @@ pub fn get(
 
 pub fn update(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Json<UpdateRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_id(Some(jwt.user_id));

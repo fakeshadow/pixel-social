@@ -9,13 +9,13 @@ use crate::model::{
     common::GlobalVars,
     post::{Post, PostRequest},
 };
-use crate::handler::db::DatabaseServiceRaw;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::db::DatabaseService;
+use crate::handler::cache::CacheService;
 
 pub fn add(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -28,11 +28,11 @@ pub fn add(
                 .into_future()
                 .from_err()
                 .and_then(move |_| db
-                    .add_post(req, global.get_ref().clone())
+                    .add_post(req, global.get_ref())
                     .from_err()
                     .and_then(move |p| {
                         let res = HttpResponse::Ok().json(&p);
-                        cache.update_posts(vec![p]);
+                        cache.add_post(p);
                         res
                     }))
         })
@@ -41,8 +41,8 @@ pub fn add(
 pub fn update(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
     req.check_update()
@@ -60,15 +60,15 @@ pub fn update(
 
 pub fn get(
     id: Path<u32>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
     cache.get_posts_from_ids(vec![id])
         .then(move |r| match r {
             Ok((p, i)) => Either::A(attach_users_form_res(i, p, db, cache, false)),
             Err(_) => Either::B(db
-                .get_by_id_with_uid(&db.posts_by_id, &vec![id])
+                .get_by_id_with_uid(&db.posts_by_id, vec![id])
                 .from_err()
                 .and_then(move |(p, i)| attach_users_form_res(i, p, db, cache, true)))
         })
@@ -77,8 +77,8 @@ pub fn get(
 fn attach_users_form_res(
     ids: Vec<u32>,
     p: Vec<Post>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     update_p: bool,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     cache.get_users_from_ids(ids)

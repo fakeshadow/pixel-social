@@ -18,7 +18,6 @@ use redis::{cmd, Client, pipe, aio::SharedConnection};
 use crate::{
     CacheUpdateService,
     MessageService,
-    TalkService,
 };
 use crate::model::{
     actors::SharedConn,
@@ -29,6 +28,7 @@ use crate::model::{
     user::User,
     common::{GetSelfId, GetUserId},
 };
+use crate::model::actors::TalkService;
 
 // page offsets of list query
 const LIMIT: isize = 20;
@@ -42,63 +42,59 @@ const HASH_LIFE: usize = 172800;
 const MAIL_LIFE: usize = 3600;
 
 
-pub struct CacheServiceRaw {
+pub struct CacheService {
     pub cache: SharedConnection
 }
 
-impl CacheServiceRaw {
-    pub fn init(redis_url: &str) -> impl Future<Item=CacheServiceRaw, Error=()> {
+impl CacheService {
+    pub fn init(redis_url: &str) -> impl Future<Item=CacheService, Error=()> {
         Client::open(redis_url)
             .unwrap_or_else(|e| panic!("{:?}", e))
             .get_shared_async_connection()
             .map_err(|e| panic!("{:?}", e))
-            .map(|c| CacheServiceRaw {
+            .map(|c| CacheService {
                 cache: c
             })
     }
 }
 
-impl GetSharedConn for CacheServiceRaw {
+impl GetSharedConn for CacheService {
     fn get_conn(&self) -> SharedConnection { self.cache.clone() }
 }
 
-impl IdsFromList for CacheServiceRaw {}
+impl IdsFromList for CacheService {}
 
-impl IdsFromSortedSet for CacheServiceRaw {}
+impl IdsFromSortedSet for CacheService {}
 
-impl HashMapFromCache for CacheServiceRaw {}
+impl HashMapFromCache for CacheService {}
 
-impl HashMapsFromCache for CacheServiceRaw {}
+impl HashMapsFromCache for CacheService {}
 
-impl HashMapsTupleFromCache for CacheServiceRaw {}
+impl HashMapsTupleFromCache for CacheService {}
 
-impl ParseHashMaps for CacheServiceRaw {}
+impl ParseHashMaps for CacheService {}
 
-impl ParseHashMapsWithUids for CacheServiceRaw {}
+impl ParseHashMapsWithUids for CacheService {}
 
-impl UsersFromCache for CacheServiceRaw {}
+impl UsersFromCache for CacheService {}
 
-impl CategoriesFromCache for CacheServiceRaw {}
+impl CategoriesFromCache for CacheService {}
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
-        let f = build_hmsets(self.get_conn(), u, "user", false);
-        actix_rt::spawn(f);
+        actix_rt::spawn(build_hmsets(self.get_conn(), u, "user", false));
     }
 
     pub fn update_categories(&self, u: Vec<Category>) {
-        let f = build_hmsets(self.get_conn(), u, "user", false);
-        actix_rt::spawn(f);
+        actix_rt::spawn(build_hmsets(self.get_conn(), u, "category", false));
     }
 
     pub fn update_topics(&self, t: Vec<Topic>) {
-        let f = build_hmsets(self.get_conn(), t, "topic", true);
-        actix_rt::spawn(f);
+        actix_rt::spawn(build_hmsets(self.get_conn(), t, "topic", true));
     }
 
     pub fn update_posts(&self, t: Vec<Post>) {
-        let f = build_hmsets(self.get_conn(), t, "post", true);
-        actix_rt::spawn(f);
+        actix_rt::spawn(build_hmsets(self.get_conn(), t, "post", true));
     }
 
     pub fn get_hash_map(&self, key: &str) -> impl Future<Item=HashMap<String, String>, Error=ResError> {
@@ -180,7 +176,7 @@ impl CacheServiceRaw {
             .and_then(|(h, i)| Self::parse_hashmaps_with_uids(h, i))
     }
 
-    pub fn add_topic(&self, t: Topic) -> impl Future<Item=(), Error=()> {
+    pub fn add_topic(&self, t: Topic) {
         let mut pip = pipe();
         pip.atomic();
 
@@ -207,13 +203,14 @@ impl CacheServiceRaw {
             .cmd("ZINCRBY").arg("category:all:topics_reply").arg(0).arg(tid).ignore()
             .cmd("ZINCRBY").arg(&format!("category:{}:topics_reply", cid)).arg(0).arg(tid).ignore();
 
-        pip.query_async(self.get_conn())
-            //ToDo: add send report error handling
+        actix_rt::spawn(pip
+            .query_async(self.get_conn())
+            //ToDo: add error handling
             .map_err(|_| ())
-            .map(|(_, ())| ())
+            .map(|(_, ())| ()))
     }
 
-    pub fn add_post(&self, p: Post) -> impl Future<Item=(), Error=()> {
+    pub fn add_post(&self, p: Post) {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -279,12 +276,14 @@ impl CacheServiceRaw {
                 .cmd("ZINCRBY").arg(&format!("topic:{}:posts_reply", tid)).arg(1).arg(LEX_BASE - pid).ignore();
         }
 
-        pip.query_async(self.get_conn())
+        actix_rt::spawn(pip
+            .query_async(self.get_conn())
             .map_err(|_| ())
             .map(|(_, ())| ())
+        )
     }
 
-    pub fn add_category(&self, c: Category) -> impl Future<Item=(), Error=()> {
+    pub fn add_category(&self, c: Category) {
         let id = c.id;
         let c: Vec<(&str, String)> = c.into();
 
@@ -294,9 +293,10 @@ impl CacheServiceRaw {
         pip.cmd("rpush").arg("category_id:meta").arg(id).ignore()
             .cmd("HMSET").arg(&format!("category:{}:set", id)).arg(c).ignore();
 
-        pip.query_async(self.get_conn())
+        actix_rt::spawn(pip
+            .query_async(self.get_conn())
             .map_err(|_| ())
-            .map(|(_, ())| ())
+            .map(|(_, ())| ()))
     }
 
     pub fn add_activation_mail_self(&self, uid: u32, uuid: String, mail: String) -> impl Future<Item=(), Error=()> {
@@ -322,7 +322,6 @@ impl CacheServiceRaw {
             })
     }
 }
-
 
 impl TalkService {
     pub fn set_online_status(
@@ -350,6 +349,18 @@ impl TalkService {
         self.users_from_cache(uids)
     }
 }
+
+impl GetSharedConn for TalkService {
+    fn get_conn(&self) -> SharedConn { self.cache.clone() }
+}
+
+impl HashMapsFromCache for TalkService {}
+
+impl ParseHashMaps for TalkService {}
+
+impl UsersFromCache for TalkService {}
+
+
 
 impl MessageService {
     pub fn get_queue(&self, key: &str) -> impl Future<Item=String, Error=ResError> {
@@ -408,14 +419,6 @@ pub trait GetSharedConn {
     fn get_conn(&self) -> SharedConn;
 }
 
-impl GetSharedConn for TalkService {
-    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
-}
-
-//impl GetSharedConn for CacheService {
-//    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
-//}
-
 impl GetSharedConn for CacheUpdateService {
     fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
 }
@@ -451,8 +454,6 @@ pub trait IdsFromList
     }
 }
 
-//impl IdsFromList for CacheService {}
-
 impl IdsFromList for CacheUpdateService {}
 
 
@@ -483,8 +484,6 @@ trait IdsFromSortedSet
     }
 }
 
-//impl IdsFromSortedSet for CacheService {}
-
 
 trait HashMapFromCache
     where Self: GetSharedConn {
@@ -499,8 +498,6 @@ trait HashMapFromCache
             .map(|(_, hm)| hm))
     }
 }
-
-//impl HashMapFromCache for CacheService {}
 
 
 pub trait HashMapsFromCache {
@@ -526,9 +523,6 @@ pub trait HashMapsFromCache {
     }
 }
 
-impl HashMapsFromCache for TalkService {}
-
-//impl HashMapsFromCache for CacheService {}
 
 impl HashMapsFromCache for CacheUpdateService {}
 
@@ -557,8 +551,6 @@ trait HashMapsTupleFromCache {
     }
 }
 
-//impl HashMapsTupleFromCache for CacheService {}
-
 
 pub trait ParseHashMaps
     where Self: HashMapsFromCache {
@@ -578,11 +570,9 @@ pub trait ParseHashMaps
     }
 }
 
-//impl ParseHashMaps for CacheService {}
 
 impl ParseHashMaps for CacheUpdateService {}
 
-impl ParseHashMaps for TalkService {}
 
 
 trait ParseHashMapsWithUids
@@ -608,8 +598,6 @@ trait ParseHashMapsWithUids
     }
 }
 
-//impl ParseHashMapsWithUids for CacheService {}
-
 
 pub trait UsersFromCache
     where Self: HashMapsFromCache + GetSharedConn + ParseHashMaps {
@@ -619,9 +607,6 @@ pub trait UsersFromCache
     }
 }
 
-impl UsersFromCache for TalkService {}
-
-//impl UsersFromCache for CacheService {}
 
 
 pub trait CategoriesFromCache
@@ -635,7 +620,6 @@ pub trait CategoriesFromCache
     }
 }
 
-//impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
 
@@ -810,7 +794,6 @@ impl Into<Vec<(&str, String)>> for Category {
     }
 }
 
-//ToDo: add a buffer to store failed update cache request.
 pub fn build_hmsets<T>(
     conn: SharedConn,
     vec: Vec<T>,
@@ -841,7 +824,7 @@ pub fn build_hmsets<T>(
 }
 
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn remove_category(
         &self,
         cid: u32,
@@ -897,6 +880,7 @@ impl CacheServiceRaw {
         )
     }
 }
+
 
 fn update_post_count(
     cid: u32,

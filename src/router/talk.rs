@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::util::jwt::JwtPayLoad;
 use crate::model::{
-    actors::{TALK, TalkService, WsChatSession},
+    actors::{TALK,  WsChatSession},
     talk::SessionMessage,
 };
 use crate::handler::{
@@ -32,6 +32,7 @@ use crate::handler::{
         GetHistory,
     },
 };
+use crate::model::actors::TalkService;
 
 pub fn talk(
     req: HttpRequest,

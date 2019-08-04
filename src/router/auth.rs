@@ -7,13 +7,13 @@ use crate::model::{
     user::{AuthRequest, UpdateRequest, User},
 };
 use crate::handler::{
-    db::DatabaseServiceRaw,
-    cache::CacheServiceRaw,
+    db::DatabaseService,
+    cache::CacheService,
     auth::UserJwt,
 };
 
 pub fn login(
-    db: Data<DatabaseServiceRaw>,
+    db: Data<DatabaseService>,
     req: Json<AuthRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     req.check_login()
@@ -26,8 +26,8 @@ pub fn login(
 }
 
 pub fn register(
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     global: Data<GlobalVars>,
     req: Json<AuthRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -38,7 +38,7 @@ pub fn register(
             .check_register(req.into_inner())
             .from_err()
             .and_then(move |req| db
-                .register(req, global.get_ref().clone())
+                .register(req, global.get_ref())
                 .from_err()
                 .and_then(move |u| {
                     let res = HttpResponse::Ok().json(&u);
@@ -51,8 +51,8 @@ pub fn register(
 }
 
 pub fn activate_by_mail(
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Path<(String)>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let uuid = req.into_inner();
@@ -73,8 +73,8 @@ pub fn activate_by_mail(
 
 pub fn add_activation_mail(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     cache.get_users_from_ids(vec![jwt.user_id])
         .then(move |r| match r {
@@ -89,7 +89,7 @@ pub fn add_activation_mail(
         })
 }
 
-fn pop_user_add_activation_mail(cache: Data<CacheServiceRaw>, mut u: Vec<User>) -> HttpResponse {
+fn pop_user_add_activation_mail(cache: Data<CacheService>, mut u: Vec<User>) -> HttpResponse {
     match u.pop() {
         Some(u) => {
             cache.add_activation_mail(u);

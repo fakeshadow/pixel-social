@@ -13,8 +13,8 @@ pub fn hello_world() -> Result<HttpResponse, Error> {
 
 pub fn add_topic(
     global: Data<GlobalVars>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = TopicRequest {
         id: None,
@@ -25,7 +25,7 @@ pub fn add_topic(
         body: Some("test body".to_string()),
         is_locked: None,
     };
-    db.add_topic(req, global.get_ref().clone())
+    db.add_topic(req, global.get_ref())
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
@@ -36,8 +36,8 @@ pub fn add_topic(
 
 pub fn add_post(
     global: Data<GlobalVars>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = PostRequest {
         id: None,
@@ -48,7 +48,7 @@ pub fn add_post(
         post_content: Some("t4265335423646e".to_owned()),
         is_locked: None,
     };
-    db.add_post(req, global.get_ref().clone())
+    db.add_post(req, global.get_ref())
         .from_err()
         .and_then(move |p| {
             let res = HttpResponse::Ok().json(&p);
@@ -60,8 +60,8 @@ pub fn add_post(
 use crate::model::topic::Topic;
 use crate::model::errors::ResError;
 use std::convert::TryFrom;
-use crate::handler::db::DatabaseServiceRaw;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::db::DatabaseService;
+use crate::handler::cache::CacheService;
 
 pub type Pool = l337::Pool<l337_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
 
@@ -91,11 +91,11 @@ pub fn pool(
 }
 
 pub fn raw(
-    db: Data<DatabaseServiceRaw>
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     db.get_by_id_with_uid(
         &db.topics_by_id,
-        &vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+        vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
         .from_err()
         .and_then(move |(t, ids)|
             db.get_by_id(&db.users_by_id, &ids)
@@ -107,7 +107,7 @@ pub fn raw(
 }
 
 pub fn raw_cache(
-    cache: Data<CacheServiceRaw>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     cache.get_topics_pop(1, 1)
         .from_err()

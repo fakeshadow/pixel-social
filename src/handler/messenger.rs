@@ -35,7 +35,7 @@ use crate::model::{
     messenger::{Mail, Mailer, Twilio, SmsMessage},
     errors::{ErrorReport, ResError, RepError},
 };
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::cache::CacheService;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
@@ -242,7 +242,7 @@ impl MessageService {
     }
 }
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn add_activation_mail(
         &self,
         u: User,
@@ -251,7 +251,7 @@ impl CacheServiceRaw {
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Some(m) = serde_json::to_string(&mail).ok() {
-            actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
+           actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }
 }

@@ -12,16 +12,16 @@ use crate::model::{
     post::{Post, PostRequest},
 };
 use crate::handler::{
-    db::DatabaseServiceRaw,
-    cache::CacheServiceRaw
+    db::DatabaseService,
+    cache::CacheService
 };
 
 
-impl DatabaseServiceRaw {
+impl DatabaseService {
     pub fn add_post(
         &self,
         p: PostRequest,
-        g: GlobalVars,
+        g: &GlobalVars,
     ) -> impl Future<Item=Post, Error=ResError> {
         let id = match g.lock() {
             Ok(mut var) => var.next_pid(),
@@ -30,7 +30,7 @@ impl DatabaseServiceRaw {
 
         let now = &Utc::now().naive_local();
 
-        use crate::handler::db::QueryRaw;
+        use crate::handler::db::Query;
         Either::B(self
             .query_one_trait(
                 &self.insert_post,
@@ -78,13 +78,13 @@ impl DatabaseServiceRaw {
         }
         query.push_str(" RETURNING *");
 
-        use crate::handler::db::SimpleQueryRaw;
+        use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
     }
 }
 
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn get_posts_from_ids(
         &self,
         ids: Vec<u32>,

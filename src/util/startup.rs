@@ -52,8 +52,11 @@ pub fn build_cache(
     // build list by create_time desc order for each category. build category meta list with all category ids
 
     let mut last_tid = 1;
+    let mut last_cid = 1;
     let mut category_ids = Vec::new();
     for cat in categories.iter() {
+
+        if cat.id > last_cid { last_cid = cat.id };
         category_ids.push(cat.id);
 
         // count posts and topics for each category and write to redis
@@ -218,7 +221,7 @@ pub fn build_cache(
 
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
-    Ok((GlobalVar::new(last_uid, last_pid, last_tid), talks, sessions))
+    Ok((GlobalVar::new(last_uid, last_pid, last_tid, last_cid), talks, sessions))
 }
 
 // return true if built tables success

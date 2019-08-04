@@ -3,7 +3,6 @@ use futures::{Future, IntoFuture};
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 
 use crate::model::{
-    actors::{DB},
     post::PostRequest,
     topic::TopicRequest,
     common::Validator,
@@ -12,71 +11,59 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    category::{UpdateCategory, AddCategory},
-    admin::UpdateCategoryCheck,
-    db::DatabaseServiceRaw,
-    cache::CacheServiceRaw,
+    db::DatabaseService,
+    cache::CacheService,
 };
+use crate::model::common::GlobalVars;
 
 pub fn add_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CacheServiceRaw>,
-    db: Data<DB>,
+    global: Data<GlobalVars>,
+    cache: Data<CacheService>,
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
     req.check_new()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateCategoryCheck(jwt.privilege, req))
+            .admin_add_category(jwt.privilege, req, global.get_ref())
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |req|
-                db.send(AddCategory(req))
-                    .from_err()
-                    .and_then(|r| r)
-                    .from_err()
-                    .and_then(move |c| {
-                        let res = HttpResponse::Ok().json(&c);
-                        cache.add_category(c);
-                        res
-                    })))
+            .and_then(move |c| {
+                let res = HttpResponse::Ok().json(&c);
+                cache.add_category(c);
+                res
+            })
+        )
 }
 
 pub fn update_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CacheServiceRaw>,
-    db: Data<DB>,
+    cache: Data<CacheService>,
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
     req.check_update()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateCategoryCheck(jwt.privilege, req))
+            .admin_update_category(jwt.privilege, req)
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |req|
-                db.send(UpdateCategory(req))
-                    .from_err()
-                    .and_then(|r| r)
-                    .from_err()
-                    .and_then(move |c| {
-                        let res = HttpResponse::Ok().json(&c);
-                        cache.update_categories(c);
-                        res
-                    })))
+            .and_then(move |c| {
+                let res = HttpResponse::Ok().json(&c);
+                cache.update_categories(vec![c]);
+                res
+            })
+        )
 }
 
 pub fn remove_category(
     jwt: UserJwt,
     id: Path<(u32)>,
-    cache: Data<CacheServiceRaw>,
-    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheService>,
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
 
@@ -92,8 +79,8 @@ pub fn remove_category(
 pub fn update_user(
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    cache: Data<CacheServiceRaw>,
-    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheService>,
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_id(None);
     req.check_update()
@@ -117,8 +104,8 @@ pub fn update_user(
 pub fn update_topic(
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    cache: Data<CacheServiceRaw>,
-    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheService>,
+    db: Data<DatabaseService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(None);
     req.check_update()
@@ -138,8 +125,8 @@ pub fn update_topic(
 pub fn update_post(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(None);
     req.check_update()

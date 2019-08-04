@@ -15,11 +15,14 @@ use chrono::{NaiveDateTime, Utc};
 use hashbrown::HashMap;
 
 use crate::model::{
-    actors::{TalkService, WsChatSession},
+    actors::WsChatSession,
     errors::ResError,
     user::User,
     talk::{Talk, PublicMessage, PrivateMessage, SessionMessage},
 };
+use crate::model::actors::TalkService;
+use crate::handler::db::{Query, SimpleQuery};
+use crate::model::talk::Relation;
 
 impl TalkService {
     // ToDo: add online offline filter
@@ -265,7 +268,9 @@ impl Handler<TextMessageRequest> for TalkService {
         if let Some(tid) = msg.talk_id {
             let now = Utc::now().naive_utc();
             ctx.spawn(self
-                .insert_pub_msg(&[&tid, &msg.text, &now])
+                .query_one_trait::<PublicMessage>(
+                    &self.insert_pub_msg,
+                    &[&tid, &msg.text, &now])
                 .into_actor(self)
                 .map_err(move |e, act, _|
                     act.parse_send_res_error(&sid, &e)
@@ -287,7 +292,9 @@ impl Handler<TextMessageRequest> for TalkService {
         if let Some(uid) = msg.user_id {
             let now = Utc::now().naive_utc();
             ctx.spawn(self
-                .insert_prv_msg(&[&msg.session_id.unwrap(), &uid, &msg.text, &now])
+                .query_one_trait::<PrivateMessage>(
+                    &self.insert_prv_msg,
+                    &[&msg.session_id.unwrap(), &uid, &msg.text, &now])
                 .into_actor(self)
                 .map_err(move |e, act, _|
                     act.parse_send_res_error(&sid, &e)
@@ -342,7 +349,7 @@ impl Handler<CreateTalkRequest> for TalkService {
         let sid = msg.session_id.unwrap();
 
         let f = self
-            .simple_query_single_row::<u32>("SELECT Max(id) FROM talks", 0)
+            .simple_query_single_row_trait::<u32>("SELECT Max(id) FROM talks", 0)
             .into_actor(self)
             // ToDo: handle error.
             .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
@@ -354,7 +361,7 @@ impl Handler<CreateTalkRequest> for TalkService {
                     VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
                     RETURNING *", cid, msg.name, msg.description, msg.owner, cid, cid);
 
-                act.simple_query_one(query.as_str())
+                act.simple_query_one_trait(query.as_str())
                     .into_actor(act)
                     .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
                     .map(move |t, act, _| {
@@ -386,7 +393,9 @@ impl Handler<JoinTalkRequest> for TalkService {
                 };
 
                 ctx.spawn(self
-                    .join_talk(&[&sid, &tid])
+                    .query_one_trait::<Talk>(
+                        &self.join_talk,
+                        &[&sid, &tid])
                     .into_actor(self)
                     .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
                     .map(move |_, act, _| {
@@ -448,9 +457,12 @@ impl Handler<UserRelationRequest> for TalkService {
     type Result = ();
     fn handle(&mut self, msg: UserRelationRequest, ctx: &mut Context<Self>) {
         let f = self
-            .get_relations(&[msg.session_id.as_ref().unwrap()])
+            .query_one_trait(
+                &self.get_relations,
+                &[msg.session_id.as_ref().unwrap()],
+            )
             .into_actor(self)
-            .then(move |r, act, _| {
+            .then(move |r: Result<Relation, ResError>, act, _| {
                 match r {
                     Ok(r) => act.send_message(
                         msg.session_id.as_ref().unwrap(),
@@ -477,7 +489,10 @@ impl Handler<GetHistory> for TalkService {
                 match msg.talk_id {
                     Some(tid) => {
                         let f = self
-                            .get_pub_msg(&[&tid, &time])
+                            .get_by_time(
+                                &self.get_pub_msg,
+                                &[&tid, &time],
+                            )
                             .into_actor(self)
                             .then(move |r: Result<Vec<PublicMessage>, ResError>, _, _| {
                                 match r {
@@ -536,7 +551,7 @@ impl Handler<RemoveUserRequest> for TalkService {
                     };
 
                     ctx.spawn(self
-                        .simple_query_one::<Talk>(query.as_str())
+                        .simple_query_one_trait::<Talk>(query.as_str())
                         .into_actor(self)
                         .then(move |r, act, _| {
                             match r {
@@ -585,7 +600,7 @@ impl Handler<Admin> for TalkService {
         query.push_str(&format!(" WHERE id = {}", tid));
 
         let f = self
-            .simple_query_one::<Talk>(query.as_str())
+            .simple_query_one_trait::<Talk>(query.as_str())
             .into_actor(self)
             .then(move |r, act, _| {
                 match r {
@@ -619,9 +634,9 @@ impl Handler<DeleteTalkRequest> for TalkService {
                         WHERE id = {}", tid);
 
             ctx.spawn(self
-                .simple_query_row(query.as_str())
+                .simple_query_row_trait(query.as_str())
                 .into_actor(self)
-                .then(move |r, act, _| {
+                .then(move |r: Result<_, ResError>, act, _| {
                     match r {
                         Ok(_) => {
                             let _ = act

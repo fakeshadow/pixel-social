@@ -16,14 +16,14 @@ use crate::model::{
     errors::ResError,
     topic::Topic,
 };
-use crate::handler::db::DatabaseServiceRaw;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::db::DatabaseService;
+use crate::handler::cache::CacheService;
 
-impl DatabaseServiceRaw {
+impl DatabaseService {
     pub fn add_topic(
         &self,
         t: TopicRequest,
-        g: GlobalVars,
+        g: &GlobalVars,
     ) -> impl Future<Item=Topic, Error=ResError> {
         let id = match g.lock() {
             Ok(mut var) => var.next_tid(),
@@ -31,7 +31,7 @@ impl DatabaseServiceRaw {
         };
         let now = &Utc::now().naive_utc();
 
-        use crate::handler::db::QueryRaw;
+        use crate::handler::db::Query;
         Either::B(self
             .query_one_trait(
                 &self.insert_topic,
@@ -80,13 +80,13 @@ impl DatabaseServiceRaw {
         }
         query.push_str("RETURNING *");
 
-        use crate::handler::db::SimpleQueryRaw;
+        use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
     }
 }
 
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn get_topics_pop(
         &self,
         cid: u32,

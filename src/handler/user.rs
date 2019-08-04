@@ -12,11 +12,11 @@ use crate::model::{
     errors::ResError,
     user::{User, UpdateRequest},
 };
-use crate::handler::db::DatabaseServiceRaw;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::db::DatabaseService;
+use crate::handler::cache::CacheService;
 
 
-impl DatabaseServiceRaw {
+impl DatabaseService {
     pub fn update_user(
         &self,
         u: UpdateRequest,
@@ -46,12 +46,12 @@ impl DatabaseServiceRaw {
             return Either::A(ft_err(ResError::BadRequest));
         }
 
-        use crate::handler::db::SimpleQueryRaw;
+        use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
     }
 }
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn get_users_from_ids(
         &self,
         mut ids: Vec<u32>

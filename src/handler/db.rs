@@ -8,11 +8,9 @@ use futures::{
     future::join_all,
 };
 
-//use actix::prelude::*;
 use chrono::NaiveDateTime;
 use tokio_postgres::{connect, Client, NoTls, Statement, Row, SimpleQueryRow, SimpleQueryMessage, types::ToSql};
 
-use crate::{DatabaseService, TalkService};
 use crate::model::{
     common::{GetSelfId, GetUserId},
     errors::ResError,
@@ -22,10 +20,11 @@ use crate::model::{
     topic::Topic,
     talk::{Talk, Relation, PublicMessage, PrivateMessage},
 };
+use crate::model::actors::TalkService;
 
-
-pub struct DatabaseServiceRaw {
-    pub client: std::cell::RefCell<Client>,
+// database service is not an actor.
+pub struct DatabaseService {
+    pub db: std::cell::RefCell<Client>,
     pub topics_by_id: Statement,
     pub posts_by_id: Statement,
     pub users_by_id: Statement,
@@ -34,8 +33,8 @@ pub struct DatabaseServiceRaw {
     pub insert_user: Statement,
 }
 
-impl DatabaseServiceRaw {
-    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseServiceRaw, Error=()> {
+impl DatabaseService {
+    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseService, Error=()> {
         connect(postgres_url, NoTls)
             .map_err(|e| panic!("{:?}", e))
             .and_then(|(mut c, conn)| {
@@ -58,21 +57,30 @@ impl DatabaseServiceRaw {
 
                 join_all(vec![p6, p5, p4, p3, p2, p1])
                     .map_err(move |e| panic!("{:?}", e))
-                    .map(|mut v| DatabaseServiceRaw {
-                        client: std::cell::RefCell::new(c),
-                        topics_by_id: v.pop().unwrap(),
-                        posts_by_id: v.pop().unwrap(),
-                        users_by_id: v.pop().unwrap(),
-                        insert_topic: v.pop().unwrap(),
-                        insert_post: v.pop().unwrap(),
-                        insert_user: v.pop().unwrap(),
+                    .map(|mut v| {
+                        let topics_by_id = v.pop().unwrap();
+                        let posts_by_id = v.pop().unwrap();
+                        let users_by_id = v.pop().unwrap();
+                        let insert_topic = v.pop().unwrap();
+                        let insert_post = v.pop().unwrap();
+                        let insert_user = v.pop().unwrap();
+
+                        DatabaseService {
+                            db: std::cell::RefCell::new(c),
+                            topics_by_id,
+                            posts_by_id,
+                            users_by_id,
+                            insert_topic,
+                            insert_post,
+                            insert_user,
+                        }
                     })
             })
     }
 }
 
 
-pub trait QueryRaw {
+pub trait Query {
     fn query_trait(
         &self,
         st: &Statement,
@@ -98,16 +106,36 @@ pub trait QueryRaw {
             .and_then(T::try_from))
     }
 
+    fn query_multi_trait<T>(
+        &self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        vec: Vec<T>,
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where T: TryFrom<Row, Error=ResError> + 'static {
+        Box::new(self.query_trait(st, p)
+            .fold(vec, move |mut vec, r| {
+                if let Some(r) = T::try_from(r).ok() {
+                    vec.push(r);
+                }
+                Ok::<_, ResError>(vec)
+            }))
+    }
+
     fn get_client(&self) -> RefMut<Client>;
 }
 
-impl QueryRaw for DatabaseServiceRaw {
-    fn get_client(&self) -> RefMut<Client> { self.client.borrow_mut() }
+impl Query for DatabaseService {
+    fn get_client(&self) -> RefMut<Client> { self.db.borrow_mut() }
+}
+
+impl Query for TalkService {
+    fn get_client(&self) -> RefMut<Client> { self.db.borrow_mut() }
 }
 
 
-pub trait SimpleQueryRaw {
-    fn simple_query_single_row_trait<T>(&mut self, q: &str, i: usize) -> Box<dyn Future<Item=T, Error=ResError>>
+pub trait SimpleQuery {
+    fn simple_query_single_row_trait<T>(&self, q: &str, i: usize) -> Box<dyn Future<Item=T, Error=ResError>>
         where T: std::str::FromStr + 'static {
         Box::new(self
             .simple_query_row_trait(q)
@@ -172,15 +200,19 @@ pub trait SimpleQueryRaw {
     fn get_client_trait(&self) -> RefMut<Client>;
 }
 
-impl SimpleQueryRaw for DatabaseServiceRaw {
+impl SimpleQuery for DatabaseService {
+    fn get_client_trait(&self) -> RefMut<Client> { self.get_client() }
+}
+
+impl SimpleQuery for TalkService {
     fn get_client_trait(&self) -> RefMut<Client> { self.get_client() }
 }
 
 
-impl DatabaseServiceRaw {
-    pub fn get_by_id_with_uid<T>(&self, st: &Statement, ids: &Vec<u32>) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: GetUserId + TryFrom<Row, Error=ResError> + 'static {
-        self.query_trait(st, &[ids])
+impl DatabaseService {
+    pub fn get_by_id_with_uid<T>(&self, st: &Statement, ids: Vec<u32>) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where T: GetUserId + GetSelfId + TryFrom<Row, Error=ResError> + 'static {
+        self.query_trait(st, &[&ids])
             .fold((Vec::with_capacity(20), Vec::with_capacity(20)), move |(mut v, mut ids), r| {
                 if let Some(r) = T::try_from(r).ok() {
                     ids.push(r.get_user_id());
@@ -188,17 +220,23 @@ impl DatabaseServiceRaw {
                 }
                 Ok::<_, ResError>((v, ids))
             })
+            .map(move |(mut v, uids)| {
+                let mut result = Vec::with_capacity(v.len());
+                for i in 0..ids.len() {
+                    for j in 0..v.len() {
+                        if &ids[i] == v[j].self_id() {
+                            result.push(v.swap_remove(j));
+                            break;
+                        }
+                    }
+                }
+                (result, uids)
+            })
     }
 
     pub fn get_by_id<T>(&self, st: &Statement, ids: &Vec<u32>) -> impl Future<Item=Vec<T>, Error=ResError>
         where T: TryFrom<Row, Error=ResError> + 'static {
-        self.query_trait(st, &[&ids])
-            .fold(Vec::with_capacity(21), move |mut v, r| {
-                if let Some(r) = T::try_from(r).ok() {
-                    v.push(r)
-                }
-                Ok::<_, ResError>(v)
-            })
+        self.query_multi_trait(st, &[&ids], Vec::with_capacity(21))
     }
 
     pub fn unique_username_email_check(
@@ -222,256 +260,12 @@ impl DatabaseServiceRaw {
     }
 }
 
-
-impl DatabaseService {
-    pub fn simple_query_single_row<T>(&mut self, query: &str, index: usize) -> impl Future<Item=T, Error=ResError>
-        where T: std::str::FromStr + 'static {
-        self.simple_query_single_row_trait(query, index)
-    }
-
-    pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
-        where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        self.simple_query_one_trait(query)
-    }
-}
-
 impl TalkService {
-    pub fn insert_pub_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=PublicMessage, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.insert_pub_msg.as_ref().unwrap(),
-            p)
-    }
-
-    pub fn insert_prv_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=PrivateMessage, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.insert_prv_msg.as_ref().unwrap(),
-            p)
-    }
-
-    pub fn get_pub_msg(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Vec<PublicMessage>, Error=ResError> {
-        Self::query_multi(
-            self.db.as_mut().unwrap(),
-            self.get_pub_msg.as_ref().unwrap(),
-            p,
-            Vec::with_capacity(20))
-    }
-
-    pub fn join_talk(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Talk, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.join_talk.as_ref().unwrap(),
-            p)
-    }
-
-    pub fn get_relations(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Relation, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.get_relations.as_ref().unwrap(),
-            p)
-    }
-
-    pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
-        where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        self.simple_query_one_trait(query)
-    }
-
-    pub fn simple_query_single_row<T>(&mut self, query: &str, index: usize) -> impl Future<Item=T, Error=ResError>
-        where T: std::str::FromStr + 'static {
-        self.simple_query_single_row_trait(query, index)
-    }
-
-    pub fn simple_query_row(&mut self, query: &str) -> impl Future<Item=SimpleQueryRow, Error=ResError> {
-        self.simple_query_row_trait(query)
-    }
-}
-
-
-trait SimpleQuery {
-    fn simple_query_stream(
-        &mut self,
-        query: &str,
-    ) -> Box<dyn futures::Stream<Item=SimpleQueryMessage, Error=ResError>> {
-        Box::new(self
-            .get_client()
-            .simple_query(&query)
-            .from_err())
-    }
-    fn get_client(&mut self) -> &mut Client;
-}
-
-impl SimpleQuery for DatabaseService {
-    fn get_client(&mut self) -> &mut Client {
-        self.db.as_mut().unwrap()
-    }
-}
-
-impl SimpleQuery for TalkService {
-    fn get_client(&mut self) -> &mut Client {
-        self.db.as_mut().unwrap()
-    }
-}
-
-
-trait Query {
-    fn query_stream(
-        c: &mut Client,
-        st: &Statement,
-        p: &[&dyn ToSql],
-    ) -> Box<dyn futures::Stream<Item=Row, Error=ResError>> {
-        Box::new(c
-            .query(st, p)
-            .from_err())
-    }
-}
-
-impl Query for DatabaseService {}
-
-impl Query for TalkService {}
-
-
-trait SimpleQueryOne
-    where Self: SimpleQuery {
-    fn simple_query_single_row_trait<T>(&mut self, q: &str, i: usize) -> Box<dyn Future<Item=T, Error=ResError>>
-        where T: std::str::FromStr + 'static {
-        Box::new(self
-            .simple_query_row_trait(q)
-            .and_then(move |r| r
-                .get(i)
-                .ok_or(ResError::BadRequest)?
-                .parse::<T>()
-                .map_err(|_| ResError::ParseError)))
-    }
-
-    fn simple_query_one_trait<T>(&mut self, q: &str) -> Box<dyn Future<Item=T, Error=ResError>>
-        where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        Box::new(self
-            .simple_query_row_trait(q)
-            .and_then(T::try_from))
-    }
-
-    fn simple_query_row_trait(&mut self, q: &str) -> Box<dyn Future<Item=SimpleQueryRow, Error=ResError>> {
-        Box::new(self
-            .simple_query_stream(q)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .and_then(|(r, _)| match r {
-                Some(m) => match m {
-                    SimpleQueryMessage::Row(r) => Ok(r),
-                    _ => Err(ResError::NoContent)
-                }
-                None => Err(ResError::BadRequest)
-            }))
-    }
-}
-
-impl SimpleQueryOne for TalkService {}
-
-impl SimpleQueryOne for DatabaseService {}
-
-
-trait SimpleQueryMulti
-    where Self: SimpleQuery {
-    fn simple_query_multi_trait<T>(&mut self, q: &str, vec: Vec<T>) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
-        where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        Box::new(self
-            .simple_query_stream(q)
-            .fold(vec, move |mut vec, r| {
-                if let SimpleQueryMessage::Row(r) = r {
-                    if let Some(v) = T::try_from(r).ok() {
-                        vec.push(v);
-                    }
-                }
-                Ok::<_, ResError>(vec)
-            }))
-    }
-}
-
-impl SimpleQueryMulti for DatabaseService {}
-
-
-trait QueryOne
-    where Self: Query {
-    fn query_one_trait<T>(
-        c: &mut Client,
-        st: &Statement,
-        p: &[&dyn ToSql],
-    ) -> Box<dyn Future<Item=T, Error=ResError>>
+    pub fn get_by_time<T>(&self, st: &Statement, p: &[&dyn ToSql]) -> impl Future<Item=Vec<T>, Error=ResError>
         where T: TryFrom<Row, Error=ResError> + 'static {
-        Box::new(Self::query_stream(c, st, p)
-            .into_future()
-            .map_err(|(e, _)| e)
-            .and_then(|(r, _)| r.ok_or(ResError::BadRequest))
-            .and_then(T::try_from))
+        self.query_multi_trait(st, p, Vec::with_capacity(20))
     }
 }
-
-impl QueryOne for DatabaseService {}
-
-impl QueryOne for TalkService {}
-
-
-trait QueryMulti
-    where Self: Query {
-    fn query_multi<T>(
-        c: &mut Client,
-        st: &Statement,
-        p: &[&dyn ToSql],
-        vec: Vec<T>,
-    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
-        where T: TryFrom<Row> + 'static {
-        Box::new(Self::query_stream(c, st, p)
-            .fold(vec, move |mut vec, r| {
-                if let Some(r) = T::try_from(r).ok() {
-                    vec.push(r);
-                }
-                Ok::<_, ResError>(vec)
-            }))
-    }
-}
-
-impl QueryMulti for DatabaseService {}
-
-impl QueryMulti for TalkService {}
-
-
-trait QueryMultiWithUids
-    where Self: Query {
-    fn query_multi_with_uid<T>(
-        c: &mut Client,
-        st: &Statement,
-        ids_org: Vec<u32>,
-    ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
-        where T: TryFrom<Row> + GetSelfId + GetUserId + 'static {
-        let len = ids_org.len();
-        let vec = Vec::with_capacity(len);
-        let ids = Vec::with_capacity(len);
-
-        Box::new(Self::query_stream(c, st, &[&ids_org])
-            .fold((vec, ids), move |(mut vec, mut ids), r| {
-                if let Some(v) = T::try_from(r).ok() {
-                    ids.push(v.get_user_id());
-                    vec.push(v);
-                }
-                Ok::<_, ResError>((vec, ids))
-            })
-            .map(move |(mut v, uids)| {
-                let mut result = Vec::with_capacity(v.len());
-                for i in 0..ids_org.len() {
-                    for j in 0..v.len() {
-                        if &ids_org[i] == v[j].self_id() {
-                            result.push(v.swap_remove(j));
-                            break;
-                        }
-                    }
-                }
-                (result, uids)
-            }))
-    }
-}
-
-impl QueryMultiWithUids for DatabaseService {}
 
 
 impl TryFrom<Row> for User {

@@ -1,5 +1,4 @@
 use futures::future::{
-    IntoFuture,
     Either,
     err as ft_err,
 };
@@ -7,36 +6,19 @@ use futures::future::{
 use actix::prelude::*;
 
 use crate::model::{
-    actors::DatabaseService,
     user::UpdateRequest,
-    category::CategoryRequest,
+    category::{CategoryRequest, Category},
     errors::ResError,
     post::PostRequest,
     topic::TopicRequest,
 };
-use crate::handler::db::DatabaseServiceRaw;
+use crate::handler::db::DatabaseService;
 use crate::model::topic::Topic;
 use crate::model::post::Post;
+use crate::model::common::GlobalVars;
 
 
-pub struct UpdateCategoryCheck(pub u32, pub CategoryRequest);
-
-impl Message for UpdateCategoryCheck {
-    type Result = Result<CategoryRequest, ResError>;
-}
-
-impl Handler<UpdateCategoryCheck> for DatabaseService {
-    type Result = ResponseFuture<CategoryRequest, ResError>;
-
-    fn handle(&mut self, msg: UpdateCategoryCheck, _: &mut Self::Context) -> Self::Result {
-        Box::new(update_category_check(&msg.0, &msg.1)
-            .into_future()
-            .map(|_| msg.1))
-    }
-}
-
-
-impl DatabaseServiceRaw {
+impl DatabaseService {
     pub fn admin_update_topic(
         &self,
         self_level: u32,
@@ -55,6 +37,29 @@ impl DatabaseServiceRaw {
     ) -> impl Future<Item=Post, Error=ResError> {
         match update_post_check(&self_level, &p) {
             Ok(_) => Either::A(self.update_post(p)),
+            Err(e) => Either::B(ft_err(e))
+        }
+    }
+
+    pub fn admin_add_category(
+        &self,
+        self_level: u32,
+        req: CategoryRequest,
+        g: &GlobalVars,
+    ) -> impl Future<Item=Category, Error=ResError> {
+        match update_category_check(&self_level, &req) {
+            Ok(_) => Either::A(self.add_category(req, g)),
+            Err(e) => Either::B(ft_err(e))
+        }
+    }
+
+    pub fn admin_update_category(
+        &self,
+        self_level: u32,
+        req: CategoryRequest,
+    ) -> impl Future<Item=Category, Error=ResError> {
+        match update_category_check(&self_level, &req) {
+            Ok(_) => Either::A(self.update_category(req)),
             Err(e) => Either::B(ft_err(e))
         }
     }

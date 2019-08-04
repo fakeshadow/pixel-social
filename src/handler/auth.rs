@@ -10,9 +10,9 @@ use crate::model::{
     common::GlobalVars,
     errors::ResError,
 };
-use crate::handler::db::DatabaseServiceRaw;
+use crate::handler::db::DatabaseService;
 use crate::util::jwt::JwtPayLoad;
-use crate::handler::cache::CacheServiceRaw;
+use crate::handler::cache::CacheService;
 
 pub type UserJwt = JwtPayLoad;
 
@@ -38,7 +38,7 @@ impl FromRequest for JwtPayLoad {
 }
 
 
-impl DatabaseServiceRaw {
+impl DatabaseService {
     pub fn check_register(
         &self,
         r: AuthRequest,
@@ -52,7 +52,7 @@ impl DatabaseServiceRaw {
     pub fn register(
         &self,
         r: AuthRequest,
-        g: GlobalVars,
+        g: &GlobalVars,
     ) -> impl Future<Item=User, Error=ResError> {
         let hash = match crate::util::hash::hash_password(&r.password) {
             Ok(hash) => hash,
@@ -67,7 +67,7 @@ impl DatabaseServiceRaw {
             Err(e) => return Either::A(ft_err(e))
         };
 
-        use crate::handler::db::QueryRaw;
+        use crate::handler::db::Query;
         Either::B(self
             .query_one_trait(
                 &self.insert_user,
@@ -89,7 +89,7 @@ impl DatabaseServiceRaw {
     ) -> impl Future<Item=AuthResponse, Error=ResError> {
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        use crate::handler::db::SimpleQueryRaw;
+        use crate::handler::db::SimpleQuery;
         self.simple_query_row_trait(query.as_str())
             .and_then(move |r| {
                 let hash = r.get(3).ok_or(ResError::InternalServerError)?;
@@ -104,7 +104,7 @@ impl DatabaseServiceRaw {
     }
 }
 
-impl CacheServiceRaw {
+impl CacheService {
     pub fn get_uid_from_uuid(
         &self,
         uuid: &str,

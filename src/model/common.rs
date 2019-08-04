@@ -84,7 +84,7 @@ pub trait Validator {
 }
 
 // type and struct for global vars
-pub type GlobalVars = Arc<Mutex<GlobalVar>>;
+pub type GlobalVars = Mutex<GlobalVar>;
 pub type GlobalTalks = Arc<RwLock<HashMap<u32, Talk>>>;
 pub type GlobalSessions = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
 
@@ -98,20 +98,23 @@ pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalks, GlobalSe
     (Arc::new(RwLock::new(talks)), Arc::new(RwLock::new(HashMap::new())))
 }
 
-#[derive(Clone, Debug)]
 pub struct GlobalVar {
     pub last_uid: u32,
     pub last_pid: u32,
     pub last_tid: u32,
+    pub last_cid: u32,
 }
 
 impl GlobalVar {
-    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32) -> GlobalVars {
-        Arc::new(Mutex::new(GlobalVar {
-            last_uid,
-            last_pid,
-            last_tid,
-        }))
+    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32, last_cid: u32) -> GlobalVars {
+        Mutex::new(
+            GlobalVar {
+                last_uid,
+                last_pid,
+                last_tid,
+                last_cid,
+            }
+        )
     }
     pub fn next_uid(&mut self) -> u32 {
         self.last_uid += 1;
@@ -124,5 +127,9 @@ impl GlobalVar {
     pub fn next_tid(&mut self) -> u32 {
         self.last_tid += 1;
         self.last_tid
+    }
+    pub fn next_cid(&mut self) -> u32 {
+        self.last_cid += 1;
+        self.last_cid
     }
 }

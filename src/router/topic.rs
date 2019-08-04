@@ -9,14 +9,14 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    db::DatabaseServiceRaw,
-    cache::CacheServiceRaw
+    db::DatabaseService,
+    cache::CacheService
 };
 
 pub fn add(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Json<TopicRequest>,
     global: Data<GlobalVars>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -29,7 +29,7 @@ pub fn add(
                 .into_future()
                 .from_err()
                 .and_then(move |_| db
-                    .add_topic(req, global.get_ref().clone()))
+                    .add_topic(req, global.get_ref()))
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
@@ -41,8 +41,8 @@ pub fn add(
 
 pub fn update(
     jwt: UserJwt,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     req: Json<TopicRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
@@ -61,8 +61,8 @@ pub fn update(
 
 pub fn get_oldest(
     req: Path<(u32, i64)>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (tid, page) = req.into_inner();
 
@@ -72,8 +72,8 @@ pub fn get_oldest(
 
 pub fn get_popular(
     req: Path<(u32, i64)>,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (tid, page) = req.into_inner();
     cache.get_posts_pop(tid, page)
@@ -83,8 +83,8 @@ pub fn get_popular(
 fn get(
     tid: u32,
     page: i64,
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     result: Result<(Vec<Post>, Vec<u32>), ResError>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     match result {
@@ -97,7 +97,7 @@ fn get(
         }),
         Err(e) => Either::B(match e {
             ResError::IdsFromCache(ids) => Either::B(db
-                .get_by_id_with_uid(&db.posts_by_id, &ids)
+                .get_by_id_with_uid(&db.posts_by_id, ids)
                 .from_err()
                 .and_then(move |(p, ids)| {
                     if page == 1 {
@@ -112,8 +112,8 @@ fn get(
 }
 
 fn get_topic_attach_user_form_res(
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     tid: u32,
     mut ids: Vec<u32>,
     p: Vec<Post>,
@@ -127,7 +127,7 @@ fn get_topic_attach_user_form_res(
             }
             Err(e) => Either::B(match e {
                 ResError::IdsFromCache(tids) => Either::A(db
-                    .get_by_id_with_uid(&db.topics_by_id, &tids)
+                    .get_by_id_with_uid(&db.topics_by_id, tids)
                     .from_err()
                     .and_then(move |(t, mut id)| {
                         ids.append(&mut id);
@@ -141,8 +141,8 @@ fn get_topic_attach_user_form_res(
 
 
 fn attach_user_form_res(
-    db: Data<DatabaseServiceRaw>,
-    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
     ids: Vec<u32>,
     t: Vec<Topic>,
     p: Vec<Post>,
