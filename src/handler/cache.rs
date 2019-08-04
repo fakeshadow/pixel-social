@@ -10,16 +10,12 @@ use actix::prelude::{
     AsyncContext,
     Context,
     Future,
-    Handler,
-    Message,
-    ResponseFuture,
     WrapFuture,
 };
 use chrono::{Utc, NaiveDateTime};
-use redis::{cmd, pipe};
+use redis::{cmd, Client, pipe, aio::SharedConnection};
 
 use crate::{
-    CacheService,
     CacheUpdateService,
     MessageService,
     TalkService,
@@ -34,7 +30,6 @@ use crate::model::{
     common::{GetSelfId, GetUserId},
 };
 
-
 // page offsets of list query
 const LIMIT: isize = 20;
 // use LEX_BASE minus pid and tid before adding to zrange.
@@ -46,13 +41,64 @@ const HASH_LIFE: usize = 172800;
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
-impl CacheService {
-    pub fn get_users_cache_from_ids(&self, uids: Vec<u32>) -> impl Future<Item=Vec<User>, Error=ResError> {
-        self.users_from_cache(uids)
+
+pub struct CacheServiceRaw {
+    pub cache: SharedConnection
+}
+
+impl CacheServiceRaw {
+    pub fn init(redis_url: &str) -> impl Future<Item=CacheServiceRaw, Error=()> {
+        Client::open(redis_url)
+            .unwrap_or_else(|e| panic!("{:?}", e))
+            .get_shared_async_connection()
+            .map_err(|e| panic!("{:?}", e))
+            .map(|c| CacheServiceRaw {
+                cache: c
+            })
+    }
+}
+
+impl GetSharedConn for CacheServiceRaw {
+    fn get_conn(&self) -> SharedConnection { self.cache.clone() }
+}
+
+impl IdsFromList for CacheServiceRaw {}
+
+impl IdsFromSortedSet for CacheServiceRaw {}
+
+impl HashMapFromCache for CacheServiceRaw {}
+
+impl HashMapsFromCache for CacheServiceRaw {}
+
+impl HashMapsTupleFromCache for CacheServiceRaw {}
+
+impl ParseHashMaps for CacheServiceRaw {}
+
+impl ParseHashMapsWithUids for CacheServiceRaw {}
+
+impl UsersFromCache for CacheServiceRaw {}
+
+impl CategoriesFromCache for CacheServiceRaw {}
+
+impl CacheServiceRaw {
+    pub fn update_users(&self, u: Vec<User>) {
+        let f = build_hmsets(self.get_conn(), u, "user", false);
+        actix_rt::spawn(f);
     }
 
-    pub fn get_categories_cache(&self) -> impl Future<Item=Vec<Category>, Error=ResError> {
-        self.categories_from_cache()
+    pub fn update_categories(&self, u: Vec<Category>) {
+        let f = build_hmsets(self.get_conn(), u, "user", false);
+        actix_rt::spawn(f);
+    }
+
+    pub fn update_topics(&self, t: Vec<Topic>) {
+        let f = build_hmsets(self.get_conn(), t, "topic", true);
+        actix_rt::spawn(f);
+    }
+
+    pub fn update_posts(&self, t: Vec<Post>) {
+        let f = build_hmsets(self.get_conn(), t, "post", true);
+        actix_rt::spawn(f);
     }
 
     pub fn get_hash_map(&self, key: &str) -> impl Future<Item=HashMap<String, String>, Error=ResError> {
@@ -134,7 +180,7 @@ impl CacheService {
             .and_then(|(h, i)| Self::parse_hashmaps_with_uids(h, i))
     }
 
-    pub fn add_topic_cache(&self, t: Topic) -> impl Future<Item=(), Error=()> {
+    pub fn add_topic(&self, t: Topic) -> impl Future<Item=(), Error=()> {
         let mut pip = pipe();
         pip.atomic();
 
@@ -167,7 +213,7 @@ impl CacheService {
             .map(|(_, ())| ())
     }
 
-    pub fn add_post_cache(&self, p: Post) -> impl Future<Item=(), Error=()> {
+    pub fn add_post(&self, p: Post) -> impl Future<Item=(), Error=()> {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -238,7 +284,7 @@ impl CacheService {
             .map(|(_, ())| ())
     }
 
-    pub fn add_category_cache(&self, c: Category) -> impl Future<Item=(), Error=()> {
+    pub fn add_category(&self, c: Category) -> impl Future<Item=(), Error=()> {
         let id = c.id;
         let c: Vec<(&str, String)> = c.into();
 
@@ -253,7 +299,7 @@ impl CacheService {
             .map(|(_, ())| ())
     }
 
-    pub fn add_activation_mail(&self, uid: u32, uuid: String, mail: String) -> impl Future<Item=(), Error=()> {
+    pub fn add_activation_mail_self(&self, uid: u32, uuid: String, mail: String) -> impl Future<Item=(), Error=()> {
         cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
@@ -276,6 +322,7 @@ impl CacheService {
             })
     }
 }
+
 
 impl TalkService {
     pub fn set_online_status(
@@ -357,7 +404,7 @@ impl CacheUpdateService {
 }
 
 
-trait GetSharedConn {
+pub trait GetSharedConn {
     fn get_conn(&self) -> SharedConn;
 }
 
@@ -365,9 +412,9 @@ impl GetSharedConn for TalkService {
     fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
 }
 
-impl GetSharedConn for CacheService {
-    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
-}
+//impl GetSharedConn for CacheService {
+//    fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
+//}
 
 impl GetSharedConn for CacheUpdateService {
     fn get_conn(&self) -> SharedConn { self.cache.as_ref().unwrap().clone() }
@@ -386,7 +433,7 @@ fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32
     }
 }
 
-trait IdsFromList
+pub trait IdsFromList
     where Self: GetSharedConn {
     fn ids_from_cache_list(
         &self,
@@ -404,7 +451,7 @@ trait IdsFromList
     }
 }
 
-impl IdsFromList for CacheService {}
+//impl IdsFromList for CacheService {}
 
 impl IdsFromList for CacheUpdateService {}
 
@@ -436,7 +483,7 @@ trait IdsFromSortedSet
     }
 }
 
-impl IdsFromSortedSet for CacheService {}
+//impl IdsFromSortedSet for CacheService {}
 
 
 trait HashMapFromCache
@@ -453,10 +500,10 @@ trait HashMapFromCache
     }
 }
 
-impl HashMapFromCache for CacheService {}
+//impl HashMapFromCache for CacheService {}
 
 
-trait HashMapsFromCache {
+pub trait HashMapsFromCache {
     fn hmsets_from_cache(
         conn: SharedConn,
         ids: Vec<u32>,
@@ -481,7 +528,7 @@ trait HashMapsFromCache {
 
 impl HashMapsFromCache for TalkService {}
 
-impl HashMapsFromCache for CacheService {}
+//impl HashMapsFromCache for CacheService {}
 
 impl HashMapsFromCache for CacheUpdateService {}
 
@@ -510,10 +557,10 @@ trait HashMapsTupleFromCache {
     }
 }
 
-impl HashMapsTupleFromCache for CacheService {}
+//impl HashMapsTupleFromCache for CacheService {}
 
 
-trait ParseHashMaps
+pub trait ParseHashMaps
     where Self: HashMapsFromCache {
     fn parse_hashmaps<T>(hash: Vec<HashMap<String, String>>, ids: Vec<u32>) -> Result<Vec<T>, ResError>
         where T: TryFrom<HashMap<String, String>, Error=ResError> {
@@ -531,7 +578,7 @@ trait ParseHashMaps
     }
 }
 
-impl ParseHashMaps for CacheService {}
+//impl ParseHashMaps for CacheService {}
 
 impl ParseHashMaps for CacheUpdateService {}
 
@@ -561,10 +608,10 @@ trait ParseHashMapsWithUids
     }
 }
 
-impl ParseHashMapsWithUids for CacheService {}
+//impl ParseHashMapsWithUids for CacheService {}
 
 
-trait UsersFromCache
+pub trait UsersFromCache
     where Self: HashMapsFromCache + GetSharedConn + ParseHashMaps {
     fn users_from_cache(&self, uids: Vec<u32>) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
         Box::new(Self::hmsets_from_cache(self.get_conn(), uids, "user")
@@ -574,10 +621,10 @@ trait UsersFromCache
 
 impl UsersFromCache for TalkService {}
 
-impl UsersFromCache for CacheService {}
+//impl UsersFromCache for CacheService {}
 
 
-trait CategoriesFromCache
+pub trait CategoriesFromCache
     where Self: HashMapsFromCache + GetSharedConn + IdsFromList + ParseHashMaps {
     fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(self
@@ -588,7 +635,7 @@ trait CategoriesFromCache
     }
 }
 
-impl CategoriesFromCache for CacheService {}
+//impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
 
@@ -763,36 +810,6 @@ impl Into<Vec<(&str, String)>> for Category {
     }
 }
 
-
-#[derive(Message)]
-pub enum UpdateCache<T> {
-    Topic(Vec<T>),
-    Post(Vec<T>),
-    User(Vec<T>),
-    Category(Vec<T>),
-}
-
-impl<T> Handler<UpdateCache<T>> for CacheService
-    where T: GetSelfId + Into<Vec<(&'static str, String)>> + 'static {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateCache<T>, ctx: &mut Self::Context) -> Self::Result {
-        let conn = self.get_conn();
-
-        let f = match msg {
-            UpdateCache::Topic(vec) => build_hmsets(conn, vec, "topic", true),
-            UpdateCache::Post(vec) => build_hmsets(conn, vec, "post", true),
-            UpdateCache::User(vec) => build_hmsets(conn, vec, "user", false),
-            UpdateCache::Category(vec) => build_hmsets(conn, vec, "category", false)
-        };
-
-        ctx.spawn(f
-            .into_actor(self)
-            .map_err(|_, _, _| ())
-            .map(|_, _, _| ()));
-    }
-}
-
 //ToDo: add a buffer to store failed update cache request.
 pub fn build_hmsets<T>(
     conn: SharedConn,
@@ -820,22 +837,15 @@ pub fn build_hmsets<T>(
     }
     pip.query_async(conn)
         .map_err(|_| ())
-        .map(|(_, ())| ())
+        .map(|(_, ())| println!("updating cache"))
 }
 
 
-pub struct RemoveCategoryCache(pub u32);
-
-impl Message for RemoveCategoryCache {
-    type Result = Result<(), ResError>;
-}
-
-impl Handler<RemoveCategoryCache> for CacheService {
-    type Result = ResponseFuture<(), ResError>;
-
-    fn handle(&mut self, msg: RemoveCategoryCache, _: &mut Self::Context) -> Self::Result {
-        let cid = msg.0;
-
+impl CacheServiceRaw {
+    pub fn remove_category(
+        &self,
+        cid: u32,
+    ) -> impl Future<Item=(), Error=ResError> {
         // ToDo: future test the pipe lined cmd results
         let mut pip = pipe();
         pip.atomic();
@@ -844,7 +854,7 @@ impl Handler<RemoveCategoryCache> for CacheService {
             .cmd("del").arg(&format!("category:{}:topics_reply", cid)).ignore()
             .cmd("ZRANGE").arg(&format!("category:{}:topics_time", cid)).arg(0).arg(-1);
 
-        let f = pip.query_async(self.get_conn())
+        pip.query_async(self.get_conn())
             .from_err()
             .and_then(move |(conn, tids): (SharedConn, Vec<u32>)| {
                 let mut pip = pipe();
@@ -871,40 +881,20 @@ impl Handler<RemoveCategoryCache> for CacheService {
                             .from_err()
                             .map(|(_, ())| ())
                     })
-            });
-
-        Box::new(f)
+            })
     }
-}
 
-#[derive(Message)]
-pub enum DeleteCache {
-    Mail(String),
-}
-
-impl Handler<DeleteCache> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: DeleteCache, ctx: &mut Self::Context) -> Self::Result {
-        let (key, fields) = match msg {
-            DeleteCache::Mail(uuid) => {
-                let fields = ["user_id", "uuid"];
-                (uuid, fields)
-            }
-        };
-
-        let mut pip = pipe();
-        pip.atomic();
-
-        for f in fields.to_vec() {
-            pip.cmd("hdel").arg(&key).arg(f);
-        }
-
-        ctx.spawn(pip
-            .query_async(self.get_conn())
-            .into_actor(self)
-            .map_err(|_, _, _| ())
-            .map(|(_, ()), _, _| ()));
+    pub fn remove_activation_uuid(
+        &self,
+        uuid: &str,
+    ) {
+        actix_rt::spawn(
+            cmd("del")
+                .arg(uuid)
+                .query_async(self.get_conn())
+                .map_err(|_| ())
+                .map(|(_, ())| ())
+        )
     }
 }
 

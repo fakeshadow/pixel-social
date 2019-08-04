@@ -3,7 +3,6 @@ use futures::future::err as ft_err;
 
 use actix::prelude::{
     ActorFuture,
-    AsyncContext,
     Future,
     Handler,
     Message,
@@ -12,13 +11,14 @@ use actix::prelude::{
     WrapFuture,
 };
 
-use crate::{
-    CacheService,
-    DatabaseService,
-};
+use crate::DatabaseService;
 use crate::model::{
     category::{Category, CategoryRequest},
     errors::ResError,
+};
+use crate::handler::{
+    db::DatabaseServiceRaw,
+    cache::CacheServiceRaw,
 };
 
 
@@ -38,18 +38,21 @@ impl Handler<RemoveCategory> for DatabaseService {
     }
 }
 
+impl DatabaseServiceRaw {
+    pub fn get_categories_all(&self) -> impl Future<Item=Vec<Category>, Error=ResError> {
+        use crate::handler::db::SimpleQueryRaw;
+        self.simple_query_multi_trait("SELECT * FROM categories", Vec::new())
+    }
 
-pub struct GetCategories;
+    pub fn remove_category(
+        &self,
+        cid: u32,
+    ) -> impl Future<Item=(), Error=ResError> {
+        let query = format!("DELETE FROM categories WHERE id={}", cid);
 
-impl Message for GetCategories {
-    type Result = Result<Vec<Category>, ResError>;
-}
-
-impl Handler<GetCategories> for DatabaseService {
-    type Result = ResponseFuture<Vec<Category>, ResError>;
-
-    fn handle(&mut self, _: GetCategories, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.simple_query_multi("SELECT * FROM categories", Vec::new()))
+        use crate::handler::db::SimpleQueryRaw;
+        self.simple_query_row_trait(query.as_str())
+            .map(|_| ())
     }
 }
 
@@ -118,29 +121,11 @@ impl Handler<UpdateCategory> for DatabaseService {
     }
 }
 
-
-pub struct GetCategoriesCache;
-
-impl Message for GetCategoriesCache {
-    type Result = Result<Vec<Category>, ResError>;
-}
-
-impl Handler<GetCategoriesCache> for CacheService {
-    type Result = ResponseFuture<Vec<Category>, ResError>;
-
-    fn handle(&mut self, _: GetCategoriesCache, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.get_categories_cache())
-    }
-}
-
-
-#[derive(Message)]
-pub struct AddedCategory(pub Category);
-
-impl Handler<AddedCategory> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddedCategory, ctx: &mut Self::Context) -> Self::Result {
-        ctx.spawn(self.add_category_cache(msg.0).into_actor(self));
+impl CacheServiceRaw {
+    pub fn get_categories_all(
+        &self
+    ) -> impl Future<Item=Vec<Category>, Error=ResError> {
+        use crate::handler::cache::CategoriesFromCache;
+        self.categories_from_cache()
     }
 }

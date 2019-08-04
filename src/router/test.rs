@@ -2,14 +2,9 @@ use actix::prelude::*;
 use actix_web::{Error, HttpResponse, web::Data};
 
 use crate::model::{
-    actors::{DB, CACHE},
     common::GlobalVars,
     topic::TopicRequest,
     post::PostRequest,
-};
-use crate::handler::{
-    topic::{AddTopic, AddTopicCache},
-    post::{AddPostCache, ModifyPost},
 };
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
@@ -18,8 +13,8 @@ pub fn hello_world() -> Result<HttpResponse, Error> {
 
 pub fn add_topic(
     global: Data<GlobalVars>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = TopicRequest {
         id: None,
@@ -30,21 +25,19 @@ pub fn add_topic(
         body: Some("test body".to_string()),
         is_locked: None,
     };
-    db.send(AddTopic(req, global.get_ref().clone()))
-        .from_err()
-        .and_then(|r| r)
+    db.add_topic(req, global.get_ref().clone())
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
-            let _ = cache.do_send(AddTopicCache(t));
+            cache.add_topic(t);
             res
         })
 }
 
 pub fn add_post(
     global: Data<GlobalVars>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = PostRequest {
         id: None,
@@ -55,13 +48,11 @@ pub fn add_post(
         post_content: Some("t4265335423646e".to_owned()),
         is_locked: None,
     };
-    db.send(ModifyPost(req, Some(global.get_ref().clone())))
-        .from_err()
-        .and_then(|r| r)
+    db.add_post(req, global.get_ref().clone())
         .from_err()
         .and_then(move |p| {
             let res = HttpResponse::Ok().json(&p);
-            let _ = cache.do_send(AddPostCache(p));
+            cache.add_post(p);
             res
         })
 }
@@ -69,8 +60,8 @@ pub fn add_post(
 use crate::model::topic::Topic;
 use crate::model::errors::ResError;
 use std::convert::TryFrom;
-use crate::handler::topic::GetTopics;
-use crate::model::actors::DatabaseServiceRaw;
+use crate::handler::db::DatabaseServiceRaw;
+use crate::handler::cache::CacheServiceRaw;
 
 pub type Pool = l337::Pool<l337_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
 
@@ -80,17 +71,14 @@ pub fn build_pool(sys: &mut actix_rt::SystemRunner) -> Pool {
         .user("postgres")
         .password("123")
         .dbname("test").clone();
-
     let manager = l337_postgres::PostgresConnectionManager::new(
         config,
         tokio_postgres::NoTls,
     );
-
     let cfg = l337::Config {
         min_size: 1,
         max_size: 12,
     };
-
     sys.block_on(l337::Pool::new(manager, cfg)).unwrap()
 }
 
@@ -102,43 +90,35 @@ pub fn pool(
         .map(|t| HttpResponse::Ok().json(&t))
 }
 
-pub fn actor(
-    db: Data<DB>
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    db.send(GetTopics(vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]))
-        .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(|(t, _)| HttpResponse::Ok().json(&t))
-}
-
 pub fn raw(
     db: Data<DatabaseServiceRaw>
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    db.test()
+    db.get_by_id_with_uid(
+        &db.topics_by_id,
+        &vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
         .from_err()
-        .and_then(|t| HttpResponse::Ok().json(&t))
+        .and_then(move |(t, ids)|
+            db.get_by_id(&db.users_by_id, &ids)
+                .from_err()
+                .and_then(move |u|
+                    HttpResponse::Ok().json(&Topic::attach_users(&t, &u))
+                )
+        )
 }
 
-
-impl DatabaseServiceRaw {
-    fn test(&self) -> impl Future<Item=Vec<Topic>, Error=ResError> {
-
-        match self.client.lock() {
-            Ok(mut c) => futures::future::Either::B(c
-                .query(&self.topics_by_id, &[&vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]])
-                .fold(Vec::with_capacity(20), move |mut v, r| {
-                    if let Some(r) = Topic::try_from(r).ok() {
-                        v.push(r)
-                    }
-                    Ok::<_, _>(v)
-                }).map_err(|_| ResError::InternalServerError)
-            ),
-            Err(_) => futures::future::Either::A(futures::future::err(ResError::InternalServerError))
-        }
-    }
+pub fn raw_cache(
+    cache: Data<CacheServiceRaw>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    cache.get_topics_pop(1, 1)
+        .from_err()
+        .and_then(move |(t, ids)| cache
+            .get_users_from_ids(ids)
+            .from_err()
+            .and_then(move |u|
+                HttpResponse::Ok().json(&Topic::attach_users(&t, &u))
+            )
+        )
 }
-
 
 fn test_pool(
     pool: &Pool

@@ -2,36 +2,32 @@ use actix_web::{HttpResponse, Error, web::{Data, Json, Path}, ResponseError};
 use futures::{Future, future::{IntoFuture, Either, ok as ft_ok}};
 
 use crate::model::{
-    actors::{DB, CACHE},
     errors::ResError,
     common::{GlobalVars, Validator},
     user::{AuthRequest, UpdateRequest, User},
 };
 use crate::handler::{
-    messenger::AddActivationMail,
-    cache::{UpdateCache, DeleteCache},
-    auth::{UserJwt, Login, Register, ActivateUser},
-    user::{GetUsers, GetUsersCache, UpdateUser},
+    db::DatabaseServiceRaw,
+    cache::CacheServiceRaw,
+    auth::UserJwt,
 };
 
 pub fn login(
-    db: Data<DB>,
+    db: Data<DatabaseServiceRaw>,
     req: Json<AuthRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     req.check_login()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(Login(req.into_inner()))
-            .from_err()
-            .and_then(|r| r)
+            .login(req.into_inner())
             .from_err()
             .and_then(|t| HttpResponse::Ok().json(&t)))
 }
 
 pub fn register(
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
     global: Data<GlobalVars>,
     req: Json<AuthRequest>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
@@ -39,58 +35,53 @@ pub fn register(
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(Register(req.into_inner(), global.get_ref().clone()))
+            .check_register(req.into_inner())
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |u| {
-                let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(AddActivationMail(u.clone()));
-                let _ = cache.do_send(UpdateCache::User(vec![u]));
-                res
-            })
+            .and_then(move |req| db
+                .register(req, global.get_ref().clone())
+                .from_err()
+                .and_then(move |u| {
+                    let res = HttpResponse::Ok().json(&u);
+                    cache.add_activation_mail(u.clone());
+                    cache.update_users(vec![u]);
+                    res
+                })
+            )
         )
 }
 
 pub fn activate_by_mail(
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
     req: Path<(String)>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let uuid = req.into_inner();
 
-    cache.send(ActivateUser(uuid.clone()))
-        .from_err()
-        .and_then(|r| r)
+    cache.get_uid_from_uuid(uuid.as_str())
         .from_err()
         .and_then(move |uid| db
-            .send(UpdateUser(UpdateRequest::make_active(uid)))
-            .from_err()
-            .and_then(|r| r)
+            .update_user(UpdateRequest::make_active(uid))
             .from_err()
             .and_then(move |u| {
                 //ToDo: sign a new jwt token and return auth response instead of user object.
                 let res = HttpResponse::Ok().json(&u);
-                let _ = cache.do_send(UpdateCache::User(vec![u]));
-                let _ = cache.do_send(DeleteCache::Mail(uuid));
+                cache.update_users(vec![u]);
+                cache.remove_activation_uuid(uuid.as_str());
                 res
             }))
 }
 
 pub fn add_activation_mail(
     jwt: UserJwt,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.send(GetUsersCache(vec![jwt.user_id]))
-        .from_err()
-        .and_then(move |r| match r {
+    cache.get_users_from_ids(vec![jwt.user_id])
+        .then(move |r| match r {
             Ok(u) => Either::A(ft_ok(pop_user_add_activation_mail(cache, u))),
             Err(e) => Either::B(match e {
                 ResError::IdsFromCache(ids) => Either::A(db
-                    .send(GetUsers(ids))
-                    .from_err()
-                    .and_then(|r| r)
+                    .get_by_id(&db.users_by_id, &ids)
                     .from_err()
                     .and_then(|u| pop_user_add_activation_mail(cache, u))),
                 _ => Either::B(ft_ok(e.render_response()))
@@ -98,10 +89,10 @@ pub fn add_activation_mail(
         })
 }
 
-fn pop_user_add_activation_mail(cache: Data<CACHE>, mut u: Vec<User>) -> HttpResponse {
+fn pop_user_add_activation_mail(cache: Data<CacheServiceRaw>, mut u: Vec<User>) -> HttpResponse {
     match u.pop() {
         Some(u) => {
-            let _ = cache.do_send(AddActivationMail(u));
+            cache.add_activation_mail(u);
             HttpResponse::Ok().finish()
         }
         None => ResError::BadRequest.render_response()

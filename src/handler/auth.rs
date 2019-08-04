@@ -1,26 +1,18 @@
 use actix_web::{dev, FromRequest, HttpRequest};
 
-use actix::prelude::{
-    ActorFuture,
-    fut::{err, Either},
+use futures::{
     Future,
-    Handler,
-    Message,
-    ResponseActFuture,
-    ResponseFuture,
-    WrapFuture,
+    future::{Either, err as ft_err},
 };
 
-use crate::{
-    CacheService,
-    DatabaseService,
-};
 use crate::model::{
     user::{User, AuthRequest, AuthResponse},
     common::GlobalVars,
     errors::ResError,
 };
+use crate::handler::db::DatabaseServiceRaw;
 use crate::util::jwt::JwtPayLoad;
+use crate::handler::cache::CacheServiceRaw;
 
 pub type UserJwt = JwtPayLoad;
 
@@ -46,89 +38,82 @@ impl FromRequest for JwtPayLoad {
 }
 
 
-pub struct Register(pub AuthRequest, pub GlobalVars);
-
-impl Message for Register {
-    type Result = Result<User, ResError>;
-}
-
-impl Handler<Register> for DatabaseService {
-    type Result = ResponseActFuture<Self, User, ResError>;
-
-    fn handle(&mut self, msg: Register, _: &mut Self::Context) -> Self::Result {
-        let Register(req, global) = msg;
+impl DatabaseServiceRaw {
+    pub fn check_register(
+        &self,
+        r: AuthRequest,
+    ) -> impl Future<Item=AuthRequest, Error=ResError> {
         let query = format!(
             "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'", req.username, req.email.as_ref().unwrap());
-
-        let f = self
-            .unique_username_email_check(query.as_str(), req)
-            .into_actor(self)
-            .and_then(move |req: AuthRequest, act, _| {
-                let hash = match crate::util::hash::hash_password(&req.password) {
-                    Ok(hash) => hash,
-                    Err(e) => return Either::A(err(e))
-                };
-                let id = match global.lock() {
-                    Ok(mut var) => var.next_uid(),
-                    Err(_) => return Either::A(err(ResError::InternalServerError))
-                };
-                let u = match req.make_user(&id, &hash) {
-                    Ok(u) => u,
-                    Err(e) => return Either::A(err(e))
-                };
-                Either::B(act
-                    .insert_user(&[
-                        &u.id,
-                        &u.username,
-                        &u.email,
-                        &u.hashed_password,
-                        &u.avatar_url,
-                        &u.signature
-                    ])
-                    .into_actor(act))
-            });
-
-        Box::new(f)
+             WHERE username='{}' OR email='{}'", r.username, r.email.as_ref().unwrap());
+        self.unique_username_email_check(query.as_str(), r)
     }
-}
 
+    pub fn register(
+        &self,
+        r: AuthRequest,
+        g: GlobalVars,
+    ) -> impl Future<Item=User, Error=ResError> {
+        let hash = match crate::util::hash::hash_password(&r.password) {
+            Ok(hash) => hash,
+            Err(e) => return Either::A(ft_err(e))
+        };
+        let id = match g.lock() {
+            Ok(mut var) => var.next_uid(),
+            Err(_) => return Either::A(ft_err(ResError::InternalServerError))
+        };
+        let u = match r.make_user(&id, &hash) {
+            Ok(u) => u,
+            Err(e) => return Either::A(ft_err(e))
+        };
 
-pub struct Login(pub AuthRequest);
+        use crate::handler::db::QueryRaw;
+        Either::B(self
+            .query_one_trait(
+                &self.insert_user,
+                &[
+                    &u.id,
+                    &u.username,
+                    &u.email,
+                    &u.hashed_password,
+                    &u.avatar_url,
+                    &u.signature
+                ],
+            )
+        )
+    }
 
-impl Message for Login {
-    type Result = Result<AuthResponse, ResError>;
-}
-
-impl Handler<Login> for DatabaseService {
-    type Result = ResponseFuture<AuthResponse, ResError>;
-
-    fn handle(&mut self, msg: Login, _: &mut Self::Context) -> Self::Result {
-        let req = msg.0;
+    pub fn login(
+        &self,
+        req: AuthRequest,
+    ) -> impl Future<Item=AuthResponse, Error=ResError> {
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        Box::new(self.generate_auth_response(query.as_str(), req.password))
+        use crate::handler::db::SimpleQueryRaw;
+        self.simple_query_row_trait(query.as_str())
+            .and_then(move |r| {
+                let hash = r.get(3).ok_or(ResError::InternalServerError)?;
+                let _ = crate::util::hash::verify_password(req.password.as_str(), hash)?;
+
+                use std::convert::TryFrom;
+                let user = User::try_from(r)?;
+                let token = JwtPayLoad::new(user.id, user.privilege).sign()?;
+
+                Ok(AuthResponse { token, user })
+            })
     }
 }
 
-
-pub struct ActivateUser(pub String);
-
-impl Message for ActivateUser {
-    type Result = Result<u32, ResError>;
-}
-
-impl Handler<ActivateUser> for CacheService {
-    type Result = ResponseFuture<u32, ResError>;
-
-    fn handle(&mut self, msg: ActivateUser, _: &mut Self::Context) -> Self::Result {
-        let f = self
-            .get_hash_map(&msg.0)
+impl CacheServiceRaw {
+    pub fn get_uid_from_uuid(
+        &self,
+        uuid: &str,
+    ) -> impl Future<Item=u32, Error=ResError> {
+        self.get_hash_map(uuid)
             .and_then(|hm| Ok(hm
                 .get("user_id")
                 .ok_or(ResError::Unauthorized)?
                 .parse::<u32>()?)
-            );
-        Box::new(f)
+            )
     }
 }

@@ -1,4 +1,8 @@
-use futures::future::IntoFuture;
+use futures::future::{
+    IntoFuture,
+    Either,
+    err as ft_err,
+};
 
 use actix::prelude::*;
 
@@ -10,65 +14,15 @@ use crate::model::{
     post::PostRequest,
     topic::TopicRequest,
 };
+use crate::handler::db::DatabaseServiceRaw;
+use crate::model::topic::Topic;
+use crate::model::post::Post;
 
-pub struct UpdateUserCheck(pub u32, pub UpdateRequest);
-
-pub struct UpdateTopicCheck(pub u32, pub TopicRequest);
-
-pub struct UpdatePostCheck(pub u32, pub PostRequest);
 
 pub struct UpdateCategoryCheck(pub u32, pub CategoryRequest);
 
-pub struct RemoveCategoryCheck(pub u32);
-
-
-impl Message for UpdateUserCheck {
-    type Result = Result<UpdateRequest, ResError>;
-}
-
-impl Message for UpdateTopicCheck {
-    type Result = Result<TopicRequest, ResError>;
-}
-
-impl Message for UpdatePostCheck {
-    type Result = Result<PostRequest, ResError>;
-}
-
 impl Message for UpdateCategoryCheck {
     type Result = Result<CategoryRequest, ResError>;
-}
-
-impl Message for RemoveCategoryCheck {
-    type Result = Result<(), ResError>;
-}
-
-impl Handler<UpdateUserCheck> for DatabaseService {
-    type Result = ResponseFuture<UpdateRequest, ResError>;
-
-    fn handle(&mut self, msg: UpdateUserCheck, _: &mut Self::Context) -> Self::Result {
-        let self_lv = msg.0;
-        let req = msg.1;
-        let id = vec![req.id.as_ref().map(|u| *u).unwrap_or(0)];
-
-        Box::new(self.get_users_by_id(&id)
-            .and_then(move |u| {
-                let u = u.first().ok_or(ResError::BadRequest)?;
-                check_admin_level(&req.privilege, &self_lv, 9)?;
-                if self_lv <= u.privilege { return Err(ResError::Unauthorized); }
-                Ok(req)
-            })
-        )
-    }
-}
-
-impl Handler<UpdateTopicCheck> for DatabaseService {
-    type Result = ResponseFuture<TopicRequest, ResError>;
-
-    fn handle(&mut self, msg: UpdateTopicCheck, _: &mut Self::Context) -> Self::Result {
-        Box::new(update_topic_check(&msg.0, &msg.1)
-            .into_future()
-            .map(|_| msg.1))
-    }
 }
 
 impl Handler<UpdateCategoryCheck> for DatabaseService {
@@ -81,25 +35,57 @@ impl Handler<UpdateCategoryCheck> for DatabaseService {
     }
 }
 
-impl Handler<UpdatePostCheck> for DatabaseService {
-    type Result = ResponseFuture<PostRequest, ResError>;
 
-    fn handle(&mut self, msg: UpdatePostCheck, _: &mut Self::Context) -> Self::Result {
-        Box::new(update_post_check(&msg.0, &msg.1)
-            .into_future()
-            .map(|_| msg.1))
+impl DatabaseServiceRaw {
+    pub fn admin_update_topic(
+        &self,
+        self_level: u32,
+        t: TopicRequest,
+    ) -> impl Future<Item=Topic, Error=ResError> {
+        match update_topic_check(&self_level, &t) {
+            Ok(_) => Either::A(self.update_topic(t)),
+            Err(e) => Either::B(ft_err(e))
+        }
+    }
+
+    pub fn admin_update_post(
+        &self,
+        self_level: u32,
+        p: PostRequest,
+    ) -> impl Future<Item=Post, Error=ResError> {
+        match update_post_check(&self_level, &p) {
+            Ok(_) => Either::A(self.update_post(p)),
+            Err(e) => Either::B(ft_err(e))
+        }
+    }
+
+    pub fn admin_remove_category(
+        &self,
+        cid: u32,
+        self_level: u32,
+    ) -> impl Future<Item=(), Error=ResError> {
+        match check_admin_level(&Some(1), &self_level, 9) {
+            Ok(_) => Either::A(self.remove_category(cid)),
+            Err(e) => Either::B(ft_err(e))
+        }
+    }
+
+    pub fn update_user_check(
+        &self,
+        self_level: u32,
+        u: UpdateRequest,
+    ) -> impl Future<Item=UpdateRequest, Error=ResError> {
+        let id = vec![u.id.as_ref().map(|u| *u).unwrap_or(0)];
+
+        self.get_by_id::<crate::model::user::User>(&self.users_by_id, &id)
+            .and_then(move |user| {
+                let user = user.first().ok_or(ResError::BadRequest)?;
+                check_admin_level(&u.privilege, &self_level, 9)?;
+                if self_level <= user.privilege { return Err(ResError::Unauthorized); }
+                Ok(u)
+            })
     }
 }
-
-impl Handler<RemoveCategoryCheck> for DatabaseService {
-    type Result = ResponseFuture<(), ResError>;
-
-    fn handle(&mut self, msg: RemoveCategoryCheck, _: &mut Self::Context) -> Self::Result {
-        Box::new(check_admin_level(&Some(1), &msg.0, 9)
-            .into_future())
-    }
-}
-
 
 type QueryResult = Result<(), ResError>;
 

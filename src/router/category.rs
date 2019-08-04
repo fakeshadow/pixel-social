@@ -2,123 +2,112 @@ use actix_web::{HttpResponse, Error, web::{Data, Path}, ResponseError};
 use futures::{Future, future::{Either, ok as ft_ok}};
 
 use crate::handler::{
-    cache::UpdateCache,
-    topic::{GetTopics, GetTopicsCache},
-    category::{GetCategories, GetCategoriesCache},
-    user::{GetUsersCache, GetUsers},
+    db::DatabaseServiceRaw,
+    cache::CacheServiceRaw
 };
 use crate::model::{
     errors::ResError,
-    actors::{DB, CACHE},
     topic::Topic,
 };
 
 pub fn get_all(
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.send(GetCategoriesCache)
-        .from_err()
-        .and_then(move |r| match r {
+    cache.get_categories_all()
+        .then(move |r| match r {
             Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
-            Err(_) => Either::B(db.send(GetCategories)
-                .from_err()
-                .and_then(|r| r)
+            Err(_) => Either::B(db
+                .get_categories_all()
                 .from_err()
                 .and_then(move |c| {
                     let res = HttpResponse::Ok().json(&c);
-                    let _ = cache.do_send(UpdateCache::Category(c));
+                    cache.update_categories(c);
                     res
-                }))
+                })
+            )
         })
 }
 
 pub fn get_latest(
     req: Path<(u32, i64)>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
-
-    get(db, cache, GetTopicsCache::Latest(id, page))
+    cache.get_topics_late(id, page)
+        .then(move |r| get(db, cache, r))
 }
 
 pub fn get_popular(
     req: Path<(u32, i64)>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let (id, page) = req.into_inner();
 
-    get(db, cache, GetTopicsCache::Popular(id, page))
+    cache.get_topics_pop(id, page)
+        .then(move |r| get(db, cache, r))
 }
 
 pub fn get_popular_all(
     req: Path<(i64)>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let page = req.into_inner();
 
-    get(db, cache, GetTopicsCache::PopularAll(page))
+    cache.get_topics_pop_all(page)
+        .then(move |r| get(db, cache, r))
 }
 
 fn get(
-    db: Data<DB>,
-    cache: Data<CACHE>,
-    msg: GetTopicsCache,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
+    result: Result<(Vec<Topic>, Vec<u32>), ResError>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.send(msg)
-        .from_err()
-        .and_then(move |r| match r {
-            Ok((t, ids)) => Either::A(attach_users_form_res(ids, t, db, cache, false)),
-            Err(e) => Either::B(match e {
-                ResError::IdsFromCache(ids) => Either::B(topics_from_db(ids, db, cache)),
-                _ => Either::A(ft_ok(e.render_response()))
-            })
+    match result {
+        Ok((t, ids)) => Either::A(
+            attach_users_form_res(ids, t, db, cache, false)
+        ),
+        Err(e) => Either::B(match e {
+            ResError::IdsFromCache(ids) => Either::B(db
+                .get_by_id_with_uid(&db.topics_by_id, &ids)
+                .from_err()
+                .and_then(move |(t, ids)|
+                    attach_users_form_res(ids, t, db, cache, true)
+                )
+            ),
+            _ => Either::A(ft_ok(e.render_response()))
         })
-}
-
-fn topics_from_db(
-    ids: Vec<u32>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    db.send(GetTopics(ids))
-        .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |(t, ids)| attach_users_form_res(ids, t, db, cache, true))
+    }
 }
 
 fn attach_users_form_res(
     ids: Vec<u32>,
     t: Vec<Topic>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
     update_t: bool,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.send(GetUsersCache(ids))
-        .from_err()
-        .and_then(move |r| match r {
+    cache.get_users_from_ids(ids)
+        .then(move |r| match r {
             Ok(u) => {
                 let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
                 if update_t {
-                    let _ = cache.do_send(UpdateCache::Topic(t));
+                    cache.update_topics(t);
                 }
                 Either::A(ft_ok(res))
             }
             Err(e) => Either::B(match e {
                 ResError::IdsFromCache(ids) => Either::B(db
-                    .send(GetUsers(ids))
-                    .from_err()
-                    .and_then(|r| r)
+                    .get_by_id(&db.users_by_id, &ids)
                     .from_err()
                     .and_then(move |u| {
                         let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
-                        let _ = cache.do_send(UpdateCache::User(u));
+                        cache.update_users(u);
                         if update_t {
-                            let _ = cache.do_send(UpdateCache::Topic(t));
+                            cache.update_topics(t);
                         }
                         res
                     })),

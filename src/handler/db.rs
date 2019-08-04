@@ -1,82 +1,211 @@
-use std::convert::TryFrom;
-use futures::Future;
+use std::{
+    cell::RefMut,
+    convert::TryFrom,
+};
+use futures::{
+    Future,
+    Stream,
+    future::join_all,
+};
 
-use actix::prelude::*;
+//use actix::prelude::*;
 use chrono::NaiveDateTime;
-use tokio_postgres::{Row, SimpleQueryRow, SimpleQueryMessage, Statement, Client, types::ToSql};
+use tokio_postgres::{connect, Client, NoTls, Statement, Row, SimpleQueryRow, SimpleQueryMessage, types::ToSql};
 
 use crate::{DatabaseService, TalkService};
-use crate::util::{hash, jwt};
 use crate::model::{
     common::{GetSelfId, GetUserId},
-    errors::{ResError},
+    errors::ResError,
     post::Post,
-    user::{User, AuthRequest, AuthResponse},
+    user::{User, AuthRequest},
     category::Category,
     topic::Topic,
     talk::{Talk, Relation, PublicMessage, PrivateMessage},
 };
 
-impl DatabaseService {
-    pub fn simple_query_single_row<T>(&mut self, query: &str, index: usize) -> impl Future<Item=T, Error=ResError>
+
+pub struct DatabaseServiceRaw {
+    pub client: std::cell::RefCell<Client>,
+    pub topics_by_id: Statement,
+    pub posts_by_id: Statement,
+    pub users_by_id: Statement,
+    pub insert_topic: Statement,
+    pub insert_post: Statement,
+    pub insert_user: Statement,
+}
+
+impl DatabaseServiceRaw {
+    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseServiceRaw, Error=()> {
+        connect(postgres_url, NoTls)
+            .map_err(|e| panic!("{:?}", e))
+            .and_then(|(mut c, conn)| {
+                actix_rt::spawn(conn.map_err(|e| panic!("{}", e)));
+
+                let p1 = c.prepare("SELECT * FROM topics WHERE id = ANY($1)");
+                let p2 = c.prepare("SELECT * FROM posts WHERE id = ANY($1)");
+                let p3 = c.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                let p4 = c.prepare("INSERT INTO topics
+                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING *");
+                let p5 = c.prepare("INSERT INTO posts
+                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            RETURNING *");
+                let p6 = c.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING *");
+
+                join_all(vec![p6, p5, p4, p3, p2, p1])
+                    .map_err(move |e| panic!("{:?}", e))
+                    .map(|mut v| DatabaseServiceRaw {
+                        client: std::cell::RefCell::new(c),
+                        topics_by_id: v.pop().unwrap(),
+                        posts_by_id: v.pop().unwrap(),
+                        users_by_id: v.pop().unwrap(),
+                        insert_topic: v.pop().unwrap(),
+                        insert_post: v.pop().unwrap(),
+                        insert_user: v.pop().unwrap(),
+                    })
+            })
+    }
+}
+
+
+pub trait QueryRaw {
+    fn query_trait(
+        &self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+    ) -> Box<dyn Stream<Item=Row, Error=ResError>> {
+        Box::new(self
+            .get_client()
+            .query(st, p)
+            .from_err())
+    }
+
+    fn query_one_trait<T>(
+        &self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+    ) -> Box<dyn Future<Item=T, Error=ResError>>
+        where T: TryFrom<Row, Error=ResError> + 'static {
+        Box::new(self
+            .query_trait(st, p)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .and_then(|(r, _)| r.ok_or(ResError::BadRequest))
+            .and_then(T::try_from))
+    }
+
+    fn get_client(&self) -> RefMut<Client>;
+}
+
+impl QueryRaw for DatabaseServiceRaw {
+    fn get_client(&self) -> RefMut<Client> { self.client.borrow_mut() }
+}
+
+
+pub trait SimpleQueryRaw {
+    fn simple_query_single_row_trait<T>(&mut self, q: &str, i: usize) -> Box<dyn Future<Item=T, Error=ResError>>
         where T: std::str::FromStr + 'static {
-        self.simple_query_single_row_trait(query, index)
+        Box::new(self
+            .simple_query_row_trait(q)
+            .and_then(move |r| r
+                .get(i)
+                .ok_or(ResError::BadRequest)?
+                .parse::<T>()
+                .map_err(|_| ResError::ParseError)
+            )
+        )
     }
 
-    pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
+    fn simple_query_one_trait<T>(&self, q: &str) -> Box<dyn Future<Item=T, Error=ResError>>
         where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        self.simple_query_one_trait(query)
+        Box::new(self
+            .simple_query_row_trait(q)
+            .and_then(T::try_from)
+        )
     }
 
-    pub fn simple_query_multi<T>(&mut self, query: &str, vec: Vec<T>) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+    fn simple_query_multi_trait<T>(&self, q: &str, vec: Vec<T>) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
         where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
-        self.simple_query_multi_trait(query, vec)
+        Box::new(self
+            .simple_query_trait(q)
+            .fold(vec, move |mut vec, r| {
+                if let SimpleQueryMessage::Row(r) = r {
+                    if let Some(v) = T::try_from(r).ok() {
+                        vec.push(v);
+                    }
+                }
+                Ok::<_, ResError>(vec)
+            })
+        )
     }
 
-    pub fn insert_topic(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Topic, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.insert_topic.as_ref().unwrap(),
-            p)
+    fn simple_query_row_trait(&self, q: &str) -> Box<dyn Future<Item=SimpleQueryRow, Error=ResError>> {
+        Box::new(self
+            .simple_query_trait(q)
+            .into_future()
+            .map_err(|(e, _)| e)
+            .and_then(|(r, _)| match r {
+                Some(m) => match m {
+                    SimpleQueryMessage::Row(r) => Ok(r),
+                    _ => Err(ResError::NoContent)
+                }
+                None => Err(ResError::BadRequest)
+            })
+        )
     }
 
-    pub fn insert_post(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=Post, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.insert_post.as_ref().unwrap(),
-            p)
+    fn simple_query_trait(
+        &self,
+        query: &str,
+    ) -> Box<dyn Stream<Item=SimpleQueryMessage, Error=ResError>> {
+        Box::new(self
+            .get_client_trait()
+            .simple_query(query)
+            .from_err()
+        )
     }
 
-    pub fn insert_user(&mut self, p: &[&dyn ToSql]) -> impl Future<Item=User, Error=ResError> {
-        Self::query_one_trait(
-            self.db.as_mut().unwrap(),
-            self.insert_user.as_ref().unwrap(),
-            p)
+    fn get_client_trait(&self) -> RefMut<Client>;
+}
+
+impl SimpleQueryRaw for DatabaseServiceRaw {
+    fn get_client_trait(&self) -> RefMut<Client> { self.get_client() }
+}
+
+
+impl DatabaseServiceRaw {
+    pub fn get_by_id_with_uid<T>(&self, st: &Statement, ids: &Vec<u32>) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where T: GetUserId + TryFrom<Row, Error=ResError> + 'static {
+        self.query_trait(st, &[ids])
+            .fold((Vec::with_capacity(20), Vec::with_capacity(20)), move |(mut v, mut ids), r| {
+                if let Some(r) = T::try_from(r).ok() {
+                    ids.push(r.get_user_id());
+                    v.push(r)
+                }
+                Ok::<_, ResError>((v, ids))
+            })
     }
 
-    pub fn get_users_by_id(&mut self, ids: &Vec<u32>) -> impl Future<Item=Vec<User>, Error=ResError> {
-        Self::query_multi(
-            self.db.as_mut().unwrap(),
-            self.users_by_id.as_ref().unwrap(),
-            &[ids],
-            Vec::with_capacity(ids.len()))
+    pub fn get_by_id<T>(&self, st: &Statement, ids: &Vec<u32>) -> impl Future<Item=Vec<T>, Error=ResError>
+        where T: TryFrom<Row, Error=ResError> + 'static {
+        self.query_trait(st, &[&ids])
+            .fold(Vec::with_capacity(21), move |mut v, r| {
+                if let Some(r) = T::try_from(r).ok() {
+                    v.push(r)
+                }
+                Ok::<_, ResError>(v)
+            })
     }
 
-    pub fn get_topics_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
-        Self::query_multi_with_uid(
-            self.db.as_mut().unwrap(),
-            self.topics_by_id.as_ref().unwrap(),
-            ids)
-    }
-
-    pub fn get_posts_by_id_with_uid(&mut self, ids: Vec<u32>) -> impl Future<Item=(Vec<Post>, Vec<u32>), Error=ResError> {
-        Self::query_multi_with_uid(
-            self.db.as_mut().unwrap(),
-            self.posts_by_id.as_ref().unwrap(),
-            ids)
-    }
-
-    pub fn unique_username_email_check(&mut self, q: &str, req: AuthRequest) -> impl Future<Item=AuthRequest, Error=ResError> {
+    pub fn unique_username_email_check(
+        &self,
+        q: &str,
+        req: AuthRequest,
+    ) -> impl Future<Item=AuthRequest, Error=ResError> {
         self.simple_query_row_trait(q)
             .then(|r| {
                 if let Some(r) = r.ok() {
@@ -91,18 +220,18 @@ impl DatabaseService {
                 Ok(req)
             })
     }
+}
 
-    pub fn generate_auth_response(&mut self, q: &str, pass: String) -> impl Future<Item=AuthResponse, Error=ResError> {
-        self.simple_query_row_trait(q)
-            .and_then(move |r| {
-                let hash = r.get(3).ok_or(ResError::InternalServerError)?;
-                let _ = hash::verify_password(pass.as_str(), hash)?;
 
-                let user = User::try_from(r)?;
-                let token = jwt::JwtPayLoad::new(user.id, user.privilege).sign()?;
+impl DatabaseService {
+    pub fn simple_query_single_row<T>(&mut self, query: &str, index: usize) -> impl Future<Item=T, Error=ResError>
+        where T: std::str::FromStr + 'static {
+        self.simple_query_single_row_trait(query, index)
+    }
 
-                Ok(AuthResponse { token, user })
-            })
+    pub fn simple_query_one<T>(&mut self, query: &str) -> impl Future<Item=T, Error=ResError>
+        where T: TryFrom<SimpleQueryRow, Error=ResError> + 'static {
+        self.simple_query_one_trait(query)
     }
 }
 

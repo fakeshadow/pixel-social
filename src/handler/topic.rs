@@ -1,72 +1,58 @@
 use std::fmt::Write;
-use futures::future::err as ft_err;
 
-use actix::prelude::{
-    AsyncContext,
-    Handler,
-    Message,
-    ResponseFuture,
-    WrapFuture,
+use futures::{
+    Future,
+    future::{
+        err as ft_err,
+        Either,
+    },
 };
+
 use chrono::Utc;
 
 use crate::model::{
-    actors::{DatabaseService, CacheService},
     topic::TopicRequest,
     common::GlobalVars,
     errors::ResError,
     topic::Topic,
 };
+use crate::handler::db::DatabaseServiceRaw;
+use crate::handler::cache::CacheServiceRaw;
 
-pub struct AddTopic(pub TopicRequest, pub GlobalVars);
-
-pub struct UpdateTopic(pub TopicRequest);
-
-pub struct GetTopics(pub Vec<u32>);
-
-impl Message for AddTopic {
-    type Result = Result<Topic, ResError>;
-}
-
-impl Message for UpdateTopic {
-    type Result = Result<Topic, ResError>;
-}
-
-impl Message for GetTopics {
-    type Result = Result<(Vec<Topic>, Vec<u32>), ResError>;
-}
-
-impl Handler<AddTopic> for DatabaseService {
-    type Result = ResponseFuture<Topic, ResError>;
-
-    fn handle(&mut self, msg: AddTopic, _: &mut Self::Context) -> Self::Result {
-        let id = match msg.1.lock() {
+impl DatabaseServiceRaw {
+    pub fn add_topic(
+        &self,
+        t: TopicRequest,
+        g: GlobalVars,
+    ) -> impl Future<Item=Topic, Error=ResError> {
+        let id = match g.lock() {
             Ok(mut var) => var.next_tid(),
-            Err(_) => return Box::new(ft_err(ResError::InternalServerError))
+            Err(_) => return Either::A(ft_err(ResError::InternalServerError))
         };
-        let t = msg.0;
         let now = &Utc::now().naive_utc();
 
-        Box::new(self
-            .insert_topic(&[
-                &id,
-                &t.user_id.unwrap(),
-                &t.category_id,
-                &t.thumbnail.unwrap(),
-                &t.title.unwrap(),
-                &t.body.unwrap(),
-                now,
-                now
-            ]))
+        use crate::handler::db::QueryRaw;
+        Either::B(self
+            .query_one_trait(
+                &self.insert_topic,
+                &[
+                    &id,
+                    &t.user_id.unwrap(),
+                    &t.category_id,
+                    &t.thumbnail.unwrap(),
+                    &t.title.unwrap(),
+                    &t.body.unwrap(),
+                    now,
+                    now
+                ],
+            )
+        )
     }
-}
-
-//ToDo: add query for moving topic to other table.
-impl Handler<UpdateTopic> for DatabaseService {
-    type Result = ResponseFuture<Topic, ResError>;
-
-    fn handle(&mut self, msg: UpdateTopic, _: &mut Self::Context) -> Self::Result {
-        let t = msg.0;
+    //ToDo: add query for moving topic to other table.
+    pub fn update_topic(
+        &self,
+        t: TopicRequest,
+    ) -> impl Future<Item=Topic, Error=ResError> {
         let mut query = String::from("UPDATE topics SET");
 
         if let Some(s) = t.title {
@@ -85,7 +71,7 @@ impl Handler<UpdateTopic> for DatabaseService {
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at=DEFAULT");
         } else {
-            return Box::new(ft_err(ResError::BadRequest));
+            return Either::A(ft_err(ResError::BadRequest));
         }
 
         let _ = write!(&mut query, " WHERE id={} ", t.id.unwrap());
@@ -94,54 +80,40 @@ impl Handler<UpdateTopic> for DatabaseService {
         }
         query.push_str("RETURNING *");
 
-        Box::new(self.simple_query_one(query.as_str()))
-    }
-}
-
-impl Handler<GetTopics> for DatabaseService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
-
-    fn handle(&mut self, msg: GetTopics, _: &mut Self::Context) -> Self::Result {
-        Box::new(self.get_topics_by_id_with_uid(msg.0))
+        use crate::handler::db::SimpleQueryRaw;
+        Either::B(self.simple_query_one_trait(query.as_str()))
     }
 }
 
 
-pub enum GetTopicsCache {
-    Latest(u32, i64),
-    Popular(u32, i64),
-    PopularAll(i64),
-    Ids(Vec<u32>),
-}
-
-impl Message for GetTopicsCache {
-    type Result = Result<(Vec<Topic>, Vec<u32>), ResError>;
-}
-
-impl Handler<GetTopicsCache> for CacheService {
-    type Result = ResponseFuture<(Vec<Topic>, Vec<u32>), ResError>;
-
-    fn handle(&mut self, msg: GetTopicsCache, _: &mut Self::Context) -> Self::Result {
-        match msg {
-            GetTopicsCache::Popular(id, page) =>
-                Box::new(self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", id), page, "topic")),
-            GetTopicsCache::PopularAll(page) =>
-                Box::new(self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")),
-            GetTopicsCache::Latest(id, page) =>
-                Box::new(self.get_cache_with_uids_from_zrevrange(&format!("category:{}:topics_time", id), page, "topic")),
-            GetTopicsCache::Ids(ids) =>
-                Box::new(self.get_cache_with_uids_from_ids(ids, "topic"))
-        }
+impl CacheServiceRaw {
+    pub fn get_topics_pop(
+        &self,
+        cid: u32,
+        page: i64,
+    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
+        self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", cid), page, "topic")
     }
-}
 
-#[derive(Message)]
-pub struct AddTopicCache(pub Topic);
+    pub fn get_topics_pop_all(
+        &self,
+        page: i64,
+    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
+        self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")
+    }
 
-impl Handler<AddTopicCache> for CacheService {
-    type Result = ();
+    pub fn get_topics_late(
+        &self,
+        cid: u32,
+        page: i64,
+    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
+        self.get_cache_with_uids_from_zrevrange(&format!("category:{}:topics_time", cid), page, "topic")
+    }
 
-    fn handle(&mut self, msg: AddTopicCache, ctx: &mut Self::Context) -> Self::Result {
-        ctx.spawn(self.add_topic_cache(msg.0).into_actor(self));
+    pub fn get_topics_from_ids(
+        &self,
+        ids: Vec<u32>,
+    ) -> impl Future<Item=(Vec<Topic>, Vec<u32>), Error=ResError> {
+        self.get_cache_with_uids_from_ids(ids, "topic")
     }
 }

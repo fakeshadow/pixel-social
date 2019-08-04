@@ -22,7 +22,6 @@ mod util;
 
 use crate::{
     model::actors::{
-        CacheService,
         CacheUpdateService,
         DatabaseService,
         TalkService,
@@ -93,7 +92,8 @@ fn main() -> std::io::Result<()> {
 
         // the server will generate one async actor for each worker. The num of workers is tied to cpu core count.
         let db = DatabaseService::connect(&database_url, recipient.clone());
-        let cache = CacheService::connect(&redis_url, recipient.clone());
+
+
         let talk = TalkService::connect(
             &database_url,
             &redis_url,
@@ -105,10 +105,13 @@ fn main() -> std::io::Result<()> {
             .data(global.clone())
             .data(talk)
             .data(db)
-            .data(cache)
             .data_factory(|| {
                 let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
-                crate::model::actors::DatabaseServiceRaw::init(database_url.as_str())
+                crate::handler::db::DatabaseServiceRaw::init(database_url.as_str())
+            })
+            .data_factory(|| {
+                let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
+                crate::handler::cache::CacheServiceRaw::init(redis_url.as_str())
             })
 //            .data(pool.clone())
             .wrap(Logger::default())
@@ -156,7 +159,7 @@ fn main() -> std::io::Result<()> {
             )
             .service(web::scope("/test")
                 .service(web::resource("/raw").route(web::get().to_async(router::test::raw)))
-                .service(web::resource("/pg_actor").route(web::get().to_async(router::test::actor)))
+                .service(web::resource("/raw_cache").route(web::get().to_async(router::test::raw_cache)))
                 .service(web::resource("/l337_pool").route(web::get().to_async(router::test::pool)))
                 .service(web::resource("/hello").route(web::get().to(router::test::hello_world)))
                 .service(web::resource("/topic").route(web::get().to_async(router::test::add_topic)))

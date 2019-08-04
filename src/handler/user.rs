@@ -1,67 +1,26 @@
 use std::fmt::Write;
 
-use actix::prelude::{
-    Handler,
-    Message,
-    ResponseFuture,
+use futures::{
+    Future,
+    future::{
+        Either,
+        err as ft_err,
+    },
 };
 
-use crate::{
-    CacheService,
-    DatabaseService
-};
 use crate::model::{
     errors::ResError,
     user::{User, UpdateRequest},
 };
-
-pub struct GetUsers(pub Vec<u32>);
-
-impl Message for GetUsers {
-    type Result = Result<Vec<User>, ResError>;
-}
-
-impl Handler<GetUsers> for DatabaseService {
-    type Result = ResponseFuture<Vec<User>, ResError>;
-
-    fn handle(&mut self, mut msg: GetUsers, _: &mut Self::Context) -> Self::Result {
-        msg.0.sort();
-        msg.0.dedup();
-
-        Box::new(self.get_users_by_id(&msg.0))
-    }
-}
+use crate::handler::db::DatabaseServiceRaw;
+use crate::handler::cache::CacheServiceRaw;
 
 
-pub struct GetUsersCache(pub Vec<u32>);
-
-impl Message for GetUsersCache {
-    type Result = Result<Vec<User>, ResError>;
-}
-
-impl Handler<GetUsersCache> for CacheService {
-    type Result = ResponseFuture<Vec<User>, ResError>;
-
-    fn handle(&mut self, mut msg: GetUsersCache, _: &mut Self::Context) -> Self::Result {
-        msg.0.sort();
-        msg.0.dedup();
-        Box::new(self.get_users_cache_from_ids(msg.0))
-    }
-}
-
-
-pub struct UpdateUser(pub UpdateRequest);
-
-impl Message for UpdateUser {
-    type Result = Result<User, ResError>;
-}
-
-impl Handler<UpdateUser> for DatabaseService {
-    type Result = ResponseFuture<User, ResError>;
-
-    fn handle(&mut self, msg: UpdateUser, _: &mut Self::Context) -> Self::Result {
-        let u = msg.0;
-
+impl DatabaseServiceRaw {
+    pub fn update_user(
+        &self,
+        u: UpdateRequest,
+    ) -> impl Future<Item=User, Error=ResError> {
         let mut query = String::new();
         query.push_str("UPDATE users SET");
 
@@ -84,9 +43,23 @@ impl Handler<UpdateUser> for DatabaseService {
         if query.ends_with(",") {
             let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {} RETURNING *", u.id.unwrap());
         } else {
-            return Box::new(futures::future::err(ResError::BadRequest));
+            return Either::A(ft_err(ResError::BadRequest));
         }
 
-        Box::new(self.simple_query_one(query.as_str()))
+        use crate::handler::db::SimpleQueryRaw;
+        Either::B(self.simple_query_one_trait(query.as_str()))
+    }
+}
+
+impl CacheServiceRaw {
+    pub fn get_users_from_ids(
+        &self,
+        mut ids: Vec<u32>
+    ) -> impl Future<Item=Vec<User>, Error=ResError> {
+        ids.sort();
+        ids.dedup();
+
+        use crate::handler::cache::UsersFromCache;
+        self.users_from_cache(ids)
     }
 }

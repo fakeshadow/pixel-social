@@ -28,7 +28,6 @@ use lettre::{
 use lettre_email::Email;
 
 use crate::{
-    CacheService,
     MessageService,
 };
 use crate::model::{
@@ -36,6 +35,7 @@ use crate::model::{
     messenger::{Mail, Mailer, Twilio, SmsMessage},
     errors::{ErrorReport, ResError, RepError},
 };
+use crate::handler::cache::CacheServiceRaw;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
@@ -242,26 +242,19 @@ impl MessageService {
     }
 }
 
-
-#[derive(Message)]
-pub struct AddActivationMail(pub User);
-
-impl Handler<AddActivationMail> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: AddActivationMail, ctx: &mut Self::Context) {
-        let u = msg.0;
+impl CacheServiceRaw {
+    pub fn add_activation_mail(
+        &self,
+        u: User,
+    ) {
         let uuid = uuid::Uuid::new_v4().to_string();
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Some(m) = serde_json::to_string(&mail).ok() {
-            ctx.spawn(self
-                .add_activation_mail(u.id, uuid, m)
-                .into_actor(self));
+            actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }
 }
-
 
 #[derive(Message)]
 pub struct ErrorReportMessage(pub RepError);

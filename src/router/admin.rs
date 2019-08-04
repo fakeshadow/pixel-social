@@ -3,7 +3,7 @@ use futures::{Future, IntoFuture};
 use actix_web::{HttpResponse, Error, web::{Data, Json, Path}};
 
 use crate::model::{
-    actors::{DB, CACHE},
+    actors::{DB},
     post::PostRequest,
     topic::TopicRequest,
     common::Validator,
@@ -12,24 +12,16 @@ use crate::model::{
 };
 use crate::handler::{
     auth::UserJwt,
-    user::UpdateUser,
-    category::{UpdateCategory, AddCategory, AddedCategory, RemoveCategory},
-    post::ModifyPost,
-    topic::UpdateTopic,
-    cache::{UpdateCache, RemoveCategoryCache},
-    admin::{
-        UpdatePostCheck,
-        UpdateCategoryCheck,
-        UpdateTopicCheck,
-        UpdateUserCheck,
-        RemoveCategoryCheck
-    },
+    category::{UpdateCategory, AddCategory},
+    admin::UpdateCategoryCheck,
+    db::DatabaseServiceRaw,
+    cache::CacheServiceRaw,
 };
 
 pub fn add_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CACHE>,
+    cache: Data<CacheServiceRaw>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
@@ -48,7 +40,7 @@ pub fn add_category(
                     .from_err()
                     .and_then(move |c| {
                         let res = HttpResponse::Ok().json(&c);
-                        let _ = cache.do_send(AddedCategory(c));
+                        cache.add_category(c);
                         res
                     })))
 }
@@ -56,7 +48,7 @@ pub fn add_category(
 pub fn update_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CACHE>,
+    cache: Data<CacheServiceRaw>,
     db: Data<DB>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner();
@@ -75,7 +67,7 @@ pub fn update_category(
                     .from_err()
                     .and_then(move |c| {
                         let res = HttpResponse::Ok().json(&c);
-                        let _ = cache.do_send(UpdateCache::Category(c));
+                        cache.update_categories(c);
                         res
                     })))
 }
@@ -83,106 +75,83 @@ pub fn update_category(
 pub fn remove_category(
     jwt: UserJwt,
     id: Path<(u32)>,
-    cache: Data<CACHE>,
-    db: Data<DB>,
+    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let id = id.into_inner();
 
-    db.send(RemoveCategoryCheck(jwt.privilege))
+    db.admin_remove_category(id, jwt.privilege)
         .from_err()
-        .and_then(|r| r)
-        .from_err()
-        .and_then(move |_| db
-            .send(RemoveCategory(id))
+        .and_then(move |_| cache
+            .remove_category(id)
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |_| cache
-                .send(RemoveCategoryCache(id))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(|_| HttpResponse::Ok().finish())
-            ))
+            .and_then(|_| HttpResponse::Ok().finish())
+        )
 }
 
 pub fn update_user(
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    cache: Data<CACHE>,
-    db: Data<DB>,
+    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let req = req.into_inner().attach_id(None);
     req.check_update()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateUserCheck(jwt.privilege, req))
-            .from_err()
-            .and_then(|r| r)
+            .update_user_check(jwt.privilege, req)
             .from_err()
             .and_then(move |r| db
-                .send(UpdateUser(r))
-                .from_err()
-                .and_then(|r| r)
+                .update_user(r)
                 .from_err()
                 .and_then(move |u| {
                     let res = HttpResponse::Ok().json(&u);
-                    let _ = cache.do_send(UpdateCache::User(vec![u]));
+                    cache.update_users(vec![u]);
                     res
-                })))
+                })
+            )
+        )
 }
 
 pub fn update_topic(
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    cache: Data<CACHE>,
-    db: Data<DB>,
+    cache: Data<CacheServiceRaw>,
+    db: Data<DatabaseServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(None);
     req.check_update()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdateTopicCheck(jwt.privilege, req))
+            .admin_update_topic(jwt.privilege, req)
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |r| db
-                .send(UpdateTopic(r))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |t| {
-                    let res = HttpResponse::Ok().json(&t);
-                    let _ = cache.do_send(UpdateCache::Topic(vec![t]));
-                    res
-                })))
+            .and_then(move |t| {
+                let res = HttpResponse::Ok().json(&t);
+                cache.update_topics(vec![t]);
+                res
+            })
+        )
 }
 
 pub fn update_post(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DB>,
-    cache: Data<CACHE>,
+    db: Data<DatabaseServiceRaw>,
+    cache: Data<CacheServiceRaw>,
 ) -> impl Future<Item=HttpResponse, Error=Error> {
     let mut req = req.into_inner().attach_user_id(None);
     req.check_update()
         .into_future()
         .from_err()
         .and_then(move |_| db
-            .send(UpdatePostCheck(jwt.privilege, req))
+            .admin_update_post(jwt.privilege, req)
             .from_err()
-            .and_then(|r| r)
-            .from_err()
-            .and_then(move |r| db
-                .send(ModifyPost(r, None))
-                .from_err()
-                .and_then(|r| r)
-                .from_err()
-                .and_then(move |p| {
-                    let res = HttpResponse::Ok().json(&p);
-                    let _ = cache.do_send(UpdateCache::Post(vec![p]));
-                    res
-                })))
+            .and_then(move |p| {
+                let res = HttpResponse::Ok().json(&p);
+                cache.update_posts(vec![p]);
+                res
+            })
+        )
 }

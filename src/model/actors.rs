@@ -40,7 +40,6 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub type SharedConn = redis::aio::SharedConnection;
 pub type DB = Addr<DatabaseService>;
-pub type CACHE = Addr<CacheService>;
 pub type TALK = Addr<TalkService>;
 pub type MAILER = Addr<MessageService>;
 pub type ErrorReportRecipient = actix::prelude::Recipient<crate::handler::messenger::ErrorReportMessage>;
@@ -71,11 +70,6 @@ pub struct TalkService {
     pub join_talk: Option<Statement>,
 }
 
-// actor handles redis cache for categories,topics,posts,users.
-pub struct CacheService {
-    pub cache: Option<SharedConn>,
-}
-
 // actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
     pub cache: Option<SharedConn>
@@ -97,10 +91,6 @@ pub struct WsChatSession {
 }
 
 impl Actor for DatabaseService {
-    type Context = Context<Self>;
-}
-
-impl Actor for CacheService {
     type Context = Context<Self>;
 }
 
@@ -148,62 +138,6 @@ trait GetSharedConn {
 impl GetSharedConn for CacheUpdateService {}
 
 impl GetSharedConn for MessageService {}
-
-
-pub struct DatabaseServiceRaw {
-    pub client: std::sync::Mutex<Client>,
-    pub topics_by_id: Statement,
-    pub posts_by_id: Statement,
-    pub users_by_id: Statement,
-    pub insert_topic: Statement,
-    pub insert_post: Statement,
-    pub insert_user: Statement,
-}
-
-impl DatabaseServiceRaw {
-    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseServiceRaw, Error=()> {
-        println!("constructed");
-        let conn = connect(postgres_url, NoTls);
-
-        conn.then(|r| match r {
-            Err(e) => {
-                panic!("{:?}", e);
-            }
-            Ok((mut c, conn)) => {
-                actix_rt::spawn(conn.map_err(|e| panic!("{}", e)));
-
-                let p1 = c.prepare("SELECT * FROM topics WHERE id = ANY($1)");
-                let p2 = c.prepare("SELECT * FROM posts WHERE id = ANY($1)");
-                let p3 = c.prepare("SELECT * FROM users WHERE id = ANY($1)");
-                let p4 = c.prepare("INSERT INTO topics
-                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        RETURNING *");
-                let p5 = c.prepare("INSERT INTO posts
-                            (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                            RETURNING *");
-                let p6 = c.prepare("INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING *");
-
-                join_all(vec![p6, p5, p4, p3, p2, p1])
-                    .map_err(move |e| {
-                        panic!("{:?}", e);
-                    })
-                    .map(|mut v| DatabaseServiceRaw {
-                        client: std::sync::Mutex::new(c),
-                        topics_by_id: v.pop().unwrap(),
-                        posts_by_id: v.pop().unwrap(),
-                        users_by_id: v.pop().unwrap(),
-                        insert_topic: v.pop().unwrap(),
-                        insert_post: v.pop().unwrap(),
-                        insert_user: v.pop().unwrap(),
-                    })
-            }
-        })
-    }
-}
 
 
 impl DatabaseService {
@@ -271,41 +205,7 @@ impl DatabaseService {
     }
 }
 
-
-impl CacheService {
-    pub fn connect(redis_url: &str, rep: Option<ErrorReportRecipient>) -> CACHE {
-        let c = RedisClient::open(redis_url)
-            .unwrap_or_else(|e| {
-                send_rep(rep.as_ref(), RepError::Redis);
-                panic!("{:?}", e);
-            });
-
-        CacheService::create(move |ctx| {
-            let addr = CacheService {
-                cache: None,
-            };
-
-            c.get_shared_async_connection()
-                .into_actor(&addr)
-                .then(move |r, addr, _| match r {
-                    Ok(conn) => {
-                        addr.cache = Some(conn);
-                        fut::ok(())
-                    }
-                    Err(e) => {
-                        send_rep(rep.as_ref(), RepError::Redis);
-                        panic!("{:?}", e);
-                    }
-                })
-                .wait(ctx);
-            addr
-        })
-    }
-}
-
-
-impl
-CacheUpdateService {
+impl CacheUpdateService {
     pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
         let client = RedisClient::open(redis_url)
             .unwrap_or_else(|_| panic!("Can't connect to cache"));
