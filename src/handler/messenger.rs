@@ -27,9 +27,7 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::{
-    MessageService,
-};
+use crate::MessageService;
 use crate::model::{
     user::User,
     messenger::{Mail, Mailer, Twilio, SmsMessage},
@@ -44,9 +42,15 @@ const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
 
 impl MessageService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
-        self.process_errors(ctx);
-        self.process_mail(ctx);
-        self.process_sms(ctx);
+        if self.mailer.is_some() {
+            self.process_mail(ctx);
+        }
+        if self.twilio.is_some() {
+            self.process_sms(ctx);
+        }
+        if self.error_report.use_report {
+            self.process_errors(ctx);
+        }
     }
     // rep errors are sent right away with sms and mail. instead of using queue.
     fn process_errors(&self, ctx: &mut Context<Self>) {
@@ -97,7 +101,7 @@ impl MessageService {
         });
     }
 
-    pub fn generate_mailer() -> Mailer {
+    pub fn generate_mailer() -> Option<Mailer> {
         let mail_server = env::var("MAIL_SERVER").expect("Mail server must be set in .env");
         let username = env::var("MAIL_USERNAME").expect("Mail server credentials must be set  in .env");
         let password = env::var("MAIL_PASSWORD").expect("Mail server credentials must be set in .env");
@@ -106,20 +110,23 @@ impl MessageService {
         let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or("Pixel@Share".to_owned());
         let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or("PixelShare".to_owned());
 
-        let mailer = SmtpClient::new_simple(&mail_server)
-            .unwrap()
-            .timeout(Some(Duration::new(1, 0)))
-            .credentials(Credentials::new(username, password))
-            .smtp_utf8(false)
-            .authentication_mechanism(Mechanism::Plain)
-            .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
-            .transport();
-
-        Mailer {
-            mailer,
-            server_url,
-            self_addr,
-            self_name,
+        match SmtpClient::new_simple(&mail_server) {
+            Ok(m) => {
+                let mailer = m
+                    .timeout(Some(Duration::new(1, 0)))
+                    .credentials(Credentials::new(username, password))
+                    .smtp_utf8(false)
+                    .authentication_mechanism(Mechanism::Plain)
+                    .connection_reuse(ConnectionReuseParameters::ReuseUnlimited)
+                    .transport();
+                Some(Mailer {
+                    mailer,
+                    server_url,
+                    self_addr,
+                    self_name,
+                })
+            }
+            Err(_) => None
         }
     }
 
@@ -205,7 +212,7 @@ impl MessageService {
     }
 
     fn send_mail(&mut self, mail: &Mail) -> Result<(), RepError> {
-        let mailer = &mut self.mailer;
+        let mailer = self.mailer.as_mut().unwrap();
 
         let (to, subject, html, text) = match *mail {
             Mail::Activation { to, uuid } => {
@@ -231,8 +238,7 @@ impl MessageService {
             .map_err(|_| RepError::MailBuilder)?
             .into();
 
-        mailer
-            .mailer
+        mailer.mailer
             .send(mail)
             .map(|_| ())
             .map_err(|e| {
@@ -251,7 +257,7 @@ impl CacheService {
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Some(m) = serde_json::to_string(&mail).ok() {
-           actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
+            actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }
 }

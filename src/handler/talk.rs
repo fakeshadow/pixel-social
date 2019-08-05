@@ -1,5 +1,12 @@
 use std::fmt::Write;
-use std::sync::{RwLockWriteGuard, RwLockReadGuard};
+use std::sync::{
+    RwLockWriteGuard,
+    RwLockReadGuard,
+};
+use futures::{
+    Future,
+    future::{Either, err as ft_err},
+};
 
 use actix::prelude::{
     Addr,
@@ -15,14 +22,14 @@ use chrono::{NaiveDateTime, Utc};
 use hashbrown::HashMap;
 
 use crate::model::{
-    actors::WsChatSession,
+    actors::{TalkService, WsChatSession},
     errors::ResError,
+    common::{GlobalTalks, GlobalSessions},
     user::User,
-    talk::{Talk, PublicMessage, PrivateMessage, SessionMessage},
+    talk::{Talk, Relation, PublicMessage, PrivateMessage, SessionMessage},
 };
-use crate::model::actors::TalkService;
 use crate::handler::db::{Query, SimpleQuery};
-use crate::model::talk::Relation;
+
 
 impl TalkService {
     // ToDo: add online offline filter
@@ -219,18 +226,62 @@ enum SendMessage<'a> {
 }
 
 impl SendMessage<'_> {
-    fn default_err() -> String {
-        serde_json::to_string(&SendMessage::Error("Stringify error")).unwrap()
-    }
-
     fn stringify(&self) -> String {
-        serde_json::to_string(self).unwrap_or(Self::default_err())
+        serde_json::to_string(self).unwrap_or(SendMessage::Error("Stringify error").stringify())
     }
 }
 
 #[derive(Message)]
 pub struct DisconnectRequest {
     pub session_id: u32,
+}
+
+impl TalkService {
+    fn join_talk(&self, req: JoinTalkRequest) -> impl Future<Item=Talk, Error=ResError> {
+        let sid = req.session_id.as_ref().unwrap();
+        let tid = req.talk_id;
+        match self.get_talk(&tid) {
+            Ok(t) => {
+                if t.users.contains(sid) { return Either::A(ft_err(ResError::BadRequest)); };
+                Either::B(self.query_one_trait::<Talk>(&self.join_talk, &[&sid, &tid]))
+            }
+            Err(e) => Either::A(ft_err(e))
+        }
+    }
+
+    fn get_talks_by_id<F>(&self, tid: u32, f: F) -> Result<String, ResError>
+        where F: FnOnce(Vec<&Talk>) -> String {
+        self.get_talks()
+            .and_then(|t| {
+                let t = match tid {
+                    0 => t.iter().map(|(_, t)| t).collect(),
+                    _ => t.get(&tid).map(|t| vec![t]).unwrap_or(vec![])
+                };
+                Ok(f(t))
+            })
+    }
+
+    fn get_relation_by_id(&self, sid: &u32) -> impl Future<Item=Relation, Error=ResError> {
+        self.query_one_trait(&self.get_relations, &[sid])
+    }
+
+    fn insert_talk_db(
+        &self,
+        last_tid: u32,
+        msg: CreateTalkRequest,
+    ) -> impl Future<Item=Talk, Error=ResError> {
+        let query = format!("
+                    INSERT INTO talks
+                    (id, name, description, owner, admin, users)
+                    VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
+                    RETURNING *", (last_tid + 1), msg.name, msg.description, msg.owner, msg.owner, msg.owner);
+
+        self.simple_query_one_trait(query.as_str())
+    }
+
+    fn get_last_tid<F>(&self) -> impl Future<Item=u32, Error=ResError> {
+        self.simple_query_single_row_trait::<u32>("SELECT Max(id) FROM talks", 0)
+    }
 }
 
 impl Handler<DisconnectRequest> for TalkService {

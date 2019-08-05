@@ -62,23 +62,9 @@ impl GetSharedConn for CacheService {
     fn get_conn(&self) -> SharedConnection { self.cache.clone() }
 }
 
-impl IdsFromList for CacheService {}
-
-impl IdsFromSortedSet for CacheService {}
-
-impl HashMapFromCache for CacheService {}
-
-impl HashMapsFromCache for CacheService {}
-
-impl HashMapsTupleFromCache for CacheService {}
-
 impl ParseHashMaps for CacheService {}
 
 impl ParseHashMapsWithUids for CacheService {}
-
-impl UsersFromCache for CacheService {}
-
-impl CategoriesFromCache for CacheService {}
 
 impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
@@ -162,7 +148,9 @@ impl CacheService {
                     ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                 }
                 Self::hmsets_multi_from_cache(conn, ids, set_key)
-                    .and_then(|(h, i)| Self::parse_hashmaps_with_uids(h, i))
+                    .and_then(|(h, i)|
+                        Self::parse_hashmaps_with_uids(h, i)
+                    )
             })
     }
 
@@ -173,7 +161,9 @@ impl CacheService {
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
         Self::hmsets_multi_from_cache(self.get_conn(), ids, set_key)
-            .and_then(|(h, i)| Self::parse_hashmaps_with_uids(h, i))
+            .and_then(|(h, i)|
+                Self::parse_hashmaps_with_uids(h, i)
+            )
     }
 
     pub fn add_topic(&self, t: Topic) {
@@ -323,6 +313,7 @@ impl CacheService {
     }
 }
 
+
 impl TalkService {
     pub fn set_online_status(
         &self,
@@ -354,13 +345,7 @@ impl GetSharedConn for TalkService {
     fn get_conn(&self) -> SharedConn { self.cache.clone() }
 }
 
-impl HashMapsFromCache for TalkService {}
-
 impl ParseHashMaps for TalkService {}
-
-impl UsersFromCache for TalkService {}
-
-
 
 impl MessageService {
     pub fn get_queue(&self, key: &str) -> impl Future<Item=String, Error=ResError> {
@@ -456,6 +441,8 @@ pub trait IdsFromList
 
 impl IdsFromList for CacheUpdateService {}
 
+impl IdsFromList for CacheService {}
+
 
 trait IdsFromSortedSet
     where Self: GetSharedConn {
@@ -484,6 +471,8 @@ trait IdsFromSortedSet
     }
 }
 
+impl IdsFromSortedSet for CacheService {}
+
 
 trait HashMapFromCache
     where Self: GetSharedConn {
@@ -499,6 +488,7 @@ trait HashMapFromCache
     }
 }
 
+impl HashMapFromCache for CacheService {}
 
 pub trait HashMapsFromCache {
     fn hmsets_from_cache(
@@ -523,6 +513,9 @@ pub trait HashMapsFromCache {
     }
 }
 
+impl HashMapsFromCache for TalkService {}
+
+impl HashMapsFromCache for CacheService {}
 
 impl HashMapsFromCache for CacheUpdateService {}
 
@@ -551,6 +544,7 @@ trait HashMapsTupleFromCache {
     }
 }
 
+impl HashMapsTupleFromCache for CacheService {}
 
 pub trait ParseHashMaps
     where Self: HashMapsFromCache {
@@ -572,7 +566,6 @@ pub trait ParseHashMaps
 
 
 impl ParseHashMaps for CacheUpdateService {}
-
 
 
 trait ParseHashMapsWithUids
@@ -602,11 +595,18 @@ trait ParseHashMapsWithUids
 pub trait UsersFromCache
     where Self: HashMapsFromCache + GetSharedConn + ParseHashMaps {
     fn users_from_cache(&self, uids: Vec<u32>) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
-        Box::new(Self::hmsets_from_cache(self.get_conn(), uids, "user")
-            .and_then(|(h, i)| Self::parse_hashmaps(h, i)))
+        Box::new(
+            Self::hmsets_from_cache(self.get_conn(), uids, "user")
+                .and_then(|(h, i)|
+                    Self::parse_hashmaps(h, i)
+                )
+        )
     }
 }
 
+impl UsersFromCache for TalkService {}
+
+impl UsersFromCache for CacheService {}
 
 
 pub trait CategoriesFromCache
@@ -614,12 +614,17 @@ pub trait CategoriesFromCache
     fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(self
             .ids_from_cache_list("category_id:meta", 0, -1)
-            .and_then(|(conn, vec): (_, Vec<u32>)| Self::hmsets_from_cache(conn, vec, "category")
-                .and_then(|(h, i)| Self::parse_hashmaps(h, i))
-            ))
+            .and_then(|(conn, vec): (_, Vec<u32>)|
+                Self::hmsets_from_cache(conn, vec, "category")
+                    .and_then(|(h, i)|
+                        Self::parse_hashmaps(h, i)
+                    )
+            )
+        )
     }
 }
 
+impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
 

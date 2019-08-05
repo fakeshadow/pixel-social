@@ -12,6 +12,7 @@ use chrono::NaiveDateTime;
 use tokio_postgres::{connect, Client, NoTls, Statement, Row, SimpleQueryRow, SimpleQueryMessage, types::ToSql};
 
 use crate::model::{
+    actors::TalkService,
     common::{GetSelfId, GetUserId},
     errors::ResError,
     post::Post,
@@ -20,7 +21,6 @@ use crate::model::{
     topic::Topic,
     talk::{Talk, Relation, PublicMessage, PrivateMessage},
 };
-use crate::model::actors::TalkService;
 
 // database service is not an actor.
 pub struct DatabaseService {

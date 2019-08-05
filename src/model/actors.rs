@@ -44,7 +44,7 @@ pub type MAILER = Addr<MessageService>;
 // actor handles error report, sending email and sms messages.
 pub struct MessageService {
     pub cache: Option<SharedConn>,
-    pub mailer: Mailer,
+    pub mailer: Option<Mailer>,
     pub twilio: Option<Twilio>,
     pub error_report: ErrorReport,
 }
@@ -162,17 +162,24 @@ impl TalkService {
                             .map_err(|e| panic!("{:?}", e))
                             .and_then(move |mut vec| {
                                 Ok(TalkService::create(move |_| {
+                                    let insert_pub_msg = vec.pop().unwrap();
+                                    let insert_prv_msg = vec.pop().unwrap();
+                                    let get_pub_msg = vec.pop().unwrap();
+                                    let get_prv_msg = vec.pop().unwrap();
+                                    let get_relations = vec.pop().unwrap();
+                                    let join_talk = vec.pop().unwrap();
+
                                     TalkService {
                                         talks,
                                         sessions,
                                         db: std::cell::RefCell::new(db),
                                         cache,
-                                        insert_pub_msg: vec.pop().unwrap(),
-                                        insert_prv_msg: vec.pop().unwrap(),
-                                        get_pub_msg: vec.pop().unwrap(),
-                                        get_prv_msg: vec.pop().unwrap(),
-                                        get_relations: vec.pop().unwrap(),
-                                        join_talk: vec.pop().unwrap(),
+                                        insert_pub_msg,
+                                        insert_prv_msg,
+                                        get_pub_msg,
+                                        get_prv_msg,
+                                        get_relations,
+                                        join_talk,
                                     }
                                 }))
                             })
