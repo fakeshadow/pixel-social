@@ -12,9 +12,10 @@ use crate::model::{
     errors::ResError,
     user::{User, UpdateRequest},
 };
-use crate::handler::db::DatabaseService;
-use crate::handler::cache::CacheService;
-
+use crate::handler::{
+    db::DatabaseService,
+    cache::CacheService
+};
 
 impl DatabaseService {
     pub fn update_user(

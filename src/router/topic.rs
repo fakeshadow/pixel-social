@@ -139,7 +139,6 @@ fn get_topic_attach_user_form_res(
         })
 }
 
-
 fn attach_user_form_res(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,

@@ -1,6 +1,8 @@
 use actix::prelude::Message;
 use chrono::NaiveDateTime;
 
+use crate::model::user::User;
+
 #[derive(Clone, Serialize, Debug)]
 pub struct Talk {
     pub id: u32,
@@ -13,6 +15,25 @@ pub struct Talk {
     pub admin: Vec<u32>,
     pub users: Vec<u32>,
 }
+
+#[derive(Serialize)]
+#[serde(tag = "type", content = "content")]
+pub enum SendMessage<'a> {
+    PublicMessage(&'a Vec<PublicMessage>),
+    PrivateMessage(&'a Vec<PrivateMessage>),
+    Users(&'a Vec<User>),
+    Talks(Vec<&'a Talk>),
+    Friends(&'a Vec<u32>),
+    Success(&'a str),
+    Error(&'a str),
+}
+
+impl SendMessage<'_> {
+    pub fn stringify(&self) -> String {
+        serde_json::to_string(self).unwrap_or(SendMessage::Error("Stringify error").stringify())
+    }
+}
+
 
 pub struct Relation {
     pub friends: Vec<u32>,
