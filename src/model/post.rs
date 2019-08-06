@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use crate::model::{
     common::{GetSelfId, GetUserId},
     errors::ResError,
-    user::{User, UserRef,AttachUser},
+    user::{User, UserRef, AttachUser},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -20,6 +20,24 @@ pub struct Post {
     pub last_reply_time: Option<NaiveDateTime>,
     pub is_locked: bool,
     pub reply_count: Option<u32>,
+}
+
+impl Default for Post {
+    fn default() -> Post {
+        Post {
+            id: 0,
+            user_id: 0,
+            topic_id: 0,
+            category_id: 0,
+            post_id: None,
+            post_content: "".to_string(),
+            created_at: NaiveDateTime::from_timestamp(0, 0),
+            updated_at: NaiveDateTime::from_timestamp(0, 0),
+            last_reply_time: None,
+            is_locked: false,
+            reply_count: None,
+        }
+    }
 }
 
 // handle incoming json request

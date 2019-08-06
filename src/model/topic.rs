@@ -25,6 +25,24 @@ pub struct Topic {
     pub reply_count: Option<u32>,
 }
 
+impl Default for Topic {
+    fn default() -> Topic {
+        Topic {
+            id: 0,
+            user_id: 0,
+            category_id: 0,
+            title: "".to_string(),
+            body: "".to_string(),
+            thumbnail: "".to_string(),
+            created_at: NaiveDateTime::from_timestamp(0,0),
+            updated_at: NaiveDateTime::from_timestamp(0,0),
+            last_reply_time: None,
+            is_locked: false,
+            reply_count: None
+        }
+    }
+}
+
 impl Topic {
     pub fn attach_users_with_post<'a>(t: Option<&'a Topic>, p: &'a Vec<Post>, u: &'a Vec<User>) -> TopicWithPost<'a> {
         TopicWithPost {

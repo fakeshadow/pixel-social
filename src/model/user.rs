@@ -50,6 +50,24 @@ pub trait AttachUser<'u> {
     }
 }
 
+impl Default for User {
+    fn default() -> User {
+        User {
+            id: 0,
+            username: "".to_string(),
+            email: "".to_string(),
+            hashed_password: "".to_string(),
+            avatar_url: "".to_string(),
+            signature: "".to_string(),
+            created_at: NaiveDateTime::from_timestamp(0,0),
+            privilege: 0,
+            show_email: false,
+            online_status: None,
+            last_online: None
+        }
+    }
+}
+
 impl User {
     pub fn to_ref(&self) -> UserRef {
         let email = if self.show_email { Some(self.email.as_str()) } else { None };

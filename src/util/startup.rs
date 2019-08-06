@@ -29,15 +29,15 @@ pub fn build_cache(
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt
         .block_on(connect(postgres_url, NoTls))
-        .unwrap_or_else(|_| panic!("Can't connect to db"));
+        .unwrap_or_else(|e| panic!("{}", e ));
 
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let c_cache = redis::Client::open(redis_url)
-        .unwrap_or_else(|_| panic!("Can't connect to cache"));
+        .unwrap_or_else(|e| panic!("{}", e ));
     let c_cache = rt
         .block_on(c_cache.get_shared_async_connection())
-        .unwrap_or_else(|_| panic!("Can't get connection from redis"));
+        .unwrap_or_else(|e| panic!("{}", e ));
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";

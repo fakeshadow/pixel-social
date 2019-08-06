@@ -1,5 +1,4 @@
 use std::{
-    convert::TryFrom,
     time::Duration,
     collections::HashMap,
 };
@@ -13,7 +12,17 @@ use actix::prelude::{
     WrapFuture,
 };
 use chrono::{Utc, NaiveDateTime};
-use redis::{cmd, Client, pipe, aio::SharedConnection};
+use redis::{
+    aio::SharedConnection,
+    cmd,
+    Client,
+    ErrorKind,
+    FromRedisValue,
+    RedisResult,
+    Value,
+    pipe,
+    from_redis_value,
+};
 
 use crate::{
     CacheUpdateService,
@@ -62,9 +71,6 @@ impl GetSharedConn for CacheService {
     fn get_conn(&self) -> SharedConnection { self.cache.clone() }
 }
 
-impl ParseHashMaps for CacheService {}
-
-impl ParseHashMapsWithUids for CacheService {}
 
 impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
@@ -87,19 +93,19 @@ impl CacheService {
         self.hash_map_from_cache(key)
     }
 
+
     pub fn get_cache_with_uids_from_list<T>(
         &self,
         list_key: &str,
         page: i64,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
         let start = (page as isize - 1) * 20;
         let end = start + LIMIT - 1;
         self.ids_from_cache_list(list_key, start, end)
             .and_then(move |(conn, ids)|
-                Self::hmsets_multi_from_cache(conn, ids, set_key)
-                    .and_then(|(h, i)| Self::parse_hashmaps_with_uids(h, i))
+                Self::hmsets_multi_from_cache_new(conn, ids, set_key)
             )
     }
 
@@ -109,7 +115,7 @@ impl CacheService {
         page: i64,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, true)
     }
 
@@ -119,7 +125,7 @@ impl CacheService {
         page: i64,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, false)
     }
 
@@ -129,7 +135,7 @@ impl CacheService {
         page: i64,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, false, false)
     }
 
@@ -141,16 +147,13 @@ impl CacheService {
         is_rev: bool,
         is_reverse_lex: bool,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
         self.ids_from_cache_zrange(is_rev, zrange_key, ((page - 1) * 20) as usize)
             .and_then(move |(conn, mut ids)| {
                 if is_reverse_lex {
                     ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                 }
-                Self::hmsets_multi_from_cache(conn, ids, set_key)
-                    .and_then(|(h, i)|
-                        Self::parse_hashmaps_with_uids(h, i)
-                    )
+                Self::hmsets_multi_from_cache_new(conn, ids, set_key)
             })
     }
 
@@ -159,11 +162,8 @@ impl CacheService {
         ids: Vec<u32>,
         set_key: &str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
-        Self::hmsets_multi_from_cache(self.get_conn(), ids, set_key)
-            .and_then(|(h, i)|
-                Self::parse_hashmaps_with_uids(h, i)
-            )
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
+        Self::hmsets_multi_from_cache_new(self.get_conn(), ids, set_key)
     }
 
     pub fn add_topic(&self, t: Topic) {
@@ -345,7 +345,6 @@ impl GetSharedConn for TalkService {
     fn get_conn(&self) -> SharedConn { self.cache.clone() }
 }
 
-impl ParseHashMaps for TalkService {}
 
 impl MessageService {
     pub fn get_queue(&self, key: &str) -> impl Future<Item=String, Error=ResError> {
@@ -490,13 +489,15 @@ trait HashMapFromCache
 
 impl HashMapFromCache for CacheService {}
 
+
 pub trait HashMapsFromCache {
-    fn hmsets_from_cache(
+    fn hmsets_from_cache<T>(
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
-    ) -> Box<dyn Future<Item=(Vec<HashMap<String, String>>, Vec<u32>), Error=ResError>> {
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where T: std::marker::Send + redis::FromRedisValue + 'static {
         let mut pip = pipe();
         pip.atomic();
 
@@ -507,17 +508,17 @@ pub trait HashMapsFromCache {
         Box::new(pip
             .query_async(conn)
             .then(|r| match r {
-                Ok((_, hm)) => Ok((hm, ids)),
+                Ok((_, v)) => Ok(v),
                 Err(_) => Err(ResError::IdsFromCache(ids))
             }))
     }
 }
 
-impl HashMapsFromCache for TalkService {}
-
 impl HashMapsFromCache for CacheService {}
 
 impl HashMapsFromCache for CacheUpdateService {}
+
+impl HashMapsFromCache for TalkService {}
 
 
 trait HashMapsTupleFromCache {
@@ -546,61 +547,47 @@ trait HashMapsTupleFromCache {
 
 impl HashMapsTupleFromCache for CacheService {}
 
-pub trait ParseHashMaps
-    where Self: HashMapsFromCache {
-    fn parse_hashmaps<T>(hash: Vec<HashMap<String, String>>, ids: Vec<u32>) -> Result<Vec<T>, ResError>
-        where T: TryFrom<HashMap<String, String>, Error=ResError> {
-        let len = ids.len();
-        let mut vec = Vec::with_capacity(len);
-        for h in hash.into_iter() {
-            if let Some(t) = T::try_from(h).ok() {
-                vec.push(t);
-            }
-        };
-        if vec.len() != len {
-            return Err(ResError::IdsFromCache(ids));
-        };
-        Ok(vec)
-    }
-}
 
-
-impl ParseHashMaps for CacheUpdateService {}
-
-
-trait ParseHashMapsWithUids
-    where Self: HashMapsFromCache {
-    fn parse_hashmaps_with_uids<T>(
-        hash: Vec<(HashMap<String, String>, HashMap<String, String>)>,
+trait HashMapsMultiFromCache {
+    fn hmsets_multi_from_cache_new<T>(
+        conn: SharedConn,
         ids: Vec<u32>,
-    ) -> Result<(Vec<T>, Vec<u32>), ResError>
-        where T: TryFrom<(HashMap<String, String>, HashMap<String, String>), Error=ResError> + GetUserId {
-        let len = ids.len();
-        let mut vec = Vec::with_capacity(len);
-        let mut uids = Vec::with_capacity(len);
-        for h in hash.into_iter() {
-            if let Some(t) = T::try_from(h).ok() {
-                uids.push(t.get_user_id());
-                vec.push(t);
-            }
-        };
-        if vec.len() != len {
-            return Err(ResError::IdsFromCache(ids));
-        };
-        Ok((vec, uids))
+        set_key: &str,
+    ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
+        where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
+        let mut pip = pipe();
+        pip.atomic();
+
+        for i in ids.iter() {
+            pip.cmd("HGETALL").arg(&format!("{}:{}:set", set_key, i))
+                .cmd("HGETALL").arg(&format!("{}:{}:set_perm", set_key, i));
+        }
+
+        Box::new(pip
+            .query_async(conn)
+            .then(move |r: Result<(_, Vec<(T, HashMap<String, String>)>), _>| match r {
+                Err(_) => Err(ResError::IdsFromCache(ids)),
+                Ok((_, hm)) => {
+                    let len = hm.len();
+                    let mut v = Vec::with_capacity(len);
+                    let mut uids = Vec::with_capacity(len);
+                    for (t, h) in hm.into_iter() {
+                        uids.push(t.get_user_id());
+                        v.push(t.attach_perm_fields(&h));
+                    }
+                    Ok((v, uids))
+                }
+            }))
     }
 }
+
+impl HashMapsMultiFromCache for CacheService {}
 
 
 pub trait UsersFromCache
-    where Self: HashMapsFromCache + GetSharedConn + ParseHashMaps {
+    where Self: HashMapsFromCache + GetSharedConn {
     fn users_from_cache(&self, uids: Vec<u32>) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
-        Box::new(
-            Self::hmsets_from_cache(self.get_conn(), uids, "user")
-                .and_then(|(h, i)|
-                    Self::parse_hashmaps(h, i)
-                )
-        )
+        Box::new(Self::hmsets_from_cache(self.get_conn(), uids, "user"))
     }
 }
 
@@ -610,15 +597,12 @@ impl UsersFromCache for CacheService {}
 
 
 pub trait CategoriesFromCache
-    where Self: HashMapsFromCache + GetSharedConn + IdsFromList + ParseHashMaps {
+    where Self: HashMapsFromCache + GetSharedConn + IdsFromList {
     fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(self
             .ids_from_cache_list("category_id:meta", 0, -1)
             .and_then(|(conn, vec): (_, Vec<u32>)|
                 Self::hmsets_from_cache(conn, vec, "category")
-                    .and_then(|(h, i)|
-                        Self::parse_hashmaps(h, i)
-                    )
             )
         )
     }
@@ -629,118 +613,215 @@ impl CategoriesFromCache for CacheService {}
 impl CategoriesFromCache for CacheUpdateService {}
 
 
-impl TryFrom<(HashMap<String, String>, HashMap<String, String>)> for Topic {
-    type Error = ResError;
-    fn try_from((h, h_p): (HashMap<String, String>, HashMap<String, String>)) -> Result<Self, Self::Error> {
-        if h.is_empty() {
-            return Err(ResError::DataBaseReadError);
-        }
-        let last_reply_time = match h_p.get("last_reply_time") {
+pub trait AttachPermFields {
+    type Result;
+    fn attach_perm_fields(self, h: &HashMap<String, String>) -> Self::Result;
+}
+
+impl AttachPermFields for Topic {
+    type Result = Topic;
+    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
+        self.last_reply_time = match h.get("last_reply_time") {
             Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
             None => None
         };
-        let reply_count = match h_p.get("reply_count") {
+        self.reply_count = match h.get("reply_count") {
             Some(t) => t.parse::<u32>().ok(),
             None => None
         };
-        Ok(Topic {
-            id: h.get("id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            user_id: h.get("user_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            category_id: h.get("category_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            title: h.get("title").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            body: h.get("body").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            thumbnail: h.get("thumbnail").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(h.get("created_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f")?,
-            updated_at: NaiveDateTime::parse_from_str(h.get("updated_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f")?,
-            last_reply_time,
-            is_locked: h.get("is_locked").ok_or(ResError::DataBaseReadError)?.parse::<bool>().map_err(|_| ResError::ParseError)?,
-            reply_count,
-        })
+        self
     }
 }
 
-impl TryFrom<(HashMap<String, String>, HashMap<String, String>)> for Post {
-    type Error = ResError;
-    fn try_from((h, h_p): (HashMap<String, String>, HashMap<String, String>)) -> Result<Self, Self::Error> {
-        if h.is_empty() {
-            return Err(ResError::DataBaseReadError);
-        }
-        let post_id = match h.get("post_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>().ok() {
-            Some(id) => if id == 0 { None } else { Some(id) },
-            None => None,
-        };
-        let last_reply_time = match h_p.get("last_reply_time") {
+impl AttachPermFields for Post {
+    type Result = Post;
+    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
+        self.last_reply_time = match h.get("last_reply_time") {
             Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
             None => None
         };
-        let reply_count = match h_p.get("reply_count") {
+        self.reply_count = match h.get("reply_count") {
             Some(t) => t.parse::<u32>().ok(),
             None => None
         };
-        Ok(Post {
-            id: h.get("id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            user_id: h.get("user_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            topic_id: h.get("topic_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            category_id: h.get("category_id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            post_id,
-            post_content: h.get("post_content").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(h.get("created_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f")?,
-            updated_at: NaiveDateTime::parse_from_str(h.get("updated_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f")?,
-            last_reply_time,
-            is_locked: h.get("is_locked").ok_or(ResError::DataBaseReadError)?.parse::<bool>().map_err(|_| ResError::ParseError)?,
-            reply_count,
-        })
+        self
     }
 }
 
-impl TryFrom<HashMap<String, String>> for User {
-    type Error = ResError;
-    fn try_from(h: HashMap<String, String>) -> Result<Self, Self::Error> {
-        if h.is_empty() {
-            return Err(ResError::DataBaseReadError);
+impl FromRedisValue for Topic {
+    fn from_redis_value(v: &Value) -> RedisResult<Topic> {
+        match *v {
+            Value::Bulk(ref items) => {
+                if items.is_empty() {
+                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
+                }
+                let mut t = Topic::default();
+                let mut iter = items.iter();
+                loop {
+                    let k = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let v = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let key: String = from_redis_value(k)?;
+                    match key.as_str() {
+                        "id" => t.id = from_redis_value::<u32>(v)?,
+                        "user_id" => t.user_id = from_redis_value::<u32>(v)?,
+                        "category_id" => t.category_id = from_redis_value::<u32>(v)?,
+                        "title" => t.title = from_redis_value::<String>(v)?,
+                        "body" => t.body = from_redis_value::<String>(v)?,
+                        "thumbnail" => t.thumbnail = from_redis_value::<String>(v)?,
+                        "created_at" => t.created_at = NaiveDateTime::parse_from_str(
+                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+                        "updated_at" => t.updated_at = NaiveDateTime::parse_from_str(
+                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+                        "is_locked" => t.is_locked = if from_redis_value::<u8>(v)? == 0 { false } else { true },
+                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+                    }
+                }
+                Ok(t)
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
         }
-        Ok(User {
-            id: h.get("id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            username: h.get("username").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            email: h.get("email").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            hashed_password: "1".to_owned(),
-            avatar_url: h.get("avatar_url").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            signature: h.get("signature").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(h.get("created_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f")?,
-            privilege: h.get("privilege").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            show_email: h.get("show_email").ok_or(ResError::DataBaseReadError)?.parse::<bool>().map_err(|_| ResError::ParseError)?,
-            online_status: h.get("online_status").ok_or(ResError::DataBaseReadError)?.parse::<u32>().ok(),
-            last_online: NaiveDateTime::parse_from_str(h.get("created_at").ok_or(ResError::DataBaseReadError)?, "%Y-%m-%d %H:%M:%S%.f").ok(),
-        })
     }
 }
 
-impl TryFrom<HashMap<String, String>> for Category {
-    type Error = ResError;
-    fn try_from(h: HashMap<String, String>) -> Result<Self, Self::Error> {
-        if h.is_empty() {
-            return Err(ResError::DataBaseReadError);
+impl FromRedisValue for Post {
+    fn from_redis_value(v: &Value) -> RedisResult<Post> {
+        match *v {
+            Value::Bulk(ref items) => {
+                if items.is_empty() {
+                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
+                }
+                let mut p = Post::default();
+                let mut iter = items.iter();
+                loop {
+                    let k = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let v = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let key: String = from_redis_value(k)?;
+                    match key.as_str() {
+                        "id" => p.id = from_redis_value(v)?,
+                        "user_id" => p.user_id = from_redis_value(v)?,
+                        "topic_id" => p.topic_id = from_redis_value(v)?,
+                        "category_id" => p.category_id = from_redis_value(v)?,
+                        "post_id" => p.post_id = match from_redis_value::<u32>(v).ok() {
+                            Some(pid) => if pid == 0 { None } else { Some(pid) },
+                            None => None
+                        },
+                        "post_content" => p.post_content = from_redis_value(v)?,
+                        "created_at" => p.created_at = NaiveDateTime::parse_from_str(
+                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+                        "updated_at" => p.updated_at = NaiveDateTime::parse_from_str(
+                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+                        //ToDo: change to boolean paring.
+                        "is_locked" => p.is_locked = if from_redis_value::<u32>(v)? == 0 { false } else { true },
+                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+                    }
+                }
+                Ok(p)
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
         }
-        let topic_count_new = match h.get("topic_count_new") {
-            Some(s) => s.parse::<u32>().ok(),
-            None => None
-        };
-        let post_count_new = match h.get("post_count_new") {
-            Some(s) => s.parse::<u32>().ok(),
-            None => None
-        };
-
-        Ok(Category {
-            id: h.get("id").ok_or(ResError::DataBaseReadError)?.parse::<u32>()?,
-            name: h.get("name").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            thumbnail: h.get("thumbnail").ok_or(ResError::DataBaseReadError)?.to_owned(),
-            topic_count: h.get("topic_count").ok_or(ResError::DataBaseReadError)?.parse::<u32>().ok(),
-            post_count: h.get("post_count").ok_or(ResError::DataBaseReadError)?.parse::<u32>().ok(),
-            topic_count_new,
-            post_count_new,
-        })
     }
 }
+
+impl FromRedisValue for User {
+    fn from_redis_value(v: &Value) -> RedisResult<User> {
+        match *v {
+            Value::Bulk(ref items) => {
+                if items.is_empty() {
+                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
+                }
+                let mut u = User::default();
+                let mut iter = items.iter();
+                loop {
+                    let k = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let v = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let k: String = from_redis_value(k)?;
+                    match k.as_str() {
+                        "id" => u.id = from_redis_value::<u32>(v)?,
+                        "username" => u.username = from_redis_value(v)?,
+                        "email" => u.email = from_redis_value(v)?,
+                        "hashed_password" => (),
+                        "avatar_url" => u.avatar_url = from_redis_value(v)?,
+                        "signature" => u.signature = from_redis_value(v)?,
+                        "created_at" => u.created_at = NaiveDateTime::parse_from_str(
+                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+                        "privilege" => u.privilege = from_redis_value(v)?,
+                        "show_email" => u.show_email = from_redis_value::<String>(v)?.parse::<bool>()
+                            .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?,
+                        "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
+                        "last_online" => u.last_online = match from_redis_value::<String>(v).ok() {
+                            Some(v) => NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok(),
+                            None => None,
+                        },
+                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+                    }
+                }
+                Ok(u)
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        }
+    }
+}
+
+impl FromRedisValue for Category {
+    fn from_redis_value(v: &Value) -> RedisResult<Category> {
+        match *v {
+            Value::Bulk(ref items) => {
+                if items.is_empty() {
+                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
+                }
+                let mut c = Category::default();
+                let mut iter = items.iter();
+                loop {
+                    let k = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let v = match iter.next() {
+                        Some(v) => v,
+                        None => break
+                    };
+                    let k: String = from_redis_value(k)?;
+                    match k.as_str() {
+                        "id" => c.id = from_redis_value(v)?,
+                        "name" => c.name = from_redis_value(v)?,
+                        "thumbnail" => c.thumbnail = from_redis_value(v)?,
+                        "topic_count" => c.topic_count = from_redis_value(v).ok(),
+                        "post_count" => c.post_count = from_redis_value(v).ok(),
+                        "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
+                        "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
+                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+                    }
+                }
+                Ok(c)
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        }
+    }
+}
+
 
 impl Into<Vec<(&str, String)>> for User {
     fn into(self) -> Vec<(&'static str, String)> {
@@ -768,7 +849,7 @@ impl Into<Vec<(&str, String)>> for Topic {
             ("thumbnail", self.thumbnail.to_owned()),
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
-            ("is_locked", self.is_locked.to_string())
+            ("is_locked", if self.is_locked == true { "1".to_owned() } else { "0".to_owned() })
         ]
     }
 }
@@ -784,7 +865,7 @@ impl Into<Vec<(&str, String)>> for Post {
             ("post_content", self.post_content.to_owned()),
             ("created_at", self.created_at.to_string()),
             ("updated_at", self.updated_at.to_string()),
-            ("is_locked", self.is_locked.to_string())
+            ("is_locked", if self.is_locked == true { "1".to_owned() } else { "0".to_owned() })
         ]
     }
 }

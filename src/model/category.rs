@@ -16,6 +16,20 @@ pub struct Category {
     pub post_count_new: Option<u32>,
 }
 
+impl Default for Category {
+    fn default() -> Category {
+        Category {
+            id: 0,
+            name: "".to_string(),
+            thumbnail: "".to_string(),
+            topic_count: None,
+            post_count: None,
+            topic_count_new: None,
+            post_count_new: None
+        }
+    }
+}
+
 // handle incoming json request
 #[derive(Deserialize)]
 pub struct CategoryRequest {
