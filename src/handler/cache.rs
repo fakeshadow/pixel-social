@@ -105,7 +105,7 @@ impl CacheService {
         let end = start + LIMIT - 1;
         self.ids_from_cache_list(list_key, start, end)
             .and_then(move |(conn, ids)|
-                Self::hmsets_multi_from_cache_new(conn, ids, set_key)
+                Self::from_cache_with_perm(conn, ids, set_key)
             )
     }
 
@@ -153,7 +153,7 @@ impl CacheService {
                 if is_reverse_lex {
                     ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                 }
-                Self::hmsets_multi_from_cache_new(conn, ids, set_key)
+                Self::from_cache_with_perm(conn, ids, set_key)
             })
     }
 
@@ -163,7 +163,7 @@ impl CacheService {
         set_key: &str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + GetUserId + 'static {
-        Self::hmsets_multi_from_cache_new(self.get_conn(), ids, set_key)
+        Self::from_cache_with_perm(self.get_conn(), ids, set_key)
     }
 
     pub fn add_topic(&self, t: Topic) {
@@ -490,8 +490,8 @@ trait HashMapFromCache
 impl HashMapFromCache for CacheService {}
 
 
-pub trait HashMapsFromCache {
-    fn hmsets_from_cache<T>(
+pub trait FromCache {
+    fn from_cache<T>(
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
@@ -514,42 +514,15 @@ pub trait HashMapsFromCache {
     }
 }
 
-impl HashMapsFromCache for CacheService {}
+impl FromCache for CacheService {}
 
-impl HashMapsFromCache for CacheUpdateService {}
+impl FromCache for CacheUpdateService {}
 
-impl HashMapsFromCache for TalkService {}
-
-
-trait HashMapsTupleFromCache {
-    fn hmsets_multi_from_cache(
-        conn: SharedConn,
-        ids: Vec<u32>,
-        set_key: &str,
-        // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
-    ) -> Box<dyn Future<Item=(Vec<(HashMap<String, String>, HashMap<String, String>)>, Vec<u32>), Error=ResError>> {
-        let mut pip = pipe();
-        pip.atomic();
-
-        for i in ids.iter() {
-            pip.cmd("HGETALL").arg(&format!("{}:{}:set", set_key, i))
-                .cmd("HGETALL").arg(&format!("{}:{}:set_perm", set_key, i));
-        }
-
-        Box::new(pip
-            .query_async(conn)
-            .then(|r| match r {
-                Ok((_, hm)) => Ok((hm, ids)),
-                Err(_) => Err(ResError::IdsFromCache(ids))
-            }))
-    }
-}
-
-impl HashMapsTupleFromCache for CacheService {}
+impl FromCache for TalkService {}
 
 
-trait HashMapsMultiFromCache {
-    fn hmsets_multi_from_cache_new<T>(
+trait FromCacheWithPerm {
+    fn from_cache_with_perm<T>(
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
@@ -581,36 +554,7 @@ trait HashMapsMultiFromCache {
     }
 }
 
-impl HashMapsMultiFromCache for CacheService {}
-
-
-pub trait UsersFromCache
-    where Self: HashMapsFromCache + GetSharedConn {
-    fn users_from_cache(&self, uids: Vec<u32>) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
-        Box::new(Self::hmsets_from_cache(self.get_conn(), uids, "user"))
-    }
-}
-
-impl UsersFromCache for TalkService {}
-
-impl UsersFromCache for CacheService {}
-
-
-pub trait CategoriesFromCache
-    where Self: HashMapsFromCache + GetSharedConn + IdsFromList {
-    fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
-        Box::new(self
-            .ids_from_cache_list("category_id:meta", 0, -1)
-            .and_then(|(conn, vec): (_, Vec<u32>)|
-                Self::hmsets_from_cache(conn, vec, "category")
-            )
-        )
-    }
-}
-
-impl CategoriesFromCache for CacheService {}
-
-impl CategoriesFromCache for CacheUpdateService {}
+impl FromCacheWithPerm for CacheService {}
 
 
 pub trait AttachPermFields {
@@ -648,14 +592,47 @@ impl AttachPermFields for Post {
     }
 }
 
-impl FromRedisValue for Topic {
-    fn from_redis_value(v: &Value) -> RedisResult<Topic> {
+
+pub trait UsersFromCache
+    where Self: FromCache + GetSharedConn {
+    fn users_from_cache(&self, uids: Vec<u32>) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
+        Box::new(Self::from_cache(self.get_conn(), uids, "user"))
+    }
+}
+
+impl UsersFromCache for TalkService {}
+
+impl UsersFromCache for CacheService {}
+
+
+pub trait CategoriesFromCache
+    where Self: FromCache + GetSharedConn + IdsFromList {
+    fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
+        Box::new(self
+            .ids_from_cache_list("category_id:meta", 0, -1)
+            .and_then(|(conn, vec): (_, Vec<u32>)|
+                Self::from_cache(conn, vec, "category")
+            )
+        )
+    }
+}
+
+impl CategoriesFromCache for CacheService {}
+
+impl CategoriesFromCache for CacheUpdateService {}
+
+
+
+trait ParseFromRedisValue {
+    type Result;
+    fn from_redis_value_trait(v: &Value) -> Result<Self::Result, redis::RedisError>
+        where Self::Result: Default {
         match *v {
             Value::Bulk(ref items) => {
                 if items.is_empty() {
                     return Err((ErrorKind::ResponseError, "Response is empty"))?;
                 }
-                let mut t = Topic::default();
+                let mut t = Self::Result::default();
                 let mut iter = items.iter();
                 loop {
                     let k = match iter.next() {
@@ -667,158 +644,132 @@ impl FromRedisValue for Topic {
                         None => break
                     };
                     let key: String = from_redis_value(k)?;
-                    match key.as_str() {
-                        "id" => t.id = from_redis_value::<u32>(v)?,
-                        "user_id" => t.user_id = from_redis_value::<u32>(v)?,
-                        "category_id" => t.category_id = from_redis_value::<u32>(v)?,
-                        "title" => t.title = from_redis_value::<String>(v)?,
-                        "body" => t.body = from_redis_value::<String>(v)?,
-                        "thumbnail" => t.thumbnail = from_redis_value::<String>(v)?,
-                        "created_at" => t.created_at = NaiveDateTime::parse_from_str(
-                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
-                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
-                        "updated_at" => t.updated_at = NaiveDateTime::parse_from_str(
-                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
-                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
-                        "is_locked" => t.is_locked = if from_redis_value::<u8>(v)? == 0 { false } else { true },
-                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-                    }
+                    let _ = Self::parse(&mut t, key.as_str(), v)?;
                 }
                 Ok(t)
             }
-            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
         }
+    }
+
+    fn parse(t: &mut Self::Result, key: &str, v: &Value) -> Result<(), redis::RedisError>;
+}
+
+impl ParseFromRedisValue for Topic {
+    type Result = Topic;
+    fn parse(t: &mut Topic, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => t.id = from_redis_value::<u32>(v)?,
+            "user_id" => t.user_id = from_redis_value::<u32>(v)?,
+            "category_id" => t.category_id = from_redis_value::<u32>(v)?,
+            "title" => t.title = from_redis_value::<String>(v)?,
+            "body" => t.body = from_redis_value::<String>(v)?,
+            "thumbnail" => t.thumbnail = from_redis_value::<String>(v)?,
+            "created_at" => t.created_at = NaiveDateTime::parse_from_str(
+                from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+            ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+            "updated_at" => t.updated_at = NaiveDateTime::parse_from_str(
+                from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+            ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+            "is_locked" => t.is_locked = if from_redis_value::<u8>(v)? == 0 { false } else { true },
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for Post {
+    type Result = Post;
+    fn parse(p: &mut Post, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => p.id = from_redis_value(v)?,
+            "user_id" => p.user_id = from_redis_value(v)?,
+            "topic_id" => p.topic_id = from_redis_value(v)?,
+            "category_id" => p.category_id = from_redis_value(v)?,
+            "post_id" => p.post_id = match from_redis_value::<u32>(v).ok() {
+                Some(pid) => if pid == 0 { None } else { Some(pid) },
+                None => None
+            },
+            "post_content" => p.post_content = from_redis_value(v)?,
+            "created_at" => p.created_at = NaiveDateTime::parse_from_str(
+                from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+            ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+            "updated_at" => p.updated_at = NaiveDateTime::parse_from_str(
+                from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+            ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+            //ToDo: change to boolean paring.
+            "is_locked" => p.is_locked = if from_redis_value::<u32>(v)? == 0 { false } else { true },
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for User {
+    type Result = User;
+    fn parse(u: &mut User, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => u.id = from_redis_value::<u32>(v)?,
+            "username" => u.username = from_redis_value(v)?,
+            "email" => u.email = from_redis_value(v)?,
+            "hashed_password" => (),
+            "avatar_url" => u.avatar_url = from_redis_value(v)?,
+            "signature" => u.signature = from_redis_value(v)?,
+            "created_at" => u.created_at = NaiveDateTime::parse_from_str(
+                from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
+            ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
+            "privilege" => u.privilege = from_redis_value(v)?,
+            "show_email" => u.show_email = from_redis_value::<String>(v)?.parse::<bool>()
+                .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?,
+            "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
+            "last_online" => u.last_online = match from_redis_value::<String>(v).ok() {
+                Some(v) => NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok(),
+                None => None,
+            },
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for Category {
+    type Result = Category;
+    fn parse(c: &mut Category, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => c.id = from_redis_value(v)?,
+            "name" => c.name = from_redis_value(v)?,
+            "thumbnail" => c.thumbnail = from_redis_value(v)?,
+            "topic_count" => c.topic_count = from_redis_value(v).ok(),
+            "post_count" => c.post_count = from_redis_value(v).ok(),
+            "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
+            "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
+            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl FromRedisValue for Topic {
+    fn from_redis_value(v: &Value) -> RedisResult<Topic> {
+        Topic::from_redis_value_trait(v)
     }
 }
 
 impl FromRedisValue for Post {
     fn from_redis_value(v: &Value) -> RedisResult<Post> {
-        match *v {
-            Value::Bulk(ref items) => {
-                if items.is_empty() {
-                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
-                }
-                let mut p = Post::default();
-                let mut iter = items.iter();
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let key: String = from_redis_value(k)?;
-                    match key.as_str() {
-                        "id" => p.id = from_redis_value(v)?,
-                        "user_id" => p.user_id = from_redis_value(v)?,
-                        "topic_id" => p.topic_id = from_redis_value(v)?,
-                        "category_id" => p.category_id = from_redis_value(v)?,
-                        "post_id" => p.post_id = match from_redis_value::<u32>(v).ok() {
-                            Some(pid) => if pid == 0 { None } else { Some(pid) },
-                            None => None
-                        },
-                        "post_content" => p.post_content = from_redis_value(v)?,
-                        "created_at" => p.created_at = NaiveDateTime::parse_from_str(
-                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
-                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
-                        "updated_at" => p.updated_at = NaiveDateTime::parse_from_str(
-                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
-                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
-                        //ToDo: change to boolean paring.
-                        "is_locked" => p.is_locked = if from_redis_value::<u32>(v)? == 0 { false } else { true },
-                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-                    }
-                }
-                Ok(p)
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-        }
+        Post::from_redis_value_trait(v)
     }
 }
 
 impl FromRedisValue for User {
     fn from_redis_value(v: &Value) -> RedisResult<User> {
-        match *v {
-            Value::Bulk(ref items) => {
-                if items.is_empty() {
-                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
-                }
-                let mut u = User::default();
-                let mut iter = items.iter();
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let k: String = from_redis_value(k)?;
-                    match k.as_str() {
-                        "id" => u.id = from_redis_value::<u32>(v)?,
-                        "username" => u.username = from_redis_value(v)?,
-                        "email" => u.email = from_redis_value(v)?,
-                        "hashed_password" => (),
-                        "avatar_url" => u.avatar_url = from_redis_value(v)?,
-                        "signature" => u.signature = from_redis_value(v)?,
-                        "created_at" => u.created_at = NaiveDateTime::parse_from_str(
-                            from_redis_value::<String>(v)?.as_str(), "%Y-%m-%d %H:%M:%S%.f",
-                        ).map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?,
-                        "privilege" => u.privilege = from_redis_value(v)?,
-                        "show_email" => u.show_email = from_redis_value::<String>(v)?.parse::<bool>()
-                            .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?,
-                        "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
-                        "last_online" => u.last_online = match from_redis_value::<String>(v).ok() {
-                            Some(v) => NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok(),
-                            None => None,
-                        },
-                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-                    }
-                }
-                Ok(u)
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-        }
+        User::from_redis_value_trait(v)
     }
 }
 
 impl FromRedisValue for Category {
     fn from_redis_value(v: &Value) -> RedisResult<Category> {
-        match *v {
-            Value::Bulk(ref items) => {
-                if items.is_empty() {
-                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
-                }
-                let mut c = Category::default();
-                let mut iter = items.iter();
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break
-                    };
-                    let k: String = from_redis_value(k)?;
-                    match k.as_str() {
-                        "id" => c.id = from_redis_value(v)?,
-                        "name" => c.name = from_redis_value(v)?,
-                        "thumbnail" => c.thumbnail = from_redis_value(v)?,
-                        "topic_count" => c.topic_count = from_redis_value(v).ok(),
-                        "post_count" => c.post_count = from_redis_value(v).ok(),
-                        "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
-                        "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
-                        _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-                    }
-                }
-                Ok(c)
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not topic compatible"))?,
-        }
+        Category::from_redis_value_trait(v)
     }
 }
 

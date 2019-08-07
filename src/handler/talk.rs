@@ -28,7 +28,6 @@ use crate::model::{
 };
 use crate::handler::db::{Query, SimpleQuery};
 
-
 impl TalkService {
     // ToDo: add online offline filter
     fn send_message_many(&mut self, sid: &u32, tid: &u32, msg: &str) {
