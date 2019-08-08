@@ -1,18 +1,17 @@
 use actix_web::{dev, FromRequest, HttpRequest};
 
 use futures::{
+    future::{err as ft_err, Either},
     Future,
-    future::{Either, err as ft_err},
 };
 
+use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{
-    user::{User, AuthRequest, AuthResponse},
     common::GlobalVars,
     errors::ResError,
+    user::{AuthRequest, AuthResponse, User},
 };
-use crate::handler::db::DatabaseService;
 use crate::util::jwt::JwtPayLoad;
-use crate::handler::cache::CacheService;
 
 pub type UserJwt = JwtPayLoad;
 
@@ -32,20 +31,22 @@ impl FromRequest for JwtPayLoad {
                     .collect();
                 JwtPayLoad::from(vec[0])
             }
-            None => Err(ResError::Unauthorized)
+            None => Err(ResError::Unauthorized),
         }
     }
 }
-
 
 impl DatabaseService {
     pub fn check_register(
         &self,
         r: AuthRequest,
-    ) -> impl Future<Item=AuthRequest, Error=ResError> {
+    ) -> impl Future<Item = AuthRequest, Error = ResError> {
         let query = format!(
             "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'", r.username, r.email.as_ref().unwrap());
+             WHERE username='{}' OR email='{}'",
+            r.username,
+            r.email.as_ref().unwrap()
+        );
         self.unique_username_email_check(query.as_str(), r)
     }
 
@@ -53,40 +54,35 @@ impl DatabaseService {
         &self,
         r: AuthRequest,
         g: &GlobalVars,
-    ) -> impl Future<Item=User, Error=ResError> {
+    ) -> impl Future<Item = User, Error = ResError> {
         let hash = match crate::util::hash::hash_password(&r.password) {
             Ok(hash) => hash,
-            Err(e) => return Either::A(ft_err(e))
+            Err(e) => return Either::A(ft_err(e)),
         };
         let id = match g.lock() {
             Ok(mut var) => var.next_uid(),
-            Err(_) => return Either::A(ft_err(ResError::InternalServerError))
+            Err(_) => return Either::A(ft_err(ResError::InternalServerError)),
         };
         let u = match r.make_user(&id, &hash) {
             Ok(u) => u,
-            Err(e) => return Either::A(ft_err(e))
+            Err(e) => return Either::A(ft_err(e)),
         };
 
         use crate::handler::db::Query;
-        Either::B(self
-            .query_one_trait(
-                &self.insert_user,
-                &[
-                    &u.id,
-                    &u.username,
-                    &u.email,
-                    &u.hashed_password,
-                    &u.avatar_url,
-                    &u.signature
-                ],
-            )
-        )
+        Either::B(self.query_one_trait(
+            &self.insert_user,
+            &[
+                &u.id,
+                &u.username,
+                &u.email,
+                &u.hashed_password,
+                &u.avatar_url,
+                &u.signature,
+            ],
+        ))
     }
 
-    pub fn login(
-        &self,
-        req: AuthRequest,
-    ) -> impl Future<Item=AuthResponse, Error=ResError> {
+    pub fn login(&self, req: AuthRequest) -> impl Future<Item = AuthResponse, Error = ResError> {
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
         use crate::handler::db::SimpleQuery;
@@ -105,15 +101,12 @@ impl DatabaseService {
 }
 
 impl CacheService {
-    pub fn get_uid_from_uuid(
-        &self,
-        uuid: &str,
-    ) -> impl Future<Item=u32, Error=ResError> {
-        self.get_hash_map(uuid)
-            .and_then(|hm| Ok(hm
+    pub fn get_uid_from_uuid(&self, uuid: &str) -> impl Future<Item = u32, Error = ResError> {
+        self.get_hash_map(uuid).and_then(|hm| {
+            Ok(hm
                 .get("user_id")
                 .ok_or(ResError::Unauthorized)?
                 .parse::<u32>()?)
-            )
+        })
     }
 }

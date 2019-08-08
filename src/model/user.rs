@@ -1,8 +1,8 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    errors::ResError,
     common::{GetSelfId, Validator},
+    errors::ResError,
 };
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -43,7 +43,8 @@ pub trait AttachUser<'u> {
     fn self_user_id(&self) -> &u32;
     fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output;
     fn make_field(&self, users: &'u Vec<User>) -> Option<UserRef<'u>> {
-        users.iter()
+        users
+            .iter()
             .filter(|u| u.self_id() == self.self_user_id())
             .map(|u| u.to_ref())
             .next()
@@ -59,18 +60,22 @@ impl Default for User {
             hashed_password: "".to_string(),
             avatar_url: "".to_string(),
             signature: "".to_string(),
-            created_at: NaiveDateTime::from_timestamp(0,0),
+            created_at: NaiveDateTime::from_timestamp(0, 0),
             privilege: 0,
             show_email: false,
             online_status: None,
-            last_online: None
+            last_online: None,
         }
     }
 }
 
 impl User {
     pub fn to_ref(&self) -> UserRef {
-        let email = if self.show_email { Some(self.email.as_str()) } else { None };
+        let email = if self.show_email {
+            Some(self.email.as_str())
+        } else {
+            None
+        };
         UserRef {
             id: &self.id,
             username: self.username.as_str(),
@@ -87,11 +92,15 @@ impl User {
 }
 
 impl GetSelfId for User {
-    fn self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 {
+        &self.id
+    }
 }
 
 impl<'a> GetSelfId for UserRef<'a> {
-    fn self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 {
+        &self.id
+    }
 }
 
 pub struct NewUser<'a> {
@@ -113,10 +122,17 @@ pub struct AuthRequest {
 
 impl AuthRequest {
     pub fn extract_email(&self) -> Result<&str, ResError> {
-        self.email.as_ref().map(String::as_str).ok_or(ResError::BadRequest)
+        self.email
+            .as_ref()
+            .map(String::as_str)
+            .ok_or(ResError::BadRequest)
     }
 
-    pub fn make_user<'a>(&'a self, id: &'a u32, hashed_password: &'a str) -> Result<NewUser<'a>, ResError> {
+    pub fn make_user<'a>(
+        &'a self,
+        id: &'a u32,
+        hashed_password: &'a str,
+    ) -> Result<NewUser<'a>, ResError> {
         Ok(NewUser {
             id,
             username: &self.username,
@@ -176,11 +192,19 @@ impl UpdateRequest {
 }
 
 impl Validator for AuthRequest {
-    fn get_username(&self) -> &str { &self.username }
-    fn get_password(&self) -> &str { &self.password }
-    fn get_email(&self) -> &str { self.email.as_ref().map(String::as_str).unwrap_or("") }
+    fn get_username(&self) -> &str {
+        &self.username
+    }
+    fn get_password(&self) -> &str {
+        &self.password
+    }
+    fn get_email(&self) -> &str {
+        self.email.as_ref().map(String::as_str).unwrap_or("")
+    }
 
-    fn check_self_id(&self) -> Result<(), ResError> { Ok(()) }
+    fn check_self_id(&self) -> Result<(), ResError> {
+        Ok(())
+    }
 }
 
 impl Validator for UpdateRequest {
@@ -188,8 +212,12 @@ impl Validator for UpdateRequest {
     fn get_username(&self) -> &str {
         self.username.as_ref().map(String::as_str).unwrap_or("")
     }
-    fn get_password(&self) -> &str { "" }
-    fn get_email(&self) -> &str { "" }
+    fn get_password(&self) -> &str {
+        ""
+    }
+    fn get_email(&self) -> &str {
+        ""
+    }
 
     fn check_self_id(&self) -> Result<(), ResError> {
         self.id.as_ref().ok_or(ResError::BadRequest).map(|_| ())

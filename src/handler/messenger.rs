@@ -1,39 +1,27 @@
-use std::{env, time::Duration};
 use futures::{
-    future::{Either, ok as ft_ok},
+    future::{ok as ft_ok, Either},
     IntoFuture,
 };
+use std::{env, time::Duration};
 
-use actix::prelude::{
-    ActorFuture,
-    AsyncContext,
-    Context,
-    Future,
-    Handler,
-    Message,
-    WrapFuture,
-};
+use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 
 use lettre::{
-    SmtpClient,
-    Transport,
     smtp::{
+        authentication::{Credentials, Mechanism},
         ConnectionReuseParameters,
-        authentication::{
-            Credentials,
-            Mechanism,
-        },
     },
+    SmtpClient, Transport,
 };
 use lettre_email::Email;
 
-use crate::MessageService;
-use crate::model::{
-    user::User,
-    messenger::{Mail, Mailer, Twilio, SmsMessage},
-    errors::{ErrorReport, ResError, RepError},
-};
 use crate::handler::cache::CacheService;
+use crate::model::{
+    errors::{ErrorReport, RepError},
+    messenger::{Mail, Mailer, SmsMessage, Twilio},
+    user::User,
+};
+use crate::MessageService;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
@@ -59,52 +47,53 @@ impl MessageService {
                 let f1 = act.send_sms_admin(s.as_str());
                 let f2 = act.send_mail_admin(s.as_str());
 
-                ctx.spawn(f1.join(f2)
-                    .into_actor(act)
-                    .map_err(|_, _, _| ())
-                    .map(|_, _, _| ()));
+                ctx.spawn(
+                    f1.join(f2)
+                        .into_actor(act)
+                        .map_err(|_, _, _| ())
+                        .map(|_, _, _| ()),
+                );
             };
         });
     }
 
     fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
-            ctx.spawn(act
-                .get_queue("mail_queue")
-                .into_actor(act)
-                .map_err(|e, _, _| match e {
-                    ResError::NoCache => (),
-                    _ => println!("mail error is : {:?}", e)
-                })
-                .and_then(|s, act, _| act
-                    .send_mail_user(s.as_str())
-                    .into_future()
+            ctx.spawn(
+                act.get_queue("mail_queue")
                     .into_actor(act)
-                    .map_err(|_, _, _| ())));
+                    .map_err(|e, act, _| act.add_err_to_rep(RepError::from(e)))
+                    .and_then(|s, act, _| {
+                        act.send_mail_user(s.as_str())
+                            .into_future()
+                            .into_actor(act)
+                            .map_err(|e, act, _| act.add_err_to_rep(e))
+                    }),
+            );
         });
     }
 
     fn process_sms(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(SMS_TIME_GAP, move |act, ctx| {
-            ctx.spawn(act
-                .get_queue("sms_queue")
-                .into_actor(act)
-                .map_err(|e, _, _| match e {
-                    ResError::NoCache => (),
-                    _ => println!("sms error is : {:?}", e)
-                })
-                .and_then(|s, act, _| act
-                    .send_sms_user(s.as_str())
+            ctx.spawn(
+                act.get_queue("sms_queue")
                     .into_actor(act)
-                    .map_err(|_, _, _| ())
-                ));
+                    .map_err(|e, act, _| act.add_err_to_rep(RepError::from(e)))
+                    .and_then(|s, act, _| {
+                        act.send_sms_user(s.as_str())
+                            .into_actor(act)
+                            .map_err(|e, act, _| act.add_err_to_rep(e))
+                    }),
+            );
         });
     }
 
     pub fn generate_mailer() -> Option<Mailer> {
         let mail_server = env::var("MAIL_SERVER").expect("Mail server must be set in .env");
-        let username = env::var("MAIL_USERNAME").expect("Mail server credentials must be set  in .env");
-        let password = env::var("MAIL_PASSWORD").expect("Mail server credentials must be set in .env");
+        let username =
+            env::var("MAIL_USERNAME").expect("Mail server credentials must be set  in .env");
+        let password =
+            env::var("MAIL_PASSWORD").expect("Mail server credentials must be set in .env");
 
         let server_url = env::var("SERVER_URL").expect("Server url must be set in .env");
         let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or("Pixel@Share".to_owned());
@@ -126,7 +115,7 @@ impl MessageService {
                     self_name,
                 })
             }
-            Err(_) => None
+            Err(_) => None,
         }
     }
 
@@ -150,7 +139,9 @@ impl MessageService {
 
     pub fn generate_error_report() -> ErrorReport {
         let use_report = env::var("USE_ERROR_SMS_REPORT")
-            .unwrap_or("false".to_owned()).parse::<bool>().unwrap_or(false);
+            .unwrap_or("false".to_owned())
+            .parse::<bool>()
+            .unwrap_or(false);
 
         ErrorReport {
             use_report,
@@ -159,7 +150,7 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=RepError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item = (), Error = RepError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg.to_owned(),
@@ -167,41 +158,46 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=RepError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item = (), Error = RepError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
-            Err(_) => return Either::A(ft_ok(()))
+            Err(_) => return Either::A(ft_ok(())),
         };
         Either::B(self.send_sms(msg))
     }
 
     // twilio api handler.
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=RepError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item = (), Error = RepError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
         let form = [
             ("From", t.self_number.to_string()),
             ("To", msg.to),
-            ("Body", msg.message)
+            ("Body", msg.message),
         ];
 
         let c = awc::Client::build()
-            .connector(awc::Connector::new().timeout(Duration::from_secs(5)).finish())
+            .connector(
+                awc::Connector::new()
+                    .timeout(Duration::from_secs(5))
+                    .finish(),
+            )
             .finish();
 
         c.post(&url)
             .basic_auth(t.account_id.as_str(), Some(t.auth_token.as_str()))
-            .set_header(awc::http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .set_header(
+                awc::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
             .send_form(&form)
             .from_err()
             .map(|_| ())
     }
 
     fn send_mail_admin(&mut self, rep: &str) -> Result<(), RepError> {
-        let mail = Mail::ErrorReport {
-            report: rep,
-        };
+        let mail = Mail::ErrorReport { report: rep };
         self.send_mail(&mail)
     }
 
@@ -215,18 +211,21 @@ impl MessageService {
         let mailer = self.mailer.as_mut().unwrap();
 
         let (to, subject, html, text) = match *mail {
-            Mail::Activation { to, uuid } => {
-                (to,
-                 "Activate your PixelShare account",
-                 format!("<p>Please click the link below </br> {}/activation/{} </p>", &mailer.server_url, uuid),
-                 "Activation link")
-            }
-            Mail::ErrorReport { report } => {
-                (mailer.self_addr.as_str(),
-                 "Error Report",
-                 report.to_owned(),
-                 "")
-            }
+            Mail::Activation { to, uuid } => (
+                to,
+                "Activate your PixelShare account",
+                format!(
+                    "<p>Please click the link below </br> {}/activation/{} </p>",
+                    &mailer.server_url, uuid
+                ),
+                "Activation link",
+            ),
+            Mail::ErrorReport { report } => (
+                mailer.self_addr.as_str(),
+                "Error Report",
+                report.to_owned(),
+                "",
+            ),
         };
 
         let mail = Email::builder()
@@ -238,21 +237,16 @@ impl MessageService {
             .map_err(|_| RepError::MailBuilder)?
             .into();
 
-        mailer.mailer
+        mailer
+            .mailer
             .send(mail)
             .map(|_| ())
-            .map_err(|e| {
-                println!("{:?}", e);
-                RepError::MailTransport
-            })
+            .map_err(|_| RepError::MailTransport)
     }
 }
 
 impl CacheService {
-    pub fn add_activation_mail(
-        &self,
-        u: User,
-    ) {
+    pub fn add_activation_mail(&self, u: User) {
         let uuid = uuid::Uuid::new_v4().to_string();
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
@@ -260,22 +254,21 @@ impl CacheService {
             actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }
+
+    pub fn remove_activation_uuid(&self, uuid: &str) {
+        use crate::handler::cache::DeleteCache;
+        actix_rt::spawn(self.del_cache(uuid).map_err(|_| ()))
+    }
 }
 
-#[derive(Message)]
-pub struct ErrorReportMessage(pub RepError);
-
-impl Handler<ErrorReportMessage> for MessageService {
-    type Result = ();
-
-    fn handle(&mut self, msg: ErrorReportMessage, _: &mut Context<Self>) {
-        let err = msg.0;
-        match self.error_report.reports.get_mut(&err) {
+impl MessageService {
+    fn add_err_to_rep(&mut self, e: RepError) {
+        match self.error_report.reports.get_mut(&e) {
             Some(v) => {
                 *v += 1;
             }
             None => {
-                self.error_report.reports.insert(err, 1);
+                self.error_report.reports.insert(e, 1);
             }
         }
     }
@@ -291,20 +284,24 @@ impl ErrorReport {
 
             if let Some(v) = rep.get_mut(&RepError::Redis) {
                 if *v > 2 {
-                    message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
+                    message
+                        .push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
                 }
                 *v = 0;
             }
             if let Some(v) = rep.get_mut(&RepError::Database) {
                 if *v > 2 {
-                    message.push_str("%0aDatabase Service Error(Could be database server offline/IO error)");
+                    message.push_str(
+                        "%0aDatabase Service Error(Could be database server offline/IO error)",
+                    );
                 }
                 *v = 0;
             }
 
             if let Some(v) = rep.get_mut(&RepError::SMS) {
                 if *v > 2 {
-                    message.push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
+                    message
+                        .push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
                 }
                 *v = 0;
             }
@@ -322,11 +319,15 @@ impl ErrorReport {
             }
             if let Some(v) = rep.get_mut(&RepError::HttpClient) {
                 if *v > 3 {
-                    message.push_str("%0aHttp Client Error(Could be network issue with target API entry)");
+                    message.push_str(
+                        "%0aHttp Client Error(Could be network issue with target API entry)",
+                    );
                 }
                 *v = 0;
             }
-            if !message.ends_with(":") && std::time::Instant::now().duration_since(self.last_report_time) > REPORT_TIME_GAP {
+            if !message.ends_with(":")
+                && std::time::Instant::now().duration_since(self.last_report_time) > REPORT_TIME_GAP
+            {
                 Ok(message)
             } else {
                 Err(())

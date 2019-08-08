@@ -1,7 +1,4 @@
-use crate::model::{
-    common::GetSelfId,
-    errors::ResError,
-};
+use crate::model::{common::GetSelfId, errors::ResError};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Category {
@@ -25,7 +22,7 @@ impl Default for Category {
             topic_count: None,
             post_count: None,
             topic_count_new: None,
-            post_count_new: None
+            post_count_new: None,
         }
     }
 }
@@ -39,7 +36,9 @@ pub struct CategoryRequest {
 }
 
 impl GetSelfId for Category {
-    fn self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 {
+        &self.id
+    }
 }
 
 impl CategoryRequest {

@@ -1,43 +1,25 @@
 use std::time::Instant;
 
-use actix::prelude::{
-    ActorContext,
-    AsyncContext,
-    Handler,
-    Message,
-    StreamHandler,
+use actix::prelude::{ActorContext, AsyncContext, Handler, Message, StreamHandler};
+use actix_web::{
+    web::{Data, Payload},
+    Error, HttpRequest, HttpResponse,
 };
-use actix_web::{web::{Payload, Data}, Error, HttpResponse, HttpRequest};
 use actix_web_actors::ws;
 use serde::Deserialize;
 
-use crate::util::jwt::JwtPayLoad;
+use crate::handler::talk::{
+    Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
+    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TextMessageRequest, UserRelationRequest,
+    UsersByIdRequest,
+};
 use crate::model::{
-    actors::{TALK, TalkService, WsChatSession},
+    actors::{TalkService, WsChatSession, TALK},
     talk::SessionMessage,
 };
-use crate::handler::{
-    talk::{
-        AuthRequest,
-        ConnectRequest,
-        CreateTalkRequest,
-        DeleteTalkRequest,
-        TalkByIdRequest,
-        UsersByIdRequest,
-        JoinTalkRequest,
-        Admin,
-        RemoveUserRequest,
-        TextMessageRequest,
-        UserRelationRequest,
-        GetHistory,
-    },
-};
+use crate::util::jwt::JwtPayLoad;
 
-pub fn talk(
-    req: HttpRequest,
-    stream: Payload,
-    talk: Data<TALK>,
-) -> Result<HttpResponse, Error> {
+pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpResponse, Error> {
     println!("connected");
     ws::start(
         WsChatSession {
@@ -53,7 +35,9 @@ pub fn talk(
 impl Handler<SessionMessage> for WsChatSession {
     type Result = ();
 
-    fn handle(&mut self, msg: SessionMessage, ctx: &mut Self::Context) { ctx.text(msg.0); }
+    fn handle(&mut self, msg: SessionMessage, ctx: &mut Self::Context) {
+        ctx.text(msg.0);
+    }
 }
 
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
@@ -79,7 +63,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 if self.id <= 0 {
                     match v[0] {
                         "/auth" => auth(self, v[1], ctx),
-                        _ => ctx.text("!!! Unauthorized command")
+                        _ => ctx.text("!!! Unauthorized command"),
                     }
                 } else {
                     match v[0] {
@@ -87,14 +71,14 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
                         "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
-                        // request talk_id 0 to get all talks details.
                         "/users" => general_msg_handler::<UsersByIdRequest>(self, v[1], ctx),
+                        // request talk_id 0 to get all talks details.
                         "/talks" => general_msg_handler::<TalkByIdRequest>(self, v[1], ctx),
                         "/relation" => general_msg_handler::<UserRelationRequest>(self, v[1], ctx),
                         "/join" => general_msg_handler::<JoinTalkRequest>(self, v[1], ctx),
                         "/create" => general_msg_handler::<CreateTalkRequest>(self, v[1], ctx),
                         "/delete" => general_msg_handler::<DeleteTalkRequest>(self, v[1], ctx),
-                        _ => ctx.text("!!! Unknown command")
+                        _ => ctx.text("!!! Unknown command"),
                     }
                 }
             }
@@ -172,25 +156,22 @@ fn general_msg_handler<'a, T>(
     session: &mut WsChatSession,
     text: &'a str,
     ctx: &mut ws::WebsocketContext<WsChatSession>,
-) where T: SessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
-        <T as Message>::Result: std::marker::Send,
-        TalkService: Handler<T> {
+) where
+    T: SessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
+    <T as Message>::Result: std::marker::Send,
+    TalkService: Handler<T>,
+{
     let r: Result<T, _> = serde_json::from_str::<T>(text);
     match r {
         Ok(mut msg) => {
             msg.attach_session_id(session.id);
             session.addr.do_send(msg)
         }
-        Err(_) => ctx.text("!!! Query parsing error")
+        Err(_) => ctx.text("!!! Query parsing error"),
     }
 }
 
-fn auth(
-    session: &mut WsChatSession,
-    text: &str,
-    ctx: &mut ws::WebsocketContext<WsChatSession>,
-) {
-    println!("{}", text);
+fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<WsChatSession>) {
     let r: Result<AuthRequest, _> = serde_json::from_str(text);
     match r {
         Ok(auth) => match JwtPayLoad::from(&auth.token) {
@@ -202,8 +183,8 @@ fn auth(
                     addr: ctx.address(),
                 });
             }
-            Err(_) => ctx.text("!!! Authentication failed")
+            Err(_) => ctx.text("!!! Authentication failed"),
         },
-        Err(_) => ctx.text("!!! Query parsing error")
+        Err(_) => ctx.text("!!! Query parsing error"),
     }
 }

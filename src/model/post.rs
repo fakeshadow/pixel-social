@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use crate::model::{
     common::{GetSelfId, GetUserId},
     errors::ResError,
-    user::{User, UserRef, AttachUser},
+    user::{AttachUser, User, UserRef},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -54,12 +54,9 @@ pub struct PostRequest {
 
 impl Post {
     pub fn attach_users<'a>(p: &'a Vec<Post>, u: &'a Vec<User>) -> Vec<PostWithUser<'a>> {
-        p.iter()
-            .map(|p| p.attach_user(&u))
-            .collect()
+        p.iter().map(|p| p.attach_user(&u)).collect()
     }
 }
-
 
 impl PostRequest {
     pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
@@ -68,8 +65,7 @@ impl PostRequest {
     }
 
     pub fn check_new(&self) -> Result<(), ResError> {
-        if self.topic_id.is_none() ||
-            self.post_content.is_none() {
+        if self.topic_id.is_none() || self.post_content.is_none() {
             Err(ResError::BadRequest)
         } else {
             Ok(())
@@ -96,9 +92,11 @@ pub struct PostWithUser<'a> {
     pub user: Option<UserRef<'a>>,
 }
 
-impl<'u, > AttachUser<'u> for Post {
+impl<'u> AttachUser<'u> for Post {
     type Output = PostWithUser<'u>;
-    fn self_user_id(&self) -> &u32 { &self.user_id }
+    fn self_user_id(&self) -> &u32 {
+        &self.user_id
+    }
     fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output {
         PostWithUser {
             user: self.make_field(&users),
@@ -108,9 +106,13 @@ impl<'u, > AttachUser<'u> for Post {
 }
 
 impl GetSelfId for Post {
-    fn self_id(&self) -> &u32 { &self.id }
+    fn self_id(&self) -> &u32 {
+        &self.id
+    }
 }
 
 impl GetUserId for Post {
-    fn get_user_id(&self) -> u32 { self.user_id }
+    fn get_user_id(&self) -> u32 {
+        self.user_id
+    }
 }

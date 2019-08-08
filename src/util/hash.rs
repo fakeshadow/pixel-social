@@ -1,6 +1,6 @@
 use std::env;
 
-use bcrypt::{DEFAULT_COST, hash, verify};
+use bcrypt::{hash, verify, DEFAULT_COST};
 
 use crate::model::errors::ResError;
 
@@ -14,7 +14,13 @@ pub fn hash_password(password: &str) -> Result<String, ResError> {
 
 pub fn verify_password(password: &str, password_hash: &str) -> Result<(), ResError> {
     match verify(password, password_hash) {
-        Ok(valid) =>  if valid { Ok(()) } else { Err(ResError::WrongPwd) },
+        Ok(valid) => {
+            if valid {
+                Ok(())
+            } else {
+                Err(ResError::WrongPwd)
+            }
+        }
         _ => Err(ResError::InternalServerError),
     }
 }

@@ -1,9 +1,9 @@
-pub mod messenger;
+pub mod actors;
 pub mod category;
 pub mod common;
 pub mod errors;
+pub mod messenger;
 pub mod post;
+pub mod talk;
 pub mod topic;
 pub mod user;
-pub mod talk;
-pub mod actors;

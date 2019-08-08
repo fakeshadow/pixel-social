@@ -1,5 +1,6 @@
 /target
 .env
+.dump.rdb
 **/*.rs.bk
 /.idea
 **/android

@@ -1,15 +1,9 @@
-use std::{
-    sync::{Arc, RwLock, Mutex},
-};
+use std::sync::{Arc, Mutex, RwLock};
 
 use actix::prelude::Addr;
 use hashbrown::HashMap;
 
-use crate::model::{
-    actors::WsChatSession,
-    errors::ResError,
-    talk::Talk,
-};
+use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
 use crate::util::validation as validate;
 
 pub trait GetSelfCategory {
@@ -95,7 +89,10 @@ pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalks, GlobalSe
         talks.insert(t.id, t);
     }
 
-    (Arc::new(RwLock::new(talks)), Arc::new(RwLock::new(HashMap::new())))
+    (
+        Arc::new(RwLock::new(talks)),
+        Arc::new(RwLock::new(HashMap::new())),
+    )
 }
 
 pub struct GlobalVar {
@@ -107,14 +104,12 @@ pub struct GlobalVar {
 
 impl GlobalVar {
     pub fn new(last_uid: u32, last_pid: u32, last_tid: u32, last_cid: u32) -> GlobalVars {
-        Mutex::new(
-            GlobalVar {
-                last_uid,
-                last_pid,
-                last_tid,
-                last_cid,
-            }
-        )
+        Mutex::new(GlobalVar {
+            last_uid,
+            last_pid,
+            last_tid,
+            last_cid,
+        })
     }
     pub fn next_uid(&mut self) -> u32 {
         self.last_uid += 1;

@@ -1,9 +1,9 @@
+pub mod admin;
+pub mod auth;
 pub mod category;
 pub mod post;
+pub mod stream;
+pub mod talk;
 pub mod test;
 pub mod topic;
 pub mod user;
-pub mod admin;
-pub mod stream;
-pub mod talk;
-pub mod auth;

@@ -3,20 +3,14 @@ use actix_rt::Runtime;
 
 use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
-use crate::handler::{
-    cache::{build_list, build_hmsets, build_topics_cache_list, build_posts_cache_list, build_users_cache},
+use crate::handler::cache::{
+    build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list, build_users_cache,
 };
 use crate::model::{
+    category::Category,
+    common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
     topic::Topic,
     user::User,
-    category::Category,
-    common::{
-        GlobalTalks,
-        GlobalSessions,
-        new_global_talks_sessions,
-        GlobalVar,
-        GlobalVars,
-    },
 };
 use chrono::NaiveDateTime;
 
@@ -29,15 +23,14 @@ pub fn build_cache(
     let mut rt = Runtime::new().unwrap();
     let (mut c, conn) = rt
         .block_on(connect(postgres_url, NoTls))
-        .unwrap_or_else(|e| panic!("{}", e ));
+        .unwrap_or_else(|e| panic!("{}", e));
 
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
-    let c_cache = redis::Client::open(redis_url)
-        .unwrap_or_else(|e| panic!("{}", e ));
+    let c_cache = redis::Client::open(redis_url).unwrap_or_else(|e| panic!("{}", e));
     let c_cache = rt
         .block_on(c_cache.get_shared_async_connection())
-        .unwrap_or_else(|e| panic!("{}", e ));
+        .unwrap_or_else(|e| panic!("{}", e));
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
@@ -45,9 +38,13 @@ pub fn build_cache(
         .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .unwrap_or_else(|_| panic!("Failed to load categories from db"));
 
-    rt.block_on(build_hmsets(c_cache.clone(), categories.clone(), "category", false))
-        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
-
+    rt.block_on(build_hmsets(
+        c_cache.clone(),
+        categories.clone(),
+        "category",
+        false,
+    ))
+    .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -55,38 +52,55 @@ pub fn build_cache(
     let mut last_cid = 1;
     let mut category_ids = Vec::new();
     for cat in categories.iter() {
-
-        if cat.id > last_cid { last_cid = cat.id };
+        if cat.id > last_cid {
+            last_cid = cat.id
+        };
         category_ids.push(cat.id);
 
         // count posts and topics for each category and write to redis
-        let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
-        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
+        let query = format!(
+            "SELECT COUNT(id) FROM topics WHERE category_id = {}",
+            cat.id
+        );
+        let f =
+            crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
         let t_count = rt.block_on(f).unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let f = crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
+        let f =
+            crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
         let p_count = rt.block_on(f).unwrap_or(0);
 
         let f = redis::cmd("HMSET")
             .arg(&format!("category:{}:set", cat.id))
-            .arg(&[("topic_count", t_count.to_string()), ("post_count", p_count.to_string())])
+            .arg(&[
+                ("topic_count", t_count.to_string()),
+                ("post_count", p_count.to_string()),
+            ])
             .query_async(c_cache.clone())
             .map(|(_, ())| ());
-        rt.block_on(f).unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
+        rt.block_on(f)
+            .unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
-        let query = format!("SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC", cat.id);
-        let t = rt.block_on(crate::handler::db::load_all::<Topic>(&mut c, &query))
+        let query = format!(
+            "SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC",
+            cat.id
+        );
+        let t = rt
+            .block_on(crate::handler::db::load_all::<Topic>(&mut c, &query))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
-        let query = format!("SELECT COUNT(topic_id), topic_id FROM posts WHERE category_id = {} GROUP BY topic_id", cat.id);
+        let query = format!(
+            "SELECT COUNT(topic_id), topic_id FROM posts WHERE category_id = {} GROUP BY topic_id",
+            cat.id
+        );
         let reply_count = Vec::new();
-        let f = c.simple_query(&query)
-            .map_err(|e| panic!("{}", e))
-            .fold(reply_count, |mut reply_count, row| {
+        let f = c.simple_query(&query).map_err(|e| panic!("{}", e)).fold(
+            reply_count,
+            |mut reply_count, row| {
                 match row {
                     SimpleQueryMessage::Row(row) => {
                         if let Some(count) = row.get(0).unwrap().parse::<u32>().ok() {
@@ -95,12 +109,15 @@ pub fn build_cache(
                             }
                         }
                     }
-                    _ => ()
+                    _ => (),
                 }
                 Ok(reply_count)
-            });
+            },
+        );
 
-        let mut reply_count: Vec<(u32, u32)> = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+        let mut reply_count: Vec<(u32, u32)> = rt
+            .block_on(f)
+            .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
         // attach reply count to topics
         let t = t
@@ -123,13 +140,21 @@ pub fn build_cache(
         for t in t.clone().into_iter() {
             tids.push(t.id);
             sets.push((t.id, t.category_id, t.reply_count, t.created_at));
-            if t.id > last_tid { last_tid = t.id };
+            if t.id > last_tid {
+                last_tid = t.id
+            };
         }
 
-        let _ = rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
+        let _ = rt
+            .block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build category sets"));
     }
-    let _ = rt.block_on(build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned()))
+    let _ = rt
+        .block_on(build_list(
+            c_cache.clone(),
+            category_ids,
+            "category_id:meta".to_owned(),
+        ))
         .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // load all posts with tid id and created_at
@@ -141,15 +166,19 @@ pub fn build_cache(
                 SimpleQueryMessage::Row(row) => {
                     let tid = row.get(0).unwrap().parse::<u32>().unwrap();
                     let pid = row.get(1).unwrap().parse::<u32>().unwrap();
-                    let time = NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f").unwrap();
+                    let time =
+                        NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f")
+                            .unwrap();
                     posts.push((tid, pid, None, time));
                 }
-                _ => ()
+                _ => (),
             }
             Ok(posts)
         });
 
-    let posts = rt.block_on(f).unwrap_or_else(|_| panic!("Failed to load posts"));
+    let posts = rt
+        .block_on(f)
+        .unwrap_or_else(|_| panic!("Failed to load posts"));
 
     // load topics reply count
     let f = c
@@ -168,12 +197,13 @@ pub fn build_cache(
                         }
                     }
                 }
-                _ => ()
+                _ => (),
             }
             Ok(reply_count)
         });
 
-    let mut reply_count: Vec<(u32, u32)> = rt.block_on(f)
+    let mut reply_count: Vec<(u32, u32)> = rt
+        .block_on(f)
         .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
     let mut last_pid = 1;
@@ -182,7 +212,9 @@ pub fn build_cache(
     let posts = posts
         .into_iter()
         .map(|mut p| {
-            if p.1 > last_pid { last_pid = p.1; }
+            if p.1 > last_pid {
+                last_pid = p.1;
+            }
 
             for i in 0..reply_count.len() {
                 if p.1 == reply_count[i].0 {
@@ -196,32 +228,42 @@ pub fn build_cache(
         .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
     if posts.len() > 0 {
-        let _ = rt.block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
+        let _ = rt
+            .block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build posts cache"));
     }
 
-    let users = rt.block_on(crate::handler::db::load_all::<User>(&mut c, "SELECT * FROM users"))
+    let users = rt
+        .block_on(crate::handler::db::load_all::<User>(
+            &mut c,
+            "SELECT * FROM users",
+        ))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
     let mut last_uid = 1;
     for u in users.iter() {
-        if u.id > last_uid { last_uid = u.id };
+        if u.id > last_uid {
+            last_uid = u.id
+        };
     }
     rt.block_on(build_users_cache(users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
-
-    let talks = rt.block_on(crate::handler::db::load_all(&mut c, "SELECT * FROM talks"))
+    let talks = rt
+        .block_on(crate::handler::db::load_all(&mut c, "SELECT * FROM talks"))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
-
-    let (talks, sessions, ) = new_global_talks_sessions(talks);
+    let (talks, sessions) = new_global_talks_sessions(talks);
 
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
-    Ok((GlobalVar::new(last_uid, last_pid, last_tid, last_cid), talks, sessions))
+    Ok((
+        GlobalVar::new(last_uid, last_pid, last_tid, last_cid),
+        talks,
+        sessions,
+    ))
 }
 
 // return true if built tables success
@@ -235,7 +277,10 @@ pub fn create_table(postgres_url: &str) -> bool {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if let Some(_) = rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query)).ok() {
+    if let Some(_) = rt
+        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
+        .ok()
+    {
         return false;
     }
 
@@ -269,7 +314,8 @@ CREATE TABLE topics
     thumbnail       VARCHAR(1024) NOT NULL,
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE
+    is_locked       BOOLEAN       NOT NULL DEFAULT FALSE,
+    is_visible      BOOLEAN       NOT NULL DEFAULT TRUE
 );
 CREATE TABLE posts
 (
@@ -333,7 +379,8 @@ CREATE UNIQUE INDEX users_email ON users (email);
 CREATE UNIQUE INDEX categories_name ON categories (name);
 CREATE UNIQUE INDEX talks_name ON talks (name);
 CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
-CREATE UNIQUE INDEX associates_live_id ON associates (live_id);".to_owned();
+CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
+        .to_owned();
 
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
@@ -368,11 +415,10 @@ VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented commu
 INSERT INTO posts (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
-    let f = c
-        .simple_query(&query)
-        .into_future();
+    let f = c.simple_query(&query).into_future();
 
-    let _ = rt.block_on(f)
+    let _ = rt
+        .block_on(f)
         .map(|_| println!("dummy tables generated"))
         .unwrap_or_else(|_| panic!("fail to create default tables"));
 
@@ -410,7 +456,8 @@ DROP TABLE IF EXISTS posts;";
         .into_future()
         .map_err(|(e, _)| println!("{:?}", e));
 
-    let _ = rt.block_on(f)
+    let _ = rt
+        .block_on(f)
         .map(|_| println!("All tables have been drop. pixel_rs exited"))
         .expect("failed to clear db");
 }

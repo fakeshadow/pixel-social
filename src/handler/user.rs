@@ -1,27 +1,18 @@
 use std::fmt::Write;
 
 use futures::{
+    future::{err as ft_err, Either},
     Future,
-    future::{
-        Either,
-        err as ft_err,
-    },
 };
 
+use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{
     errors::ResError,
-    user::{User, UpdateRequest},
-};
-use crate::handler::{
-    db::DatabaseService,
-    cache::CacheService
+    user::{UpdateRequest, User},
 };
 
 impl DatabaseService {
-    pub fn update_user(
-        &self,
-        u: UpdateRequest,
-    ) -> impl Future<Item=User, Error=ResError> {
+    pub fn update_user(&self, u: UpdateRequest) -> impl Future<Item = User, Error = ResError> {
         let mut query = String::new();
         query.push_str("UPDATE users SET");
 
@@ -42,7 +33,11 @@ impl DatabaseService {
         }
 
         if query.ends_with(",") {
-            let _ = write!(&mut query, " updated_at = DEFAULT WHERE id = {} RETURNING *", u.id.unwrap());
+            let _ = write!(
+                &mut query,
+                " updated_at = DEFAULT WHERE id = {} RETURNING *",
+                u.id.unwrap()
+            );
         } else {
             return Either::A(ft_err(ResError::BadRequest));
         }
@@ -55,8 +50,8 @@ impl DatabaseService {
 impl CacheService {
     pub fn get_users_from_ids(
         &self,
-        mut ids: Vec<u32>
-    ) -> impl Future<Item=Vec<User>, Error=ResError> {
+        mut ids: Vec<u32>,
+    ) -> impl Future<Item = Vec<User>, Error = ResError> {
         ids.sort();
         ids.dedup();
 

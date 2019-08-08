@@ -34,7 +34,6 @@ impl SendMessage<'_> {
     }
 }
 
-
 pub struct Relation {
     pub friends: Vec<u32>,
 }

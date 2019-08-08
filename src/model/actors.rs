@@ -1,35 +1,19 @@
+use futures::future::join_all;
 use std::time::{Duration, Instant};
-use futures::{future::join_all};
 
 use actix::prelude::{
-    Actor,
-    ActorContext,
-    ActorFuture,
-    AsyncContext,
-    Addr,
-    Context,
-    ContextFutureSpawner,
-    fut,
-    Future,
-    Running,
-    WrapFuture,
+    fut, Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
+    Future, Running, WrapFuture,
 };
 use actix_web_actors::ws;
 use redis::Client as RedisClient;
-use tokio_postgres::{
-    Client,
-    connect,
-    Statement,
-    tls::NoTls,
-};
+use tokio_postgres::{connect, tls::NoTls, Client, Statement};
 
+use crate::handler::talk::DisconnectRequest;
 use crate::model::{
+    common::{GlobalSessions, GlobalTalks},
     errors::ErrorReport,
-    common::{GlobalTalks, GlobalSessions},
     messenger::{Mailer, Twilio},
-};
-use crate::handler::{
-    talk::DisconnectRequest,
 };
 
 // websocket heartbeat and connection time out time.
@@ -39,7 +23,6 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub type SharedConn = redis::aio::SharedConnection;
 pub type TALK = Addr<TalkService>;
 pub type MAILER = Addr<MessageService>;
-
 
 // actor handles error report, sending email and sms messages.
 pub struct MessageService {
@@ -55,7 +38,6 @@ pub struct WsChatSession {
     pub hb: Instant,
     pub addr: TALK,
 }
-
 
 impl Actor for MessageService {
     type Context = Context<Self>;
@@ -73,14 +55,16 @@ impl Actor for WsChatSession {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.addr.do_send(DisconnectRequest { session_id: self.id });
+        self.addr.do_send(DisconnectRequest {
+            session_id: self.id,
+        });
         Running::Stop
     }
 }
 
 // actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
-    pub cache: Option<SharedConn>
+    pub cache: Option<SharedConn>,
 }
 
 impl Actor for CacheUpdateService {
@@ -93,15 +77,14 @@ impl Actor for CacheUpdateService {
 
 impl CacheUpdateService {
     pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
-        let client = RedisClient::open(redis_url)
-            .unwrap_or_else(|_| panic!("Can't connect to cache"));
+        let client =
+            RedisClient::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
 
         CacheUpdateService::create(move |ctx| {
-            let addr = CacheUpdateService {
-                cache: None
-            };
+            let addr = CacheUpdateService { cache: None };
 
-            client.get_shared_async_connection()
+            client
+                .get_shared_async_connection()
                 .map_err(|_| panic!("failed to get redis connection"))
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
@@ -113,7 +96,6 @@ impl CacheUpdateService {
         })
     }
 }
-
 
 // actor handles communication between websocket sessions actors
 // with a database connection(each actor) for messages and talks query. a redis connection(each actor) for users' cache info query.
@@ -140,7 +122,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
+    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -188,7 +170,6 @@ impl TalkService {
     }
 }
 
-
 impl MessageService {
     pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
@@ -201,7 +182,8 @@ impl MessageService {
                 error_report: Self::generate_error_report(),
             };
 
-            client.get_shared_async_connection()
+            client
+                .get_shared_async_connection()
                 .map_err(|_| panic!("failed to get redis connection"))
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
@@ -214,12 +196,11 @@ impl MessageService {
     }
 }
 
-
 impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // ToDo: remove session from talk actor and make request to redis to update user
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                let _ = act.addr.do_send(DisconnectRequest { session_id: act.id });
                 ctx.stop();
                 return;
             }

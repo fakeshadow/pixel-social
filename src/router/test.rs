@@ -1,11 +1,7 @@
 use actix::prelude::*;
-use actix_web::{Error, HttpResponse, web::Data};
+use actix_web::{web::Data, Error, HttpResponse};
 
-use crate::model::{
-    common::GlobalVars,
-    topic::TopicRequest,
-    post::PostRequest,
-};
+use crate::model::{common::GlobalVars, post::PostRequest, topic::TopicRequest};
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
     Ok(HttpResponse::Ok().json("hello world"))
@@ -15,7 +11,7 @@ pub fn add_topic(
     global: Data<GlobalVars>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let req = TopicRequest {
         id: None,
         user_id: Some(1),
@@ -24,6 +20,7 @@ pub fn add_topic(
         title: Some("test title".to_string()),
         body: Some("test body".to_string()),
         is_locked: None,
+        is_visible: Some(true),
     };
     db.add_topic(req, global.get_ref())
         .from_err()
@@ -38,7 +35,7 @@ pub fn add_post(
     global: Data<GlobalVars>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let req = PostRequest {
         id: None,
         user_id: Some(1),
@@ -57,11 +54,11 @@ pub fn add_post(
         })
 }
 
-use crate::model::topic::Topic;
-use crate::model::errors::ResError;
-use std::convert::TryFrom;
-use crate::handler::db::DatabaseService;
 use crate::handler::cache::CacheService;
+use crate::handler::db::DatabaseService;
+use crate::model::errors::ResError;
+use crate::model::topic::Topic;
+use std::convert::TryFrom;
 
 pub type Pool = l337::Pool<l337_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
 
@@ -70,11 +67,9 @@ pub fn build_pool(sys: &mut actix_rt::SystemRunner) -> Pool {
         .host("localhost")
         .user("postgres")
         .password("123")
-        .dbname("test").clone();
-    let manager = l337_postgres::PostgresConnectionManager::new(
-        config,
-        tokio_postgres::NoTls,
-    );
+        .dbname("test")
+        .clone();
+    let manager = l337_postgres::PostgresConnectionManager::new(config, tokio_postgres::NoTls);
     let cfg = l337::Config {
         min_size: 1,
         max_size: 12,
@@ -82,47 +77,40 @@ pub fn build_pool(sys: &mut actix_rt::SystemRunner) -> Pool {
     sys.block_on(l337::Pool::new(manager, cfg)).unwrap()
 }
 
-pub fn pool(
-    pool: Data<Pool>
-) -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn pool(pool: Data<Pool>) -> impl Future<Item = HttpResponse, Error = Error> {
     test_pool(pool.get_ref())
         .from_err()
         .map(|t| HttpResponse::Ok().json(&t))
 }
 
-pub fn raw(
-    db: Data<DatabaseService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+pub fn raw(db: Data<DatabaseService>) -> impl Future<Item = HttpResponse, Error = Error> {
     db.get_by_id_with_uid(
         &db.topics_by_id,
-        vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
-        .from_err()
-        .and_then(move |(t, ids)|
-            db.get_by_id(&db.users_by_id, &ids)
-                .from_err()
-                .and_then(move |u|
-                    HttpResponse::Ok().json(&Topic::attach_users(&t, &u))
-                )
-        )
-}
-
-pub fn raw_cache(
-    cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
-    cache.get_topics_pop(1, 1)
-        .from_err()
-        .and_then(move |(t, ids)| cache
-            .get_users_from_ids(ids)
+        vec![
+            1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ],
+    )
+    .from_err()
+    .and_then(move |(t, ids)| {
+        db.get_by_id(&db.users_by_id, &ids)
             .from_err()
-            .and_then(move |u|
-                HttpResponse::Ok().json(&Topic::attach_users(&t, &u))
-            )
-        )
+            .and_then(move |u| HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
+    })
 }
 
-fn test_pool(
-    pool: &Pool
-) -> impl Future<Item=Vec<Topic>, Error=ResError> {
+pub fn raw_cache(cache: Data<CacheService>) -> impl Future<Item = HttpResponse, Error = Error> {
+    cache
+        .get_topics_pop(1, 1)
+        .from_err()
+        .and_then(move |(t, ids)| {
+            cache
+                .get_users_from_ids(ids)
+                .from_err()
+                .and_then(move |u| HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
+        })
+}
+
+fn test_pool(pool: &Pool) -> impl Future<Item = Vec<Topic>, Error = ResError> {
     pool.connection()
         .map_err(|_| ResError::InternalServerError)
         .and_then(|mut c| {
@@ -131,13 +119,20 @@ fn test_pool(
                 .map_err(|_| ResError::InternalServerError)
                 .and_then(move |stmt| {
                     c.client
-                        .query(&stmt, &[&vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]])
+                        .query(
+                            &stmt,
+                            &[&vec![
+                                1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                                19, 20,
+                            ]],
+                        )
                         .fold(Vec::with_capacity(20), move |mut v, r| {
                             if let Some(r) = Topic::try_from(r).ok() {
                                 v.push(r)
                             }
                             Ok::<_, _>(v)
-                        }).map_err(|_| ResError::InternalServerError)
+                        })
+                        .map_err(|_| ResError::InternalServerError)
                 })
         })
 }

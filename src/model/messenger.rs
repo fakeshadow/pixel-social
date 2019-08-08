@@ -16,21 +16,13 @@ pub struct Twilio {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Mail<'a> {
-    Activation {
-        to: &'a str,
-        uuid: &'a str,
-    },
-    ErrorReport {
-        report: &'a str,
-    },
+    Activation { to: &'a str, uuid: &'a str },
+    ErrorReport { report: &'a str },
 }
 
 impl<'a> Mail<'a> {
     pub fn new_activation(to: &'a str, uuid: &'a str) -> Self {
-        Mail::Activation {
-            to,
-            uuid,
-        }
+        Mail::Activation { to, uuid }
     }
 }
 
