@@ -7,7 +7,6 @@ use crate::model::{
     user::{AttachUser, User, UserRef},
 };
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Topic {
     pub id: u32,

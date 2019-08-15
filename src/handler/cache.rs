@@ -1,26 +1,27 @@
-use futures::future::{join_all, ok as ft_ok, Either};
 use std::{collections::HashMap, time::Duration};
+use std::time::Instant;
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
-use redis::{aio::SharedConnection, cmd, from_redis_value, pipe, Client, ErrorKind, FromRedisValue, RedisResult, Value, RedisError};
+use futures::future::{Either, err as ft_err, join_all, ok as ft_ok};
+use futures::IntoFuture;
+use psn_api_rs::models::PSNUser;
+use redis::{
+    aio::SharedConnection, Client, cmd, ErrorKind, from_redis_value, FromRedisValue, pipe,
+    RedisError, RedisResult, Value,
+};
 
-use crate::model::actors::TalkService;
+use crate::{CacheUpdateService, MessageService, PSNService};
 use crate::model::{
-    actors::SharedConn,
+    actors::{SharedConn, TalkService},
     category::Category,
     common::{GetSelfId, GetUserId},
     errors::ResError,
     post::Post,
+    psn::UserPSNProfile,
     topic::Topic,
     user::User,
-    psn::UserPSNProfile,
 };
-use crate::{CacheUpdateService, MessageService, PSNService};
-use std::time::Instant;
-use psn_api_rs::models::PSNUser;
-use actix_web::body::Body::Bytes;
-use crate::model::psn::PSNRequest;
 
 // page offsets of list query
 const LIMIT: isize = 20;
@@ -52,7 +53,6 @@ impl GetSharedConn for CacheService {
         self.cache.clone()
     }
 }
-
 
 impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
@@ -98,7 +98,7 @@ impl CacheService {
         let start = (page as isize - 1) * 20;
         let end = start + LIMIT - 1;
         self.ids_from_cache_list(list_key, start, end)
-            .and_then(move |(conn, ids)| Self::from_cache_with_perm(conn, ids, set_key))
+            .and_then(move |(conn, ids)| Self::from_cache_with_perm_with_uids(conn, ids, set_key))
     }
 
     pub fn get_cache_with_uids_from_zrevrange_reverse_lex<T>(
@@ -169,7 +169,7 @@ impl CacheService {
                 if is_reverse_lex {
                     ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
                 }
-                Self::from_cache_with_perm(conn, ids, set_key)
+                Self::from_cache_with_perm_with_uids(conn, ids, set_key)
             })
     }
 
@@ -185,7 +185,7 @@ impl CacheService {
             + GetUserId
             + 'static,
     {
-        Self::from_cache_with_perm(self.get_conn(), ids, set_key)
+        Self::from_cache_with_perm_with_uids(self.get_conn(), ids, set_key)
     }
 
     pub fn add_topic(&self, t: Topic) {
@@ -425,10 +425,7 @@ impl CacheService {
             })
     }
 
-    pub fn add_psn_request(
-        &self,
-        req: &str,
-    ) -> impl Future<Item=(), Error=ResError> {
+    pub fn add_psn_request(&self, req: &str) -> impl Future<Item=(), Error=ResError> {
         cmd("ZADD")
             .arg("psn_queue")
             .arg(Utc::now().timestamp_millis())
@@ -454,7 +451,7 @@ impl TalkService {
         }
 
         cmd("HMSET")
-            .arg(&format!("user:{}:set", uid))
+            .arg(&format!("user:{}:set_perm", uid))
             .arg(arg)
             .query_async(self.get_conn())
             .from_err()
@@ -474,7 +471,6 @@ impl GetSharedConn for TalkService {
         self.cache.clone()
     }
 }
-
 
 pub trait GetQueue
     where
@@ -502,7 +498,6 @@ pub trait GetQueue
 impl GetQueue for MessageService {}
 
 impl GetQueue for PSNService {}
-
 
 impl CacheUpdateService {
     pub fn start_interval(&mut self, ctx: &mut Context<Self>) {
@@ -646,6 +641,7 @@ trait HashMapFromCache
 
 impl HashMapFromCache for CacheService {}
 
+
 pub trait DeleteCache
     where
         Self: GetSharedConn,
@@ -662,6 +658,38 @@ pub trait DeleteCache
 }
 
 impl DeleteCache for CacheService {}
+
+
+pub trait FromCacheSingle
+    where
+        Self: GetSharedConn,
+{
+    fn from_cache_single<T>(
+        &self,
+        key: &[u8],
+        set_key: &str,
+    ) -> Box<dyn Future<Item=T, Error=ResError>>
+        where
+            T: std::marker::Send + redis::FromRedisValue + 'static,
+    {
+        let key = match std::str::from_utf8(key) {
+            Ok(k) => k,
+            Err(_) => return Box::new(ft_err(ResError::InternalServerError))
+        };
+
+        Box::new(
+            cmd("HGETALL")
+                .arg(&format!("{}:{}:set", set_key, key))
+                .query_async(self.get_conn())
+                .from_err()
+
+                .map(|(_, hm)| hm),
+        )
+    }
+}
+
+impl FromCacheSingle for CacheService {}
+
 
 pub trait FromCache {
     fn from_cache<T>(
@@ -683,13 +711,15 @@ pub trait FromCache {
         Box::new(
             pip.query_async(conn)
                 .then(|r: Result<(_, Vec<T>), redis::RedisError>| match r {
-                    Ok((_, v)) => if v.len() == 0 {
-                        Err(ResError::IdsFromCache(ids))
-                    } else {
-                        Ok(v)
-                    },
-                    Err(_) => Err(ResError::IdsFromCache(ids))
-                })
+                    Ok((_, v)) => {
+                        if v.len() == 0 {
+                            Err(ResError::IdsFromCache(ids))
+                        } else {
+                            Ok(v)
+                        }
+                    }
+                    Err(_) => Err(ResError::IdsFromCache(ids)),
+                }),
         )
     }
 }
@@ -700,18 +730,15 @@ impl FromCache for CacheUpdateService {}
 
 impl FromCache for TalkService {}
 
-trait FromCacheWithPerm {
+
+pub trait FromCacheWithPerm {
     fn from_cache_with_perm<T>(
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
-    ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
+    ) -> Box<dyn Future<Item=Vec<(T, HashMap<String, String>)>, Error=ResError>>
         where
-            T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result=T>
-            + GetUserId
-            + 'static,
+            T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result=T> + 'static,
     {
         let mut pip = pipe();
         pip.atomic();
@@ -724,24 +751,49 @@ trait FromCacheWithPerm {
         }
 
         Box::new(pip.query_async(conn).then(
-            move |r: Result<(_, Vec<(T, HashMap<String, String>)>), _>| match r {
-                Err(_) => Err(ResError::IdsFromCache(ids)),
-                Ok((_, hm)) => {
-                    let len = hm.len();
-                    let mut v = Vec::with_capacity(len);
-                    let mut uids = Vec::with_capacity(len);
-                    for (t, h) in hm.into_iter() {
-                        uids.push(t.get_user_id());
-                        v.push(t.attach_perm_fields(&h));
+            |r: Result<(_, Vec<(T, _)>), redis::RedisError>| match r {
+                Ok((_, v)) => {
+                    if v.len() == 0 {
+                        Err(ResError::IdsFromCache(ids))
+                    } else {
+                        Ok(v)
                     }
-                    Ok((v, uids))
                 }
+                Err(_) => Err(ResError::IdsFromCache(ids)),
             },
         ))
     }
 }
 
 impl FromCacheWithPerm for CacheService {}
+
+impl FromCacheWithPerm for TalkService {}
+
+impl CacheService {
+    fn from_cache_with_perm_with_uids<T>(
+        conn: SharedConn,
+        ids: Vec<u32>,
+        set_key: &str,
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
+            + redis::FromRedisValue
+            + AttachPermFields<Result=T>
+            + GetUserId
+            + 'static,
+    {
+        Self::from_cache_with_perm(conn, ids, set_key).map(|hm: Vec<(T, _)>| {
+            let len = hm.len();
+            let mut v = Vec::with_capacity(len);
+            let mut uids = Vec::with_capacity(len);
+            for (t, h) in hm.into_iter() {
+                uids.push(t.get_user_id());
+                v.push(t.attach_perm_fields(&h));
+            }
+            (v, uids)
+        })
+    }
+}
 
 pub trait AttachPermFields {
     type Result;
@@ -778,16 +830,39 @@ impl AttachPermFields for Post {
     }
 }
 
+impl AttachPermFields for User {
+    type Result = User;
+    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
+        self.last_online = match h.get("last_online") {
+            Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
+            None => None,
+        };
+        self.online_status = match h.get("online_status") {
+            Some(s) => s.parse::<u32>().ok(),
+            None => None,
+        };
+        self
+    }
+}
+
 pub trait UsersFromCache
     where
-        Self: FromCache + GetSharedConn,
+        Self: FromCacheWithPerm + GetSharedConn,
 {
     fn users_from_cache(
         &self,
         uids: Vec<u32>,
     ) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
         Box::new(
-            Self::from_cache(self.get_conn(), uids, "user")
+            Self::from_cache_with_perm::<User>(self.get_conn(), uids, "user")
+                .map(|hm| {
+                    let len = hm.len();
+                    let mut v = Vec::with_capacity(len);
+                    for (u, h) in hm.into_iter() {
+                        v.push(u.attach_perm_fields(&h));
+                    }
+                    v
+                }),
         )
     }
 }
@@ -811,7 +886,6 @@ pub trait CategoriesFromCache
 impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
-
 
 impl FromRedisValue for Topic {
     fn from_redis_value(v: &Value) -> RedisResult<Topic> {
@@ -842,7 +916,6 @@ impl FromRedisValue for UserPSNProfile {
         UserPSNProfile::parse_from_redis_value(v)
     }
 }
-
 
 trait ParseFromRedisValue {
     type Result;
@@ -933,30 +1006,19 @@ impl ParseFromRedisValue for User {
     type Result = User;
     fn parse_pattern(u: &mut User, k: &str, v: &Value) -> Result<(), redis::RedisError> {
         match k {
-            "id" => u.id = from_redis_value(v)?,
-            "username" => u.username = from_redis_value(v)?,
-            "email" => u.email = from_redis_value(v)?,
-            "hashed_password" => (),
-            "avatar_url" => u.avatar_url = from_redis_value(v)?,
-            "signature" => u.signature = from_redis_value(v)?,
-            "created_at" => {
-                u.created_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                    .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?;
+            "user" => {
+                let v = from_redis_value::<Vec<u8>>(v)?;
+                let uu = serde_json::from_slice::<User>(&v)
+                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
+                u.id = uu.id;
+                u.username = uu.username;
+                u.email = uu.email;
+                u.avatar_url = uu.avatar_url;
+                u.signature = uu.signature;
+                u.created_at = uu.created_at;
+                u.privilege = uu.privilege;
+                u.show_email = uu.show_email;
             }
-            "privilege" => u.privilege = from_redis_value(v)?,
-            "show_email" => u.show_email = from_redis_value::<String>(v)?
-                .parse::<bool>()
-                .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?,
-            "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
-            "last_online" => u.last_online = match from_redis_value::<String>(v).ok() {
-                Some(v) => {
-                    NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok()
-                }
-                None => None,
-            },
             _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
         };
         Ok(())
@@ -982,7 +1044,11 @@ impl ParseFromRedisValue for Category {
 
 impl ParseFromRedisValue for UserPSNProfile {
     type Result = UserPSNProfile;
-    fn parse_pattern(psn: &mut UserPSNProfile, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+    fn parse_pattern(
+        psn: &mut UserPSNProfile,
+        k: &str,
+        v: &Value,
+    ) -> Result<(), redis::RedisError> {
         match k {
             "id" => psn.id = from_redis_value(v)?,
             "profile" => {
@@ -998,35 +1064,21 @@ impl ParseFromRedisValue for UserPSNProfile {
     }
 }
 
-
 impl Into<Vec<(&str, Vec<u8>)>> for Topic {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("topic", serde_json::to_vec(&self).unwrap_or([].to_vec())),
-        ]
+        vec![("topic", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
     }
 }
 
 impl Into<Vec<(&str, Vec<u8>)>> for User {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("id", self.id.to_string().into_bytes()),
-            ("username", self.username.into_bytes()),
-            ("email", self.email.into_bytes()),
-            ("avatar_url", self.avatar_url.into_bytes()),
-            ("signature", self.signature.into_bytes()),
-            ("created_at", self.created_at.to_string().into_bytes()),
-            ("privilege", self.privilege.to_string().into_bytes()),
-            ("show_email", self.show_email.to_string().into_bytes()),
-        ]
+        vec![("user", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
     }
 }
 
 impl Into<Vec<(&str, Vec<u8>)>> for Post {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("post", serde_json::to_vec(&self).unwrap_or([].to_vec()))
-        ]
+        vec![("post", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
     }
 }
 
@@ -1044,12 +1096,13 @@ impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![
             ("id", self.id.to_string().into_bytes()),
-            // deserialize UserPSNProfile at TryFrom will converted to an Option so unwrap here is safe.
-            ("profile", serde_json::to_vec(&self.profile).unwrap_or([].to_vec()))
+            (
+                "profile",
+                serde_json::to_vec(&self.profile).unwrap_or([].to_vec()),
+            ),
         ]
     }
 }
-
 
 pub fn build_hmsets<T>(
     conn: SharedConn,
@@ -1283,6 +1336,7 @@ pub fn build_users_cache(
     pip.atomic();
     for v in vec.into_iter() {
         let key = format!("user:{}:set", v.self_id());
+        let key_perm = format!("user:{}:set_perm", v.self_id());
         let v: Vec<(&str, Vec<u8>)> = v.into();
 
         pip.cmd("HMSET")
@@ -1290,7 +1344,7 @@ pub fn build_users_cache(
             .arg(v)
             .ignore()
             .cmd("HMSET")
-            .arg(key.as_str())
+            .arg(key_perm.as_str())
             .arg(&[("online_status", 0)])
             .ignore();
     }

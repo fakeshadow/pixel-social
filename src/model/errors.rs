@@ -160,6 +160,7 @@ impl From<PSNError> for ResError {
     }
 }
 
+
 #[derive(Serialize, Debug, Eq, PartialEq, Hash)]
 pub struct DatabaseErrorMessage {
     category: Option<String>,

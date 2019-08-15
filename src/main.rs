@@ -8,18 +8,19 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::System;
-use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
-use dotenv::dotenv;
+use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
 
-mod handler;
-mod model;
-mod router;
-mod util;
+use dotenv::dotenv;
 
 use crate::{
     model::actors::{CacheUpdateService, MessageService, PSNService},
     util::startup::{build_cache, create_table, drop_table},
 };
+
+mod handler;
+mod model;
+mod router;
+mod util;
 
 fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -212,8 +213,14 @@ fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/psn")
-                    .service(web::resource("/register/{online_id}").route(web::get().to_async(router::psn::register)))
-                    .service(web::resource("/{online_id}").route(web::get().to_async(router::psn::get_profile)))
+                    .service(
+                        web::resource("/register")
+                            .route(web::get().to_async(router::psn::register)),
+                    )
+                    .service(
+                        web::resource("/profile")
+                            .route(web::get().to_async(router::psn::profile)),
+                    ),
             )
             .service(
                 web::scope("/test")
@@ -241,7 +248,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-    .bind(format!("{}:{}", &server_ip, &server_port))?
-    .start();
+        .bind(format!("{}:{}", &server_ip, &server_port))?
+        .start();
     sys.run()
 }

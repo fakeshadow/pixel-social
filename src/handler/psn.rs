@@ -1,12 +1,15 @@
 use std::time::Duration;
 
-use futures::Future;
-
 use actix::{ActorFuture, AsyncContext, Context, WrapFuture};
-use psn_api_rs::{models::PSNUser, PSNRequest, PSN};
+use futures::Future;
+use psn_api_rs::{PSN, PSNRequest};
 
-use crate::handler::cache::GetQueue;
-use crate::model::{actors::PSNService, errors::ResError};
+use crate::handler::cache::{CacheService, GetQueue, FromCacheSingle};
+use crate::model::{
+    actors::PSNService,
+    errors::ResError,
+    psn::UserPSNProfile,
+};
 
 const PSN_TIME_GAP: Duration = Duration::from_millis(1000);
 
@@ -15,7 +18,7 @@ impl PSNService {
         self.process_psn_request(ctx);
     }
 
-    pub fn auth(uuid: String, two_step: String) -> impl Future<Item = PSN, Error = ResError> {
+    pub fn auth(uuid: String, two_step: String) -> impl Future<Item=PSN, Error=ResError> {
         PSN::new()
             .add_uuid(uuid)
             .add_two_step(two_step)
@@ -34,5 +37,15 @@ impl PSNService {
                 );
             };
         });
+    }
+}
+
+impl CacheService {
+    pub fn get_psn_profile(
+        &self,
+        online_id: &[u8],
+    ) -> impl Future<Item=UserPSNProfile, Error=ResError> {
+        use crate::handler::cache::FromCacheSingle;
+        self.from_cache_single(online_id, "user_psn")
     }
 }
