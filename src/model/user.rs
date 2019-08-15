@@ -5,7 +5,7 @@ use crate::model::{
     errors::ResError,
 };
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub id: u32,
     pub username: String,

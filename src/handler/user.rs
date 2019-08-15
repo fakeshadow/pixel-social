@@ -12,7 +12,7 @@ use crate::model::{
 };
 
 impl DatabaseService {
-    pub fn update_user(&self, u: UpdateRequest) -> impl Future<Item = User, Error = ResError> {
+    pub fn update_user(&self, u: UpdateRequest) -> impl Future<Item=User, Error=ResError> {
         let mut query = String::new();
         query.push_str("UPDATE users SET");
 
@@ -51,10 +51,9 @@ impl CacheService {
     pub fn get_users_from_ids(
         &self,
         mut ids: Vec<u32>,
-    ) -> impl Future<Item = Vec<User>, Error = ResError> {
+    ) -> impl Future<Item=Vec<User>, Error=ResError> {
         ids.sort();
         ids.dedup();
-
         use crate::handler::cache::UsersFromCache;
         self.users_from_cache(ids)
     }

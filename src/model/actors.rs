@@ -24,27 +24,11 @@ pub type SharedConn = redis::aio::SharedConnection;
 pub type TALK = Addr<TalkService>;
 pub type MAILER = Addr<MessageService>;
 
-// actor handles error report, sending email and sms messages.
-pub struct MessageService {
-    pub cache: Option<SharedConn>,
-    pub mailer: Option<Mailer>,
-    pub twilio: Option<Twilio>,
-    pub error_report: ErrorReport,
-}
-
 // actor handles individual user's websocket connection and communicate with TalkService Actors.
 pub struct WsChatSession {
     pub id: u32,
     pub hb: Instant,
     pub addr: TALK,
-}
-
-impl Actor for MessageService {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.start_interval(ctx);
-    }
 }
 
 impl Actor for WsChatSession {
@@ -170,6 +154,22 @@ impl TalkService {
     }
 }
 
+// actor handles error report, sending email and sms messages.
+pub struct MessageService {
+    pub cache: Option<SharedConn>,
+    pub mailer: Option<Mailer>,
+    pub twilio: Option<Twilio>,
+    pub error_report: ErrorReport,
+}
+
+impl Actor for MessageService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_interval(ctx);
+    }
+}
+
 impl MessageService {
     pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
@@ -206,5 +206,44 @@ impl WsChatSession {
             }
             ctx.ping("");
         });
+    }
+}
+
+// actor handle psn request
+// psn service impl get queue from cache handler.
+use psn_api_rs::PSN;
+
+pub struct PSNService {
+    pub is_active: bool,
+    pub psn: PSN,
+    pub cache: Option<SharedConn>,
+}
+
+impl Actor for PSNService {
+    type Context = Context<Self>;
+}
+
+impl PSNService {
+    pub fn connect(redis_url: &str) -> Addr<PSNService> {
+        let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
+
+        PSNService::create(move |ctx| {
+            let addr = PSNService {
+                is_active: false,
+                psn: PSN::new(),
+                cache: None,
+            };
+
+            client
+                .get_shared_async_connection()
+                .map_err(|_| panic!("failed to get redis connection"))
+                .into_actor(&addr)
+                .and_then(|conn, addr, _| {
+                    addr.cache = Some(conn);
+                    fut::ok(())
+                })
+                .wait(ctx);
+            addr
+        })
     }
 }

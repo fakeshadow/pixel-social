@@ -17,7 +17,7 @@ mod router;
 mod util;
 
 use crate::{
-    model::actors::{CacheUpdateService, MessageService},
+    model::actors::{CacheUpdateService, MessageService, PSNService},
     util::startup::{build_cache, create_table, drop_table},
 };
 
@@ -61,6 +61,9 @@ fn main() -> std::io::Result<()> {
     // cache update and message actor are not passed into data.
     let _ = CacheUpdateService::connect(&redis_url);
     let _ = MessageService::connect(&redis_url);
+
+    // an actor handle PSN network request.
+    let _ = PSNService::connect(&redis_url);
 
     // async connection pool test. currently running much slower than actor pattern.
     let pool = crate::router::test::build_pool(&mut sys);
@@ -206,6 +209,11 @@ fn main() -> std::io::Result<()> {
                         web::resource("/activation/mail/{uuid}")
                             .route(web::get().to_async(router::auth::activate_by_mail)),
                     ),
+            )
+            .service(
+                web::scope("/psn")
+                    .service(web::resource("/register/{online_id}").route(web::get().to_async(router::psn::register)))
+                    .service(web::resource("/{online_id}").route(web::get().to_async(router::psn::get_profile)))
             )
             .service(
                 web::scope("/test")

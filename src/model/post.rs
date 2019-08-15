@@ -6,7 +6,7 @@ use crate::model::{
     user::{AttachUser, User, UserRef},
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Post {
     pub id: u32,
     pub user_id: u32,

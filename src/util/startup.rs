@@ -137,7 +137,7 @@ pub fn build_cache(
         // build topics cache list.
         let mut tids = Vec::new();
         let mut sets = Vec::new();
-        for t in t.clone().into_iter() {
+        for t in t.into_iter() {
             tids.push(t.id);
             sets.push((t.id, t.category_id, t.reply_count, t.created_at));
             if t.id > last_tid {

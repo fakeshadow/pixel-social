@@ -15,7 +15,7 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::handler::cache::CacheService;
+use crate::handler::cache::{CacheService, GetQueue};
 use crate::model::{
     errors::{ErrorReport, RepError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},

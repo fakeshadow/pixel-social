@@ -7,3 +7,4 @@ pub mod talk;
 pub mod test;
 pub mod topic;
 pub mod user;
+pub mod psn;

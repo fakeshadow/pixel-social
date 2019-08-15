@@ -3,10 +3,7 @@ use std::{collections::HashMap, time::Duration};
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
-use redis::{
-    aio::SharedConnection, cmd, from_redis_value, pipe, Client, ErrorKind, FromRedisValue,
-    RedisResult, Value,
-};
+use redis::{aio::SharedConnection, cmd, from_redis_value, pipe, Client, ErrorKind, FromRedisValue, RedisResult, Value, RedisError};
 
 use crate::model::actors::TalkService;
 use crate::model::{
@@ -17,8 +14,13 @@ use crate::model::{
     post::Post,
     topic::Topic,
     user::User,
+    psn::UserPSNProfile,
 };
-use crate::{CacheUpdateService, MessageService};
+use crate::{CacheUpdateService, MessageService, PSNService};
+use std::time::Instant;
+use psn_api_rs::models::PSNUser;
+use actix_web::body::Body::Bytes;
+use crate::model::psn::PSNRequest;
 
 // page offsets of list query
 const LIMIT: isize = 20;
@@ -36,7 +38,7 @@ pub struct CacheService {
 }
 
 impl CacheService {
-    pub fn init(redis_url: &str) -> impl Future<Item = CacheService, Error = ()> {
+    pub fn init(redis_url: &str) -> impl Future<Item=CacheService, Error=()> {
         Client::open(redis_url)
             .unwrap_or_else(|e| panic!("{:?}", e))
             .get_shared_async_connection()
@@ -50,6 +52,7 @@ impl GetSharedConn for CacheService {
         self.cache.clone()
     }
 }
+
 
 impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
@@ -68,10 +71,14 @@ impl CacheService {
         actix_rt::spawn(build_hmsets(self.get_conn(), t, "post", true));
     }
 
+    pub fn update_user_psn_profile(&self, t: Vec<UserPSNProfile>) {
+        actix_rt::spawn(build_hmsets(self.get_conn(), t, "user_psn_profile", false));
+    }
+
     pub fn get_hash_map(
         &self,
         key: &str,
-    ) -> impl Future<Item = HashMap<String, String>, Error = ResError> {
+    ) -> impl Future<Item=HashMap<String, String>, Error=ResError> {
         self.hash_map_from_cache(key)
     }
 
@@ -80,11 +87,11 @@ impl CacheService {
         list_key: &str,
         page: i64,
         set_key: &'static str,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -99,11 +106,11 @@ impl CacheService {
         zrange_key: &str,
         page: i64,
         set_key: &'static str,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -115,11 +122,11 @@ impl CacheService {
         zrange_key: &str,
         page: i64,
         set_key: &'static str,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -131,11 +138,11 @@ impl CacheService {
         zrange_key: &str,
         page: i64,
         set_key: &'static str,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -149,11 +156,11 @@ impl CacheService {
         set_key: &'static str,
         is_rev: bool,
         is_reverse_lex: bool,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -170,11 +177,11 @@ impl CacheService {
         &self,
         ids: Vec<u32>,
         set_key: &str,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: std::marker::Send
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -189,7 +196,7 @@ impl CacheService {
         let cid = t.category_id;
         let time = t.created_at.timestamp_millis();
         let key = format!("topic:{}:set", t.self_id());
-        let t: Vec<(&str, String)> = t.into();
+        let t: Vec<(&str, Vec<u8>)> = t.into();
 
         // write hash map set
         pip.cmd("HMSET")
@@ -251,7 +258,7 @@ impl CacheService {
 
         let post_key = format!("post:{}:set", pid);
         let time = time.timestamp_millis();
-        let p: Vec<(&str, String)> = p.into();
+        let p: Vec<(&str, Vec<u8>)> = p.into();
 
         // write hash map set
         pip.cmd("HMSET")
@@ -360,7 +367,7 @@ impl CacheService {
 
     pub fn add_category(&self, c: Category) {
         let id = c.id;
-        let c: Vec<(&str, String)> = c.into();
+        let c: Vec<(&str, Vec<u8>)> = c.into();
 
         let mut pip = pipe();
         pip.atomic();
@@ -386,7 +393,7 @@ impl CacheService {
         uid: u32,
         uuid: String,
         mail: String,
-    ) -> impl Future<Item = (), Error = ()> {
+    ) -> impl Future<Item=(), Error=()> {
         cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
@@ -417,6 +424,19 @@ impl CacheService {
                 Either::B(pip.query_async(conn).map_err(|_| ()).map(|(_, ())| ()))
             })
     }
+
+    pub fn add_psn_request(
+        &self,
+        req: &str,
+    ) -> impl Future<Item=(), Error=ResError> {
+        cmd("ZADD")
+            .arg("psn_queue")
+            .arg(Utc::now().timestamp_millis())
+            .arg(req)
+            .query_async(self.get_conn())
+            .from_err()
+            .map(|(_, ())| ())
+    }
 }
 
 impl TalkService {
@@ -425,7 +445,7 @@ impl TalkService {
         uid: u32,
         status: u32,
         set_last_online_time: bool,
-    ) -> impl Future<Item = (), Error = ResError> {
+    ) -> impl Future<Item=(), Error=ResError> {
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
 
@@ -444,7 +464,7 @@ impl TalkService {
     pub fn get_users_cache_from_ids(
         &self,
         uids: Vec<u32>,
-    ) -> impl Future<Item = Vec<User>, Error = ResError> {
+    ) -> impl Future<Item=Vec<User>, Error=ResError> {
         self.users_from_cache(uids)
     }
 }
@@ -455,8 +475,12 @@ impl GetSharedConn for TalkService {
     }
 }
 
-impl MessageService {
-    pub fn get_queue(&self, key: &str) -> impl Future<Item = String, Error = ResError> {
+
+pub trait GetQueue
+    where
+        Self: GetSharedConn,
+{
+    fn get_queue(&self, key: &str) -> Box<dyn Future<Item=String, Error=ResError>> {
         let mut pip = pipe();
         pip.atomic();
         pip.cmd("zrange")
@@ -467,11 +491,18 @@ impl MessageService {
             .arg(key)
             .arg(0)
             .arg(0);
-        pip.query_async(self.get_conn())
-            .from_err()
-            .and_then(|(_, (mut s, ())): (_, (Vec<String>, _))| s.pop().ok_or(ResError::NoCache))
+        Box::new(
+            pip.query_async(self.get_conn()).from_err().and_then(
+                |(_, (mut s, ())): (_, (Vec<String>, _))| s.pop().ok_or(ResError::NoCache),
+            ),
+        )
     }
 }
+
+impl GetQueue for MessageService {}
+
+impl GetQueue for PSNService {}
+
 
 impl CacheUpdateService {
     pub fn start_interval(&mut self, ctx: &mut Context<Self>) {
@@ -522,6 +553,12 @@ impl GetSharedConn for MessageService {
     }
 }
 
+impl GetSharedConn for PSNService {
+    fn get_conn(&self) -> SharedConn {
+        self.cache.as_ref().unwrap().clone()
+    }
+}
+
 fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32>), ResError> {
     if ids.len() == 0 {
         Err(ResError::NoContent)
@@ -531,15 +568,15 @@ fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32
 }
 
 pub trait IdsFromList
-where
-    Self: GetSharedConn,
+    where
+        Self: GetSharedConn,
 {
     fn ids_from_cache_list(
         &self,
         list_key: &str,
         start: isize,
         end: isize,
-    ) -> Box<dyn Future<Item = (SharedConn, Vec<u32>), Error = ResError>> {
+    ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
         Box::new(
             cmd("lrange")
                 .arg(list_key)
@@ -557,15 +594,15 @@ impl IdsFromList for CacheUpdateService {}
 impl IdsFromList for CacheService {}
 
 trait IdsFromSortedSet
-where
-    Self: GetSharedConn,
+    where
+        Self: GetSharedConn,
 {
     fn ids_from_cache_zrange(
         &self,
         is_rev: bool,
         list_key: &str,
         offset: usize,
-    ) -> Box<dyn Future<Item = (SharedConn, Vec<u32>), Error = ResError>> {
+    ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
@@ -590,13 +627,13 @@ where
 impl IdsFromSortedSet for CacheService {}
 
 trait HashMapFromCache
-where
-    Self: GetSharedConn,
+    where
+        Self: GetSharedConn,
 {
     fn hash_map_from_cache(
         &self,
         key: &str,
-    ) -> Box<dyn Future<Item = HashMap<String, String>, Error = ResError>> {
+    ) -> Box<dyn Future<Item=HashMap<String, String>, Error=ResError>> {
         Box::new(
             cmd("HGETALL")
                 .arg(key)
@@ -610,10 +647,10 @@ where
 impl HashMapFromCache for CacheService {}
 
 pub trait DeleteCache
-where
-    Self: GetSharedConn,
+    where
+        Self: GetSharedConn,
 {
-    fn del_cache(&self, key: &str) -> Box<dyn Future<Item = (), Error = ResError>> {
+    fn del_cache(&self, key: &str) -> Box<dyn Future<Item=(), Error=ResError>> {
         Box::new(
             cmd("del")
                 .arg(key)
@@ -632,9 +669,9 @@ pub trait FromCache {
         ids: Vec<u32>,
         set_key: &str,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
-    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
-    where
-        T: std::marker::Send + redis::FromRedisValue + 'static,
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where
+            T: std::marker::Send + redis::FromRedisValue + 'static,
     {
         let mut pip = pipe();
         pip.atomic();
@@ -643,10 +680,17 @@ pub trait FromCache {
             pip.cmd("HGETALL").arg(&format!("{}:{}:set", set_key, i));
         }
 
-        Box::new(pip.query_async(conn).then(|r| match r {
-            Ok((_, v)) => Ok(v),
-            Err(_) => Err(ResError::IdsFromCache(ids)),
-        }))
+        Box::new(
+            pip.query_async(conn)
+                .then(|r: Result<(_, Vec<T>), redis::RedisError>| match r {
+                    Ok((_, v)) => if v.len() == 0 {
+                        Err(ResError::IdsFromCache(ids))
+                    } else {
+                        Ok(v)
+                    },
+                    Err(_) => Err(ResError::IdsFromCache(ids))
+                })
+        )
     }
 }
 
@@ -661,11 +705,11 @@ trait FromCacheWithPerm {
         conn: SharedConn,
         ids: Vec<u32>,
         set_key: &str,
-    ) -> Box<dyn Future<Item = (Vec<T>, Vec<u32>), Error = ResError>>
-    where
-        T: std::marker::Send
+    ) -> Box<dyn Future<Item=(Vec<T>, Vec<u32>), Error=ResError>>
+        where
+            T: std::marker::Send
             + redis::FromRedisValue
-            + AttachPermFields<Result = T>
+            + AttachPermFields<Result=T>
             + GetUserId
             + 'static,
     {
@@ -735,14 +779,16 @@ impl AttachPermFields for Post {
 }
 
 pub trait UsersFromCache
-where
-    Self: FromCache + GetSharedConn,
+    where
+        Self: FromCache + GetSharedConn,
 {
     fn users_from_cache(
         &self,
         uids: Vec<u32>,
-    ) -> Box<dyn Future<Item = Vec<User>, Error = ResError>> {
-        Box::new(Self::from_cache(self.get_conn(), uids, "user"))
+    ) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
+        Box::new(
+            Self::from_cache(self.get_conn(), uids, "user")
+        )
     }
 }
 
@@ -751,10 +797,10 @@ impl UsersFromCache for TalkService {}
 impl UsersFromCache for CacheService {}
 
 pub trait CategoriesFromCache
-where
-    Self: FromCache + GetSharedConn + IdsFromList,
+    where
+        Self: FromCache + GetSharedConn + IdsFromList,
 {
-    fn categories_from_cache(&self) -> Box<dyn Future<Item = Vec<Category>, Error = ResError>> {
+    fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(
             self.ids_from_cache_list("category_id:meta", 0, -1)
                 .and_then(|(conn, vec): (_, Vec<u32>)| Self::from_cache(conn, vec, "category")),
@@ -766,187 +812,6 @@ impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
 
-trait ParseFromRedisValue {
-    type Result;
-    fn parse_from_redis_value(v: &Value) -> Result<Self::Result, redis::RedisError>
-    where
-        Self::Result: Default,
-    {
-        match *v {
-            Value::Bulk(ref items) => {
-                if items.is_empty() {
-                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
-                }
-                let mut t = Self::Result::default();
-                let mut iter = items.iter();
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let key: String = from_redis_value(k)?;
-                    let _ = Self::parse_pattern(&mut t, key.as_str(), v)?;
-                }
-                Ok(t)
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        }
-    }
-
-    fn parse_pattern(t: &mut Self::Result, key: &str, v: &Value) -> Result<(), redis::RedisError>;
-}
-
-impl ParseFromRedisValue for Topic {
-    type Result = Topic;
-    fn parse_pattern(t: &mut Topic, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => t.id = from_redis_value::<u32>(v)?,
-            "user_id" => t.user_id = from_redis_value::<u32>(v)?,
-            "category_id" => t.category_id = from_redis_value::<u32>(v)?,
-            "title" => t.title = from_redis_value::<String>(v)?,
-            "body" => t.body = from_redis_value::<String>(v)?,
-            "thumbnail" => t.thumbnail = from_redis_value::<String>(v)?,
-            "created_at" => {
-                t.created_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?
-            }
-            "updated_at" => {
-                t.updated_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?
-            }
-            "is_locked" => {
-                t.is_locked = if from_redis_value::<u8>(v)? == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
-            "is_visible" => {
-                t.is_visible = if from_redis_value::<u8>(v)? == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for Post {
-    type Result = Post;
-    fn parse_pattern(p: &mut Post, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => p.id = from_redis_value(v)?,
-            "user_id" => p.user_id = from_redis_value(v)?,
-            "topic_id" => p.topic_id = from_redis_value(v)?,
-            "category_id" => p.category_id = from_redis_value(v)?,
-            "post_id" => {
-                p.post_id = match from_redis_value::<u32>(v).ok() {
-                    Some(pid) => {
-                        if pid == 0 {
-                            None
-                        } else {
-                            Some(pid)
-                        }
-                    }
-                    None => None,
-                }
-            }
-            "post_content" => p.post_content = from_redis_value(v)?,
-            "created_at" => {
-                p.created_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?
-            }
-            "updated_at" => {
-                p.updated_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?
-            }
-            //ToDo: change to boolean paring.
-            "is_locked" => {
-                p.is_locked = if from_redis_value::<u32>(v)? == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for User {
-    type Result = User;
-    fn parse_pattern(u: &mut User, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => u.id = from_redis_value::<u32>(v)?,
-            "username" => u.username = from_redis_value(v)?,
-            "email" => u.email = from_redis_value(v)?,
-            "hashed_password" => (),
-            "avatar_url" => u.avatar_url = from_redis_value(v)?,
-            "signature" => u.signature = from_redis_value(v)?,
-            "created_at" => {
-                u.created_at = NaiveDateTime::parse_from_str(
-                    from_redis_value::<String>(v)?.as_str(),
-                    "%Y-%m-%d %H:%M:%S%.f",
-                )
-                .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?
-            }
-            "privilege" => u.privilege = from_redis_value(v)?,
-            "show_email" => {
-                u.show_email = from_redis_value::<String>(v)?
-                    .parse::<bool>()
-                    .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?
-            }
-            "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
-            "last_online" => {
-                u.last_online = match from_redis_value::<String>(v).ok() {
-                    Some(v) => {
-                        NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok()
-                    }
-                    None => None,
-                }
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for Category {
-    type Result = Category;
-    fn parse_pattern(c: &mut Category, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => c.id = from_redis_value(v)?,
-            "name" => c.name = from_redis_value(v)?,
-            "thumbnail" => c.thumbnail = from_redis_value(v)?,
-            "topic_count" => c.topic_count = from_redis_value(v).ok(),
-            "post_count" => c.post_count = from_redis_value(v).ok(),
-            "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
-            "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
 
 impl FromRedisValue for Topic {
     fn from_redis_value(v: &Value) -> RedisResult<Topic> {
@@ -972,99 +837,234 @@ impl FromRedisValue for Category {
     }
 }
 
-impl Into<Vec<(&str, String)>> for User {
-    fn into(self) -> Vec<(&'static str, String)> {
+impl FromRedisValue for UserPSNProfile {
+    fn from_redis_value(v: &Value) -> RedisResult<UserPSNProfile> {
+        UserPSNProfile::parse_from_redis_value(v)
+    }
+}
+
+
+trait ParseFromRedisValue {
+    type Result;
+    fn parse_from_redis_value(v: &Value) -> Result<Self::Result, redis::RedisError>
+        where
+            Self::Result: Default + std::fmt::Debug,
+    {
+        match *v {
+            Value::Bulk(ref items) => {
+                if items.is_empty() {
+                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
+                }
+                let mut t = Self::Result::default();
+                let mut iter = items.iter();
+                loop {
+                    let k = match iter.next() {
+                        Some(v) => v,
+                        None => break,
+                    };
+                    let v = match iter.next() {
+                        Some(v) => v,
+                        None => break,
+                    };
+                    let key: String = from_redis_value(k)?;
+                    if let Err(e) = Self::parse_pattern(&mut t, key.as_str(), v) {
+                        return Err(e);
+                    }
+                }
+                Ok(t)
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        }
+    }
+
+    fn parse_pattern(t: &mut Self::Result, key: &str, v: &Value) -> Result<(), redis::RedisError>;
+}
+
+impl ParseFromRedisValue for Topic {
+    type Result = Topic;
+    fn parse_pattern(t: &mut Topic, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "topic" => {
+                let s = from_redis_value::<Vec<u8>>(v)?;
+                let tt = serde_json::from_slice::<Topic>(&s)
+                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
+                t.id = tt.id;
+                t.user_id = tt.user_id;
+                t.category_id = tt.category_id;
+                t.title = tt.title;
+                t.body = tt.body;
+                t.thumbnail = tt.thumbnail;
+                t.created_at = tt.created_at;
+                t.updated_at = tt.updated_at;
+                t.is_locked = tt.is_locked;
+                t.is_visible = tt.is_visible;
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for Post {
+    type Result = Post;
+    fn parse_pattern(p: &mut Post, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "post" => {
+                let v = from_redis_value::<Vec<u8>>(v)?;
+                let pp = serde_json::from_slice::<Post>(&v)
+                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
+                p.id = pp.id;
+                p.user_id = pp.user_id;
+                p.topic_id = pp.topic_id;
+                p.category_id = pp.category_id;
+                p.post_id = pp.post_id;
+                p.post_content = pp.post_content;
+                p.created_at = pp.created_at;
+                p.updated_at = pp.updated_at;
+                p.is_locked = pp.is_locked;
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for User {
+    type Result = User;
+    fn parse_pattern(u: &mut User, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => u.id = from_redis_value(v)?,
+            "username" => u.username = from_redis_value(v)?,
+            "email" => u.email = from_redis_value(v)?,
+            "hashed_password" => (),
+            "avatar_url" => u.avatar_url = from_redis_value(v)?,
+            "signature" => u.signature = from_redis_value(v)?,
+            "created_at" => {
+                u.created_at = NaiveDateTime::parse_from_str(
+                    from_redis_value::<String>(v)?.as_str(),
+                    "%Y-%m-%d %H:%M:%S%.f",
+                )
+                    .map_err(|_| (ErrorKind::TypeError, "Invalid NaiveDateTime"))?;
+            }
+            "privilege" => u.privilege = from_redis_value(v)?,
+            "show_email" => u.show_email = from_redis_value::<String>(v)?
+                .parse::<bool>()
+                .map_err(|_| (ErrorKind::TypeError, "Invalid boolean"))?,
+            "online_status" => u.online_status = from_redis_value::<u32>(v).ok(),
+            "last_online" => u.last_online = match from_redis_value::<String>(v).ok() {
+                Some(v) => {
+                    NaiveDateTime::parse_from_str(v.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok()
+                }
+                None => None,
+            },
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for Category {
+    type Result = Category;
+    fn parse_pattern(c: &mut Category, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => c.id = from_redis_value(v)?,
+            "name" => c.name = from_redis_value(v)?,
+            "thumbnail" => c.thumbnail = from_redis_value(v)?,
+            "topic_count" => c.topic_count = from_redis_value(v).ok(),
+            "post_count" => c.post_count = from_redis_value(v).ok(),
+            "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
+            "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+impl ParseFromRedisValue for UserPSNProfile {
+    type Result = UserPSNProfile;
+    fn parse_pattern(psn: &mut UserPSNProfile, k: &str, v: &Value) -> Result<(), redis::RedisError> {
+        match k {
+            "id" => psn.id = from_redis_value(v)?,
+            "profile" => {
+                let v = from_redis_value::<Vec<u8>>(v)?;
+                let profile = serde_json::from_slice::<crate::model::psn::PSNUser>(&v)
+                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
+
+                psn.profile = profile;
+            }
+            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
+        };
+        Ok(())
+    }
+}
+
+
+impl Into<Vec<(&str, Vec<u8>)>> for Topic {
+    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("id", self.id.to_string()),
-            ("username", self.username.to_owned()),
-            ("email", self.email.to_string()),
-            ("avatar_url", self.avatar_url.to_owned()),
-            ("signature", self.signature.to_owned()),
-            ("created_at", self.created_at.to_string()),
-            ("privilege", self.privilege.to_string()),
-            ("show_email", self.show_email.to_string()),
+            ("topic", serde_json::to_vec(&self).unwrap_or([].to_vec())),
         ]
     }
 }
 
-impl Into<Vec<(&str, String)>> for Topic {
-    fn into(self) -> Vec<(&'static str, String)> {
+impl Into<Vec<(&str, Vec<u8>)>> for User {
+    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("id", self.id.to_string()),
-            ("user_id", self.user_id.to_string()),
-            ("category_id", self.category_id.to_string()),
-            ("title", self.title.to_owned()),
-            ("body", self.body.to_owned()),
-            ("thumbnail", self.thumbnail.to_owned()),
-            ("created_at", self.created_at.to_string()),
-            ("updated_at", self.updated_at.to_string()),
-            (
-                "is_locked",
-                if self.is_locked == true {
-                    "1".to_owned()
-                } else {
-                    "0".to_owned()
-                },
-            ),
-            (
-                "is_visible",
-                if self.is_visible == true {
-                    "1".to_owned()
-                } else {
-                    "0".to_owned()
-                },
-            ),
+            ("id", self.id.to_string().into_bytes()),
+            ("username", self.username.into_bytes()),
+            ("email", self.email.into_bytes()),
+            ("avatar_url", self.avatar_url.into_bytes()),
+            ("signature", self.signature.into_bytes()),
+            ("created_at", self.created_at.to_string().into_bytes()),
+            ("privilege", self.privilege.to_string().into_bytes()),
+            ("show_email", self.show_email.to_string().into_bytes()),
         ]
     }
 }
 
-impl Into<Vec<(&str, String)>> for Post {
-    fn into(self) -> Vec<(&'static str, String)> {
+impl Into<Vec<(&str, Vec<u8>)>> for Post {
+    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("id", self.id.to_string()),
-            ("user_id", self.user_id.to_string()),
-            ("topic_id", self.topic_id.to_string()),
-            ("category_id", self.category_id.to_string()),
-            ("post_id", self.post_id.unwrap_or(0).to_string()),
-            ("post_content", self.post_content.to_owned()),
-            ("created_at", self.created_at.to_string()),
-            ("updated_at", self.updated_at.to_string()),
-            (
-                "is_locked",
-                if self.is_locked == true {
-                    "1".to_owned()
-                } else {
-                    "0".to_owned()
-                },
-            ),
+            ("post", serde_json::to_vec(&self).unwrap_or([].to_vec()))
         ]
     }
 }
 
-impl Into<Vec<(&str, String)>> for Category {
-    fn into(self) -> Vec<(&'static str, String)> {
+impl Into<Vec<(&str, Vec<u8>)>> for Category {
+    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![
-            ("id", self.id.to_string()),
-            ("name", self.name.to_owned()),
-            ("thumbnail", self.thumbnail.to_owned()),
+            ("id", self.id.to_string().into_bytes()),
+            ("name", self.name.into_bytes()),
+            ("thumbnail", self.thumbnail.into_bytes()),
         ]
     }
 }
+
+impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
+    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+        vec![
+            ("id", self.id.to_string().into_bytes()),
+            // deserialize UserPSNProfile at TryFrom will converted to an Option so unwrap here is safe.
+            ("profile", serde_json::to_vec(&self.profile).unwrap_or([].to_vec()))
+        ]
+    }
+}
+
 
 pub fn build_hmsets<T>(
     conn: SharedConn,
     vec: Vec<T>,
     key: &'static str,
     should_expire: bool,
-) -> impl Future<Item = (), Error = ()>
-where
-    T: GetSelfId + Into<Vec<(&'static str, String)>>,
+) -> impl Future<Item=(), Error=()>
+    where
+        T: GetSelfId + Into<Vec<(&'static str, Vec<u8>)>>,
 {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
         let key = format!("{}:{}:set", key, v.self_id());
-        let v: Vec<(&str, String)> = v.into();
+        let v: Vec<(&str, Vec<u8>)> = v.into();
 
         pip.cmd("HMSET").arg(key.as_str()).arg(v).ignore();
         if should_expire {
@@ -1077,7 +1077,7 @@ where
 }
 
 impl CacheService {
-    pub fn remove_category(&self, cid: u32) -> impl Future<Item = (), Error = ResError> {
+    pub fn remove_category(&self, cid: u32) -> impl Future<Item=(), Error=ResError> {
         // ToDo: future test the pipe lined cmd results
         let mut pip = pipe();
         pip.atomic();
@@ -1144,7 +1144,7 @@ fn update_post_count(
     cid: u32,
     yesterday: i64,
     conn: SharedConn,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
 
@@ -1168,7 +1168,7 @@ fn update_list(
     cid: Option<u32>,
     yesterday: i64,
     conn: SharedConn,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
             format!("category:{}:list_pop", cid),
@@ -1262,7 +1262,7 @@ pub fn build_list(
     conn: SharedConn,
     vec: Vec<u32>,
     key: String,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -1278,12 +1278,12 @@ pub fn build_list(
 pub fn build_users_cache(
     vec: Vec<User>,
     conn: SharedConn,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
         let key = format!("user:{}:set", v.self_id());
-        let v: Vec<(&str, String)> = v.into();
+        let v: Vec<(&str, Vec<u8>)> = v.into();
 
         pip.cmd("HMSET")
             .arg(key.as_str())
@@ -1291,7 +1291,7 @@ pub fn build_users_cache(
             .ignore()
             .cmd("HMSET")
             .arg(key.as_str())
-            .arg(&[("online_status", 0.to_string())])
+            .arg(&[("online_status", 0)])
             .ignore();
     }
     pip.query_async(conn).from_err().map(|(_, ())| ())
@@ -1301,7 +1301,7 @@ pub fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConn,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -1347,7 +1347,7 @@ pub fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConn,
-) -> impl Future<Item = (), Error = ResError> {
+) -> impl Future<Item=(), Error=ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 

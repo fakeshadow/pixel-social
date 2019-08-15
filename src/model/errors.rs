@@ -2,6 +2,7 @@ use std::error::Error;
 
 use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::{Display, From};
+use psn_api_rs::PSNError;
 
 // res errors use from trait to convert error types and generate http response or added to error report.
 #[derive(Debug, Display, From)]
@@ -149,6 +150,13 @@ impl From<std::num::ParseIntError> for ResError {
 impl From<chrono::format::ParseError> for ResError {
     fn from(_err: chrono::format::ParseError) -> ResError {
         ResError::ParseError
+    }
+}
+
+//ToDo: handle psn error.
+impl From<PSNError> for ResError {
+    fn from(_e: PSNError) -> ResError {
+        ResError::InternalServerError
     }
 }
 

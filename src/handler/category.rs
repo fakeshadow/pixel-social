@@ -6,8 +6,8 @@ use std::fmt::Write;
 
 use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{
-    common::GlobalVars,
     category::{Category, CategoryRequest},
+    common::GlobalVars,
     errors::ResError,
 };
 
