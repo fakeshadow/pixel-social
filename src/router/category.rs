@@ -25,7 +25,7 @@ pub fn get_all(
 }
 
 pub fn get_latest(
-    req: Path<(u32, i64)>,
+    req: Path<(u32, usize)>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
@@ -36,7 +36,7 @@ pub fn get_latest(
 }
 
 pub fn get_popular(
-    req: Path<(u32, i64)>,
+    req: Path<(u32, usize)>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
@@ -48,7 +48,7 @@ pub fn get_popular(
 }
 
 pub fn get_popular_all(
-    req: Path<(i64)>,
+    req: Path<(usize)>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {

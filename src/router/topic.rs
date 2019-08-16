@@ -26,11 +26,12 @@ pub fn add(
         .into_future()
         .from_err()
         .and_then(move |_| {
-            let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-            req.check_new()
+            req.into_inner()
+                .attach_user_id(Some(jwt.user_id))
+                .check_new()
                 .into_future()
                 .from_err()
-                .and_then(move |_| db.add_topic(req, global.get_ref()))
+                .and_then(move |req| db.add_topic(&req, global.get_ref()))
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
@@ -46,12 +47,13 @@ pub fn update(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.check_update()
+    req.into_inner()
+        .attach_user_id(Some(jwt.user_id))
+        .check_update()
         .into_future()
         .from_err()
-        .and_then(move |_| {
-            db.update_topic(req).from_err().and_then(move |t| {
+        .and_then(move |r| {
+            db.update_topic(&r).from_err().and_then(move |t| {
                 let res = HttpResponse::Ok().json(&t);
                 cache.update_topics(vec![t]);
                 res
@@ -60,7 +62,7 @@ pub fn update(
 }
 
 pub fn get_oldest(
-    req: Path<(u32, i64)>,
+    req: Path<(u32, usize)>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
@@ -72,7 +74,7 @@ pub fn get_oldest(
 }
 
 pub fn get_popular(
-    req: Path<(u32, i64)>,
+    req: Path<(u32, usize)>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
@@ -84,7 +86,7 @@ pub fn get_popular(
 
 fn get(
     tid: u32,
-    page: i64,
+    page: usize,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Post>, Vec<u32>), ResError>,

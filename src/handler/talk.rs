@@ -1,12 +1,12 @@
-use futures::{
-    future::{err as ft_err, Either},
-    Future,
-};
 use std::fmt::Write;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-use actix::prelude::{fut, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture};
+use actix::prelude::{ActorFuture, Addr, AsyncContext, Context, fut, Handler, Message, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
+use futures::{
+    future::{Either, err as ft_err},
+    Future,
+};
 use hashbrown::HashMap;
 
 use crate::handler::db::{Query, SimpleQuery};
@@ -49,14 +49,12 @@ impl TalkService {
     }
 
     fn get_talk_hm(&self, talk_id: &u32) -> Result<Talk, ResError> {
-        self.read_talks(|t| t.get(talk_id).map(|t| t.clone()).ok_or(ResError::NotFound))
+        self.read_talks(|t| t.get(talk_id).cloned().ok_or(ResError::NotFound))
     }
 
     fn get_session_hm(&self, sid: &u32) -> Result<Addr<WsChatSession>, ResError> {
         self.read_sessions(|s| {
-            s.get(sid)
-                .map(|addr| addr.clone())
-                .ok_or(ResError::NotFound)
+            s.get(sid).cloned().ok_or(ResError::NotFound)
         })
     }
 
@@ -89,8 +87,8 @@ impl TalkService {
     }
 
     fn read_sessions<F, T>(&self, f: F) -> Result<T, ResError>
-    where
-        F: FnOnce(RwLockReadGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<T, ResError>,
+        where
+            F: FnOnce(RwLockReadGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<T, ResError>,
     {
         self.sessions
             .try_read()
@@ -99,8 +97,8 @@ impl TalkService {
     }
 
     fn read_talks<F, T>(&self, f: F) -> Result<T, ResError>
-    where
-        F: FnOnce(RwLockReadGuard<HashMap<u32, Talk>>) -> Result<T, ResError>,
+        where
+            F: FnOnce(RwLockReadGuard<HashMap<u32, Talk>>) -> Result<T, ResError>,
     {
         self.talks
             .try_read()
@@ -109,8 +107,8 @@ impl TalkService {
     }
 
     fn write_sessions<F>(&self, f: F) -> Result<(), ResError>
-    where
-        F: FnOnce(RwLockWriteGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<(), ResError>,
+        where
+            F: FnOnce(RwLockWriteGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<(), ResError>,
     {
         self.sessions
             .try_write()
@@ -119,8 +117,8 @@ impl TalkService {
     }
 
     fn write_talks<F>(&self, f: F) -> Result<(), ResError>
-    where
-        F: FnOnce(RwLockWriteGuard<HashMap<u32, Talk>>) -> Result<(), ResError>,
+        where
+            F: FnOnce(RwLockWriteGuard<HashMap<u32, Talk>>) -> Result<(), ResError>,
     {
         self.talks
             .try_write()
@@ -205,7 +203,7 @@ pub struct DisconnectRequest {
 }
 
 impl TalkService {
-    fn join_talk_db(&self, req: JoinTalkRequest) -> impl Future<Item = Talk, Error = ResError> {
+    fn join_talk_db(&self, req: JoinTalkRequest) -> impl Future<Item=Talk, Error=ResError> {
         let sid = req.session_id.as_ref().unwrap();
         let tid = req.talk_id;
         match self.get_talk_hm(&tid) {
@@ -219,7 +217,7 @@ impl TalkService {
         }
     }
 
-    fn get_relation(&self, uid: &u32) -> impl Future<Item = Relation, Error = ResError> {
+    fn get_relation(&self, uid: &u32) -> impl Future<Item=Relation, Error=ResError> {
         self.query_one_trait(&self.get_relations, &[uid])
     }
 
@@ -227,13 +225,12 @@ impl TalkService {
         &self,
         last_tid: u32,
         msg: &CreateTalkRequest,
-    ) -> impl Future<Item = Talk, Error = ResError> {
+    ) -> impl Future<Item=Talk, Error=ResError> {
         let query = format!(
-            "
-                    INSERT INTO talks
-                    (id, name, description, owner, admin, users)
-                    VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
-                    RETURNING *",
+            "INSERT INTO talks
+            (id, name, description, owner, admin, users)
+            VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
+             RETURNING *",
             (last_tid + 1),
             msg.name,
             msg.description,
@@ -245,7 +242,7 @@ impl TalkService {
         self.simple_query_one_trait(query.as_str())
     }
 
-    fn get_last_tid_db(&self) -> impl Future<Item = u32, Error = ResError> {
+    fn get_last_tid_db(&self) -> impl Future<Item=u32, Error=ResError> {
         self.simple_query_single_row_trait::<u32>("SELECT Max(id) FROM talks", 0)
     }
 }
@@ -284,18 +281,18 @@ impl Handler<TextMessageRequest> for TalkService {
                     &self.insert_pub_msg,
                     &[&tid, &msg.text, &now],
                 )
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
-                .map(move |_, act, _| {
-                    let s = SendMessage::PublicMessage(&vec![PublicMessage {
-                        text: msg.text,
-                        time: now,
-                        talk_id: msg.talk_id.unwrap(),
-                    }])
-                    .stringify();
+                    .into_actor(self)
+                    .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
+                    .map(move |_, act, _| {
+                        let s = SendMessage::PublicMessage(&vec![PublicMessage {
+                            text: msg.text,
+                            time: now,
+                            talk_id: msg.talk_id.unwrap(),
+                        }])
+                            .stringify();
 
-                    act.send_message_many(&sid, &tid, s.as_str());
-                }),
+                        act.send_message_many(&sid, &tid, s.as_str());
+                    }),
             );
             return;
         }
@@ -306,18 +303,18 @@ impl Handler<TextMessageRequest> for TalkService {
                     &self.insert_prv_msg,
                     &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
                 )
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
-                .map(move |_, act, _| {
-                    let s = SendMessage::PrivateMessage(&vec![PrivateMessage {
-                        user_id: msg.user_id.unwrap(),
-                        text: msg.text,
-                        time: now,
-                    }])
-                    .stringify();
+                    .into_actor(self)
+                    .map_err(move |e, act, _| act.parse_send_res_error(&sid, &e))
+                    .map(move |_, act, _| {
+                        let s = SendMessage::PrivateMessage(&vec![PrivateMessage {
+                            user_id: msg.user_id.unwrap(),
+                            text: msg.text,
+                            time: now,
+                        }])
+                            .stringify();
 
-                    act.send_message(&uid, s.as_str());
-                }),
+                        act.send_message(&uid, s.as_str());
+                    }),
             );
         }
     }
@@ -414,7 +411,7 @@ impl Handler<TalkByIdRequest> for TalkService {
             .map(|t| {
                 let t = match msg.talk_id {
                     0 => t.iter().map(|(_, t)| t).collect(),
-                    _ => t.get(&msg.talk_id).map(|t| vec![t]).unwrap_or(vec![]),
+                    _ => t.get(&msg.talk_id).map(|t| vec![t]).unwrap_or_else(||vec![]),
                 };
                 self.send_message(sid, SendMessage::Talks(t).stringify().as_str())
             });
@@ -467,7 +464,7 @@ impl Handler<GetHistory> for TalkService {
     fn handle(&mut self, msg: GetHistory, ctx: &mut Context<Self>) {
         let sid = msg.session_id.unwrap();
         let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")
-            .unwrap_or(Utc::now().naive_utc());
+            .unwrap_or_else(|_| Utc::now().naive_utc());
 
         match msg.talk_id {
             Some(tid) => ctx.spawn(
@@ -601,7 +598,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
     fn handle(&mut self, msg: DeleteTalkRequest, ctx: &mut Context<Self>) {
         let tid = msg.talk_id;
 
-        if let Some(_) = self.get_talk_hm(&tid).ok() {
+        if self.get_talk_hm(&tid).ok().is_some() {
             let sid = msg.session_id.unwrap();
             //ToDo: delete talk table and messages here.
             let query = format!("DELETE FROM talks WHERE id = {}", tid);

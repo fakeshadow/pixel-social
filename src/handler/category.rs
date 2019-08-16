@@ -29,7 +29,7 @@ impl DatabaseService {
         if let Some(s) = c.name {
             let _ = write!(&mut query, " name='{}',", s);
         }
-        if query.ends_with(",") {
+        if query.ends_with(',') {
             query.remove(query.len() - 1);
             let _ = write!(&mut query, " WHERE id='{}' RETURNING *", c.id.unwrap());
         } else {

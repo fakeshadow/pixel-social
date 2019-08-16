@@ -8,3 +8,5 @@ pub mod psn;
 pub mod talk;
 pub mod topic;
 pub mod user;
+pub mod db_schema;
+pub mod cache_schema;

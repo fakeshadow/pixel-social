@@ -60,7 +60,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                     ctx.text("!!! Message out of range");
                     return;
                 }
-                if self.id <= 0 {
+                if self.id == 0 {
                     match v[0] {
                         "/auth" => auth(self, v[1], ctx),
                         _ => ctx.text("!!! Unauthorized command"),

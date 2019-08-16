@@ -41,7 +41,7 @@ pub fn save_file(field: Field) -> impl Future<Item = UploadResponse, Error = Err
         None => return Either::A(err(error::ErrorBadRequest("No filename found"))),
     };
 
-    let mut vec: Vec<&str> = origin_filename.rsplitn(2, ".").collect();
+    let mut vec: Vec<&str> = origin_filename.rsplitn(2, '.').collect();
 
     let file_name = match vec.pop() {
         Some(name) => name,

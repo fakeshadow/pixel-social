@@ -53,8 +53,8 @@ pub struct PostRequest {
 }
 
 impl Post {
-    pub fn attach_users<'a>(p: &'a Vec<Post>, u: &'a Vec<User>) -> Vec<PostWithUser<'a>> {
-        p.iter().map(|p| p.attach_user(&u)).collect()
+    pub fn attach_users<'a>(p: &'a [Post], u: &'a [User]) -> Vec<PostWithUser<'a>> {
+        p.iter().map(|p| p.attach_user(u)).collect()
     }
 }
 
@@ -64,24 +64,24 @@ impl PostRequest {
         self
     }
 
-    pub fn check_new(&self) -> Result<(), ResError> {
+    pub fn check_new(self) -> Result<Self, ResError> {
         if self.topic_id.is_none() || self.post_content.is_none() {
             Err(ResError::BadRequest)
         } else {
-            Ok(())
+            Ok(self)
         }
     }
 
-    pub fn check_update(&mut self) -> Result<(), ResError> {
+    pub fn check_update(mut self) -> Result<Self, ResError> {
         if self.id.is_none() {
             return Err(ResError::BadRequest);
         }
-        if let Some(_) = self.user_id {
+        if self.user_id.is_some() {
             self.topic_id = None;
             self.post_id = None;
             self.is_locked = None;
         }
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -94,20 +94,20 @@ pub struct PostWithUser<'a> {
 
 impl<'u> AttachUser<'u> for Post {
     type Output = PostWithUser<'u>;
-    fn self_user_id(&self) -> &u32 {
-        &self.user_id
+    fn self_user_id(&self) -> u32 {
+        self.user_id
     }
-    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output {
+    fn attach_user(&'u self, users: &'u [User]) -> Self::Output {
         PostWithUser {
-            user: self.make_field(&users),
+            user: self.make_field(users),
             post: self,
         }
     }
 }
 
 impl GetSelfId for Post {
-    fn self_id(&self) -> &u32 {
-        &self.id
+    fn self_id(&self) -> u32 {
+        self.id
     }
 }
 

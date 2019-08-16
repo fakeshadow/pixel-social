@@ -32,7 +32,7 @@ impl DatabaseService {
             let _ = write!(&mut query, " privilege = {},", s);
         }
 
-        if query.ends_with(",") {
+        if query.ends_with(',') {
             let _ = write!(
                 &mut query,
                 " updated_at = DEFAULT WHERE id = {} RETURNING *",

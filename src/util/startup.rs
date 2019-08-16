@@ -1,18 +1,17 @@
 use actix::prelude::*;
 use actix_rt::Runtime;
-
-use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
+use chrono::NaiveDateTime;
+use tokio_postgres::{connect, SimpleQueryMessage, tls::NoTls};
 
 use crate::handler::cache::{
     build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list, build_users_cache,
 };
 use crate::model::{
     category::Category,
-    common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
+    common::{GlobalSessions, GlobalTalks, GlobalVar, GlobalVars, new_global_talks_sessions},
     topic::Topic,
     user::User,
 };
-use chrono::NaiveDateTime;
 
 //return global arc after building cache
 pub fn build_cache(
@@ -44,7 +43,7 @@ pub fn build_cache(
         "category",
         false,
     ))
-    .unwrap_or_else(|_| panic!("Failed to update categories sets"));
+        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -145,12 +144,10 @@ pub fn build_cache(
             };
         }
 
-        let _ = rt
-            .block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
+        rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build category sets"));
     }
-    let _ = rt
-        .block_on(build_list(
+    rt.block_on(build_list(
             c_cache.clone(),
             category_ids,
             "category_id:meta".to_owned(),
@@ -227,9 +224,8 @@ pub fn build_cache(
         })
         .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
-    if posts.len() > 0 {
-        let _ = rt
-            .block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
+    if !posts.is_empty() {
+        rt.block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build posts cache"));
     }
 
@@ -277,9 +273,9 @@ pub fn create_table(postgres_url: &str) -> bool {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if let Some(_) = rt
-        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
+    if rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .ok()
+        .is_some()
     {
         return false;
     }
@@ -382,6 +378,19 @@ CREATE UNIQUE INDEX associates_psn_id ON associates (psn_id);
 CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
         .to_owned();
 
+    // create table for PSN data.
+    query.push_str("
+CREATE TABLE psn_user_trophy_titles
+(
+    np_id                   VARCHAR(32)         NOT NULL PRIMARY KEY,
+    np_communication_id     VARCHAR(32)         NOT NULL,
+    progress                INTEGER             NOT NULL DEFAULT 0,
+    earned_trophies         INTEGER[],
+    last_update_date        TIMESTAMP           NOT NULL,
+    last_update_time        TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP
+);");
+
+
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
 INSERT INTO users (id, username, email, hashed_password, signature, avatar_url, privilege)
@@ -417,7 +426,7 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
     let f = c.simple_query(&query).into_future();
 
-    let _ = rt
+    rt
         .block_on(f)
         .map(|_| println!("dummy tables generated"))
         .unwrap_or_else(|_| panic!("fail to create default tables"));
@@ -456,7 +465,7 @@ DROP TABLE IF EXISTS posts;";
         .into_future()
         .map_err(|(e, _)| println!("{:?}", e));
 
-    let _ = rt
+    rt
         .block_on(f)
         .map(|_| println!("All tables have been drop. pixel_rs exited"))
         .expect("failed to clear db");

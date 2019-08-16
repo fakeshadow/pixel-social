@@ -21,16 +21,16 @@ pub struct Talk {
 pub enum SendMessage<'a> {
     PublicMessage(&'a Vec<PublicMessage>),
     PrivateMessage(&'a Vec<PrivateMessage>),
-    Users(&'a Vec<User>),
+    Users(&'a [User]),
     Talks(Vec<&'a Talk>),
-    Friends(&'a Vec<u32>),
+    Friends(&'a [u32]),
     Success(&'a str),
     Error(&'a str),
 }
 
 impl SendMessage<'_> {
     pub fn stringify(&self) -> String {
-        serde_json::to_string(self).unwrap_or(SendMessage::Error("Stringify error").stringify())
+        serde_json::to_string(self).unwrap_or_else(|_|SendMessage::Error("Stringify error").stringify())
     }
 }
 

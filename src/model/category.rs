@@ -36,8 +36,8 @@ pub struct CategoryRequest {
 }
 
 impl GetSelfId for Category {
-    fn self_id(&self) -> &u32 {
-        &self.id
+    fn self_id(&self) -> u32 {
+        self.id
     }
 }
 

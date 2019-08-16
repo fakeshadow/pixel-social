@@ -22,7 +22,7 @@ pub fn add_topic(
         is_locked: None,
         is_visible: Some(true),
     };
-    db.add_topic(req, global.get_ref())
+    db.add_topic(&req, global.get_ref())
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);

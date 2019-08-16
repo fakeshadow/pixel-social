@@ -27,16 +27,20 @@ pub fn add(
         .into_future()
         .from_err()
         .and_then(move |_| {
-            let req = req.into_inner().attach_user_id(Some(jwt.user_id));
-            req.check_new().into_future().from_err().and_then(move |_| {
-                db.add_post(req, global.get_ref())
-                    .from_err()
-                    .and_then(move |p| {
-                        let res = HttpResponse::Ok().json(&p);
-                        cache.add_post(p);
-                        res
-                    })
-            })
+            req.into_inner()
+                .attach_user_id(Some(jwt.user_id))
+                .check_new()
+                .into_future()
+                .from_err()
+                .and_then(move |req| {
+                    db.add_post(req, global.get_ref())
+                        .from_err()
+                        .and_then(move |p| {
+                            let res = HttpResponse::Ok().json(&p);
+                            cache.add_post(p);
+                            res
+                        })
+                })
         })
 }
 
@@ -46,11 +50,12 @@ pub fn update(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let mut req = req.into_inner().attach_user_id(Some(jwt.user_id));
-    req.check_update()
+    req.into_inner()
+        .attach_user_id(Some(jwt.user_id))
+        .check_update()
         .into_future()
         .from_err()
-        .and_then(move |_| {
+        .and_then(move |req| {
             db.update_post(req).from_err().and_then(move |p| {
                 let res = HttpResponse::Ok().json(&p);
                 cache.update_posts(vec![p]);

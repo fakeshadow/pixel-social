@@ -13,7 +13,7 @@ use crate::model::{common::GlobalVars, errors::ResError, topic::Topic, topic::To
 impl DatabaseService {
     pub fn add_topic(
         &self,
-        t: TopicRequest,
+        t: &TopicRequest,
         g: &GlobalVars,
     ) -> impl Future<Item = Topic, Error = ResError> {
         let id = match g.lock() {
@@ -27,37 +27,37 @@ impl DatabaseService {
             &self.insert_topic,
             &[
                 &id,
-                &t.user_id.unwrap(),
+                t.user_id.as_ref().unwrap(),
                 &t.category_id,
-                &t.thumbnail.unwrap(),
-                &t.title.unwrap(),
-                &t.body.unwrap(),
+                t.thumbnail.as_ref().unwrap(),
+                t.title.as_ref().unwrap(),
+                t.body.as_ref().unwrap(),
                 now,
                 now,
             ],
         ))
     }
     //ToDo: add query for moving topic to other table.
-    pub fn update_topic(&self, t: TopicRequest) -> impl Future<Item = Topic, Error = ResError> {
+    pub fn update_topic(&self, t: &TopicRequest) -> impl Future<Item = Topic, Error = ResError> {
         let mut query = String::from("UPDATE topics SET");
 
-        if let Some(s) = t.title {
+        if let Some(s) = &t.title {
             let _ = write!(&mut query, " title='{}',", s);
         }
-        if let Some(s) = t.body {
+        if let Some(s) = &t.body {
             let _ = write!(&mut query, " body='{}',", s);
         }
-        if let Some(s) = t.thumbnail {
+        if let Some(s) = &t.thumbnail {
             let _ = write!(&mut query, " thumbnail='{}',", s);
         }
-        if let Some(s) = t.is_locked {
+        if let Some(s) = &t.is_locked {
             let _ = write!(&mut query, " is_locked={},", s);
         }
-        if let Some(s) = t.is_visible {
+        if let Some(s) = &t.is_visible {
             let _ = write!(&mut query, " is_visible={},", s);
         }
         // update update_at or return err as the query is empty.
-        if query.ends_with(",") {
+        if query.ends_with(',') {
             let _ = write!(&mut query, " updated_at=DEFAULT");
         } else {
             return Either::A(ft_err(ResError::BadRequest));
@@ -78,14 +78,14 @@ impl CacheService {
     pub fn get_topics_pop(
         &self,
         cid: u32,
-        page: i64,
+        page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
         self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", cid), page, "topic")
     }
 
     pub fn get_topics_pop_all(
         &self,
-        page: i64,
+        page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
         self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")
     }
@@ -93,7 +93,7 @@ impl CacheService {
     pub fn get_topics_late(
         &self,
         cid: u32,
-        page: i64,
+        page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
         self.get_cache_with_uids_from_zrevrange(
             &format!("category:{}:topics_time", cid),

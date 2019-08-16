@@ -47,15 +47,15 @@ impl Default for Topic {
 impl Topic {
     pub fn attach_users_with_post<'a>(
         t: Option<&'a Topic>,
-        p: &'a Vec<Post>,
-        u: &'a Vec<User>,
+        p: &'a [Post],
+        u: &'a [User],
     ) -> TopicWithPost<'a> {
         TopicWithPost {
             topic: t.map(|t| t.attach_user(&u)),
             posts: p.iter().map(|p| p.attach_user(&u)).collect(),
         }
     }
-    pub fn attach_users<'a>(t: &'a Vec<Topic>, u: &'a Vec<User>) -> Vec<TopicWithUser<'a>> {
+    pub fn attach_users<'a>(t: &'a [Topic], u: &'a [User]) -> Vec<TopicWithUser<'a>> {
         t.iter().map(|t| t.attach_user(&u)).collect()
     }
 }
@@ -78,27 +78,27 @@ impl TopicRequest {
         self.user_id = id;
         self
     }
-    pub fn check_new(&self) -> Result<(), ResError> {
+    pub fn check_new(self) -> Result<Self, ResError> {
         if self.title.is_none() || self.body.is_none() || self.thumbnail.is_none() {
             Err(ResError::BadRequest)
         } else {
-            Ok(())
+            Ok(self)
         }
     }
-    pub fn check_update(&mut self) -> Result<(), ResError> {
+    pub fn check_update(mut self) -> Result<Self, ResError> {
         if self.id.is_none() {
             return Err(ResError::BadRequest);
         }
-        if let Some(_) = self.user_id {
+        if self.user_id.is_some() {
             self.is_locked = None;
         }
-        Ok(())
+        Ok(self)
     }
 }
 
 impl GetSelfId for Topic {
-    fn self_id(&self) -> &u32 {
-        &self.id
+    fn self_id(&self) -> u32 {
+        self.id
     }
 }
 
@@ -110,10 +110,10 @@ impl GetUserId for Topic {
 
 impl<'u> AttachUser<'u> for Topic {
     type Output = TopicWithUser<'u>;
-    fn self_user_id(&self) -> &u32 {
-        &self.user_id
+    fn self_user_id(&self) -> u32 {
+        self.user_id
     }
-    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output {
+    fn attach_user(&'u self, users: &'u [User]) -> Self::Output {
         TopicWithUser {
             user: self.make_field(&users),
             topic: self,

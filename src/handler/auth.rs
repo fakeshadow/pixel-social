@@ -27,7 +27,7 @@ impl FromRequest for JwtPayLoad {
                 let vec: Vec<&str> = token
                     .to_str()
                     .unwrap_or("no token")
-                    .rsplitn(2, " ")
+                    .rsplitn(2, ' ')
                     .collect();
                 JwtPayLoad::from(vec[0])
             }
@@ -63,7 +63,7 @@ impl DatabaseService {
             Ok(mut var) => var.next_uid(),
             Err(_) => return Either::A(ft_err(ResError::InternalServerError)),
         };
-        let u = match r.make_user(&id, &hash) {
+        let u = match r.make_user(id, &hash) {
             Ok(u) => u,
             Err(e) => return Either::A(ft_err(e)),
         };

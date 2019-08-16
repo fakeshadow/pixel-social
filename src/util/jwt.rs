@@ -23,7 +23,7 @@ impl JwtPayLoad {
     pub fn from(string: &str) -> Result<JwtPayLoad, ResError> {
         let token: JwtPayLoad =
             decode::<JwtPayLoad>(string, get_secret().as_ref(), &Validation::default())
-                .map(|data| data.claims.into())
+                .map(|data| data.claims)
                 .map_err(|_| ResError::Unauthorized)?;
         if token.exp as i64 - Local::now().timestamp() < 0 {
             Err(ResError::AuthTimeout)

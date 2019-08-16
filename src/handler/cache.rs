@@ -1,19 +1,15 @@
 use std::{collections::HashMap, time::Duration};
-use std::time::Instant;
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
 use futures::future::{Either, err as ft_err, join_all, ok as ft_ok};
-use futures::IntoFuture;
-use psn_api_rs::models::PSNUser;
 use redis::{
-    aio::SharedConnection, Client, cmd, ErrorKind, from_redis_value, FromRedisValue, pipe,
-    RedisError, RedisResult, Value,
+    aio::SharedConnection, Client, cmd, pipe,
 };
 
 use crate::{CacheUpdateService, MessageService, PSNService};
 use crate::model::{
-    actors::{SharedConn, TalkService},
+    actors::TalkService,
     category::Category,
     common::{GetSelfId, GetUserId},
     errors::ResError,
@@ -24,13 +20,13 @@ use crate::model::{
 };
 
 // page offsets of list query
-const LIMIT: isize = 20;
+const LIMIT: usize = 20;
 // use LEX_BASE minus pid and tid before adding to zrange.
 const LEX_BASE: u32 = std::u32::MAX;
 // list_pop update interval time gap in seconds
 const LIST_TIME_GAP: Duration = Duration::from_secs(10);
 // hash life is expire time of topic and post hash in seconds.
-const HASH_LIFE: usize = 172800;
+const HASH_LIFE: usize = 172_800;
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
@@ -45,12 +41,6 @@ impl CacheService {
             .get_shared_async_connection()
             .map_err(|e| panic!("{:?}", e))
             .map(|c| CacheService { cache: c })
-    }
-}
-
-impl GetSharedConn for CacheService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.clone()
     }
 }
 
@@ -85,7 +75,7 @@ impl CacheService {
     pub fn get_cache_with_uids_from_list<T>(
         &self,
         list_key: &str,
-        page: i64,
+        page: usize,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
@@ -95,7 +85,7 @@ impl CacheService {
             + GetUserId
             + 'static,
     {
-        let start = (page as isize - 1) * 20;
+        let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
         self.ids_from_cache_list(list_key, start, end)
             .and_then(move |(conn, ids)| Self::from_cache_with_perm_with_uids(conn, ids, set_key))
@@ -104,7 +94,7 @@ impl CacheService {
     pub fn get_cache_with_uids_from_zrevrange_reverse_lex<T>(
         &self,
         zrange_key: &str,
-        page: i64,
+        page: usize,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
@@ -120,7 +110,7 @@ impl CacheService {
     pub fn get_cache_with_uids_from_zrevrange<T>(
         &self,
         zrange_key: &str,
-        page: i64,
+        page: usize,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
@@ -136,7 +126,7 @@ impl CacheService {
     pub fn get_cache_with_uids_from_zrange<T>(
         &self,
         zrange_key: &str,
-        page: i64,
+        page: usize,
         set_key: &'static str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
@@ -152,7 +142,7 @@ impl CacheService {
     fn cache_with_uids_from_zrange<T>(
         &self,
         zrange_key: &str,
-        page: i64,
+        page: usize,
         set_key: &'static str,
         is_rev: bool,
         is_reverse_lex: bool,
@@ -164,7 +154,7 @@ impl CacheService {
             + GetUserId
             + 'static,
     {
-        self.ids_from_cache_zrange(is_rev, zrange_key, ((page - 1) * 20) as usize)
+        self.ids_from_cache_zrange(is_rev, zrange_key, (page - 1) * 20)
             .and_then(move |(conn, mut ids)| {
                 if is_reverse_lex {
                     ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
@@ -425,10 +415,18 @@ impl CacheService {
             })
     }
 
-    pub fn add_psn_request(&self, req: &str) -> impl Future<Item=(), Error=ResError> {
+    pub fn add_psn_request_with_privilege(&self, req: &str) -> impl Future<Item=(), Error=ResError> {
+        self.add_psn_request(req, 0)
+    }
+
+    pub fn add_psn_request_now(&self, req: &str) -> impl Future<Item=(), Error=ResError> {
+        self.add_psn_request(req, Utc::now().timestamp_millis())
+    }
+
+    fn add_psn_request(&self, req: &str, score: i64) -> impl Future<Item=(), Error=ResError> {
         cmd("ZADD")
             .arg("psn_queue")
-            .arg(Utc::now().timestamp_millis())
+            .arg(score)
             .arg(req)
             .query_async(self.get_conn())
             .from_err()
@@ -463,12 +461,6 @@ impl TalkService {
         uids: Vec<u32>,
     ) -> impl Future<Item=Vec<User>, Error=ResError> {
         self.users_from_cache(uids)
-    }
-}
-
-impl GetSharedConn for TalkService {
-    fn get_conn(&self) -> SharedConn {
-        self.cache.clone()
     }
 }
 
@@ -512,7 +504,7 @@ impl CacheUpdateService {
                     .map_err(|_, _, _| ())
                     .and_then(|cat, act, _| {
                         let conn = act.get_conn();
-                        let yesterday = Utc::now().naive_utc().timestamp_millis() - 86400000;
+                        let yesterday = Utc::now().naive_utc().timestamp_millis() - 86_400_000;
                         let mut vec = Vec::new();
 
                         for c in cat.iter() {
@@ -533,29 +525,40 @@ impl CacheUpdateService {
 }
 
 pub trait GetSharedConn {
-    fn get_conn(&self) -> SharedConn;
+    fn get_conn(&self) -> SharedConnection;
 }
 
 impl GetSharedConn for CacheUpdateService {
-    fn get_conn(&self) -> SharedConn {
+    fn get_conn(&self) -> SharedConnection {
         self.cache.as_ref().unwrap().clone()
     }
 }
 
 impl GetSharedConn for MessageService {
-    fn get_conn(&self) -> SharedConn {
+    fn get_conn(&self) -> SharedConnection {
         self.cache.as_ref().unwrap().clone()
     }
 }
 
 impl GetSharedConn for PSNService {
-    fn get_conn(&self) -> SharedConn {
-        self.cache.as_ref().unwrap().clone()
+    fn get_conn(&self) -> SharedConnection { self.cache.as_ref().unwrap().clone() }
+}
+
+impl GetSharedConn for CacheService {
+    fn get_conn(&self) -> SharedConnection {
+        self.cache.clone()
     }
 }
 
-fn count_ids((conn, ids): (SharedConn, Vec<u32>)) -> Result<(SharedConn, Vec<u32>), ResError> {
-    if ids.len() == 0 {
+impl GetSharedConn for TalkService {
+    fn get_conn(&self) -> SharedConnection {
+        self.cache.clone()
+    }
+}
+
+
+fn count_ids((conn, ids): (SharedConnection, Vec<u32>)) -> Result<(SharedConnection, Vec<u32>), ResError> {
+    if ids.is_empty() {
         Err(ResError::NoContent)
     } else {
         Ok((conn, ids))
@@ -569,9 +572,9 @@ pub trait IdsFromList
     fn ids_from_cache_list(
         &self,
         list_key: &str,
-        start: isize,
-        end: isize,
-    ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
+        start: usize,
+        end: usize,
+    ) -> Box<dyn Future<Item=(SharedConnection, Vec<u32>), Error=ResError>> {
         Box::new(
             cmd("lrange")
                 .arg(list_key)
@@ -597,7 +600,7 @@ trait IdsFromSortedSet
         is_rev: bool,
         list_key: &str,
         offset: usize,
-    ) -> Box<dyn Future<Item=(SharedConn, Vec<u32>), Error=ResError>> {
+    ) -> Box<dyn Future<Item=(SharedConnection, Vec<u32>), Error=ResError>> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
@@ -641,7 +644,6 @@ trait HashMapFromCache
 
 impl HashMapFromCache for CacheService {}
 
-
 pub trait DeleteCache
     where
         Self: GetSharedConn,
@@ -659,7 +661,6 @@ pub trait DeleteCache
 
 impl DeleteCache for CacheService {}
 
-
 pub trait FromCacheSingle
     where
         Self: GetSharedConn,
@@ -674,7 +675,7 @@ pub trait FromCacheSingle
     {
         let key = match std::str::from_utf8(key) {
             Ok(k) => k,
-            Err(_) => return Box::new(ft_err(ResError::InternalServerError))
+            Err(_) => return Box::new(ft_err(ResError::InternalServerError)),
         };
 
         Box::new(
@@ -682,7 +683,6 @@ pub trait FromCacheSingle
                 .arg(&format!("{}:{}:set", set_key, key))
                 .query_async(self.get_conn())
                 .from_err()
-
                 .map(|(_, hm)| hm),
         )
     }
@@ -690,10 +690,9 @@ pub trait FromCacheSingle
 
 impl FromCacheSingle for CacheService {}
 
-
 pub trait FromCache {
     fn from_cache<T>(
-        conn: SharedConn,
+        conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &str,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
@@ -712,7 +711,7 @@ pub trait FromCache {
             pip.query_async(conn)
                 .then(|r: Result<(_, Vec<T>), redis::RedisError>| match r {
                     Ok((_, v)) => {
-                        if v.len() == 0 {
+                        if v.is_empty() {
                             Err(ResError::IdsFromCache(ids))
                         } else {
                             Ok(v)
@@ -730,10 +729,9 @@ impl FromCache for CacheUpdateService {}
 
 impl FromCache for TalkService {}
 
-
 pub trait FromCacheWithPerm {
     fn from_cache_with_perm<T>(
-        conn: SharedConn,
+        conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &str,
     ) -> Box<dyn Future<Item=Vec<(T, HashMap<String, String>)>, Error=ResError>>
@@ -753,7 +751,7 @@ pub trait FromCacheWithPerm {
         Box::new(pip.query_async(conn).then(
             |r: Result<(_, Vec<(T, _)>), redis::RedisError>| match r {
                 Ok((_, v)) => {
-                    if v.len() == 0 {
+                    if v.is_empty() {
                         Err(ResError::IdsFromCache(ids))
                     } else {
                         Ok(v)
@@ -771,7 +769,7 @@ impl FromCacheWithPerm for TalkService {}
 
 impl CacheService {
     fn from_cache_with_perm_with_uids<T>(
-        conn: SharedConn,
+        conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &str,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
@@ -854,15 +852,14 @@ pub trait UsersFromCache
         uids: Vec<u32>,
     ) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
         Box::new(
-            Self::from_cache_with_perm::<User>(self.get_conn(), uids, "user")
-                .map(|hm| {
-                    let len = hm.len();
-                    let mut v = Vec::with_capacity(len);
-                    for (u, h) in hm.into_iter() {
-                        v.push(u.attach_perm_fields(&h));
-                    }
-                    v
-                }),
+            Self::from_cache_with_perm::<User>(self.get_conn(), uids, "user").map(|hm| {
+                let len = hm.len();
+                let mut v = Vec::with_capacity(len);
+                for (u, h) in hm.into_iter() {
+                    v.push(u.attach_perm_fields(&h));
+                }
+                v
+            }),
         )
     }
 }
@@ -877,7 +874,7 @@ pub trait CategoriesFromCache
 {
     fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
         Box::new(
-            self.ids_from_cache_list("category_id:meta", 0, -1)
+            self.ids_from_cache_list("category_id:meta", 0, 999)
                 .and_then(|(conn, vec): (_, Vec<u32>)| Self::from_cache(conn, vec, "category")),
         )
     }
@@ -887,225 +884,9 @@ impl CategoriesFromCache for CacheService {}
 
 impl CategoriesFromCache for CacheUpdateService {}
 
-impl FromRedisValue for Topic {
-    fn from_redis_value(v: &Value) -> RedisResult<Topic> {
-        Topic::parse_from_redis_value(v)
-    }
-}
-
-impl FromRedisValue for Post {
-    fn from_redis_value(v: &Value) -> RedisResult<Post> {
-        Post::parse_from_redis_value(v)
-    }
-}
-
-impl FromRedisValue for User {
-    fn from_redis_value(v: &Value) -> RedisResult<User> {
-        User::parse_from_redis_value(v)
-    }
-}
-
-impl FromRedisValue for Category {
-    fn from_redis_value(v: &Value) -> RedisResult<Category> {
-        Category::parse_from_redis_value(v)
-    }
-}
-
-impl FromRedisValue for UserPSNProfile {
-    fn from_redis_value(v: &Value) -> RedisResult<UserPSNProfile> {
-        UserPSNProfile::parse_from_redis_value(v)
-    }
-}
-
-trait ParseFromRedisValue {
-    type Result;
-    fn parse_from_redis_value(v: &Value) -> Result<Self::Result, redis::RedisError>
-        where
-            Self::Result: Default + std::fmt::Debug,
-    {
-        match *v {
-            Value::Bulk(ref items) => {
-                if items.is_empty() {
-                    return Err((ErrorKind::ResponseError, "Response is empty"))?;
-                }
-                let mut t = Self::Result::default();
-                let mut iter = items.iter();
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let key: String = from_redis_value(k)?;
-                    if let Err(e) = Self::parse_pattern(&mut t, key.as_str(), v) {
-                        return Err(e);
-                    }
-                }
-                Ok(t)
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        }
-    }
-
-    fn parse_pattern(t: &mut Self::Result, key: &str, v: &Value) -> Result<(), redis::RedisError>;
-}
-
-impl ParseFromRedisValue for Topic {
-    type Result = Topic;
-    fn parse_pattern(t: &mut Topic, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "topic" => {
-                let s = from_redis_value::<Vec<u8>>(v)?;
-                let tt = serde_json::from_slice::<Topic>(&s)
-                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
-                t.id = tt.id;
-                t.user_id = tt.user_id;
-                t.category_id = tt.category_id;
-                t.title = tt.title;
-                t.body = tt.body;
-                t.thumbnail = tt.thumbnail;
-                t.created_at = tt.created_at;
-                t.updated_at = tt.updated_at;
-                t.is_locked = tt.is_locked;
-                t.is_visible = tt.is_visible;
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for Post {
-    type Result = Post;
-    fn parse_pattern(p: &mut Post, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "post" => {
-                let v = from_redis_value::<Vec<u8>>(v)?;
-                let pp = serde_json::from_slice::<Post>(&v)
-                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
-                p.id = pp.id;
-                p.user_id = pp.user_id;
-                p.topic_id = pp.topic_id;
-                p.category_id = pp.category_id;
-                p.post_id = pp.post_id;
-                p.post_content = pp.post_content;
-                p.created_at = pp.created_at;
-                p.updated_at = pp.updated_at;
-                p.is_locked = pp.is_locked;
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for User {
-    type Result = User;
-    fn parse_pattern(u: &mut User, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "user" => {
-                let v = from_redis_value::<Vec<u8>>(v)?;
-                let uu = serde_json::from_slice::<User>(&v)
-                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
-                u.id = uu.id;
-                u.username = uu.username;
-                u.email = uu.email;
-                u.avatar_url = uu.avatar_url;
-                u.signature = uu.signature;
-                u.created_at = uu.created_at;
-                u.privilege = uu.privilege;
-                u.show_email = uu.show_email;
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for Category {
-    type Result = Category;
-    fn parse_pattern(c: &mut Category, k: &str, v: &Value) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => c.id = from_redis_value(v)?,
-            "name" => c.name = from_redis_value(v)?,
-            "thumbnail" => c.thumbnail = from_redis_value(v)?,
-            "topic_count" => c.topic_count = from_redis_value(v).ok(),
-            "post_count" => c.post_count = from_redis_value(v).ok(),
-            "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
-            "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl ParseFromRedisValue for UserPSNProfile {
-    type Result = UserPSNProfile;
-    fn parse_pattern(
-        psn: &mut UserPSNProfile,
-        k: &str,
-        v: &Value,
-    ) -> Result<(), redis::RedisError> {
-        match k {
-            "id" => psn.id = from_redis_value(v)?,
-            "profile" => {
-                let v = from_redis_value::<Vec<u8>>(v)?;
-                let profile = serde_json::from_slice::<crate::model::psn::PSNUser>(&v)
-                    .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
-
-                psn.profile = profile;
-            }
-            _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
-        };
-        Ok(())
-    }
-}
-
-impl Into<Vec<(&str, Vec<u8>)>> for Topic {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![("topic", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
-    }
-}
-
-impl Into<Vec<(&str, Vec<u8>)>> for User {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![("user", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
-    }
-}
-
-impl Into<Vec<(&str, Vec<u8>)>> for Post {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![("post", serde_json::to_vec(&self).unwrap_or([].to_vec()))]
-    }
-}
-
-impl Into<Vec<(&str, Vec<u8>)>> for Category {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("id", self.id.to_string().into_bytes()),
-            ("name", self.name.into_bytes()),
-            ("thumbnail", self.thumbnail.into_bytes()),
-        ]
-    }
-}
-
-impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("id", self.id.to_string().into_bytes()),
-            (
-                "profile",
-                serde_json::to_vec(&self.profile).unwrap_or([].to_vec()),
-            ),
-        ]
-    }
-}
 
 pub fn build_hmsets<T>(
-    conn: SharedConn,
+    conn: SharedConnection,
     vec: Vec<T>,
     key: &'static str,
     should_expire: bool,
@@ -1150,7 +931,7 @@ impl CacheService {
             .arg(-1);
 
         pip.query_async(self.get_conn()).from_err().and_then(
-            move |(conn, tids): (SharedConn, Vec<u32>)| {
+            move |(conn, tids): (SharedConnection, Vec<u32>)| {
                 let mut pip = pipe();
                 pip.atomic();
 
@@ -1174,7 +955,7 @@ impl CacheService {
                 }
                 pip.query_async(conn)
                     .from_err()
-                    .and_then(|(conn, pids): (SharedConn, Vec<u32>)| {
+                    .and_then(|(conn, pids): (SharedConnection, Vec<u32>)| {
                         let mut pip = pipe();
                         pip.atomic();
 
@@ -1196,7 +977,7 @@ impl CacheService {
 fn update_post_count(
     cid: u32,
     yesterday: i64,
-    conn: SharedConn,
+    conn: SharedConnection,
 ) -> impl Future<Item=(), Error=ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
@@ -1220,7 +1001,7 @@ fn update_post_count(
 fn update_list(
     cid: Option<u32>,
     yesterday: i64,
-    conn: SharedConn,
+    conn: SharedConnection,
 ) -> impl Future<Item=(), Error=ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
@@ -1290,7 +1071,7 @@ fn update_list(
                 should_update = true;
             }
 
-            if vec.len() > 0 {
+            if !vec.is_empty() {
                 pip.cmd("del")
                     .arg(&list_key)
                     .ignore()
@@ -1312,7 +1093,7 @@ fn update_list(
 
 // helper functions for build cache when server start.
 pub fn build_list(
-    conn: SharedConn,
+    conn: SharedConnection,
     vec: Vec<u32>,
     key: String,
 ) -> impl Future<Item=(), Error=ResError> {
@@ -1321,7 +1102,7 @@ pub fn build_list(
 
     pip.cmd("del").arg(key.as_str()).ignore();
 
-    if vec.len() > 0 {
+    if !vec.is_empty() {
         pip.cmd("rpush").arg(key.as_str()).arg(vec).ignore();
     }
 
@@ -1330,7 +1111,7 @@ pub fn build_list(
 
 pub fn build_users_cache(
     vec: Vec<User>,
-    conn: SharedConn,
+    conn: SharedConnection,
 ) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
@@ -1354,7 +1135,7 @@ pub fn build_users_cache(
 pub fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: SharedConn,
+    conn: SharedConnection,
 ) -> impl Future<Item=(), Error=ResError> {
     let mut pip = pipe();
     pip.atomic();
@@ -1400,7 +1181,7 @@ pub fn build_topics_cache_list(
 pub fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: SharedConn,
+    conn: SharedConnection,
 ) -> impl Future<Item=(), Error=ResError> {
     let mut pipe = pipe();
     pipe.atomic();

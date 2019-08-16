@@ -96,8 +96,8 @@ impl MessageService {
             env::var("MAIL_PASSWORD").expect("Mail server credentials must be set in .env");
 
         let server_url = env::var("SERVER_URL").expect("Server url must be set in .env");
-        let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or("Pixel@Share".to_owned());
-        let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or("PixelShare".to_owned());
+        let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or_else(|_|"Pixel@Share".to_owned());
+        let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or_else(|_|"PixelShare".to_owned());
 
         match SmtpClient::new_simple(&mail_server) {
             Ok(m) => {
@@ -139,7 +139,7 @@ impl MessageService {
 
     pub fn generate_error_report() -> ErrorReport {
         let use_report = env::var("USE_ERROR_SMS_REPORT")
-            .unwrap_or("false".to_owned())
+            .unwrap_or_else(|_|"false".to_owned())
             .parse::<bool>()
             .unwrap_or(false);
 
@@ -325,7 +325,7 @@ impl ErrorReport {
                 }
                 *v = 0;
             }
-            if !message.ends_with(":")
+            if !message.ends_with(':')
                 && std::time::Instant::now().duration_since(self.last_report_time) > REPORT_TIME_GAP
             {
                 Ok(message)

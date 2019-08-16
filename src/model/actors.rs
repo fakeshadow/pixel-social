@@ -1,13 +1,19 @@
-use futures::future::join_all;
 use std::time::{Duration, Instant};
 
 use actix::prelude::{
-    fut, Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, fut,
     Future, Running, WrapFuture,
 };
 use actix_web_actors::ws;
-use redis::Client as RedisClient;
-use tokio_postgres::{connect, tls::NoTls, Client, Statement};
+use futures::future::join_all;
+// actor handle psn request
+// psn service impl get queue from cache handler.
+use psn_api_rs::PSN;
+use redis::{
+    aio::SharedConnection,
+    Client as RedisClient,
+};
+use tokio_postgres::{Client, connect, Statement, tls::NoTls};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
@@ -20,7 +26,6 @@ use crate::model::{
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub type SharedConn = redis::aio::SharedConnection;
 pub type TALK = Addr<TalkService>;
 pub type MAILER = Addr<MessageService>;
 
@@ -48,7 +53,7 @@ impl Actor for WsChatSession {
 
 // actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
-    pub cache: Option<SharedConn>,
+    pub cache: Option<SharedConnection>,
 }
 
 impl Actor for CacheUpdateService {
@@ -87,7 +92,7 @@ pub struct TalkService {
     pub talks: GlobalTalks,
     pub sessions: GlobalSessions,
     pub db: std::cell::RefCell<Client>,
-    pub cache: SharedConn,
+    pub cache: SharedConnection,
     pub insert_pub_msg: Statement,
     pub insert_prv_msg: Statement,
     pub get_pub_msg: Statement,
@@ -106,7 +111,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
+    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -156,7 +161,7 @@ impl TalkService {
 
 // actor handles error report, sending email and sms messages.
 pub struct MessageService {
-    pub cache: Option<SharedConn>,
+    pub cache: Option<SharedConnection>,
     pub mailer: Option<Mailer>,
     pub twilio: Option<Twilio>,
     pub error_report: ErrorReport,
@@ -209,14 +214,10 @@ impl WsChatSession {
     }
 }
 
-// actor handle psn request
-// psn service impl get queue from cache handler.
-use psn_api_rs::PSN;
-
 pub struct PSNService {
     pub is_active: bool,
     pub psn: PSN,
-    pub cache: Option<SharedConn>,
+    pub cache: Option<SharedConnection>,
 }
 
 impl Actor for PSNService {

@@ -25,23 +25,23 @@ pub struct User {
 //user ref is attached to post and topic after privacy filter.
 #[derive(Serialize)]
 pub struct UserRef<'a> {
-    pub id: &'a u32,
+    pub id: u32,
     pub username: &'a str,
     pub email: Option<&'a str>,
     pub avatar_url: &'a str,
     pub signature: &'a str,
     pub created_at: &'a NaiveDateTime,
-    pub privilege: &'a u32,
+    pub privilege: u32,
     pub show_email: &'a bool,
-    pub online_status: Option<&'a u32>,
+    pub online_status: Option<u32>,
     pub last_online: Option<&'a NaiveDateTime>,
 }
 
 pub trait AttachUser<'u> {
     type Output;
-    fn self_user_id(&self) -> &u32;
-    fn attach_user(&'u self, users: &'u Vec<User>) -> Self::Output;
-    fn make_field(&self, users: &'u Vec<User>) -> Option<UserRef<'u>> {
+    fn self_user_id(&self) -> u32;
+    fn attach_user(&'u self, users: &'u [User]) -> Self::Output;
+    fn make_field(&self, users: &'u [User]) -> Option<UserRef<'u>> {
         users
             .iter()
             .filter(|u| u.self_id() == self.self_user_id())
@@ -76,34 +76,34 @@ impl User {
             None
         };
         UserRef {
-            id: &self.id,
+            id: self.id,
             username: self.username.as_str(),
             email,
             avatar_url: self.avatar_url.as_str(),
             signature: self.signature.as_str(),
             created_at: &self.created_at,
-            privilege: &self.privilege,
+            privilege: self.privilege,
             show_email: &self.show_email,
-            online_status: self.online_status.as_ref(),
+            online_status: self.online_status.as_ref().copied(),
             last_online: self.last_online.as_ref(),
         }
     }
 }
 
 impl GetSelfId for User {
-    fn self_id(&self) -> &u32 {
-        &self.id
+    fn self_id(&self) -> u32 {
+        self.id
     }
 }
 
 impl<'a> GetSelfId for UserRef<'a> {
-    fn self_id(&self) -> &u32 {
-        &self.id
+    fn self_id(&self) -> u32 {
+        self.id
     }
 }
 
 pub struct NewUser<'a> {
-    pub id: &'a u32,
+    pub id: u32,
     pub username: &'a str,
     pub email: &'a str,
     pub hashed_password: &'a str,
@@ -129,7 +129,7 @@ impl AuthRequest {
 
     pub fn make_user<'a>(
         &'a self,
-        id: &'a u32,
+        id: u32,
         hashed_password: &'a str,
     ) -> Result<NewUser<'a>, ResError> {
         Ok(NewUser {

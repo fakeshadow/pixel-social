@@ -58,7 +58,7 @@ impl DatabaseService {
             let _ = write!(&mut query, " is_locked = {},", s);
         }
 
-        if query.ends_with(",") {
+        if query.ends_with(',') {
             let _ = write!(
                 &mut query,
                 " updated_at = DEFAULT WHERE id = {}",
@@ -89,7 +89,7 @@ impl CacheService {
     pub fn get_posts_old(
         &self,
         tid: u32,
-        page: i64,
+        page: usize,
     ) -> impl Future<Item = (Vec<Post>, Vec<u32>), Error = ResError> {
         self.get_cache_with_uids_from_zrange(
             &format!("topic:{}:posts_time_created", tid),
@@ -101,7 +101,7 @@ impl CacheService {
     pub fn get_posts_pop(
         &self,
         tid: u32,
-        page: i64,
+        page: usize,
     ) -> impl Future<Item = (Vec<Post>, Vec<u32>), Error = ResError> {
         self.get_cache_with_uids_from_zrevrange_reverse_lex(
             &format!("topic:{}:posts_reply", tid),

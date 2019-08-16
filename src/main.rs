@@ -29,9 +29,9 @@ fn main() -> std::io::Result<()> {
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
-    let server_ip = env::var("SERVER_IP").unwrap_or("127.0.0.1".to_owned());
-    let server_port = env::var("SERVER_PORT").unwrap_or("8080".to_owned());
-    let cors_origin = env::var("CORS_ORIGIN").unwrap_or("All".to_owned());
+    let server_ip = env::var("SERVER_IP").unwrap_or_else(|_| "127.0.0.1".to_owned());
+    let server_port = env::var("SERVER_PORT").unwrap_or_else(|_| "8080".to_owned());
+    let cors_origin = env::var("CORS_ORIGIN").unwrap_or_else(|_| "All".to_owned());
 
     // create or clear database tables as well as redis cache
     let args: Vec<String> = env::args().collect();
@@ -214,12 +214,18 @@ fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/psn")
                     .service(
+                        web::resource("/auth")
+                            .route(web::get().to_async(router::psn::auth)),
+                    )
+                    .service(
                         web::resource("/register")
                             .route(web::get().to_async(router::psn::register)),
                     )
                     .service(
-                        web::resource("/profile")
-                            .route(web::get().to_async(router::psn::profile)),
+                        web::resource("/profile").route(web::get().to_async(router::psn::profile)),
+                    )
+                    .service(
+                        web::resource("/trophy").route(web::get().to_async(router::psn::trophy)),
                     ),
             )
             .service(

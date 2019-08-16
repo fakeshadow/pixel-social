@@ -1,9 +1,8 @@
-use futures::{Future, IntoFuture};
-
 use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
+use futures::{Future, IntoFuture};
 
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::common::GlobalVars;
@@ -76,11 +75,12 @@ pub fn update_user(
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let req = req.into_inner().attach_id(None);
-    req.check_update()
+    req.into_inner()
+        .attach_id(None)
+        .check_update()
         .into_future()
         .from_err()
-        .and_then(move |_| {
+        .and_then(move |req| {
             db.update_user_check(jwt.privilege, req)
                 .from_err()
                 .and_then(move |r| {
@@ -99,12 +99,13 @@ pub fn update_topic(
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let mut req = req.into_inner().attach_user_id(None);
-    req.check_update()
+    req.into_inner()
+        .attach_user_id(None)
+        .check_update()
         .into_future()
         .from_err()
-        .and_then(move |_| {
-            db.admin_update_topic(jwt.privilege, req)
+        .and_then(move |req| {
+            db.admin_update_topic(jwt.privilege, &req)
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
@@ -120,11 +121,12 @@ pub fn update_post(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let mut req = req.into_inner().attach_user_id(None);
-    req.check_update()
+    req.into_inner()
+        .attach_user_id(None)
+        .check_update()
         .into_future()
         .from_err()
-        .and_then(move |_| {
+        .and_then(move |req| {
             db.admin_update_post(jwt.privilege, req)
                 .from_err()
                 .and_then(move |p| {

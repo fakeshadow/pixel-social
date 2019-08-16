@@ -7,11 +7,11 @@ use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
 use crate::util::validation as validate;
 
 pub trait GetSelfCategory {
-    fn self_category(&self) -> &u32;
+    fn self_category(&self) -> u32;
 }
 
 pub trait GetSelfId {
-    fn self_id(&self) -> &u32;
+    fn self_id(&self) -> u32;
 }
 
 pub trait GetUserId {
@@ -19,7 +19,10 @@ pub trait GetUserId {
 }
 
 //ToDo: need to improve validator with regex
-pub trait Validator {
+pub trait Validator
+where
+    Self: Sized,
+{
     fn get_username(&self) -> &str;
     fn get_password(&self) -> &str;
     fn get_email(&self) -> &str;
@@ -46,10 +49,10 @@ pub trait Validator {
 
     fn check_email(&self) -> Result<(), ResError> {
         let email = self.get_email();
-        if !email.contains("@") {
+        if !email.contains('@') {
             return Err(ResError::InvalidEmail);
         }
-        let email_str_vec: Vec<&str> = email.rsplitn(2, "@").collect();
+        let email_str_vec: Vec<&str> = email.rsplitn(2, '@').collect();
         if validate::validate_email(email_str_vec) {
             Ok(())
         } else {
@@ -57,22 +60,22 @@ pub trait Validator {
         }
     }
 
-    fn check_update(&self) -> Result<(), ResError> {
-        &self.check_self_id()?;
-        &self.check_username()?;
-        Ok(())
+    fn check_update(self) -> Result<Self, ResError> {
+        self.check_self_id()?;
+        self.check_username()?;
+        Ok(self)
     }
 
     fn check_register(&self) -> Result<(), ResError> {
-        &self.check_email()?;
-        &self.check_password()?;
-        &self.check_username()?;
+        self.check_email()?;
+        self.check_password()?;
+        self.check_username()?;
         Ok(())
     }
 
     fn check_login(&self) -> Result<(), ResError> {
-        &self.check_password()?;
-        &self.check_username()?;
+        self.check_password()?;
+        self.check_username()?;
         Ok(())
     }
 }

@@ -1,20 +1,15 @@
-use futures::{future::join_all, Future, Stream};
 use std::{cell::RefMut, convert::TryFrom};
 
-use chrono::NaiveDateTime;
+use futures::{Future, future::join_all, Stream};
 use tokio_postgres::{
-    connect, types::ToSql, Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
+    Client, connect, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement, types::ToSql,
 };
 
 use crate::model::{
     actors::TalkService,
-    category::Category,
     common::{GetSelfId, GetUserId},
     errors::ResError,
-    post::Post,
-    talk::{PrivateMessage, PublicMessage, Relation, Talk},
-    topic::Topic,
-    user::{AuthRequest, User},
+    user::{AuthRequest},
 };
 
 // database service is not an actor.
@@ -29,7 +24,7 @@ pub struct DatabaseService {
 }
 
 impl DatabaseService {
-    pub fn init(postgres_url: &str) -> impl Future<Item = DatabaseService, Error = ()> {
+    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseService, Error=()> {
         connect(postgres_url, NoTls)
             .map_err(|e| panic!("{:?}", e))
             .and_then(|(mut c, conn)| {
@@ -80,7 +75,7 @@ pub trait Query {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> Box<dyn Stream<Item = Row, Error = ResError>> {
+    ) -> Box<dyn Stream<Item=Row, Error=ResError>> {
         Box::new(self.get_client().query(st, p).from_err())
     }
 
@@ -88,9 +83,9 @@ pub trait Query {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> Box<dyn Future<Item = T, Error = ResError>>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
+    ) -> Box<dyn Future<Item=T, Error=ResError>>
+        where
+            T: TryFrom<Row, Error=ResError> + 'static,
     {
         Box::new(
             self.query_trait(st, p)
@@ -106,9 +101,9 @@ pub trait Query {
         st: &Statement,
         p: &[&dyn ToSql],
         vec: Vec<T>,
-    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where
+            T: TryFrom<Row, Error=ResError> + 'static,
     {
         Box::new(self.query_trait(st, p).fold(vec, move |mut vec, r| {
             if let Some(r) = T::try_from(r).ok() {
@@ -138,9 +133,9 @@ pub trait SimpleQuery {
         &self,
         q: &str,
         i: usize,
-    ) -> Box<dyn Future<Item = T, Error = ResError>>
-    where
-        T: std::str::FromStr + 'static,
+    ) -> Box<dyn Future<Item=T, Error=ResError>>
+        where
+            T: std::str::FromStr + 'static,
     {
         Box::new(self.simple_query_row_trait(q).and_then(move |r| {
             r.get(i)
@@ -150,9 +145,9 @@ pub trait SimpleQuery {
         }))
     }
 
-    fn simple_query_one_trait<T>(&self, q: &str) -> Box<dyn Future<Item = T, Error = ResError>>
-    where
-        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
+    fn simple_query_one_trait<T>(&self, q: &str) -> Box<dyn Future<Item=T, Error=ResError>>
+        where
+            T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
     {
         Box::new(self.simple_query_row_trait(q).and_then(T::try_from))
     }
@@ -161,9 +156,9 @@ pub trait SimpleQuery {
         &self,
         q: &str,
         vec: Vec<T>,
-    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
-    where
-        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
+    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
+        where
+            T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
     {
         Box::new(self.simple_query_trait(q).fold(vec, move |mut vec, r| {
             if let SimpleQueryMessage::Row(r) = r {
@@ -178,7 +173,7 @@ pub trait SimpleQuery {
     fn simple_query_row_trait(
         &self,
         q: &str,
-    ) -> Box<dyn Future<Item = SimpleQueryRow, Error = ResError>> {
+    ) -> Box<dyn Future<Item=SimpleQueryRow, Error=ResError>> {
         Box::new(
             self.simple_query_trait(q)
                 .into_future()
@@ -196,7 +191,7 @@ pub trait SimpleQuery {
     fn simple_query_trait(
         &self,
         query: &str,
-    ) -> Box<dyn Stream<Item = SimpleQueryMessage, Error = ResError>> {
+    ) -> Box<dyn Stream<Item=SimpleQueryMessage, Error=ResError>> {
         Box::new(self.get_client_simple().simple_query(query).from_err())
     }
 
@@ -220,9 +215,9 @@ impl DatabaseService {
         &self,
         st: &Statement,
         ids: Vec<u32>,
-    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
-    where
-        T: GetUserId + GetSelfId + TryFrom<Row, Error = ResError> + 'static,
+    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
+        where
+            T: GetUserId + GetSelfId + TryFrom<Row, Error=ResError> + 'static,
     {
         self.query_trait(st, &[&ids])
             .fold(
@@ -239,7 +234,7 @@ impl DatabaseService {
                 let mut result = Vec::with_capacity(v.len());
                 for i in 0..ids.len() {
                     for j in 0..v.len() {
-                        if &ids[i] == v[j].self_id() {
+                        if ids[i] == v[j].self_id() {
                             result.push(v.swap_remove(j));
                             break;
                         }
@@ -252,10 +247,10 @@ impl DatabaseService {
     pub fn get_by_id<T>(
         &self,
         st: &Statement,
-        ids: &Vec<u32>,
-    ) -> impl Future<Item = Vec<T>, Error = ResError>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
+        ids: &[u32],
+    ) -> impl Future<Item=Vec<T>, Error=ResError>
+        where
+            T: TryFrom<Row, Error=ResError> + 'static,
     {
         self.query_multi_trait(st, &[&ids], Vec::with_capacity(21))
     }
@@ -264,11 +259,11 @@ impl DatabaseService {
         &self,
         q: &str,
         req: AuthRequest,
-    ) -> impl Future<Item = AuthRequest, Error = ResError> {
+    ) -> impl Future<Item=AuthRequest, Error=ResError> {
         self.simple_query_row_trait(q).then(|r| {
             if let Some(r) = r.ok() {
                 if let Some(r) = r.get(0) {
-                    if r == &req.username {
+                    if r == req.username.as_str() {
                         return Err(ResError::UsernameTaken);
                     } else {
                         return Err(ResError::EmailTaken);
@@ -285,293 +280,19 @@ impl TalkService {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> impl Future<Item = Vec<T>, Error = ResError>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
+    ) -> impl Future<Item=Vec<T>, Error=ResError>
+        where
+            T: TryFrom<Row, Error=ResError> + 'static,
     {
         self.query_multi_trait(st, p, Vec::with_capacity(20))
     }
 }
 
-impl TryFrom<Row> for User {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(User {
-            id: row.try_get(0)?,
-            username: row.try_get(1)?,
-            email: row.try_get(2)?,
-            hashed_password: "1".to_owned(),
-            avatar_url: row.try_get(4)?,
-            signature: row.try_get(5)?,
-            created_at: row.try_get(6)?,
-            privilege: row.try_get(7)?,
-            show_email: row.try_get(8)?,
-            online_status: None,
-            last_online: None,
-        })
-    }
-}
-
-impl TryFrom<Row> for Topic {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(Topic {
-            id: row.try_get(0)?,
-            user_id: row.try_get(1)?,
-            category_id: row.try_get(2)?,
-            title: row.try_get(3)?,
-            body: row.try_get(4)?,
-            thumbnail: row.try_get(5)?,
-            created_at: row.try_get(6)?,
-            updated_at: row.try_get(7)?,
-            is_locked: row.try_get(8)?,
-            is_visible: row.try_get(9)?,
-            last_reply_time: None,
-            reply_count: None,
-        })
-    }
-}
-
-impl TryFrom<Row> for Post {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(Post {
-            id: row.try_get(0)?,
-            user_id: row.try_get(1)?,
-            topic_id: row.try_get(2)?,
-            category_id: row.try_get(3)?,
-            post_id: row.try_get(4)?,
-            post_content: row.try_get(5)?,
-            created_at: row.try_get(6)?,
-            updated_at: row.try_get(7)?,
-            last_reply_time: None,
-            is_locked: row.try_get(8)?,
-            reply_count: None,
-        })
-    }
-}
-
-impl TryFrom<Row> for Talk {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(Talk {
-            id: row.try_get(0)?,
-            name: row.try_get(1)?,
-            description: row.try_get(2)?,
-            secret: row.try_get(3)?,
-            privacy: row.try_get(4)?,
-            owner: row.try_get(5)?,
-            admin: row.try_get(6)?,
-            users: row.try_get(7)?,
-        })
-    }
-}
-
-impl TryFrom<Row> for Relation {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(Relation {
-            friends: row.try_get(0)?,
-        })
-    }
-}
-
-impl TryFrom<Row> for PublicMessage {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(PublicMessage {
-            talk_id: row.try_get(0)?,
-            time: row.try_get(1)?,
-            text: row.try_get(2)?,
-        })
-    }
-}
-
-impl TryFrom<Row> for PrivateMessage {
-    type Error = ResError;
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
-        Ok(PrivateMessage {
-            user_id: row.try_get(0)?,
-            time: row.try_get(2)?,
-            text: row.try_get(3)?,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for Post {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let post_id = match r.get(4) {
-            Some(s) => s.parse::<u32>().ok(),
-            None => None,
-        };
-        Ok(Post {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            user_id: r
-                .get(1)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            topic_id: r
-                .get(2)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            category_id: r
-                .get(3)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            post_id,
-            post_content: r.get(5).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(
-                r.get(6).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            updated_at: NaiveDateTime::parse_from_str(
-                r.get(7).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            last_reply_time: None,
-            is_locked: if r.get(8) == Some("f") { false } else { true },
-            reply_count: None,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for Topic {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        Ok(Topic {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            user_id: r
-                .get(1)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            category_id: r
-                .get(2)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            title: r.get(3).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            body: r.get(4).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            thumbnail: r.get(5).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(
-                r.get(6).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            updated_at: NaiveDateTime::parse_from_str(
-                r.get(7).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            is_locked: if r.get(8) == Some("f") { false } else { true },
-            is_visible: if r.get(9) == Some("f") { false } else { true },
-            last_reply_time: None,
-            reply_count: None,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for User {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        Ok(User {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            username: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            email: r.get(2).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            hashed_password: r.get(3).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            avatar_url: r.get(4).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            signature: r.get(5).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(
-                r.get(6).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            privilege: r
-                .get(7)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            show_email: if r.get(8) == Some("f") { false } else { true },
-            online_status: None,
-            last_online: None,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for Category {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        Ok(Category {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            name: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            thumbnail: r.get(2).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            topic_count: None,
-            post_count: None,
-            topic_count_new: None,
-            post_count_new: None,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for Talk {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let admin = r.get(6).ok_or(ResError::DataBaseReadError)?;
-        let users = r.get(7).ok_or(ResError::DataBaseReadError)?;
-
-        let alen = admin.len();
-        let ulen = users.len();
-
-        let admin: Vec<&str> = if alen < 2 {
-            Vec::with_capacity(0)
-        } else {
-            admin[1..(alen - 1)].split(",").collect()
-        };
-        let users: Vec<&str> = if ulen < 2 {
-            Vec::with_capacity(0)
-        } else {
-            users[1..(ulen - 1)].split(",").collect()
-        };
-
-        Ok(Talk {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            name: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            description: r.get(2).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            secret: r.get(3).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            privacy: r
-                .get(4)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            owner: r
-                .get(5)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            admin: admin
-                .into_iter()
-                .map(|a| a.parse::<u32>())
-                .collect::<Result<Vec<u32>, _>>()?,
-            users: users
-                .into_iter()
-                .map(|u| u.parse::<u32>())
-                .collect::<Result<Vec<u32>, _>>()?,
-        })
-    }
-}
 
 // helper functions for build cache on startup
-pub fn load_all<T>(c: &mut Client, q: &str) -> impl Future<Item = Vec<T>, Error = ResError>
-where
-    T: TryFrom<SimpleQueryRow>,
+pub fn load_all<T>(c: &mut Client, q: &str) -> impl Future<Item=Vec<T>, Error=ResError>
+    where
+        T: TryFrom<SimpleQueryRow>,
 {
     c.simple_query(&q)
         .from_err()
@@ -589,9 +310,9 @@ pub fn simple_query_single_row_handler<T>(
     c: &mut Client,
     query: &str,
     index: usize,
-) -> impl Future<Item = T, Error = ResError>
-where
-    T: std::str::FromStr,
+) -> impl Future<Item=T, Error=ResError>
+    where
+        T: std::str::FromStr,
 {
     c.simple_query(&query)
         .from_err()
