@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use actix::prelude::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, fut,
+    fut, Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
     Future, Running, WrapFuture,
 };
 use actix_web_actors::ws;
@@ -9,11 +9,8 @@ use futures::future::join_all;
 // actor handle psn request
 // psn service impl get queue from cache handler.
 use psn_api_rs::PSN;
-use redis::{
-    aio::SharedConnection,
-    Client as RedisClient,
-};
-use tokio_postgres::{Client, connect, Statement, tls::NoTls};
+use redis::{aio::SharedConnection, Client as RedisClient};
+use tokio_postgres::{connect, tls::NoTls, Client, Statement};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
@@ -21,6 +18,7 @@ use crate::model::{
     errors::ErrorReport,
     messenger::{Mailer, Twilio},
 };
+use actix_rt::Arbiter;
 
 // websocket heartbeat and connection time out time.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -111,7 +109,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
+    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -217,6 +215,7 @@ impl WsChatSession {
 pub struct PSNService {
     pub is_active: bool,
     pub psn: PSN,
+    pub db: Option<std::cell::RefCell<Client>>,
     pub cache: Option<SharedConnection>,
 }
 
@@ -225,26 +224,34 @@ impl Actor for PSNService {
 }
 
 impl PSNService {
-    pub fn connect(redis_url: &str) -> Addr<PSNService> {
+    pub fn connect(postgres_url: &str, redis_url: &str) -> Addr<PSNService> {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
+        let conn = connect(postgres_url, NoTls);
 
         PSNService::create(move |ctx| {
-            let addr = PSNService {
+            let act = PSNService {
                 is_active: false,
                 psn: PSN::new(),
+                db: None,
                 cache: None,
             };
 
             client
                 .get_shared_async_connection()
                 .map_err(|_| panic!("failed to get redis connection"))
-                .into_actor(&addr)
-                .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
-                    fut::ok(())
+                .into_actor(&act)
+                .and_then(|cache, act, _| {
+                    conn.map_err(|e| panic!("{:?}", e))
+                        .into_actor(act)
+                        .and_then(|(db, conn), act, _| {
+                            Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
+                            act.db = Some(std::cell::RefCell::new(db));
+                            act.cache = Some(cache);
+                            fut::ok(())
+                        })
                 })
                 .wait(ctx);
-            addr
+            act
         })
     }
 }

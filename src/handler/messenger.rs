@@ -47,12 +47,7 @@ impl MessageService {
                 let f1 = act.send_sms_admin(s.as_str());
                 let f2 = act.send_mail_admin(s.as_str());
 
-                ctx.spawn(
-                    f1.join(f2)
-                        .into_actor(act)
-                        .map_err(|_, _, _| ())
-                        .map(|_, _, _| ()),
-                );
+                ctx.spawn(f1.join(f2).map_err(|_| ()).map(|_| ()).into_actor(act));
             };
         });
     }
@@ -96,8 +91,8 @@ impl MessageService {
             env::var("MAIL_PASSWORD").expect("Mail server credentials must be set in .env");
 
         let server_url = env::var("SERVER_URL").expect("Server url must be set in .env");
-        let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or_else(|_|"Pixel@Share".to_owned());
-        let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or_else(|_|"PixelShare".to_owned());
+        let self_addr = env::var("SELF_MAIL_ADDR").unwrap_or_else(|_| "Pixel@Share".to_owned());
+        let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or_else(|_| "PixelShare".to_owned());
 
         match SmtpClient::new_simple(&mail_server) {
             Ok(m) => {
@@ -139,7 +134,7 @@ impl MessageService {
 
     pub fn generate_error_report() -> ErrorReport {
         let use_report = env::var("USE_ERROR_SMS_REPORT")
-            .unwrap_or_else(|_|"false".to_owned())
+            .unwrap_or_else(|_| "false".to_owned())
             .parse::<bool>()
             .unwrap_or(false);
 

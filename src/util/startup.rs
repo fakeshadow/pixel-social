@@ -1,14 +1,14 @@
 use actix::prelude::*;
 use actix_rt::Runtime;
 use chrono::NaiveDateTime;
-use tokio_postgres::{connect, SimpleQueryMessage, tls::NoTls};
+use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::cache::{
     build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list, build_users_cache,
 };
 use crate::model::{
     category::Category,
-    common::{GlobalSessions, GlobalTalks, GlobalVar, GlobalVars, new_global_talks_sessions},
+    common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
     topic::Topic,
     user::User,
 };
@@ -43,7 +43,7 @@ pub fn build_cache(
         "category",
         false,
     ))
-        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
+    .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -148,11 +148,11 @@ pub fn build_cache(
             .unwrap_or_else(|_| panic!("Failed to build category sets"));
     }
     rt.block_on(build_list(
-            c_cache.clone(),
-            category_ids,
-            "category_id:meta".to_owned(),
-        ))
-        .unwrap_or_else(|_| panic!("Failed to build category lists"));
+        c_cache.clone(),
+        category_ids,
+        "category_id:meta".to_owned(),
+    ))
+    .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // load all posts with tid id and created_at
     let f = c
@@ -273,7 +273,8 @@ pub fn create_table(postgres_url: &str) -> bool {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
-    if rt.block_on(crate::handler::db::load_all::<Category>(&mut c, query))
+    if rt
+        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .ok()
         .is_some()
     {
@@ -336,35 +337,35 @@ CREATE TABLE associates
 
 CREATE TABLE talks
 (
-    id          OID          NOT NULL UNIQUE PRIMARY KEY,
-    name        VARCHAR(128) NOT NULL UNIQUE,
-    description VARCHAR(128) NOT NULL,
-    secret      VARCHAR(128) NOT NULL DEFAULT '1',
-    privacy     OID          NOT NULL DEFAULT 0,
-    owner       OID          NOT NULL,
-    admin       OID[]        NOT NULL,
-    users       OID[]        NOT NULL
+    id              OID             NOT NULL UNIQUE PRIMARY KEY,
+    name            VARCHAR(128)    NOT NULL UNIQUE,
+    description     VARCHAR(128)    NOT NULL,
+    secret          VARCHAR(128)    NOT NULL DEFAULT '1',
+    privacy         OID             NOT NULL DEFAULT 0,
+    owner           OID             NOT NULL,
+    admin           OID[]           NOT NULL,
+    users           OID[]           NOT NULL
 );
 
 CREATE TABLE relations
 (
-    id          OID          NOT NULL UNIQUE PRIMARY KEY,
+    id          OID             NOT NULL UNIQUE PRIMARY KEY,
     friends     OID[]
 );
 
 CREATE TABLE public_messages1
 (
-    talk_id     OID          NOT NULL PRIMARY KEY,
-    time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    text     VARCHAR(1024)NOT NULL
+    talk_id     OID             NOT NULL PRIMARY KEY,
+    time        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    text        VARCHAR(1024)   NOT NULL
 );
 
 CREATE TABLE private_messages1
 (
-    from_id     OID          NOT NULL,
-    to_id       OID          NOT NULL PRIMARY KEY,
-    time        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    text     VARCHAR(1024)NOT NULL
+    from_id     OID             NOT NULL,
+    to_id       OID             NOT NULL PRIMARY KEY,
+    time        TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    text        VARCHAR(1024)   NOT NULL
 );
 
 CREATE INDEX pub_message_time_order ON public_messages1 (time DESC);
@@ -379,17 +380,21 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
         .to_owned();
 
     // create table for PSN data.
-    query.push_str("
+    query.push_str(
+        "
 CREATE TABLE psn_user_trophy_titles
 (
     np_id                   VARCHAR(32)         NOT NULL PRIMARY KEY,
     np_communication_id     VARCHAR(32)         NOT NULL,
     progress                INTEGER             NOT NULL DEFAULT 0,
-    earned_trophies         INTEGER[],
+    earned_platinum         INTEGER             NOT NULL DEFAULT 0,
+    earned_gold             INTEGER             NOT NULL DEFAULT 0,
+    earned_silver           INTEGER             NOT NULL DEFAULT 0,
+    earned_bronze           INTEGER             NOT NULL DEFAULT 0,
     last_update_date        TIMESTAMP           NOT NULL,
-    last_update_time        TIMESTAMP           NOT NULL DEFAULT CURRENT_TIMESTAMP
-);");
-
+);
+",
+    );
 
     // insert dummy data.default adminuser password is 1234asdf
     query.push_str("
@@ -426,8 +431,7 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
     let f = c.simple_query(&query).into_future();
 
-    rt
-        .block_on(f)
+    rt.block_on(f)
         .map(|_| println!("dummy tables generated"))
         .unwrap_or_else(|_| panic!("fail to create default tables"));
 
@@ -465,8 +469,7 @@ DROP TABLE IF EXISTS posts;";
         .into_future()
         .map_err(|(e, _)| println!("{:?}", e));
 
-    rt
-        .block_on(f)
+    rt.block_on(f)
         .map(|_| println!("All tables have been drop. pixel_rs exited"))
         .expect("failed to clear db");
 }

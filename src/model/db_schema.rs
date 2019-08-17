@@ -1,10 +1,7 @@
 use std::convert::TryFrom;
 
 use chrono::NaiveDateTime;
-use tokio_postgres::{
-    Row,
-    SimpleQueryRow,
-};
+use tokio_postgres::{Row, SimpleQueryRow};
 
 use crate::model::{
     category::Category,
@@ -294,39 +291,16 @@ impl TryFrom<SimpleQueryRow> for Talk {
 impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
     type Error = ResError;
     fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let earned_trophies = r.get(3).ok_or(ResError::DataBaseReadError)?;
-
-        let len = earned_trophies.len();
-
-        let earned_trophies: Vec<&str> = if len < 2 {
-            Vec::with_capacity(0)
-        } else {
-            earned_trophies[1..(len - 1)].split(',').collect()
-        };
-
         Ok(UserTrophyTitle {
-            np_id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .to_owned(),
-            np_communication_id: r
-                .get(1)
-                .ok_or(ResError::DataBaseReadError)?
-                .to_owned(),
-            progress: r
-                .get(2)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u8>()?,
-            earned_trophies: earned_trophies
-                .into_iter()
-                .map(|a| a.parse::<u32>())
-                .collect::<Result<Vec<u32>, _>>()?,
+            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
+            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
+            progress: r.get(2).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_platinum: r.get(3).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_gold: r.get(4).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_silver: r.get(5).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_bronze: r.get(6).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
             last_update_date: NaiveDateTime::parse_from_str(
-                r.get(4).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            last_update_time: NaiveDateTime::parse_from_str(
-                r.get(5).ok_or(ResError::DataBaseReadError)?,
+                r.get(7).ok_or(ResError::DataBaseReadError)?,
                 "%Y-%m-%d %H:%M:%S%.f",
             )?,
         })

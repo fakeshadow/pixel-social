@@ -2,14 +2,15 @@ use std::str::FromStr;
 
 use chrono::NaiveDateTime;
 
-use crate::model::{
-    common::GetSelfId,
-    errors::ResError,
-};
 use crate::model::user::User;
+use crate::model::{common::GetSelfId, errors::ResError};
+use serde::export::TryFrom;
 
 pub type TrophyTitleLib = psn_api_rs::models::TrophyTitle;
+pub type TrophyTitlesLib = psn_api_rs::models::TrophyTitles;
 pub type PSNUserLib = psn_api_rs::models::PSNUser;
+pub type TrophySetLib = psn_api_rs::models::TrophySet;
+pub type TrophyLib = psn_api_rs::models::Trophy;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserPSNProfile {
@@ -71,20 +72,10 @@ impl From<PSNUserLib> for UserPSNProfile {
     }
 }
 
-
 impl GetSelfId for UserPSNProfile {
     fn self_id(&self) -> u32 {
         self.id.unwrap_or(0)
     }
-}
-
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct UserTrophyTitles {
-    pub id: u32,
-    pub online_id: String,
-    pub np_id: String,
-    pub titles: Vec<TrophyTitleLib>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -92,13 +83,63 @@ pub struct UserTrophyTitle {
     pub np_id: String,
     pub np_communication_id: String,
     pub progress: u8,
-    pub earned_trophies: Vec<u32>,
+    pub earned_platinum: u8,
+    pub earned_gold: u8,
+    pub earned_silver: u8,
+    pub earned_bronze: u8,
     // psn last update time
     pub last_update_date: NaiveDateTime,
-    // self db last update time
-    pub last_update_time: NaiveDateTime,
 }
 
+impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
+    type Error = ();
+
+    fn try_from(t: TrophyTitleLib) -> Result<Self, Self::Error> {
+        let e = &t.title_detail.earned_trophies;
+
+        Ok(UserTrophyTitle {
+            np_id: "place_holder".to_string(),
+            np_communication_id: t.np_communication_id,
+            progress: t.title_detail.progress,
+            earned_platinum: e.platinum as u8,
+            earned_gold: e.gold as u8,
+            earned_silver: e.silver as u8,
+            earned_bronze: e.bronze as u8,
+            last_update_date: NaiveDateTime::parse_from_str(
+                t.title_detail.last_update_date.as_str(),
+                "%Y-%m-%d %H:%M:%S%.f",
+            )
+            .map_err(|_| ())?,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UserTrophySet {
+    pub id: u32,
+    pub online_id: String,
+    pub np_id: String,
+    pub titles: Vec<UserTrophy>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UserTrophy {
+    pub trophy_id: u8,
+    pub earned_date: Option<NaiveDateTime>,
+}
+
+impl From<&TrophyLib> for UserTrophy {
+    fn from(t: &TrophyLib) -> UserTrophy {
+        UserTrophy {
+            trophy_id: t.trophy_id,
+            earned_date: t
+                .trophy_detail
+                .as_ref()
+                .map(|t| NaiveDateTime::parse_from_str(t.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok())
+                .unwrap_or(None),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct PSNAuthRequest {
@@ -137,7 +178,6 @@ pub struct PSNTrophyRequest {
     pub np_communication_id: Option<String>,
 }
 
-
 #[derive(Serialize, Deserialize)]
 pub struct PSNActivationRequest {
     pub user_id: Option<u32>,
@@ -160,8 +200,8 @@ impl FromStr for PSNActivationRequest {
 }
 
 pub trait Stringify
-    where
-        Self: serde::Serialize,
+where
+    Self: serde::Serialize,
 {
     fn stringify(&self) -> Result<String, ResError> {
         Ok(serde_json::to_string(&self)?)

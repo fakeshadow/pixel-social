@@ -8,7 +8,7 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::System;
-use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
+use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
 
 use dotenv::dotenv;
 
@@ -64,7 +64,7 @@ fn main() -> std::io::Result<()> {
     let _ = MessageService::connect(&redis_url);
 
     // an actor handle PSN network request.
-    let _ = PSNService::connect(&redis_url);
+    let _ = PSNService::connect(&database_url, &redis_url);
 
     // async connection pool test. currently running much slower than actor pattern.
     let pool = crate::router::test::build_pool(&mut sys);
@@ -213,10 +213,7 @@ fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/psn")
-                    .service(
-                        web::resource("/auth")
-                            .route(web::get().to_async(router::psn::auth)),
-                    )
+                    .service(web::resource("/auth").route(web::get().to_async(router::psn::auth)))
                     .service(
                         web::resource("/register")
                             .route(web::get().to_async(router::psn::register)),
@@ -254,7 +251,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-        .bind(format!("{}:{}", &server_ip, &server_port))?
-        .start();
+    .bind(format!("{}:{}", &server_ip, &server_port))?
+    .start();
     sys.run()
 }

@@ -30,7 +30,8 @@ pub enum SendMessage<'a> {
 
 impl SendMessage<'_> {
     pub fn stringify(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_|SendMessage::Error("Stringify error").stringify())
+        serde_json::to_string(self)
+            .unwrap_or_else(|_| SendMessage::Error("Stringify error").stringify())
     }
 }
 

@@ -1,13 +1,9 @@
-use redis::{ErrorKind, FromRedisValue, RedisResult, Value, from_redis_value};
+use redis::{from_redis_value, ErrorKind, FromRedisValue, RedisResult, Value};
 
-use crate::model::{
-    category::Category,
-    post::Post,
-    psn::UserPSNProfile,
-    topic::Topic,
-    user::User,
-};
+use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::Topic, user::User};
 
+/// any from redis value error will lead to a database query.
+/// Cache failure could potential be fixed after that.
 impl FromRedisValue for Topic {
     fn from_redis_value(v: &Value) -> RedisResult<Topic> {
         Topic::parse_from_redis_value(v)
@@ -41,8 +37,8 @@ impl FromRedisValue for UserPSNProfile {
 trait ParseFromRedisValue {
     type Result;
     fn parse_from_redis_value(v: &Value) -> Result<Self::Result, redis::RedisError>
-        where
-            Self::Result: Default + std::fmt::Debug,
+    where
+        Self::Result: Default + std::fmt::Debug,
     {
         match *v {
             Value::Bulk(ref items) => {
@@ -165,11 +161,7 @@ impl ParseFromRedisValue for Category {
 
 impl ParseFromRedisValue for UserPSNProfile {
     type Result = UserPSNProfile;
-    fn parse_pattern(
-        p: &mut UserPSNProfile,
-        k: &str,
-        v: &Value,
-    ) -> Result<(), redis::RedisError> {
+    fn parse_pattern(p: &mut UserPSNProfile, k: &str, v: &Value) -> Result<(), redis::RedisError> {
         match k {
             "profile" => {
                 let v = from_redis_value::<Vec<u8>>(v)?;
@@ -199,25 +191,28 @@ impl ParseFromRedisValue for UserPSNProfile {
 
 impl Into<Vec<(&str, Vec<u8>)>> for Topic {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("topic", serde_json::to_vec(&self).unwrap_or_else(|_|[].to_vec()))
-        ]
+        vec![(
+            "topic",
+            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+        )]
     }
 }
 
 impl Into<Vec<(&str, Vec<u8>)>> for User {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
         vec![(
-            "user", serde_json::to_vec(&self).unwrap_or_else(|_|[].to_vec()))
-        ]
+            "user",
+            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+        )]
     }
 }
 
 impl Into<Vec<(&str, Vec<u8>)>> for Post {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            ("post", serde_json::to_vec(&self).unwrap_or_else(|_|[].to_vec()))
-        ]
+        vec![(
+            "post",
+            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+        )]
     }
 }
 
@@ -233,11 +228,9 @@ impl Into<Vec<(&str, Vec<u8>)>> for Category {
 
 impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
     fn into(self) -> Vec<(&'static str, Vec<u8>)> {
-        vec![
-            (
-                "profile",
-                serde_json::to_vec(&self).unwrap_or_else(|_|[].to_vec()),
-            ),
-        ]
+        vec![(
+            "profile",
+            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+        )]
     }
 }
