@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use actix_web::{
-    web::{Data, Form},
+    web::{Data, Query},
     Error, HttpResponse,
 };
 use futures::{
@@ -21,7 +21,7 @@ use crate::{
 
 pub fn auth(
     jwt: UserJwt,
-    req: Form<PSNAuthRequest>,
+    req: Query<PSNAuthRequest>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     req.into_inner()
@@ -41,7 +41,7 @@ pub fn auth(
 pub fn register(
     jwt: UserJwt,
     cache: Data<CacheService>,
-    req: Form<PSNActivationRequest>,
+    req: Query<PSNActivationRequest>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     req.into_inner()
         .attach_user_id(jwt.user_id)
@@ -59,7 +59,7 @@ pub fn register(
 // psn profile only stores in cache. as the latest data are always from the psn.
 pub fn profile(
     cache: Data<CacheService>,
-    req: Form<PSNProfileRequest>,
+    req: Query<PSNProfileRequest>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     cache
         .get_psn_profile(req.deref().online_id.as_bytes())
@@ -71,7 +71,7 @@ pub fn profile(
 pub fn trophy(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-    req: Form<PSNTrophyRequest>,
+    req: Query<PSNTrophyRequest>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     match req.np_communication_id.as_ref() {
         Some(_) => Either::A(

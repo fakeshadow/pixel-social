@@ -1,5 +1,5 @@
 use actix_web::{
-    web::{Data, Path},
+    web::{Data, Path, Query},
     Error, HttpResponse, ResponseError,
 };
 use futures::{
@@ -7,56 +7,47 @@ use futures::{
     Future,
 };
 
-use crate::handler::{cache::CacheService, db::DatabaseService};
-use crate::model::{errors::ResError, topic::Topic};
+use crate::{
+    handler::{cache::CacheService, db::DatabaseService},
+    model::{
+        category::{CategoryQuery, QueryType},
+        errors::ResError,
+        topic::Topic,
+    },
+};
 
-pub fn get_all(
+pub fn query_handler(
+    req: Query<CategoryQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    cache.get_categories_all().then(move |r| match r {
-        Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
-        Err(_) => Either::B(db.get_categories_all().from_err().and_then(move |c| {
-            let res = HttpResponse::Ok().json(&c);
-            cache.update_categories(c);
-            res
-        })),
-    })
-}
-
-pub fn get_latest(
-    req: Path<(u32, usize)>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    let (id, page) = req.into_inner();
-    cache
-        .get_topics_late(id, page)
-        .then(move |r| get(db, cache, r))
-}
-
-pub fn get_popular(
-    req: Path<(u32, usize)>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    let (id, page) = req.into_inner();
-
-    cache
-        .get_topics_pop(id, page)
-        .then(move |r| get(db, cache, r))
-}
-
-pub fn get_popular_all(
-    req: Path<(usize)>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    let page = req.into_inner();
-
-    cache
-        .get_topics_pop_all(page)
-        .then(move |r| get(db, cache, r))
+    match req.query_type {
+        QueryType::PopularAll => Either::A(Either::A(
+            cache
+                .get_topics_pop_all(req.page.unwrap_or(1))
+                .then(move |r| get(db, cache, r)),
+        )),
+        QueryType::Popular => Either::A(Either::B(
+            cache
+                .get_topics_pop(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
+                .then(move |r| get(db, cache, r)),
+        )),
+        QueryType::Latest => Either::B(Either::A(
+            cache
+                .get_topics_late(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
+                .then(move |r| get(db, cache, r)),
+        )),
+        QueryType::All => Either::B(Either::B(cache.get_categories_all().then(
+            move |r| match r {
+                Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
+                Err(_) => Either::B(db.get_categories_all().from_err().and_then(move |c| {
+                    let res = HttpResponse::Ok().json(&c);
+                    cache.update_categories(c);
+                    res
+                })),
+            },
+        ))),
+    }
 }
 
 fn get(

@@ -175,24 +175,9 @@ fn main() -> std::io::Result<()> {
                     )
                     .service(web::resource("").route(web::post().to_async(router::topic::add))),
             )
-            .service(
-                web::scope("/categories")
-                    .service(
-                        web::resource("/popular/all/{page}")
-                            .route(web::get().to_async(router::category::get_popular_all)),
-                    )
-                    .service(
-                        web::resource("/popular/{category_id}/{page}")
-                            .route(web::get().to_async(router::category::get_popular)),
-                    )
-                    .service(
-                        web::resource("/{category_id}/{page}")
-                            .route(web::get().to_async(router::category::get_latest)),
-                    )
-                    .service(
-                        web::resource("").route(web::get().to_async(router::category::get_all)),
-                    ),
-            )
+            .service(web::scope("/categories").service(
+                web::resource("").route(web::get().to_async(router::category::query_handler)),
+            ))
             .service(
                 web::scope("/auth")
                     .service(

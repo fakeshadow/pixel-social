@@ -221,6 +221,10 @@ pub struct PSNService {
 
 impl Actor for PSNService {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_interval(ctx);
+    }
 }
 
 impl PSNService {

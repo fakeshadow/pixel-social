@@ -19,7 +19,7 @@ use crate::model::{
     },
 };
 
-const PSN_TIME_GAP: Duration = Duration::from_millis(1000);
+const PSN_TIME_GAP: Duration = Duration::from_millis(3000);
 
 impl PSNService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
@@ -34,12 +34,12 @@ impl PSNService {
                         .into_actor(act)
                         .map_err(|_, _, _| ())
                         .and_then(|q: String, act, _| {
-                            // what a disaster.
                             if let Some(req) =
                                 serde_json::from_str::<PSNProfileRequest>(q.as_str()).ok()
                             {
                                 return Either::A(Either::A(act.handle_profile_request(req)));
                             };
+
                             if let Some(req) =
                                 serde_json::from_str::<PSNTrophyRequest>(q.as_str()).ok()
                             {
@@ -59,6 +59,7 @@ impl PSNService {
                                     ),
                                 }));
                             }
+
                             if let Some(req) = PSNActivationRequest::from_str(q.as_str()).ok() {
                                 return Either::B(Either::A(
                                     act.psn
@@ -72,9 +73,21 @@ impl PSNService {
                                         }),
                                 ));
                             }
+
                             let req = serde_json::from_str::<PSNAuthRequest>(q.as_str())
                                 .unwrap_or_else(|_| PSNAuthRequest::default());
                             Either::B(Either::B(act.handle_auth_request(req)))
+                        }),
+                );
+            } else {
+                ctx.spawn(
+                    act.get_queue("psn_queue")
+                        .into_actor(act)
+                        .map_err(|_, _, _| ())
+                        .and_then(|q: String, act, _| {
+                            let req = serde_json::from_str::<PSNAuthRequest>(q.as_str())
+                                .unwrap_or_else(|_| PSNAuthRequest::default());
+                            act.handle_auth_request(req)
                         }),
                 );
             };
@@ -89,9 +102,10 @@ impl PSNService {
             .add_uuid(req.uuid)
             .add_two_step(req.two_step)
             .auth()
-            .map_err(|_| ())
+            .map_err(|_| println!("authentication failed"))
             .into_actor(self)
             .map(|p, act, _| {
+                println!("authentication success");
                 act.psn = p;
                 act.is_active = true;
             })

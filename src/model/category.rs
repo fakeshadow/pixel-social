@@ -27,7 +27,6 @@ impl Default for Category {
     }
 }
 
-// handle incoming json request
 #[derive(Deserialize)]
 pub struct CategoryRequest {
     pub id: Option<u32>,
@@ -56,4 +55,19 @@ impl CategoryRequest {
             Ok(())
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+pub enum QueryType {
+    Latest,
+    Popular,
+    PopularAll,
+    All,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct CategoryQuery {
+    pub category_id: Option<u32>,
+    pub page: Option<usize>,
+    pub query_type: QueryType,
 }
