@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use chrono::NaiveDateTime;
 use tokio_postgres::{Row, SimpleQueryRow};
 
+use crate::model::psn::UserTrophySet;
 use crate::model::{
     category::Category,
     errors::ResError,
@@ -303,6 +304,29 @@ impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
                 r.get(7).ok_or(ResError::DataBaseReadError)?,
                 "%Y-%m-%d %H:%M:%S%.f",
             )?,
+        })
+    }
+}
+
+impl TryFrom<SimpleQueryRow> for UserTrophySet {
+    type Error = ResError;
+    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
+        let vec = r.get(2).ok_or(ResError::DataBaseReadError)?;
+
+        let len = vec.len();
+
+        let vec: Vec<&str> = if len < 2 {
+            Vec::with_capacity(0)
+        } else {
+            vec[1..(len - 1)].split(',').collect()
+        };
+        // ToDo: iterate vec<&str> and construct UserTrophy.
+
+        println!("{:?}", vec);
+        Ok(UserTrophySet {
+            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
+            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
+            trophies: vec![],
         })
     }
 }

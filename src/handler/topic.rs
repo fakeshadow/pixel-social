@@ -1,11 +1,10 @@
 use std::fmt::Write;
 
+use chrono::Utc;
 use futures::{
     future::{err as ft_err, Either},
     Future,
 };
-
-use chrono::Utc;
 
 use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{common::GlobalVars, errors::ResError, topic::Topic, topic::TopicRequest};

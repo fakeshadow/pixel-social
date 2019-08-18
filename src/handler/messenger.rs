@@ -43,7 +43,7 @@ impl MessageService {
     // rep errors are sent right away with sms and mail. instead of using queue.
     fn process_errors(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(ERROR_TIME_GAP, move |act, ctx| {
-            if let Some(s) = act.error_report.stringify_report().ok() {
+            if let Ok(s) = act.error_report.stringify_report() {
                 let f1 = act.send_sms_admin(s.as_str());
                 let f2 = act.send_mail_admin(s.as_str());
 
@@ -245,7 +245,7 @@ impl CacheService {
         let uuid = uuid::Uuid::new_v4().to_string();
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
-        if let Some(m) = serde_json::to_string(&mail).ok() {
+        if let Ok(m) = serde_json::to_string(&mail) {
             actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }

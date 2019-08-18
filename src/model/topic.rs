@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{GetSelfId, GetUserId},
+    common::{SelfId, SelfUserId, SelfIdString},
     errors::ResError,
     post::{Post, PostWithUser},
     user::{AttachUser, User, UserRef},
@@ -96,13 +96,20 @@ impl TopicRequest {
     }
 }
 
-impl GetSelfId for Topic {
+impl SelfIdString for Topic {
+    fn self_id_string(&self) -> String {
+        self.id.to_string()
+    }
+}
+
+
+impl SelfId for Topic {
     fn self_id(&self) -> u32 {
         self.id
     }
 }
 
-impl GetUserId for Topic {
+impl SelfUserId for Topic {
     fn get_user_id(&self) -> u32 {
         self.user_id
     }
@@ -132,4 +139,17 @@ pub struct TopicWithUser<'a> {
 pub struct TopicWithPost<'a> {
     pub topic: Option<TopicWithUser<'a>>,
     pub posts: Vec<PostWithUser<'a>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub enum QueryType {
+    Oldest,
+    Popular,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TopicQuery {
+    pub topic_id: u32,
+    pub page: usize,
+    pub query_type: QueryType,
 }

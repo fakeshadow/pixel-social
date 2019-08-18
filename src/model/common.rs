@@ -10,11 +10,15 @@ pub trait GetSelfCategory {
     fn self_category(&self) -> u32;
 }
 
-pub trait GetSelfId {
+pub trait SelfId {
     fn self_id(&self) -> u32;
 }
 
-pub trait GetUserId {
+pub trait SelfIdString {
+    fn self_id_string(&self) -> String;
+}
+
+pub trait SelfUserId {
     fn get_user_id(&self) -> u32;
 }
 

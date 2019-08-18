@@ -8,7 +8,7 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::System;
-use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
+use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
 
 use dotenv::dotenv;
 
@@ -166,12 +166,7 @@ fn main() -> std::io::Result<()> {
                         web::resource("/update").route(web::post().to_async(router::topic::update)),
                     )
                     .service(
-                        web::resource("/popular/{topic_id}/{page}")
-                            .route(web::get().to_async(router::topic::get_popular)),
-                    )
-                    .service(
-                        web::resource("/{topic_id}/{page}")
-                            .route(web::get().to_async(router::topic::get_oldest)),
+                        web::resource("").route(web::get().to_async(router::topic::query_handler)),
                     )
                     .service(web::resource("").route(web::post().to_async(router::topic::add))),
             )
@@ -198,16 +193,12 @@ fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/psn")
-                    .service(web::resource("/auth").route(web::get().to_async(router::psn::auth)))
                     .service(
-                        web::resource("/register")
-                            .route(web::get().to_async(router::psn::register)),
+                        web::resource("/auth")
+                            .route(web::get().to_async(router::psn::query_handler_with_jwt)),
                     )
                     .service(
-                        web::resource("/profile").route(web::get().to_async(router::psn::profile)),
-                    )
-                    .service(
-                        web::resource("/trophy").route(web::get().to_async(router::psn::trophy)),
+                        web::resource("").route(web::get().to_async(router::psn::query_handler)),
                     ),
             )
             .service(
@@ -236,7 +227,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-    .bind(format!("{}:{}", &server_ip, &server_port))?
-    .start();
+        .bind(format!("{}:{}", &server_ip, &server_port))?
+        .start();
     sys.run()
 }

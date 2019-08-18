@@ -8,11 +8,10 @@ use tokio_postgres::{
 use crate::model::actors::PSNService;
 use crate::model::{
     actors::TalkService,
-    common::{GetSelfId, GetUserId},
+    common::{SelfId, SelfUserId},
     errors::ResError,
     user::AuthRequest,
 };
-use std::borrow::BorrowMut;
 
 // database service is not an actor.
 pub struct DatabaseService {
@@ -32,9 +31,9 @@ impl DatabaseService {
             .and_then(|(mut c, conn)| {
                 actix_rt::spawn(conn.map_err(|e| panic!("{}", e)));
 
-                let p1 = c.prepare("SELECT * FROM topics WHERE id = ANY($1)");
-                let p2 = c.prepare("SELECT * FROM posts WHERE id = ANY($1)");
-                let p3 = c.prepare("SELECT * FROM users WHERE id = ANY($1)");
+                let p1 = c.prepare("SELECT * FROM topics WHERE id=ANY($1)");
+                let p2 = c.prepare("SELECT * FROM posts WHERE id=ANY($1)");
+                let p3 = c.prepare("SELECT * FROM users WHERE id=ANY($1)");
                 let p4 = c.prepare("INSERT INTO topics
                        (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -111,7 +110,7 @@ pub trait Query {
         T: TryFrom<Row, Error = ResError> + 'static,
     {
         Box::new(self.query_trait(st, p).fold(vec, move |mut vec, r| {
-            if let Some(r) = T::try_from(r).ok() {
+            if let Ok(r) = T::try_from(r) {
                 vec.push(r);
             }
             Ok::<_, ResError>(vec)
@@ -167,7 +166,7 @@ pub trait SimpleQuery {
     {
         Box::new(self.simple_query_trait(q).fold(vec, move |mut vec, r| {
             if let SimpleQueryMessage::Row(r) = r {
-                if let Some(v) = T::try_from(r).ok() {
+                if let Ok(v) = T::try_from(r) {
                     vec.push(v);
                 }
             }
@@ -228,13 +227,13 @@ impl DatabaseService {
         ids: Vec<u32>,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: GetUserId + GetSelfId + TryFrom<Row, Error = ResError> + 'static,
+        T: SelfUserId + SelfId + TryFrom<Row, Error = ResError> + 'static,
     {
         self.query_trait(st, &[&ids])
             .fold(
                 (Vec::with_capacity(20), Vec::with_capacity(20)),
                 move |(mut v, mut ids), r| {
-                    if let Some(r) = T::try_from(r).ok() {
+                    if let Ok(r) = T::try_from(r) {
                         ids.push(r.get_user_id());
                         v.push(r)
                     }
@@ -272,7 +271,7 @@ impl DatabaseService {
         req: AuthRequest,
     ) -> impl Future<Item = AuthRequest, Error = ResError> {
         self.simple_query_row_trait(q).then(|r| {
-            if let Some(r) = r.ok() {
+            if let Ok(r) = r {
                 if let Some(r) = r.get(0) {
                     if r == req.username.as_str() {
                         return Err(ResError::UsernameTaken);
@@ -308,7 +307,7 @@ where
         .from_err()
         .fold(Vec::new(), move |mut vec, row| {
             if let SimpleQueryMessage::Row(row) = row {
-                if let Some(v) = T::try_from(row).ok() {
+                if let Ok(v) = T::try_from(row) {
                     vec.push(v)
                 }
             }

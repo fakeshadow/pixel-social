@@ -1,16 +1,17 @@
 use std::time::{Duration, Instant};
 
 use actix::prelude::{
-    fut, Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
+    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, fut,
     Future, Running, WrapFuture,
 };
+use actix_rt::Arbiter;
 use actix_web_actors::ws;
 use futures::future::join_all;
 // actor handle psn request
 // psn service impl get queue from cache handler.
 use psn_api_rs::PSN;
 use redis::{aio::SharedConnection, Client as RedisClient};
-use tokio_postgres::{connect, tls::NoTls, Client, Statement};
+use tokio_postgres::{Client, connect, Statement, tls::NoTls};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
@@ -18,7 +19,6 @@ use crate::model::{
     errors::ErrorReport,
     messenger::{Mailer, Twilio},
 };
-use actix_rt::Arbiter;
 
 // websocket heartbeat and connection time out time.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -109,7 +109,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
+    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -203,7 +203,7 @@ impl WsChatSession {
     pub fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                let _ = act.addr.do_send(DisconnectRequest { session_id: act.id });
+                act.addr.do_send(DisconnectRequest { session_id: act.id });
                 ctx.stop();
                 return;
             }
@@ -249,6 +249,7 @@ impl PSNService {
                         .into_actor(act)
                         .and_then(|(db, conn), act, _| {
                             Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
+
                             act.db = Some(std::cell::RefCell::new(db));
                             act.cache = Some(cache);
                             fut::ok(())

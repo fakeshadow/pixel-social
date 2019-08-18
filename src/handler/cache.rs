@@ -2,13 +2,13 @@ use std::{collections::HashMap, time::Duration};
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
-use futures::future::{err as ft_err, join_all, ok as ft_ok, Either};
+use futures::future::{join_all, ok as ft_ok, Either};
 use redis::{aio::SharedConnection, cmd, pipe, Client};
 
 use crate::model::{
     actors::TalkService,
     category::Category,
-    common::{GetSelfId, GetUserId},
+    common::{SelfId, SelfUserId},
     errors::ResError,
     post::Post,
     psn::UserPSNProfile,
@@ -16,6 +16,7 @@ use crate::model::{
     user::User,
 };
 use crate::{CacheUpdateService, MessageService, PSNService};
+use crate::model::common::SelfIdString;
 
 // page offsets of list query
 const LIMIT: usize = 20;
@@ -77,11 +78,7 @@ impl CacheService {
         set_key: &'static str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
@@ -96,11 +93,7 @@ impl CacheService {
         set_key: &'static str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, true)
     }
@@ -112,11 +105,7 @@ impl CacheService {
         set_key: &'static str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, false)
     }
@@ -128,11 +117,7 @@ impl CacheService {
         set_key: &'static str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, false, false)
     }
@@ -146,11 +131,7 @@ impl CacheService {
         is_reverse_lex: bool,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.ids_from_cache_zrange(is_rev, zrange_key, (page - 1) * 20)
             .and_then(move |(conn, mut ids)| {
@@ -167,11 +148,7 @@ impl CacheService {
         set_key: &str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         Self::from_cache_with_perm_with_uids(self.get_conn(), ids, set_key)
     }
@@ -668,17 +645,12 @@ where
 {
     fn from_cache_single<T>(
         &self,
-        key: &[u8],
+        key: &str,
         set_key: &str,
     ) -> Box<dyn Future<Item = T, Error = ResError>>
     where
         T: std::marker::Send + redis::FromRedisValue + 'static,
     {
-        let key = match std::str::from_utf8(key) {
-            Ok(k) => k,
-            Err(_) => return Box::new(ft_err(ResError::InternalServerError)),
-        };
-
         Box::new(
             cmd("HGETALL")
                 .arg(&format!("{}:{}:set", set_key, key))
@@ -696,6 +668,7 @@ pub trait FromCache {
         conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &str,
+        have_perm_fields: bool,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
     ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
     where
@@ -706,6 +679,10 @@ pub trait FromCache {
 
         for i in ids.iter() {
             pip.cmd("HGETALL").arg(&format!("{}:{}:set", set_key, i));
+            if have_perm_fields {
+                pip.cmd("HGETALL")
+                    .arg(&format!("{}:{}:set_perm", set_key, i));
+            }
         }
 
         Box::new(
@@ -730,44 +707,6 @@ impl FromCache for CacheUpdateService {}
 
 impl FromCache for TalkService {}
 
-pub trait FromCacheWithPerm {
-    fn from_cache_with_perm<T>(
-        conn: SharedConnection,
-        ids: Vec<u32>,
-        set_key: &str,
-    ) -> Box<dyn Future<Item = Vec<(T, HashMap<String, String>)>, Error = ResError>>
-    where
-        T: std::marker::Send + redis::FromRedisValue + AttachPermFields<Result = T> + 'static,
-    {
-        let mut pip = pipe();
-        pip.atomic();
-
-        for i in ids.iter() {
-            pip.cmd("HGETALL")
-                .arg(&format!("{}:{}:set", set_key, i))
-                .cmd("HGETALL")
-                .arg(&format!("{}:{}:set_perm", set_key, i));
-        }
-
-        Box::new(pip.query_async(conn).then(
-            |r: Result<(_, Vec<(T, _)>), redis::RedisError>| match r {
-                Ok((_, v)) => {
-                    if v.is_empty() {
-                        Err(ResError::IdsFromCache(ids))
-                    } else {
-                        Ok(v)
-                    }
-                }
-                Err(_) => Err(ResError::IdsFromCache(ids)),
-            },
-        ))
-    }
-}
-
-impl FromCacheWithPerm for CacheService {}
-
-impl FromCacheWithPerm for TalkService {}
-
 impl CacheService {
     fn from_cache_with_perm_with_uids<T>(
         conn: SharedConnection,
@@ -775,93 +714,33 @@ impl CacheService {
         set_key: &str,
     ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
     where
-        T: std::marker::Send
-            + redis::FromRedisValue
-            + AttachPermFields<Result = T>
-            + GetUserId
-            + 'static,
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        Self::from_cache_with_perm(conn, ids, set_key).map(|hm: Vec<(T, _)>| {
-            let len = hm.len();
-            let mut v = Vec::with_capacity(len);
+        Self::from_cache(conn, ids, set_key, true).map(|t: Vec<T>| {
+            let len = t.len();
             let mut uids = Vec::with_capacity(len);
-            for (t, h) in hm.into_iter() {
+            for t in t.iter() {
                 uids.push(t.get_user_id());
-                v.push(t.attach_perm_fields(&h));
             }
-            (v, uids)
+            (t, uids)
         })
-    }
-}
-
-pub trait AttachPermFields {
-    type Result;
-    fn attach_perm_fields(self, h: &HashMap<String, String>) -> Self::Result;
-}
-
-impl AttachPermFields for Topic {
-    type Result = Topic;
-    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
-        self.last_reply_time = match h.get("last_reply_time") {
-            Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
-            None => None,
-        };
-        self.reply_count = match h.get("reply_count") {
-            Some(t) => t.parse::<u32>().ok(),
-            None => None,
-        };
-        self
-    }
-}
-
-impl AttachPermFields for Post {
-    type Result = Post;
-    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
-        self.last_reply_time = match h.get("last_reply_time") {
-            Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
-            None => None,
-        };
-        self.reply_count = match h.get("reply_count") {
-            Some(t) => t.parse::<u32>().ok(),
-            None => None,
-        };
-        self
-    }
-}
-
-impl AttachPermFields for User {
-    type Result = User;
-    fn attach_perm_fields(mut self, h: &HashMap<String, String>) -> Self::Result {
-        self.last_online = match h.get("last_online") {
-            Some(t) => NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S%.f").ok(),
-            None => None,
-        };
-        self.online_status = match h.get("online_status") {
-            Some(s) => s.parse::<u32>().ok(),
-            None => None,
-        };
-        self
     }
 }
 
 pub trait UsersFromCache
 where
-    Self: FromCacheWithPerm + GetSharedConn,
+    Self: GetSharedConn + FromCache,
 {
     fn users_from_cache(
         &self,
         uids: Vec<u32>,
     ) -> Box<dyn Future<Item = Vec<User>, Error = ResError>> {
-        Box::new(
-            Self::from_cache_with_perm::<User>(self.get_conn(), uids, "user").map(|hm| {
-                let len = hm.len();
-                let mut v = Vec::with_capacity(len);
-                for (u, h) in hm.into_iter() {
-                    v.push(u.attach_perm_fields(&h));
-                }
-                v
-            }),
-        )
+        Box::new(Self::from_cache::<User>(
+            self.get_conn(),
+            uids,
+            "user",
+            true,
+        ))
     }
 }
 
@@ -876,7 +755,9 @@ where
     fn categories_from_cache(&self) -> Box<dyn Future<Item = Vec<Category>, Error = ResError>> {
         Box::new(
             self.ids_from_cache_list("category_id:meta", 0, 999)
-                .and_then(|(conn, vec): (_, Vec<u32>)| Self::from_cache(conn, vec, "category")),
+                .and_then(|(conn, vec): (_, Vec<u32>)| {
+                    Self::from_cache(conn, vec, "category", false)
+                }),
         )
     }
 }
@@ -892,12 +773,12 @@ pub fn build_hmsets<T>(
     should_expire: bool,
 ) -> impl Future<Item = (), Error = ()>
 where
-    T: GetSelfId + Into<Vec<(&'static str, Vec<u8>)>>,
+    T: SelfIdString + Into<Vec<(&'static str, Vec<u8>)>>,
 {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
-        let key = format!("{}:{}:set", key, v.self_id());
+        let key = format!("{}:{}:set", key, v.self_id_string());
         let v: Vec<(&str, Vec<u8>)> = v.into();
 
         pip.cmd("HMSET").arg(key.as_str()).arg(v).ignore();

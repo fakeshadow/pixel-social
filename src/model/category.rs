@@ -1,4 +1,4 @@
-use crate::model::{common::GetSelfId, errors::ResError};
+use crate::model::{common::SelfIdString, errors::ResError};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Category {
@@ -34,9 +34,9 @@ pub struct CategoryRequest {
     pub thumbnail: Option<String>,
 }
 
-impl GetSelfId for Category {
-    fn self_id(&self) -> u32 {
-        self.id
+impl SelfIdString for Category {
+    fn self_id_string(&self) -> String {
+        self.id.to_string()
     }
 }
 

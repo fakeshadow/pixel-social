@@ -1,10 +1,8 @@
-use std::str::FromStr;
+use std::convert::TryFrom;
 
 use chrono::NaiveDateTime;
 
-use crate::model::user::User;
-use crate::model::{common::GetSelfId, errors::ResError};
-use serde::export::TryFrom;
+use crate::model::{common::SelfIdString, errors::ResError};
 
 pub type TrophyTitleLib = psn_api_rs::models::TrophyTitle;
 pub type TrophyTitlesLib = psn_api_rs::models::TrophyTitles;
@@ -72,9 +70,9 @@ impl From<PSNUserLib> for UserPSNProfile {
     }
 }
 
-impl GetSelfId for UserPSNProfile {
-    fn self_id(&self) -> u32 {
-        self.id.unwrap_or(0)
+impl SelfIdString for UserPSNProfile {
+    fn self_id_string(&self) -> String {
+        self.online_id.to_owned()
     }
 }
 
@@ -87,7 +85,6 @@ pub struct UserTrophyTitle {
     pub earned_gold: u8,
     pub earned_silver: u8,
     pub earned_bronze: u8,
-    // psn last update time
     pub last_update_date: NaiveDateTime,
 }
 
@@ -107,25 +104,24 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
             earned_bronze: e.bronze as u8,
             last_update_date: NaiveDateTime::parse_from_str(
                 t.title_detail.last_update_date.as_str(),
-                "%Y-%m-%d %H:%M:%S%.f",
-            )
-            .map_err(|_| ())?,
+                "%Y-%m-%dT%H:%M:%S%#z",
+            ).map_err(|_| ())?,
         })
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserTrophySet {
-    pub id: u32,
-    pub online_id: String,
     pub np_id: String,
-    pub titles: Vec<UserTrophy>,
+    pub np_communication_id: String,
+    pub trophies: Vec<UserTrophy>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserTrophy {
     pub trophy_id: u8,
     pub earned_date: Option<NaiveDateTime>,
+    pub first_earned_date: Option<NaiveDateTime>,
 }
 
 impl From<&TrophyLib> for UserTrophy {
@@ -137,26 +133,42 @@ impl From<&TrophyLib> for UserTrophy {
                 .as_ref()
                 .map(|t| NaiveDateTime::parse_from_str(t.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok())
                 .unwrap_or(None),
+            first_earned_date: None,
         }
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct PSNAuthRequest {
-    pub uuid: String,
-    pub two_step: String,
+#[serde(tag = "query_type")]
+pub enum PSNRequest {
+    Profile {
+        online_id: String,
+    },
+    TrophyTitles {
+        online_id: String,
+        page: String,
+    },
+    TrophySet {
+        online_id: String,
+        np_communication_id: String,
+    },
+    Auth {
+        uuid: Option<String>,
+        two_step: Option<String>,
+        refresh_token: Option<String>,
+    },
+    Activation {
+        user_id: Option<String>,
+        online_id: String,
+        code: String,
+    },
 }
 
-impl Default for PSNAuthRequest {
-    fn default() -> PSNAuthRequest {
-        PSNAuthRequest {
-            uuid: "".to_string(),
-            two_step: "".to_string(),
-        }
+impl PSNRequest {
+    pub fn stringify(&self) -> Result<String, ResError> {
+        Ok(serde_json::to_string(&self)?)
     }
-}
 
-impl PSNAuthRequest {
     pub fn check_privilege(self, privilege: u32) -> Result<Self, ResError> {
         if privilege < 9 {
             Err(ResError::Unauthorized)
@@ -164,54 +176,21 @@ impl PSNAuthRequest {
             Ok(self)
         }
     }
-}
 
-#[derive(Serialize, Deserialize)]
-pub struct PSNProfileRequest {
-    pub online_id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PSNTrophyRequest {
-    pub online_id: String,
-    pub page: Option<i64>,
-    pub np_communication_id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PSNActivationRequest {
-    pub user_id: Option<u32>,
-    pub online_id: String,
-    pub code: String,
-}
-
-impl PSNActivationRequest {
-    pub fn attach_user_id(mut self, uid: u32) -> Self {
-        self.user_id = Some(uid);
-        self
+    pub fn attach_user_id(self, uid: u32) -> Self {
+        if let PSNRequest::Activation {
+            user_id: _,
+            online_id,
+            code,
+        } = self
+        {
+            PSNRequest::Activation {
+                user_id: Some(uid.to_string()),
+                online_id,
+                code,
+            }
+        } else {
+            panic!("should not happen unless the router code has been changed")
+        }
     }
 }
-
-impl FromStr for PSNActivationRequest {
-    type Err = ResError;
-    fn from_str(s: &str) -> Result<PSNActivationRequest, Self::Err> {
-        Ok(serde_json::from_str(s)?)
-    }
-}
-
-pub trait Stringify
-where
-    Self: serde::Serialize,
-{
-    fn stringify(&self) -> Result<String, ResError> {
-        Ok(serde_json::to_string(&self)?)
-    }
-}
-
-impl Stringify for PSNAuthRequest {}
-
-impl Stringify for PSNProfileRequest {}
-
-impl Stringify for PSNTrophyRequest {}
-
-impl Stringify for PSNActivationRequest {}

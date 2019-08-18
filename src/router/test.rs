@@ -127,7 +127,7 @@ fn test_pool(pool: &Pool) -> impl Future<Item = Vec<Topic>, Error = ResError> {
                             ]],
                         )
                         .fold(Vec::with_capacity(20), move |mut v, r| {
-                            if let Some(r) = Topic::try_from(r).ok() {
+                            if let Ok(r) = Topic::try_from(r) {
                                 v.push(r)
                             }
                             Ok::<_, _>(v)

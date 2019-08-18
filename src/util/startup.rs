@@ -100,15 +100,12 @@ pub fn build_cache(
         let f = c.simple_query(&query).map_err(|e| panic!("{}", e)).fold(
             reply_count,
             |mut reply_count, row| {
-                match row {
-                    SimpleQueryMessage::Row(row) => {
-                        if let Some(count) = row.get(0).unwrap().parse::<u32>().ok() {
-                            if let Some(tid) = row.get(1).unwrap().parse::<u32>().ok() {
-                                reply_count.push((tid, count));
-                            }
+                if let SimpleQueryMessage::Row(row) = row {
+                    if let Ok(count) = row.get(0).unwrap().parse::<u32>() {
+                        if let Ok(tid) = row.get(1).unwrap().parse::<u32>() {
+                            reply_count.push((tid, count));
                         }
                     }
-                    _ => (),
                 }
                 Ok(reply_count)
             },
@@ -159,16 +156,13 @@ pub fn build_cache(
         .simple_query("SELECT topic_id, id, created_at FROM posts")
         .map_err(|e| panic!("{}", e))
         .fold(Vec::new(), |mut posts, row| {
-            match row {
-                SimpleQueryMessage::Row(row) => {
-                    let tid = row.get(0).unwrap().parse::<u32>().unwrap();
-                    let pid = row.get(1).unwrap().parse::<u32>().unwrap();
-                    let time =
-                        NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f")
-                            .unwrap();
-                    posts.push((tid, pid, None, time));
-                }
-                _ => (),
+            if let SimpleQueryMessage::Row(row) = row {
+                let tid = row.get(0).unwrap().parse::<u32>().unwrap();
+                let pid = row.get(1).unwrap().parse::<u32>().unwrap();
+                let time =
+                    NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f")
+                        .unwrap();
+                posts.push((tid, pid, None, time));
             }
             Ok(posts)
         });
@@ -182,19 +176,16 @@ pub fn build_cache(
         .simple_query("SELECT COUNT(post_id), post_id FROM posts GROUP BY post_id")
         .map_err(|e| panic!("{}", e))
         .fold(Vec::new(), |mut reply_count, row| {
-            match row {
-                SimpleQueryMessage::Row(row) => {
-                    if let Some(str) = row.get(0) {
-                        if let Some(count) = str.parse::<u32>().ok() {
-                            if let Some(str) = row.get(1) {
-                                if let Some(pid) = str.parse::<u32>().ok() {
-                                    reply_count.push((pid, count));
-                                }
+            if let SimpleQueryMessage::Row(row) = row {
+                if let Some(str) = row.get(0) {
+                    if let Ok(count) = str.parse::<u32>() {
+                        if let Some(str) = row.get(1) {
+                            if let Ok(pid) = str.parse::<u32>() {
+                                reply_count.push((pid, count));
                             }
                         }
                     }
                 }
-                _ => (),
             }
             Ok(reply_count)
         });
@@ -298,7 +289,7 @@ CREATE TABLE users
 CREATE TABLE categories
 (
     id               OID          NOT NULL UNIQUE PRIMARY KEY,
-    name             VARCHAR(128) NOT NULL,
+    name             VARCHAR(128) NOT NULL UNIQUE,
     thumbnail        VARCHAR(256) NOT NULL
 );
 CREATE TABLE topics
@@ -384,16 +375,31 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
         "
 CREATE TABLE psn_user_trophy_titles
 (
-    np_id                   VARCHAR(32)         NOT NULL PRIMARY KEY,
-    np_communication_id     VARCHAR(32)         NOT NULL,
+    np_id                   VARCHAR(128)        NOT NULL,
+    np_communication_id     VARCHAR(128)        NOT NULL,
     progress                INTEGER             NOT NULL DEFAULT 0,
     earned_platinum         INTEGER             NOT NULL DEFAULT 0,
     earned_gold             INTEGER             NOT NULL DEFAULT 0,
     earned_silver           INTEGER             NOT NULL DEFAULT 0,
     earned_bronze           INTEGER             NOT NULL DEFAULT 0,
-    last_update_date        TIMESTAMP           NOT NULL,
+    last_update_date        TIMESTAMP           NOT NULL
 );
-",
+
+CREATE UNIQUE INDEX user_trophy_titles ON psn_user_trophy_titles (np_id, np_communication_id);
+
+CREATE TYPE trophy_set AS
+(
+    trophy_id               INTEGER,
+    earned_date             TIMESTAMP,
+    first_earned_date       TIMESTAMP
+);
+
+CREATE TABLE psn_user_trophy_sets
+(
+    np_id                   VARCHAR(32)         NOT NULL PRIMARY KEY,
+    np_communication_id     VARCHAR(32)         NOT NULL,
+    trophy_set              trophy_set[]
+);",
     );
 
     // insert dummy data.default adminuser password is 1234asdf
@@ -456,10 +462,9 @@ DROP TABLE IF EXISTS public_messages1;
 DROP TABLE IF EXISTS private_messages1;
 DROP TABLE IF EXISTS relations;
 
-DROP TRIGGER IF EXISTS adding_post ON posts;
-DROP FUNCTION IF EXISTS adding_post();
-DROP TRIGGER IF EXISTS adding_topic ON topics;
-DROP FUNCTION IF EXISTS adding_topic();
+DROP TABLE IF EXISTS psn_user_trophy_titles;
+DROP TABLE IF EXISTS psn_user_trophy_sets;
+DROP TYPE IF EXISTS trophy_set;
 
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";

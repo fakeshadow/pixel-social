@@ -1,5 +1,5 @@
 use actix_web::{
-    web::{Data, Json, Path},
+    web::{Data, Json, Query},
     Error, HttpResponse, ResponseError,
 };
 use futures::{
@@ -12,7 +12,7 @@ use crate::model::{
     common::GlobalVars,
     errors::ResError,
     post::Post,
-    topic::{Topic, TopicRequest},
+    topic::{QueryType, Topic, TopicQuery, TopicRequest},
 };
 
 pub fn add(
@@ -61,30 +61,26 @@ pub fn update(
         })
 }
 
-pub fn get_oldest(
-    req: Path<(u32, usize)>,
+pub fn query_handler(
+    req: Query<TopicQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let (tid, page) = req.into_inner();
-
-    cache
-        .get_posts_old(tid, page)
-        .then(move |r| get(tid, page, db, cache, r))
+    match req.query_type {
+        QueryType::Oldest => Either::A(
+            cache
+                .get_posts_old(req.topic_id, req.page)
+                .then(move |r| if_query_db(req.topic_id, req.page, db, cache, r)),
+        ),
+        QueryType::Popular => Either::B(
+            cache
+                .get_posts_pop(req.topic_id, req.page)
+                .then(move |r| if_query_db(req.topic_id, req.page, db, cache, r)),
+        ),
+    }
 }
 
-pub fn get_popular(
-    req: Path<(u32, usize)>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    let (tid, page) = req.into_inner();
-    cache
-        .get_posts_pop(tid, page)
-        .then(move |r| get(tid, page, db, cache, r))
-}
-
-fn get(
+fn if_query_db(
     tid: u32,
     page: usize,
     db: Data<DatabaseService>,

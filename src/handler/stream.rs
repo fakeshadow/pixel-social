@@ -90,6 +90,6 @@ pub fn save_file(field: Field) -> impl Future<Item = UploadResponse, Error = Err
                 },
             )
             .map(|(response, _)| response)
-            .map_err(|e| error::ErrorInternalServerError(e)),
+            .map_err(error::ErrorInternalServerError),
     )
 }

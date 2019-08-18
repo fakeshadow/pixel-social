@@ -177,7 +177,7 @@ fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<
         Ok(auth) => match JwtPayLoad::from(&auth.token) {
             Ok(j) => {
                 session.id = j.user_id;
-                let _ = session.addr.do_send(ConnectRequest {
+                session.addr.do_send(ConnectRequest {
                     session_id: session.id,
                     online_status: auth.online_status,
                     addr: ctx.address(),

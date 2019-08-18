@@ -1,5 +1,5 @@
 use actix_web::{
-    web::{Data, Path, Query},
+    web::{Data, Query},
     Error, HttpResponse, ResponseError,
 };
 use futures::{
@@ -25,17 +25,17 @@ pub fn query_handler(
         QueryType::PopularAll => Either::A(Either::A(
             cache
                 .get_topics_pop_all(req.page.unwrap_or(1))
-                .then(move |r| get(db, cache, r)),
+                .then(move |r| if_query_db(db, cache, r)),
         )),
         QueryType::Popular => Either::A(Either::B(
             cache
                 .get_topics_pop(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
-                .then(move |r| get(db, cache, r)),
+                .then(move |r| if_query_db(db, cache, r)),
         )),
         QueryType::Latest => Either::B(Either::A(
             cache
                 .get_topics_late(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
-                .then(move |r| get(db, cache, r)),
+                .then(move |r| if_query_db(db, cache, r)),
         )),
         QueryType::All => Either::B(Either::B(cache.get_categories_all().then(
             move |r| match r {
@@ -50,7 +50,7 @@ pub fn query_handler(
     }
 }
 
-fn get(
+fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Topic>, Vec<u32>), ResError>,

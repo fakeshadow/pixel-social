@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{GetSelfId, Validator},
+    common::{SelfId, SelfIdString, Validator},
     errors::ResError,
 };
 
@@ -90,13 +90,19 @@ impl User {
     }
 }
 
-impl GetSelfId for User {
+impl SelfId for User {
     fn self_id(&self) -> u32 {
         self.id
     }
 }
 
-impl<'a> GetSelfId for UserRef<'a> {
+impl SelfIdString for User {
+    fn self_id_string(&self) -> String {
+        self.id.to_string()
+    }
+}
+
+impl<'a> SelfId for UserRef<'a> {
     fn self_id(&self) -> u32 {
         self.id
     }

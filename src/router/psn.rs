@@ -1,99 +1,99 @@
 use std::ops::Deref;
 
 use actix_web::{
-    web::{Data, Query},
-    Error, HttpResponse,
+    Error,
+    HttpResponse, web::{Data, Query},
 };
 use futures::{
-    future::{ok as ft_ok, Either, IntoFuture},
+    future::{Either, IntoFuture, ok as ft_ok},
     Future,
 };
 
 use crate::{
     handler::{auth::UserJwt, cache::CacheService, db::DatabaseService},
-    model::{
-        errors::ResError,
-        psn::{
-            PSNActivationRequest, PSNAuthRequest, PSNProfileRequest, PSNTrophyRequest, Stringify,
-        },
-    },
+    model::{errors::ResError, psn::PSNRequest},
 };
 
-pub fn auth(
-    jwt: UserJwt,
-    req: Query<PSNAuthRequest>,
-    cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    req.into_inner()
-        .check_privilege(jwt.privilege)
-        .into_future()
-        .from_err()
-        .and_then(|req| req.stringify())
-        .from_err()
-        .and_then(move |s| {
-            cache
-                .add_psn_request_with_privilege(s.as_str())
-                .from_err()
-                .and_then(|_| HttpResponse::Ok().finish())
-        })
-}
-
-pub fn register(
-    jwt: UserJwt,
-    cache: Data<CacheService>,
-    req: Query<PSNActivationRequest>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    req.into_inner()
-        .attach_user_id(jwt.user_id)
-        .stringify()
-        .into_future()
-        .from_err()
-        .and_then(move |s| {
-            cache
-                .add_psn_request_now(s.as_str())
-                .from_err()
-                .and_then(|_| HttpResponse::Ok().finish())
-        })
-}
-
-// psn profile only stores in cache. as the latest data are always from the psn.
-pub fn profile(
-    cache: Data<CacheService>,
-    req: Query<PSNProfileRequest>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    cache
-        .get_psn_profile(req.deref().online_id.as_bytes())
-        .then(|r| handle_response(r, req.into_inner(), cache))
-}
-
-// trophy data only stores in database as the list are big and not frequent query.
-// include np_communication_id=NPWRXXXX result in user trophy set query.
-pub fn trophy(
+pub fn query_handler(
+    req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-    req: Query<PSNTrophyRequest>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    match req.np_communication_id.as_ref() {
-        Some(_) => Either::A(
-            db.get_trophy_set(req.deref())
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    match req.deref() {
+        PSNRequest::Profile { online_id } => Either::A(Either::A(
+            cache.get_psn_profile(online_id.as_str())
                 .then(|r| handle_response(r, req.into_inner(), cache)),
-        ),
-        None => Either::B(
-            db.get_trophy_titles(req.np_communication_id.as_ref().unwrap(), 1)
+        )),
+        PSNRequest::TrophyTitles { online_id, page } => Either::A(Either::B({
+            let page = page.parse::<u32>().unwrap_or(1);
+            cache.get_psn_profile(online_id.as_str())
+                .from_err()
+                .and_then(move |u| {
+                    db.get_trophy_titles(u.np_id.as_str(), page)
+                        .then(|r| handle_response(r, req.into_inner(), cache))
+                })
+        })),
+        PSNRequest::TrophySet {
+            online_id,
+            np_communication_id,
+        } => Either::B(Either::A(
+            db.get_trophy_set(online_id.as_str(), np_communication_id.as_str())
                 .then(|r| handle_response(r, req.into_inner(), cache)),
-        ),
+        )),
+        _ => Either::B(Either::B(ft_ok(HttpResponse::Ok().finish()))),
     }
 }
 
-fn handle_response<T, E>(
-    r: Result<T, ResError>,
-    req: E,
+pub fn query_handler_with_jwt(
+    jwt: UserJwt,
+    req: Query<PSNRequest>,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error>
-where
-    T: serde::Serialize,
-    E: Stringify,
-{
+) -> impl Future<Item=HttpResponse, Error=Error> {
+    match req.deref() {
+        PSNRequest::Auth {
+            uuid: _,
+            two_step: _,
+            refresh_token: _
+        } => Either::A(Either::A(
+            req.into_inner()
+                .check_privilege(jwt.privilege)
+                .into_future()
+                .from_err()
+                .and_then(|req| req.stringify())
+                .from_err()
+                .and_then(move |s| {
+                    cache
+                        .add_psn_request_with_privilege(s.as_str())
+                        .from_err()
+                        .and_then(|_| HttpResponse::Ok().finish())
+                }),
+        )),
+        PSNRequest::Activation {
+            user_id: _,
+            online_id: _,
+            code: _,
+        } => Either::A(Either::B(
+            req.into_inner()
+                .attach_user_id(jwt.user_id)
+                .stringify()
+                .into_future()
+                .from_err()
+                .and_then(move |s| {
+                    cache
+                        .add_psn_request_now(s.as_str())
+                        .from_err()
+                        .and_then(|_| HttpResponse::Ok().finish())
+                }),
+        )),
+        _ => Either::B(ft_ok(HttpResponse::Ok().finish())),
+    }
+}
+
+fn handle_response<T: serde::Serialize>(
+    r: Result<T, ResError>,
+    req: PSNRequest,
+    cache: Data<CacheService>,
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match r {
         Ok(u) => Either::A(ft_ok(HttpResponse::Ok().json(&u))),
         Err(_) => Either::B(req.stringify().into_future().from_err().and_then(move |s| {
