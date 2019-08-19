@@ -1,17 +1,18 @@
 use std::time::{Duration, Instant};
 
+use futures::future::join_all;
+
 use actix::prelude::{
-    Actor, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner, fut,
+    fut, Actor,Arbiter, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
     Future, Running, WrapFuture,
 };
-use actix_rt::Arbiter;
 use actix_web_actors::ws;
-use futures::future::join_all;
+
 // actor handle psn request
 // psn service impl get queue from cache handler.
 use psn_api_rs::PSN;
 use redis::{aio::SharedConnection, Client as RedisClient};
-use tokio_postgres::{Client, connect, Statement, tls::NoTls};
+use tokio_postgres::{connect, tls::NoTls, Client, Statement};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
@@ -109,7 +110,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
+    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -119,7 +120,7 @@ impl TalkService {
             .and_then(move |cache| {
                 conn.map_err(|e| panic!("{:?}", e))
                     .and_then(move |(mut db, conn)| {
-                        actix_rt::spawn(conn.map_err(|e| panic!("{:?}", e)));
+                        actix::spawn(conn.map_err(|e| panic!("{:?}", e)));
                         let p1 = db.prepare("INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)");
                         let p2 = db.prepare("INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)");
                         let p3 = db.prepare("SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999");
@@ -216,6 +217,7 @@ pub struct PSNService {
     pub is_active: bool,
     pub psn: PSN,
     pub db: Option<std::cell::RefCell<Client>>,
+    pub insert_trophy_title: Option<Statement>,
     pub cache: Option<SharedConnection>,
 }
 
@@ -237,6 +239,7 @@ impl PSNService {
                 is_active: false,
                 psn: PSN::new(),
                 db: None,
+                insert_trophy_title: None,
                 cache: None,
             };
 
@@ -247,8 +250,30 @@ impl PSNService {
                 .and_then(|cache, act, _| {
                     conn.map_err(|e| panic!("{:?}", e))
                         .into_actor(act)
-                        .and_then(|(db, conn), act, _| {
+                        .and_then(|(mut db, conn), act, ctx| {
                             Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
+
+                            let p1 = db.prepare(
+                                "INSERT INTO psn_user_trophy_titles
+                                (np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                                    ON CONFLICT (np_id, np_communication_id) DO UPDATE SET
+                                        progress=EXCLUDED.progress,
+                                        earned_platinum=EXCLUDED.earned_platinum,
+                                        earned_gold=EXCLUDED.earned_gold,
+                                        earned_silver=EXCLUDED.earned_silver,
+                                        earned_bronze=EXCLUDED.earned_bronze,
+                                        last_update_date=EXCLUDED.last_update_date");
+
+                            ctx.wait(
+                                join_all(vec![p1])
+                                    .map_err(|e| panic!("{}", e))
+                                    .into_actor(act)
+                                    .and_then(|mut vec: Vec<Statement>, act, _| {
+                                        act.insert_trophy_title = vec.pop();
+                                        fut::ok(())
+                                    })
+                            );
 
                             act.db = Some(std::cell::RefCell::new(db));
                             act.cache = Some(cache);

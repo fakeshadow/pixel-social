@@ -5,6 +5,7 @@ use chrono::{NaiveDateTime, Utc};
 use futures::future::{join_all, ok as ft_ok, Either};
 use redis::{aio::SharedConnection, cmd, pipe, Client};
 
+use crate::model::common::SelfIdString;
 use crate::model::{
     actors::TalkService,
     category::Category,
@@ -16,7 +17,6 @@ use crate::model::{
     user::User,
 };
 use crate::{CacheUpdateService, MessageService, PSNService};
-use crate::model::common::SelfIdString;
 
 // page offsets of list query
 const LIMIT: usize = 20;
@@ -45,23 +45,23 @@ impl CacheService {
 
 impl CacheService {
     pub fn update_users(&self, u: Vec<User>) {
-        actix_rt::spawn(build_hmsets(self.get_conn(), u, "user", false));
+        actix::spawn(build_hmsets(self.get_conn(), u, "user", false));
     }
 
     pub fn update_categories(&self, u: Vec<Category>) {
-        actix_rt::spawn(build_hmsets(self.get_conn(), u, "category", false));
+        actix::spawn(build_hmsets(self.get_conn(), u, "category", false));
     }
 
     pub fn update_topics(&self, t: Vec<Topic>) {
-        actix_rt::spawn(build_hmsets(self.get_conn(), t, "topic", true));
+        actix::spawn(build_hmsets(self.get_conn(), t, "topic", true));
     }
 
     pub fn update_posts(&self, t: Vec<Post>) {
-        actix_rt::spawn(build_hmsets(self.get_conn(), t, "post", true));
+        actix::spawn(build_hmsets(self.get_conn(), t, "post", true));
     }
 
     pub fn update_user_psn_profile(&self, t: Vec<UserPSNProfile>) {
-        actix_rt::spawn(build_hmsets(self.get_conn(), t, "user_psn_profile", false));
+        actix::spawn(build_hmsets(self.get_conn(), t, "user_psn_profile", false));
     }
 
     pub fn get_hash_map(
@@ -202,7 +202,7 @@ impl CacheService {
             .arg(tid)
             .ignore();
 
-        actix_rt::spawn(
+        actix::spawn(
             pip.query_async(self.get_conn())
                 //ToDo: add error handling
                 .map_err(|_| ())
@@ -323,7 +323,7 @@ impl CacheService {
                 .ignore();
         }
 
-        actix_rt::spawn(
+        actix::spawn(
             pip.query_async(self.get_conn())
                 .map_err(|_| ())
                 .map(|(_, ())| ()),
@@ -346,7 +346,7 @@ impl CacheService {
             .arg(c)
             .ignore();
 
-        actix_rt::spawn(
+        actix::spawn(
             pip.query_async(self.get_conn())
                 .map_err(|_| ())
                 .map(|(_, ())| ()),

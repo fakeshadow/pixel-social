@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{SelfId, SelfUserId, SelfIdString},
+    common::{SelfId, SelfIdString, SelfUserId},
     errors::ResError,
     user::{AttachUser, User, UserRef},
 };

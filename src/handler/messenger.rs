@@ -246,13 +246,13 @@ impl CacheService {
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Ok(m) = serde_json::to_string(&mail) {
-            actix_rt::spawn(self.add_activation_mail_self(u.id, uuid, m));
+            actix::spawn(self.add_activation_mail_self(u.id, uuid, m));
         }
     }
 
     pub fn remove_activation_uuid(&self, uuid: &str) {
         use crate::handler::cache::DeleteCache;
-        actix_rt::spawn(self.del_cache(uuid).map_err(|_| ()))
+        actix::spawn(self.del_cache(uuid).map_err(|_| ()))
     }
 }
 

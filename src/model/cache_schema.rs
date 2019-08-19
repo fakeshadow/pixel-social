@@ -17,7 +17,10 @@ trait CrateFromRedisValues
 where
     Self: Sized + Default + FromRedisValue,
 {
-    fn crate_from_redis_values<F>(items: &[Value], mut f: F) -> RedisResult<Vec<Self>>
+    fn crate_from_redis_values<F>(
+        items: &[Value],
+        mut attach_perm_fields: F,
+    ) -> RedisResult<Vec<Self>>
     where
         F: FnMut(&mut Self, &Value) + Sized,
     {
@@ -35,7 +38,7 @@ where
             }
             let mut t: Self = FromRedisValue::from_redis_value(&items[i])?;
             if let Some(value) = items.get(i + 1) {
-                f(&mut t, value);
+                attach_perm_fields(&mut t, value);
             }
             vec.push(t);
             i += 2;
@@ -126,15 +129,11 @@ impl FromRedisValue for Topic {
             let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
             if let Ok(h) = h {
                 t.last_reply_time = match h.get(LAST_REPLY_TIME) {
-                    Some(t) => NaiveDateTime::parse_from_str(
-                        std::str::from_utf8(t).unwrap_or(""),
-                        "%Y-%m-%d %H:%M:%S%.f",
-                    )
-                    .ok(),
+                    Some(t) => parse_naive_date_time(&t),
                     None => None,
                 };
                 t.reply_count = match h.get(REPLY_COUNT) {
-                    Some(t) => std::str::from_utf8(t).unwrap_or("").parse::<u32>().ok(),
+                    Some(c) => parse_count(&c),
                     None => None,
                 };
             }
@@ -171,15 +170,11 @@ impl FromRedisValue for Post {
             let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
             if let Ok(h) = h {
                 p.last_reply_time = match h.get(LAST_REPLY_TIME) {
-                    Some(t) => NaiveDateTime::parse_from_str(
-                        std::str::from_utf8(t).unwrap_or(""),
-                        "%Y-%m-%d %H:%M:%S%.f",
-                    )
-                    .ok(),
+                    Some(t) => parse_naive_date_time(&t),
                     None => None,
                 };
                 p.reply_count = match h.get(REPLY_COUNT) {
-                    Some(t) => std::str::from_utf8(t).unwrap_or("").parse::<u32>().ok(),
+                    Some(c) => parse_count(&c),
                     None => None,
                 };
             }
@@ -215,15 +210,11 @@ impl FromRedisValue for User {
             let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
             if let Ok(h) = h {
                 u.last_online = match h.get(LAST_ONLINE) {
-                    Some(t) => NaiveDateTime::parse_from_str(
-                        std::str::from_utf8(t).unwrap_or(""),
-                        "%Y-%m-%d %H:%M:%S%.f",
-                    )
-                    .ok(),
+                    Some(t) => parse_naive_date_time(&t),
                     None => None,
                 };
                 u.online_status = match h.get(ONLINE_STATUS) {
-                    Some(s) => std::str::from_utf8(s).unwrap_or("").parse::<u32>().ok(),
+                    Some(c) => parse_count(&c),
                     None => None,
                 };
             }
@@ -324,4 +315,18 @@ impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
             serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
         )]
     }
+}
+
+fn parse_naive_date_time(t: &[u8]) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(
+        unsafe { std::str::from_utf8_unchecked(t) },
+        "%Y-%m-%d %H:%M:%S%.f",
+    )
+    .ok()
+}
+
+fn parse_count(c: &[u8]) -> Option<u32> {
+    unsafe { std::str::from_utf8_unchecked(c) }
+        .parse::<u32>()
+        .ok()
 }

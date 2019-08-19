@@ -105,7 +105,8 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
             last_update_date: NaiveDateTime::parse_from_str(
                 t.title_detail.last_update_date.as_str(),
                 "%Y-%m-%dT%H:%M:%S%#z",
-            ).map_err(|_| ())?,
+            )
+            .map_err(|_| ())?,
         })
     }
 }
@@ -126,14 +127,15 @@ pub struct UserTrophy {
 
 impl From<&TrophyLib> for UserTrophy {
     fn from(t: &TrophyLib) -> UserTrophy {
+        let earned_date = match t.user_info.earned_date.as_ref() {
+            Some(t) => NaiveDateTime::parse_from_str(t.as_str(), "%Y-%m-%dT%H:%M:%S%#z").ok(),
+            None => None,
+        };
+
         UserTrophy {
             trophy_id: t.trophy_id,
-            earned_date: t
-                .trophy_detail
-                .as_ref()
-                .map(|t| NaiveDateTime::parse_from_str(t.as_str(), "%Y-%m-%d %H:%M:%S%.f").ok())
-                .unwrap_or(None),
-            first_earned_date: None,
+            earned_date,
+            first_earned_date: earned_date,
         }
     }
 }

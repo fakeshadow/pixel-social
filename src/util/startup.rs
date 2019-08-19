@@ -375,8 +375,8 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
         "
 CREATE TABLE psn_user_trophy_titles
 (
-    np_id                   VARCHAR(128)        NOT NULL,
-    np_communication_id     VARCHAR(128)        NOT NULL,
+    np_id                   VARCHAR(32)        NOT NULL,
+    np_communication_id     VARCHAR(32)        NOT NULL,
     progress                INTEGER             NOT NULL DEFAULT 0,
     earned_platinum         INTEGER             NOT NULL DEFAULT 0,
     earned_gold             INTEGER             NOT NULL DEFAULT 0,
@@ -384,8 +384,6 @@ CREATE TABLE psn_user_trophy_titles
     earned_bronze           INTEGER             NOT NULL DEFAULT 0,
     last_update_date        TIMESTAMP           NOT NULL
 );
-
-CREATE UNIQUE INDEX user_trophy_titles ON psn_user_trophy_titles (np_id, np_communication_id);
 
 CREATE TYPE trophy_set AS
 (
@@ -396,10 +394,14 @@ CREATE TYPE trophy_set AS
 
 CREATE TABLE psn_user_trophy_sets
 (
-    np_id                   VARCHAR(32)         NOT NULL PRIMARY KEY,
+    np_id                   VARCHAR(32)         NOT NULL,
     np_communication_id     VARCHAR(32)         NOT NULL,
     trophy_set              trophy_set[]
-);",
+);
+
+CREATE UNIQUE INDEX user_trophy_titles ON psn_user_trophy_titles (np_id, np_communication_id);
+CREATE UNIQUE INDEX user_trophy_sets ON psn_user_trophy_sets (np_id, np_communication_id);
+",
     );
 
     // insert dummy data.default adminuser password is 1234asdf

@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 use chrono::NaiveDateTime;
 use tokio_postgres::{Row, SimpleQueryRow};
 
-use crate::model::psn::UserTrophySet;
 use crate::model::{
     category::Category,
     errors::ResError,
@@ -13,6 +12,7 @@ use crate::model::{
     topic::Topic,
     user::User,
 };
+use crate::model::psn::{UserTrophy, UserTrophySet};
 
 impl TryFrom<Row> for User {
     type Error = ResError;
@@ -315,18 +315,54 @@ impl TryFrom<SimpleQueryRow> for UserTrophySet {
 
         let len = vec.len();
 
-        let vec: Vec<&str> = if len < 2 {
+        let vec: Vec<&str> = if len < 6 {
             Vec::with_capacity(0)
         } else {
-            vec[1..(len - 1)].split(',').collect()
+            vec[2..(len - 2)].split("\",\"").collect()
         };
-        // ToDo: iterate vec<&str> and construct UserTrophy.
 
-        println!("{:?}", vec);
+        let mut trophies = Vec::with_capacity(vec.len());
+
+        for v in vec.iter() {
+            let len = v.len();
+            let v: Vec<&str> = v[1..(len - 1)].split(',').collect();
+            let earned_date = match v.get(1) {
+                Some(s) => {
+                    let len = s.len();
+                    if len > 2 {
+                        NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
+                    } else {
+                        None
+                    }
+                }
+                None => None
+            };
+
+            let first_earned_date = match v.get(2) {
+                Some(s) => {
+                    let len = s.len();
+                    if len > 2 {
+                        NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
+                    } else {
+                        None
+                    }
+                }
+                None => None
+            };
+
+            trophies.push(
+                UserTrophy {
+                    trophy_id: v.get(0).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+                    earned_date,
+                    first_earned_date,
+                }
+            )
+        }
+
         Ok(UserTrophySet {
             np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
             np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            trophies: vec![],
+            trophies,
         })
     }
 }

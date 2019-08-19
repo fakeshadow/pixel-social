@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 
 use crate::model::{
-    common::{SelfId, SelfUserId, SelfIdString},
+    common::{SelfId, SelfIdString, SelfUserId},
     errors::ResError,
     post::{Post, PostWithUser},
     user::{AttachUser, User, UserRef},
@@ -101,7 +101,6 @@ impl SelfIdString for Topic {
         self.id.to_string()
     }
 }
-
 
 impl SelfId for Topic {
     fn self_id(&self) -> u32 {
