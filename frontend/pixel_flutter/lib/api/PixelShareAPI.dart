@@ -14,7 +14,7 @@ class PixelShareAPI {
 
   static Future<void> register(
       String username, String password, String email) async {
-    final response = await _http.post(env.url + 'user/register',
+    final response = await _http.post(env.url + 'auth/register',
         headers: {"Content-Type": "application/json"},
         body: json.encode(
             {'username': username, 'password': password, 'email': email}));
@@ -25,7 +25,7 @@ class PixelShareAPI {
   }
 
   static Future<User> login(String username, String password) async {
-    final response = await _http.post(env.url + 'user/login',
+    final response = await _http.post(env.url + 'auth/login',
         headers: {"Content-Type": "application/json"},
         body: json.encode({'username': username, 'password': password}));
 
@@ -46,7 +46,7 @@ class PixelShareAPI {
   }
 
   static Future<List<Category>> getCategories() async {
-    final response = await _http.get(env.url + 'categories',
+    final response = await _http.get(env.url + 'categories?query_type=All',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
 
@@ -66,7 +66,7 @@ class PixelShareAPI {
   }
 
   static Future<List<Topic>> getTopics(int categoryId, int page) async {
-    final response = await _http.get(env.url + 'categories/$categoryId/$page',
+    final response = await _http.get(env.url + 'categories?query_type=Popular&category_id=$categoryId&page=$page',
         headers: {"Content-Type": "application/json"});
     final data = json.decode(response.body) as List;
 

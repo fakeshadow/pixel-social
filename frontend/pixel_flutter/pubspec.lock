@@ -56,21 +56,21 @@ packages:
       name: crypto
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "2.0.6"
+    version: "2.1.1+1"
   dio:
     dependency: "direct main"
     description:
       name: dio
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "2.1.9"
+    version: "2.1.13"
   equatable:
     dependency: "direct main"
     description:
       name: equatable
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "0.2.6"
+    version: "0.4.0"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -82,7 +82,7 @@ packages:
       name: flutter_bloc
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "0.19.0"
+    version: "0.20.1"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -150,7 +150,7 @@ packages:
       name: rxdart
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "0.22.0"
+    version: "0.22.1+1"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -169,7 +169,7 @@ packages:
       name: sqflite
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "1.1.6+1"
+    version: "1.1.6+3"
   stack_trace:
     dependency: transitive
     description:
@@ -232,7 +232,7 @@ packages:
       name: web_socket_channel
       url: "https://pub.dartlang.org"
     source: hosted
-    version: "1.0.14"
+    version: "1.0.15"
 sdks:
   dart: ">=2.2.2 <3.0.0"
   flutter: ">=1.2.1 <2.0.0"

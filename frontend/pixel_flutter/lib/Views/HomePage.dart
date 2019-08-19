@@ -87,7 +87,7 @@ class _HomePageState extends State<HomePage> {
             endDrawer: UserDrawer(),
             body: MultiBlocListener(
               listeners: [
-                BlocListener<ErrorEvent, ErrorState>(
+                BlocListener<ErrorBloc, ErrorState>(
                     bloc: _errorBloc,
                     listener: (BuildContext context, ErrorState state) async {
                       if (state is NoSnack) {
