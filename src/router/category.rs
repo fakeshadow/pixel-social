@@ -1,9 +1,9 @@
 use actix_web::{
-    web::{Data, Query},
-    Error, HttpResponse, ResponseError,
+    Error,
+    HttpResponse, ResponseError, web::{Data, Query},
 };
 use futures::{
-    future::{ok as ft_ok, Either},
+    future::{Either, ok as ft_ok},
     Future,
 };
 
@@ -20,7 +20,7 @@ pub fn query_handler(
     req: Query<CategoryQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match req.query_type {
         QueryType::PopularAll => Either::A(Either::A(
             cache
@@ -54,7 +54,7 @@ fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Topic>, Vec<u32>), ResError>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match result {
         Ok((t, ids)) => Either::A(attach_users_form_res(ids, t, db, cache, false)),
         Err(e) => Either::B(match e {
@@ -74,7 +74,7 @@ fn attach_users_form_res(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     update_t: bool,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     cache.get_users_from_ids(ids).then(move |r| match r {
         Ok(u) => {
             let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));

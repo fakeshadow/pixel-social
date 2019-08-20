@@ -1,11 +1,11 @@
 use std::ops::Deref;
 
 use actix_web::{
-    web::{Data, Query},
-    Error, HttpResponse,
+    Error,
+    HttpResponse, web::{Data, Query},
 };
 use futures::{
-    future::{ok as ft_ok, Either, IntoFuture},
+    future::{Either, IntoFuture, ok as ft_ok},
     Future,
 };
 
@@ -18,7 +18,7 @@ pub fn query_handler(
     req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match req.deref() {
         PSNRequest::Profile { online_id } => Either::A(Either::A(
             cache
@@ -56,13 +56,9 @@ pub fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match req.deref() {
-        PSNRequest::Auth {
-            uuid: _,
-            two_step: _,
-            refresh_token: _,
-        } => Either::A(Either::A(
+        PSNRequest::Auth { .. } => Either::A(Either::A(
             req.into_inner()
                 .check_privilege(jwt.privilege)
                 .into_future()
@@ -76,11 +72,7 @@ pub fn query_handler_with_jwt(
                         .and_then(|_| HttpResponse::Ok().finish())
                 }),
         )),
-        PSNRequest::Activation {
-            user_id: _,
-            online_id: _,
-            code: _,
-        } => Either::A(Either::B(
+        PSNRequest::Activation { .. } => Either::A(Either::B(
             req.into_inner()
                 .attach_user_id(jwt.user_id)
                 .stringify()
@@ -101,7 +93,7 @@ fn handle_response<T: serde::Serialize>(
     r: Result<T, ResError>,
     req: PSNRequest,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future<Item=HttpResponse, Error=Error> {
     match r {
         Ok(u) => Either::A(ft_ok(HttpResponse::Ok().json(&u))),
         Err(_) => Either::B(req.stringify().into_future().from_err().and_then(move |s| {

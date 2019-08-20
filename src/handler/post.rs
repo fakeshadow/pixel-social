@@ -83,7 +83,7 @@ impl CacheService {
         &self,
         ids: Vec<u32>,
     ) -> impl Future<Item = (Vec<Post>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_ids(ids, "post")
+        self.get_cache_with_uids_from_ids(ids, crate::handler::cache::POST_U8)
     }
 
     pub fn get_posts_old(
@@ -94,7 +94,7 @@ impl CacheService {
         self.get_cache_with_uids_from_zrange(
             &format!("topic:{}:posts_time_created", tid),
             page,
-            "post",
+            crate::handler::cache::POST_U8,
         )
     }
 
@@ -106,7 +106,7 @@ impl CacheService {
         self.get_cache_with_uids_from_zrevrange_reverse_lex(
             &format!("topic:{}:posts_reply", tid),
             page,
-            "post",
+            crate::handler::cache::POST_U8,
         )
     }
 }

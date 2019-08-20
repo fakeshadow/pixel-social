@@ -80,6 +80,7 @@ impl SelfIdString for UserPSNProfile {
 pub struct UserTrophyTitle {
     pub np_id: String,
     pub np_communication_id: String,
+    pub is_visible: bool,
     pub progress: u8,
     pub earned_platinum: u8,
     pub earned_gold: u8,
@@ -97,6 +98,7 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
         Ok(UserTrophyTitle {
             np_id: "place_holder".to_string(),
             np_communication_id: t.np_communication_id,
+            is_visible: true,
             progress: t.title_detail.progress,
             earned_platinum: e.platinum as u8,
             earned_gold: e.gold as u8,
@@ -106,7 +108,7 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
                 t.title_detail.last_update_date.as_str(),
                 "%Y-%m-%dT%H:%M:%S%#z",
             )
-            .map_err(|_| ())?,
+                .map_err(|_| ())?,
         })
     }
 }
@@ -115,6 +117,7 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
 pub struct UserTrophySet {
     pub np_id: String,
     pub np_communication_id: String,
+    pub is_visible: bool,
     pub trophies: Vec<UserTrophy>,
 }
 
@@ -160,7 +163,7 @@ pub enum PSNRequest {
         refresh_token: Option<String>,
     },
     Activation {
-        user_id: Option<String>,
+        user_id: Option<u32>,
         online_id: String,
         code: String,
     },
@@ -181,13 +184,13 @@ impl PSNRequest {
 
     pub fn attach_user_id(self, uid: u32) -> Self {
         if let PSNRequest::Activation {
-            user_id: _,
             online_id,
             code,
+            ..
         } = self
         {
             PSNRequest::Activation {
-                user_id: Some(uid.to_string()),
+                user_id: Some(uid),
                 online_id,
                 code,
             }

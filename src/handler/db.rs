@@ -99,7 +99,7 @@ pub trait Query {
 
     /// when folding stream into data struct the error from parsing column are ignored.
     /// We send all the good data to frontend.
-    /// this also applies to simple queries.
+    /// this also applies to simple_query_multi_trait.
     fn query_multi_trait<T>(
         &self,
         st: &Statement,
@@ -141,25 +141,25 @@ impl Query for PSNService {
 pub trait SimpleQuery {
     fn simple_query_single_row_trait<T>(
         &self,
-        q: &str,
-        i: usize,
+        query: &str,
+        column_index: usize,
     ) -> Box<dyn Future<Item=T, Error=ResError>>
         where
             T: std::str::FromStr + 'static,
     {
-        Box::new(self.simple_query_row_trait(q).and_then(move |r| {
-            r.get(i)
-                .ok_or(ResError::BadRequest)?
+        Box::new(self.simple_query_row_trait(query).and_then(move |r| {
+            r.get(column_index)
+                .ok_or(ResError::DataBaseReadError)?
                 .parse::<T>()
                 .map_err(|_| ResError::ParseError)
         }))
     }
 
-    fn simple_query_one_trait<T>(&self, q: &str) -> Box<dyn Future<Item=T, Error=ResError>>
+    fn simple_query_one_trait<T>(&self, query: &str) -> Box<dyn Future<Item=T, Error=ResError>>
         where
             T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
     {
-        Box::new(self.simple_query_row_trait(q).and_then(T::try_from))
+        Box::new(self.simple_query_row_trait(query).and_then(T::try_from))
     }
 
     fn simple_query_multi_trait<T>(
@@ -247,16 +247,16 @@ impl DatabaseService {
                 },
             )
             .map(move |(mut v, uids)| {
-                let mut result = Vec::with_capacity(v.len());
-                for i in 0..ids.len() {
-                    for j in 0..v.len() {
-                        if ids[i] == v[j].self_id() {
-                            result.push(v.swap_remove(j));
-                            break;
+                    let mut result = Vec::with_capacity(v.len());
+                    for id in ids.iter() {
+                        for (i, idv) in v.iter().enumerate() {
+                            if id == &idv.self_id() {
+                                result.push(v.swap_remove(i));
+                                break;
+                            }
                         }
                     }
-                }
-                (result, uids)
+                   (result, uids)
             })
     }
 
@@ -305,6 +305,8 @@ impl TalkService {
 }
 
 // helper functions for build cache on startup
+/// this function will cause a postgres error SqlState("42P01") as we try to load categories table beforehand to prevent unwanted table creation.
+/// it's safe to ignore this error when create db tables.
 pub fn load_all<T>(c: &mut Client, q: &str) -> impl Future<Item=Vec<T>, Error=ResError>
     where
         T: TryFrom<SimpleQueryRow>,

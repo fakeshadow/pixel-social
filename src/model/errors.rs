@@ -109,7 +109,6 @@ impl ResError {
 
 impl From<tokio_postgres::error::Error> for ResError {
     fn from(e: tokio_postgres::error::Error) -> ResError {
-        println!("{:?}", e);
         ResError::BadRequestDb(DatabaseErrorMessage {
             category: None,
             description: e.description().to_string(),

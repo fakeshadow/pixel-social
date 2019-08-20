@@ -79,14 +79,14 @@ impl CacheService {
         cid: u32,
         page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", cid), page, "topic")
+        self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", cid), page, crate::handler::cache::TOPIC_U8)
     }
 
     pub fn get_topics_pop_all(
         &self,
         page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_list("category:all:list_pop", page, "topic")
+        self.get_cache_with_uids_from_list("category:all:list_pop", page, crate::handler::cache::TOPIC_U8)
     }
 
     pub fn get_topics_late(
@@ -97,7 +97,7 @@ impl CacheService {
         self.get_cache_with_uids_from_zrevrange(
             &format!("category:{}:topics_time", cid),
             page,
-            "topic",
+            crate::handler::cache::TOPIC_U8,
         )
     }
 
@@ -105,6 +105,6 @@ impl CacheService {
         &self,
         ids: Vec<u32>,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_ids(ids, "topic")
+        self.get_cache_with_uids_from_ids(ids, crate::handler::cache::TOPIC_U8)
     }
 }

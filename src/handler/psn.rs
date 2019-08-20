@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::time::Duration;
 
-use actix::{ActorFuture, AsyncContext, Context, fut::Either as ActorEither, WrapFuture, WrapStream};
+use actix::{ActorFuture, AsyncContext, Context, fut::Either as ActorEither, WrapFuture};
 use futures::{
     future::{Either, err as ft_err},
     Future, IntoFuture, Stream,
@@ -48,7 +48,7 @@ impl PSNService {
                                     }
                                     PSNRequest::TrophyTitles {
                                         online_id,
-                                        page: _
+                                        ..
                                     } => {
                                         ActorEither::A(ActorEither::A(ActorEither::B(
                                             act.handle_trophy_titles_request(online_id)
@@ -86,9 +86,16 @@ impl PSNService {
                                             .get_profile()
                                             .from_err()
                                             .into_actor(act)
-                                            .and_then(|u: PSNUserLib, act, _| {
-                                                act.update_profile_cache(u.into());
-                                                actix::fut::ok(())
+                                            .and_then(move |u: PSNUserLib, act, _| {
+                                                if u.about_me == code {
+                                                    let mut u = UserPSNProfile::from(u);
+                                                    u.id = user_id;
+                                                    act.update_profile_cache(u);
+                                                    actix::fut::ok(())
+                                                } else {
+                                                    // ToDo: add more error detail and send it through message to user.
+                                                    actix::fut::err(ResError::Unauthorized)
+                                                }
                                             }),
                                     )),
                                 },
@@ -228,6 +235,7 @@ impl PSNService {
                                     actix::fut::ok(UserTrophySet {
                                         np_id: uu.np_id,
                                         np_communication_id,
+                                        is_visible: true,
                                         trophies: set.trophies.iter().map(|t| t.into()).collect(),
                                     })
                                 } else {
@@ -278,21 +286,50 @@ impl PSNService {
         );
         self.simple_query_one_trait(query.as_str())
             .into_actor(self)
-            .then(move |r: Result<UserTrophySet, _>, act, _| {
-                if let Ok(tt) = r {
-                    for t in t.trophies.iter_mut() {
-                        for tt in tt.trophies.iter() {
-                            if t.trophy_id == tt.trophy_id {
-                                if t.earned_date.is_some() && tt.earned_date.is_none() {
-                                    t.first_earned_date = t.earned_date;
+            .then(move |r: Result<UserTrophySet, ResError>, act, _| {
+                match r {
+                    Ok(t_old) => {
+                        // count earned_date from existing user trophy set.
+                        // if the count is reduced then we mark this trophy set not visible.
+                        let mut earned_count = 0;
+                        let mut earned_count_old = 0;
+                        // ToDo: handle case when user hide this trophy set.
+                        for t in t.trophies.iter_mut() {
+                            if t.earned_date.is_some() {
+                                earned_count += 1;
+                            }
+
+                            // iter existing trophy set and keep the first_earned_date if it's Some().
+
+                            for t_old in t_old.trophies.iter() {
+
+                                if t.trophy_id == t_old.trophy_id {
+                                    if t_old.first_earned_date.is_some() {
+                                        earned_count_old += 1;
+                                        t.first_earned_date = t_old.first_earned_date;
+                                        if t.earned_date.is_none() {
+                                            t.earned_date = t_old.earned_date;
+                                        }
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
+
+                        if earned_count < earned_count_old {
+                            t.is_visible = false;
+                        }
+                    }
+                    // if we get rows from db successfully but failed to parse it to data
+                    // then it's better to look into the data before overwriting it with the following upsert
+                    // as we don't want to lose any first_earned_date.
+                    Err(e) => match e {
+                        ResError::DataBaseReadError => return ActorEither::A(actix::fut::err(e)),
+                        ResError::ParseError => return ActorEither::A(actix::fut::err(e)),
+                        _ => {}
                     }
                 };
-
-                act.update_user_trophy_set(&t).into_actor(act)
+                ActorEither::B(act.update_user_trophy_set(&t).into_actor(act))
             })
     }
 
@@ -331,7 +368,8 @@ impl PSNService {
             "}')
             ON CONFLICT (np_id, np_communication_id)
                 DO UPDATE SET
-                    trophy_set = EXCLUDED.trophy_set
+                    trophy_set = EXCLUDED.trophy_set,
+                    is_visible = EXCLUDED.is_visible
                         RETURNING NULL;",
         );
 
@@ -352,11 +390,11 @@ impl PSNService {
                     &[
                         &t.np_id,
                         &t.np_communication_id,
-                        &(t.progress as i32),
-                        &(t.earned_platinum as i32),
-                        &(t.earned_gold as i32),
-                        &(t.earned_silver as i32),
-                        &(t.earned_bronze as i32),
+                        &i32::from(t.progress),
+                        &i32::from(t.earned_platinum),
+                        &i32::from(t.earned_gold),
+                        &i32::from(t.earned_silver),
+                        &i32::from(t.earned_bronze),
                         &t.last_update_date,
                     ],
                 )
@@ -380,7 +418,7 @@ impl PSNService {
                         self.psn
                             .get_refresh_token()
                             .map(String::from)
-                            .unwrap_or("".to_owned()),
+                            .unwrap_or_else(|| "".to_owned()),
                     )
                     .auth()
                     .from_err()

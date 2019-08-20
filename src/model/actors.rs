@@ -253,17 +253,41 @@ impl PSNService {
                         .and_then(|(mut db, conn), act, ctx| {
                             Arbiter::spawn(conn.map_err(|e| panic!("{:?}", e)));
 
+                            // a costly upsert statement as we want to mark user trophy title is_visible to false if for any reason user try to hide this title
+                            // or even a progress reduce
                             let p1 = db.prepare(
                                 "INSERT INTO psn_user_trophy_titles
                                 (np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
                                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                                     ON CONFLICT (np_id, np_communication_id) DO UPDATE SET
-                                        progress=EXCLUDED.progress,
-                                        earned_platinum=EXCLUDED.earned_platinum,
-                                        earned_gold=EXCLUDED.earned_gold,
-                                        earned_silver=EXCLUDED.earned_silver,
-                                        earned_bronze=EXCLUDED.earned_bronze,
-                                        last_update_date=EXCLUDED.last_update_date");
+                                        progress = CASE WHEN psn_user_trophy_titles.progress < EXCLUDED.progress
+                                            THEN EXCLUDED.progress
+                                            ELSE psn_user_trophy_titles.progress
+                                            END,
+                                        earned_platinum = CASE WHEN psn_user_trophy_titles.earned_platinum < EXCLUDED.earned_platinum
+                                            THEN EXCLUDED.earned_platinum
+                                            ELSE psn_user_trophy_titles.earned_platinum
+                                            END,
+                                        earned_gold = CASE WHEN psn_user_trophy_titles.earned_gold < EXCLUDED.earned_gold
+                                            THEN EXCLUDED.earned_gold
+                                            ELSE psn_user_trophy_titles.earned_gold
+                                            END,
+                                        earned_silver = CASE WHEN psn_user_trophy_titles.earned_silver < EXCLUDED.earned_silver
+                                            THEN EXCLUDED.earned_silver
+                                            ELSE psn_user_trophy_titles.earned_silver
+                                            END,
+                                        earned_bronze = CASE WHEN psn_user_trophy_titles.earned_bronze < EXCLUDED.earned_bronze
+                                            THEN EXCLUDED.earned_bronze
+                                            ELSE psn_user_trophy_titles.earned_bronze
+                                            END,
+                                        last_update_date = CASE WHEN psn_user_trophy_titles.last_update_date < EXCLUDED.last_update_date
+                                            THEN EXCLUDED.last_update_date
+                                            ELSE psn_user_trophy_titles.last_update_date
+                                            END,
+                                        is_visible = CASE WHEN psn_user_trophy_titles.progress > EXCLUDED.progress
+                                            THEN FALSE
+                                            ELSE TRUE
+                                            END");
 
                             ctx.wait(
                                 join_all(vec![p1])

@@ -154,7 +154,7 @@ impl TryFrom<SimpleQueryRow> for Post {
                 "%Y-%m-%d %H:%M:%S%.f",
             )?,
             last_reply_time: None,
-            is_locked: r.get(8) == Some("t"),
+            is_locked: r.get(8).ok_or(ResError::DataBaseReadError)? == "t",
             reply_count: None,
         })
     }
@@ -187,8 +187,8 @@ impl TryFrom<SimpleQueryRow> for Topic {
                 r.get(7).ok_or(ResError::DataBaseReadError)?,
                 "%Y-%m-%d %H:%M:%S%.f",
             )?,
-            is_locked: r.get(8) == Some("t"),
-            is_visible: r.get(9) == Some("t"),
+            is_locked: r.get(8).ok_or(ResError::DataBaseReadError)? == "t",
+            is_visible: r.get(9).ok_or(ResError::DataBaseReadError)? == "t",
             last_reply_time: None,
             reply_count: None,
         })
@@ -216,7 +216,7 @@ impl TryFrom<SimpleQueryRow> for User {
                 .get(7)
                 .ok_or(ResError::DataBaseReadError)?
                 .parse::<u32>()?,
-            show_email: r.get(8) == Some("t"),
+            show_email: r.get(8).ok_or(ResError::DataBaseReadError)? == "t",
             online_status: None,
             last_online: None,
         })
@@ -295,13 +295,14 @@ impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
         Ok(UserTrophyTitle {
             np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
             np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            progress: r.get(2).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_platinum: r.get(3).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_gold: r.get(4).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_silver: r.get(5).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_bronze: r.get(6).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
+            progress: r.get(3).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_platinum: r.get(4).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_gold: r.get(5).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_silver: r.get(6).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+            earned_bronze: r.get(7).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
             last_update_date: NaiveDateTime::parse_from_str(
-                r.get(7).ok_or(ResError::DataBaseReadError)?,
+                r.get(8).ok_or(ResError::DataBaseReadError)?,
                 "%Y-%m-%d %H:%M:%S%.f",
             )?,
         })
@@ -311,7 +312,8 @@ impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
 impl TryFrom<SimpleQueryRow> for UserTrophySet {
     type Error = ResError;
     fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let vec = r.get(2).ok_or(ResError::DataBaseReadError)?;
+
+        let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
 
         let len = vec.len();
 
@@ -362,6 +364,7 @@ impl TryFrom<SimpleQueryRow> for UserTrophySet {
         Ok(UserTrophySet {
             np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
             np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
+            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
             trophies,
         })
     }

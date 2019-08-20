@@ -264,6 +264,8 @@ pub fn create_table(postgres_url: &str) -> bool {
     rt.spawn(conn.map_err(|e| panic!("{}", e)));
 
     let query = "SELECT * FROM categories";
+
+
     if rt
         .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .ok()
@@ -375,8 +377,9 @@ CREATE UNIQUE INDEX associates_live_id ON associates (live_id);"
         "
 CREATE TABLE psn_user_trophy_titles
 (
-    np_id                   VARCHAR(32)        NOT NULL,
-    np_communication_id     VARCHAR(32)        NOT NULL,
+    np_id                   VARCHAR(32)         NOT NULL,
+    np_communication_id     VARCHAR(32)         NOT NULL,
+    is_visible              BOOLEAN             NOT NULL DEFAULT TRUE,
     progress                INTEGER             NOT NULL DEFAULT 0,
     earned_platinum         INTEGER             NOT NULL DEFAULT 0,
     earned_gold             INTEGER             NOT NULL DEFAULT 0,
@@ -396,6 +399,7 @@ CREATE TABLE psn_user_trophy_sets
 (
     np_id                   VARCHAR(32)         NOT NULL,
     np_communication_id     VARCHAR(32)         NOT NULL,
+    is_visible              BOOLEAN             NOT NULL DEFAULT TRUE,
     trophy_set              trophy_set[]
 );
 
