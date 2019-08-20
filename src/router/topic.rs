@@ -35,7 +35,7 @@ pub fn add(
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
-                    cache.add_topic(t);
+                    cache.add_topic(&t);
                     res
                 })
         })
@@ -55,7 +55,7 @@ pub fn update(
         .and_then(move |r| {
             db.update_topic(&r).from_err().and_then(move |t| {
                 let res = HttpResponse::Ok().json(&t);
-                cache.update_topics(vec![t]);
+                cache.update_topics(&[t]);
                 res
             })
         })
@@ -182,10 +182,10 @@ fn attach_user_form_res(
         Ok(u) => {
             let res = HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u));
             if update_t {
-                cache.update_topics(t);
+                cache.update_topics(&t);
             }
             if update_p {
-                cache.update_posts(p);
+                cache.update_posts(&p);
             }
             Either::A(ft_ok(res))
         }
@@ -199,13 +199,13 @@ fn attach_user_form_res(
                             &p,
                             &u,
                         ));
-                        cache.update_users(u);
+                        cache.update_users(&u);
 
                         if update_t {
-                            cache.update_topics(t);
+                            cache.update_topics(&t);
                         }
                         if update_p {
-                            cache.update_posts(p);
+                            cache.update_posts(&p);
                         }
                         res
                     }),

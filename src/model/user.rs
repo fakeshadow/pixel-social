@@ -45,7 +45,7 @@ pub trait AttachUser<'u> {
         users
             .iter()
             .filter(|u| u.self_id() == self.self_user_id())
-            .map(|u| u.to_ref())
+            .map(|u| u.to_user_ref())
             .next()
     }
 }
@@ -69,7 +69,7 @@ impl Default for User {
 }
 
 impl User {
-    pub fn to_ref(&self) -> UserRef {
+    pub fn to_user_ref(&self) -> UserRef {
         let email = if self.show_email {
             Some(self.email.as_str())
         } else {

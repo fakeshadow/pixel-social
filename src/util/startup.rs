@@ -39,8 +39,8 @@ pub fn build_cache(
 
     rt.block_on(build_hmsets(
         c_cache.clone(),
-        categories.clone(),
-        "category",
+        &categories,
+        crate::handler::cache::CATEGORY_U8,
         false,
     ))
     .unwrap_or_else(|_| panic!("Failed to update categories sets"));

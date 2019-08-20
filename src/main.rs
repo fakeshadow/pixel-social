@@ -8,7 +8,7 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::System;
-use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
+use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
 
 use dotenv::dotenv;
 
@@ -227,7 +227,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-    .bind(format!("{}:{}", &server_ip, &server_port))?
-    .start();
+        .bind(format!("{}:{}", &server_ip, &server_port))?
+        .start();
     sys.run()
 }

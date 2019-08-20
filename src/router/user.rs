@@ -22,7 +22,7 @@ pub fn get(
         Ok(u) => Either::A(if id == jwt.user_id {
             ft_ok(HttpResponse::Ok().json(u.first()))
         } else {
-            ft_ok(HttpResponse::Ok().json(u.first().map(|u| u.to_ref())))
+            ft_ok(HttpResponse::Ok().json(u.first().map(|u| u.to_user_ref())))
         }),
         Err(_) => Either::B(
             db.get_by_id::<crate::model::user::User>(&db.users_by_id, &[id])
@@ -31,9 +31,9 @@ pub fn get(
                     let res = if id == jwt.user_id {
                         HttpResponse::Ok().json(u.first())
                     } else {
-                        HttpResponse::Ok().json(u.first().map(|u| u.to_ref()))
+                        HttpResponse::Ok().json(u.first().map(|u| u.to_user_ref()))
                     };
-                    cache.update_users(u);
+                    cache.update_users(&u);
                     res
                 }),
         ),
@@ -54,7 +54,7 @@ pub fn update(
         .and_then(move |req| {
             db.update_user(req).from_err().and_then(move |u| {
                 let res = HttpResponse::Ok().json(&u);
-                cache.update_users(vec![u]);
+                cache.update_users(&[u]);
                 res
             })
         })

@@ -46,7 +46,7 @@ pub fn register(
                         .and_then(move |u| {
                             let res = HttpResponse::Ok().json(&u);
                             cache.add_activation_mail(u.clone());
-                            cache.update_users(vec![u]);
+                            cache.update_users(&[u]);
                             res
                         })
                 })
@@ -69,7 +69,7 @@ pub fn activate_by_mail(
                 .and_then(move |u| {
                     //ToDo: sign a new jwt token and return auth response instead of user object.
                     let res = HttpResponse::Ok().json(&u);
-                    cache.update_users(vec![u]);
+                    cache.update_users(&[u]);
                     cache.remove_activation_uuid(uuid.as_str());
                     res
                 })

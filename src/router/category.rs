@@ -42,7 +42,7 @@ pub fn query_handler(
                 Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
                 Err(_) => Either::B(db.get_categories_all().from_err().and_then(move |c| {
                     let res = HttpResponse::Ok().json(&c);
-                    cache.update_categories(c);
+                    cache.update_categories(&c);
                     res
                 })),
             },
@@ -79,7 +79,7 @@ fn attach_users_form_res(
         Ok(u) => {
             let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
             if update_t {
-                cache.update_topics(t);
+                cache.update_topics(&t);
             }
             Either::A(ft_ok(res))
         }
@@ -89,9 +89,9 @@ fn attach_users_form_res(
                     .from_err()
                     .and_then(move |u| {
                         let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
-                        cache.update_users(u);
+                        cache.update_users(&u);
                         if update_t {
-                            cache.update_topics(t);
+                            cache.update_topics(&t);
                         }
                         res
                     }),

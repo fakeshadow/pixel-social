@@ -26,7 +26,7 @@ pub fn add_topic(
         .from_err()
         .and_then(move |t| {
             let res = HttpResponse::Ok().json(&t);
-            cache.add_topic(t);
+            cache.add_topic(&t);
             res
         })
 }
@@ -49,7 +49,7 @@ pub fn add_post(
         .from_err()
         .and_then(move |p| {
             let res = HttpResponse::Ok().json(&p);
-            cache.add_post(p);
+            cache.add_post(&p);
             res
         })
 }

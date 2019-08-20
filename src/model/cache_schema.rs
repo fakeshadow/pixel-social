@@ -1,28 +1,21 @@
-use std::collections::HashMap;
-
 use chrono::NaiveDateTime;
-use redis::{from_redis_value, ErrorKind, FromRedisValue, RedisResult, Value};
+use redis::{ErrorKind, from_redis_value, FromRedisValue, RedisResult, Value};
 
 use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::Topic, user::User};
 
 // any from redis value error will lead to a database query.
 // Cache failure could potential be fixed after that.
 
-const LAST_REPLY_TIME: &[u8] = b"last_reply_time";
-const REPLY_COUNT: &[u8] = b"reply_count";
-const LAST_ONLINE: &[u8] = b"last_online";
-const ONLINE_STATUS: &[u8] = b"online_status";
-
 trait CrateFromRedisValues
-where
-    Self: Sized + Default + FromRedisValue,
+    where
+        Self: Sized + Default + FromRedisValue,
 {
     fn crate_from_redis_values<F>(
         items: &[Value],
         mut attach_perm_fields: F,
     ) -> RedisResult<Vec<Self>>
-    where
-        F: FnMut(&mut Self, &Value) + Sized,
+        where
+            F: FnMut(&mut Self, &[u8], &[u8]) + Sized,
     {
         if items.is_empty() {
             return Err((ErrorKind::ResponseError, "Response is empty"))?;
@@ -37,8 +30,21 @@ where
                 break;
             }
             let mut t: Self = FromRedisValue::from_redis_value(&items[i])?;
-            if let Some(value) = items.get(i + 1) {
-                attach_perm_fields(&mut t, value);
+
+            if let Some(v) = items.get(i + 1) {
+                if let Value::Bulk(ref items) = v {
+                    let mut iter = items.iter();
+
+                    while let Some(k) = iter.next() {
+                        if let Some(v) = iter.next() {
+                            if let Ok(k) = from_redis_value::<Vec<u8>>(k) {
+                                if let Ok(v) = from_redis_value::<Vec<u8>>(v) {
+                                    attach_perm_fields(&mut t, k.as_slice(), v.as_slice())
+                                }
+                            }
+                        }
+                    }
+                }
             }
             vec.push(t);
             i += 2;
@@ -55,9 +61,9 @@ impl CrateFromRedisValues for User {}
 
 trait CrateFromRedisValue {
     fn crate_from_redis_value<F>(v: &Value, mut parse_pattern: F) -> RedisResult<Self>
-    where
-        Self: Default + std::fmt::Debug,
-        F: FnMut(&mut Self, &str, &Value) -> RedisResult<()> + Sized,
+        where
+            Self: Default + std::fmt::Debug,
+            F: FnMut(&mut Self, &[u8], &Value) -> RedisResult<()> + Sized,
     {
         match *v {
             Value::Bulk(ref items) => {
@@ -68,18 +74,12 @@ trait CrateFromRedisValue {
                 let mut t = Self::default();
                 let mut iter = items.iter();
 
-                loop {
-                    let k = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let v = match iter.next() {
-                        Some(v) => v,
-                        None => break,
-                    };
-                    let key: String = from_redis_value(k)?;
-                    if let Err(e) = parse_pattern(&mut t, key.as_str(), v) {
-                        return Err(e);
+                while let Some(k) = iter.next() {
+                    if let Some(v) = iter.next() {
+                        let key: Vec<u8> = from_redis_value(k)?;
+                        if let Err(e) = parse_pattern(&mut t, key.as_slice(), v) {
+                            return Err(e);
+                        }
                     }
                 }
                 Ok(t)
@@ -103,7 +103,7 @@ impl FromRedisValue for Topic {
     fn from_redis_value(v: &Value) -> RedisResult<Topic> {
         Topic::crate_from_redis_value(v, |t, k, v| {
             match k {
-                "topic" => {
+                b"topic" => {
                     let s = from_redis_value::<Vec<u8>>(v)?;
                     let tt = serde_json::from_slice::<Topic>(&s)
                         .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
@@ -125,17 +125,13 @@ impl FromRedisValue for Topic {
     }
     /// use this function when querying topic from pipeline and tupled with perm set.
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<Topic>> {
-        Topic::crate_from_redis_values(items, |t, v| {
-            let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
-            if let Ok(h) = h {
-                t.last_reply_time = match h.get(LAST_REPLY_TIME) {
-                    Some(t) => parse_naive_date_time(&t),
-                    None => None,
-                };
-                t.reply_count = match h.get(REPLY_COUNT) {
-                    Some(c) => parse_count(&c),
-                    None => None,
-                };
+        Topic::crate_from_redis_values(items, |t, k, v| {
+            match k {
+                b"last_reply_time" =>
+                    t.last_reply_time = parse_naive_date_time(&v),
+                b"reply_count" =>
+                    t.reply_count = parse_count(&v),
+                _ => {}
             }
         })
     }
@@ -145,7 +141,7 @@ impl FromRedisValue for Post {
     fn from_redis_value(v: &Value) -> RedisResult<Post> {
         Post::crate_from_redis_value(v, |p, k, v| {
             match k {
-                "post" => {
+                b"post" => {
                     let v = from_redis_value::<Vec<u8>>(v)?;
                     let pp = serde_json::from_slice::<Post>(&v)
                         .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
@@ -166,17 +162,13 @@ impl FromRedisValue for Post {
     }
 
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<Post>> {
-        Post::crate_from_redis_values(items, |p, v| {
-            let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
-            if let Ok(h) = h {
-                p.last_reply_time = match h.get(LAST_REPLY_TIME) {
-                    Some(t) => parse_naive_date_time(&t),
-                    None => None,
-                };
-                p.reply_count = match h.get(REPLY_COUNT) {
-                    Some(c) => parse_count(&c),
-                    None => None,
-                };
+        Post::crate_from_redis_values(items, |p, k, v| {
+            match k {
+                b"last_reply_time" =>
+                    p.last_reply_time = parse_naive_date_time(&v),
+                b"reply_count" =>
+                    p.reply_count = parse_count(&v),
+                _ => {}
             }
         })
     }
@@ -186,7 +178,7 @@ impl FromRedisValue for User {
     fn from_redis_value(v: &Value) -> RedisResult<User> {
         User::crate_from_redis_value(v, |u, k, v| {
             match k {
-                "user" => {
+                b"user" => {
                     let v = from_redis_value::<Vec<u8>>(v)?;
                     let uu = serde_json::from_slice::<User>(&v)
                         .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
@@ -206,17 +198,13 @@ impl FromRedisValue for User {
     }
 
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<User>> {
-        User::crate_from_redis_values(items, |u, v| {
-            let h: Result<HashMap<Vec<u8>, Vec<u8>>, _> = FromRedisValue::from_redis_value(v);
-            if let Ok(h) = h {
-                u.last_online = match h.get(LAST_ONLINE) {
-                    Some(t) => parse_naive_date_time(&t),
-                    None => None,
-                };
-                u.online_status = match h.get(ONLINE_STATUS) {
-                    Some(c) => parse_count(&c),
-                    None => None,
-                };
+        User::crate_from_redis_values(items, |u, k, v| {
+            match k {
+                b"last_online" =>
+                    u.last_online = parse_naive_date_time(&v),
+                b"online_status" =>
+                    u.online_status = parse_count(&v),
+                _ => {}
             }
         })
     }
@@ -226,13 +214,13 @@ impl FromRedisValue for Category {
     fn from_redis_value(v: &Value) -> RedisResult<Category> {
         Category::crate_from_redis_value(v, |c, k, v| {
             match k {
-                "id" => c.id = from_redis_value(v)?,
-                "name" => c.name = from_redis_value(v)?,
-                "thumbnail" => c.thumbnail = from_redis_value(v)?,
-                "topic_count" => c.topic_count = from_redis_value(v).ok(),
-                "post_count" => c.post_count = from_redis_value(v).ok(),
-                "topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
-                "post_count_new" => c.post_count_new = from_redis_value(v).ok(),
+                b"id" => c.id = from_redis_value(v)?,
+                b"name" => c.name = from_redis_value(v)?,
+                b"thumbnail" => c.thumbnail = from_redis_value(v)?,
+                b"topic_count" => c.topic_count = from_redis_value(v).ok(),
+                b"post_count" => c.post_count = from_redis_value(v).ok(),
+                b"topic_count_new" => c.topic_count_new = from_redis_value(v).ok(),
+                b"post_count_new" => c.post_count_new = from_redis_value(v).ok(),
                 _ => return Err((ErrorKind::ResponseError, "Response type not compatible"))?,
             };
             Ok(())
@@ -244,7 +232,7 @@ impl FromRedisValue for UserPSNProfile {
     fn from_redis_value(v: &Value) -> RedisResult<UserPSNProfile> {
         UserPSNProfile::crate_from_redis_value(v, |p, k, v| {
             match k {
-                "profile" => {
+                b"profile" => {
                     let v = from_redis_value::<Vec<u8>>(v)?;
                     let pp = serde_json::from_slice::<crate::model::psn::UserPSNProfile>(&v)
                         .map_err(|_| (ErrorKind::ResponseError, "Response type not compatible"))?;
@@ -271,58 +259,74 @@ impl FromRedisValue for UserPSNProfile {
     }
 }
 
-impl Into<Vec<(&str, Vec<u8>)>> for Topic {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+impl FromRef<Topic> for Vec<(&str, Vec<u8>)> {
+    fn from_ref(t: &Topic) -> Self {
         vec![(
             "topic",
-            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+            serde_json::to_vec(t).unwrap_or_else(|_| [].to_vec()),
         )]
     }
 }
 
-impl Into<Vec<(&str, Vec<u8>)>> for User {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+impl FromRef<User> for Vec<(&str, Vec<u8>)> {
+    fn from_ref(u: &User) -> Self {
         vec![(
             "user",
-            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+            serde_json::to_vec(u).unwrap_or_else(|_| [].to_vec()),
         )]
     }
 }
 
-impl Into<Vec<(&str, Vec<u8>)>> for Post {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+impl FromRef<Post> for Vec<(&str, Vec<u8>)> {
+    fn from_ref(p: &Post) -> Self {
         vec![(
             "post",
-            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+            serde_json::to_vec(p).unwrap_or_else(|_| [].to_vec()),
         )]
     }
 }
 
-impl Into<Vec<(&str, Vec<u8>)>> for Category {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+impl FromRef<Category> for Vec<(&str, Vec<u8>)> {
+    fn from_ref(c: &Category) -> Self {
         vec![
-            ("id", self.id.to_string().into_bytes()),
-            ("name", self.name.into_bytes()),
-            ("thumbnail", self.thumbnail.into_bytes()),
+            ("id", c.id.to_string().into_bytes()),
+            ("name", c.name.as_str().as_bytes().iter().copied().collect()),
+            ("thumbnail", c.thumbnail.as_str().as_bytes().iter().copied().collect()),
         ]
     }
 }
 
-impl Into<Vec<(&str, Vec<u8>)>> for UserPSNProfile {
-    fn into(self) -> Vec<(&'static str, Vec<u8>)> {
+impl FromRef<UserPSNProfile> for Vec<(&str, Vec<u8>)> {
+    fn from_ref(p: &UserPSNProfile) -> Self {
         vec![(
             "profile",
-            serde_json::to_vec(&self).unwrap_or_else(|_| [].to_vec()),
+            serde_json::to_vec(p).unwrap_or_else(|_| [].to_vec()),
         )]
     }
 }
 
+pub trait FromRef<T>: Sized {
+    fn from_ref(t: &T) -> Self;
+}
+
+pub trait RefTo<T>: Sized {
+    fn ref_to(&self) -> T;
+}
+
+impl<T, U> RefTo<U> for T where U: FromRef<T> {
+    fn ref_to(&self) -> U {
+        U::from_ref(self)
+    }
+}
+
+
+//  change to std::str::from_utf8 can get rid of unsafe functions.
 fn parse_naive_date_time(t: &[u8]) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(
         unsafe { std::str::from_utf8_unchecked(t) },
         "%Y-%m-%d %H:%M:%S%.f",
     )
-    .ok()
+        .ok()
 }
 
 fn parse_count(c: &[u8]) -> Option<u32> {

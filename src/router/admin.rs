@@ -24,7 +24,7 @@ pub fn add_category(
             .from_err()
             .and_then(move |c| {
                 let res = HttpResponse::Ok().json(&c);
-                cache.add_category(c);
+                cache.add_category(&c);
                 res
             })
     })
@@ -45,7 +45,7 @@ pub fn update_category(
                 .from_err()
                 .and_then(move |c| {
                     let res = HttpResponse::Ok().json(&c);
-                    cache.update_categories(vec![c]);
+                    cache.update_categories(&[c]);
                     res
                 })
         })
@@ -86,7 +86,7 @@ pub fn update_user(
                 .and_then(move |r| {
                     db.update_user(r).from_err().and_then(move |u| {
                         let res = HttpResponse::Ok().json(&u);
-                        cache.update_users(vec![u]);
+                        cache.update_users(&[u]);
                         res
                     })
                 })
@@ -109,7 +109,7 @@ pub fn update_topic(
                 .from_err()
                 .and_then(move |t| {
                     let res = HttpResponse::Ok().json(&t);
-                    cache.update_topics(vec![t]);
+                    cache.update_topics(&[t]);
                     res
                 })
         })
@@ -131,7 +131,7 @@ pub fn update_post(
                 .from_err()
                 .and_then(move |p| {
                     let res = HttpResponse::Ok().json(&p);
-                    cache.update_posts(vec![p]);
+                    cache.update_posts(&[p]);
                     res
                 })
         })

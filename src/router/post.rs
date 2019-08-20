@@ -37,7 +37,7 @@ pub fn add(
                         .from_err()
                         .and_then(move |p| {
                             let res = HttpResponse::Ok().json(&p);
-                            cache.add_post(p);
+                            cache.add_post(&p);
                             res
                         })
                 })
@@ -58,7 +58,7 @@ pub fn update(
         .and_then(move |req| {
             db.update_post(req).from_err().and_then(move |p| {
                 let res = HttpResponse::Ok().json(&p);
-                cache.update_posts(vec![p]);
+                cache.update_posts(&[p]);
                 res
             })
         })
@@ -91,7 +91,7 @@ fn attach_users_form_res(
         Ok(u) => {
             let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
             if update_p {
-                cache.update_posts(p);
+                cache.update_posts(&p);
             }
             Either::A(ft_ok(res))
         }
@@ -101,9 +101,9 @@ fn attach_users_form_res(
                     .from_err()
                     .and_then(move |u| {
                         let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
-                        cache.update_users(u);
+                        cache.update_users(&u);
                         if update_p {
-                            cache.update_posts(p);
+                            cache.update_posts(&p);
                         }
                         res
                     }),

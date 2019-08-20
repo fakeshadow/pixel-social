@@ -8,15 +8,14 @@ use redis::{aio::SharedConnection, Client, cmd, pipe};
 use crate::{CacheUpdateService, MessageService, PSNService};
 use crate::model::{
     actors::TalkService,
+    cache_schema::RefTo,
     category::Category,
-    common::{SelfId, SelfUserId},
+    common::{SelfId, SelfIdString, SelfUserId},
     errors::ResError,
     post::Post,
-    psn::UserPSNProfile,
     topic::Topic,
     user::User,
 };
-use crate::model::common::SelfIdString;
 
 // page offsets of list query
 const LIMIT: usize = 20;
@@ -34,6 +33,7 @@ pub const CATEGORY_U8: &[u8; 9] = &[99, 97, 116, 101, 103, 111, 114, 121, 58];
 pub const TOPIC_U8: &[u8; 6] = &[116, 111, 112, 105, 99, 58];
 pub const USER_U8: &[u8; 5] = &[117, 115, 101, 114, 58];
 pub const POST_U8: &[u8; 5] = &[112, 111, 115, 116, 58];
+pub const USER_PSN_U8: &[u8; 9] = &[117, 115, 101, 114, 95, 112, 115, 110, 58];
 // u8 from ":set"
 const SET_U8: &[u8; 4] = &[58, 115, 101, 116];
 // u8 from "_perm"
@@ -54,24 +54,20 @@ impl CacheService {
 }
 
 impl CacheService {
-    pub fn update_users(&self, u: Vec<User>) {
-        actix::spawn(build_hmsets(self.get_conn(), u, "user", false));
+    pub fn update_users(&self, u: &[User]) {
+        actix::spawn(build_hmsets(self.get_conn(), u, USER_U8, false));
     }
 
-    pub fn update_categories(&self, u: Vec<Category>) {
-        actix::spawn(build_hmsets(self.get_conn(), u, "category", false));
+    pub fn update_categories(&self, c: &[Category]) {
+        actix::spawn(build_hmsets(self.get_conn(), c, CATEGORY_U8, false));
     }
 
-    pub fn update_topics(&self, t: Vec<Topic>) {
-        actix::spawn(build_hmsets(self.get_conn(), t, "topic", true));
+    pub fn update_topics(&self, t: &[Topic]) {
+        actix::spawn(build_hmsets(self.get_conn(), t, TOPIC_U8, true));
     }
 
-    pub fn update_posts(&self, t: Vec<Post>) {
-        actix::spawn(build_hmsets(self.get_conn(), t, "post", true));
-    }
-
-    pub fn update_user_psn_profile(&self, t: Vec<UserPSNProfile>) {
-        actix::spawn(build_hmsets(self.get_conn(), t, "user_psn_profile", false));
+    pub fn update_posts(&self, t: &[Post]) {
+        actix::spawn(build_hmsets(self.get_conn(), t, POST_U8, true));
     }
 
     pub fn get_hash_map(
@@ -112,7 +108,7 @@ impl CacheService {
         &self,
         zrange_key: &str,
         page: usize,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
             T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
@@ -124,7 +120,7 @@ impl CacheService {
         &self,
         zrange_key: &str,
         page: usize,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
             T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
@@ -136,7 +132,7 @@ impl CacheService {
         &self,
         zrange_key: &str,
         page: usize,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
         is_rev: bool,
         is_reverse_lex: bool,
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
@@ -155,7 +151,7 @@ impl CacheService {
     pub fn get_cache_with_uids_from_ids<T>(
         &self,
         ids: Vec<u32>,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
             T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
@@ -163,7 +159,7 @@ impl CacheService {
         Self::from_cache_with_perm_with_uids(self.get_conn(), ids, set_key)
     }
 
-    pub fn add_topic(&self, t: Topic) {
+    pub fn add_topic(&self, t: &Topic) {
         let mut pip = pipe();
         pip.atomic();
 
@@ -171,7 +167,7 @@ impl CacheService {
         let cid = t.category_id;
         let time = t.created_at.timestamp_millis();
         let key = format!("topic:{}:set", t.self_id());
-        let t: Vec<(&str, Vec<u8>)> = t.into();
+        let t: Vec<(&str, Vec<u8>)> = t.ref_to();
 
         // write hash map set
         pip.cmd("HMSET")
@@ -220,7 +216,7 @@ impl CacheService {
         )
     }
 
-    pub fn add_post(&self, p: Post) {
+    pub fn add_post(&self, p: &Post) {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -233,7 +229,7 @@ impl CacheService {
 
         let post_key = format!("post:{}:set", pid);
         let time = time.timestamp_millis();
-        let p: Vec<(&str, Vec<u8>)> = p.into();
+        let p: Vec<(&str, Vec<u8>)> = p.ref_to();
 
         // write hash map set
         pip.cmd("HMSET")
@@ -340,9 +336,9 @@ impl CacheService {
         )
     }
 
-    pub fn add_category(&self, c: Category) {
+    pub fn add_category(&self, c: &Category) {
         let id = c.id;
-        let c: Vec<(&str, Vec<u8>)> = c.into();
+        let c: Vec<(&str, Vec<u8>)> = c.ref_to();
 
         let mut pip = pipe();
         pip.atomic();
@@ -679,7 +675,7 @@ pub trait FromCache {
     fn from_cache<T>(
         conn: SharedConnection,
         ids: Vec<u32>,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
         have_perm_fields: bool,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
     ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
@@ -731,7 +727,7 @@ impl CacheService {
     fn from_cache_with_perm_with_uids<T>(
         conn: SharedConnection,
         ids: Vec<u32>,
-        set_key:  &'static [u8],
+        set_key: &'static [u8],
     ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
         where
             T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
@@ -788,22 +784,29 @@ impl CategoriesFromCache for CacheUpdateService {}
 
 pub fn build_hmsets<T>(
     conn: SharedConnection,
-    vec: Vec<T>,
-    key: &'static str,
+    vec: &[T],
+    set_key: &'static [u8],
     should_expire: bool,
 ) -> impl Future<Item=(), Error=()>
     where
-        T: SelfIdString + Into<Vec<(&'static str, Vec<u8>)>>,
+        T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>
 {
     let mut pip = pipe();
     pip.atomic();
-    for v in vec.into_iter() {
-        let key = format!("{}:{}:set", key, v.self_id_string());
-        let v: Vec<(&str, Vec<u8>)> = v.into();
 
-        pip.cmd("HMSET").arg(key.as_str()).arg(v).ignore();
+    let mut key = Vec::with_capacity(28);
+    key.extend_from_slice(set_key);
+
+    for v in vec.iter() {
+        let mut key = key.clone();
+        key.extend_from_slice(v.self_id_string().as_bytes());
+        key.extend_from_slice(SET_U8);
+
+        let v = v.ref_to();
+
+        pip.cmd("HMSET").arg(key.as_slice()).arg(v).ignore();
         if should_expire {
-            pip.cmd("expire").arg(key.as_str()).arg(HASH_LIFE).ignore();
+            pip.cmd("expire").arg(key.as_slice()).arg(HASH_LIFE).ignore();
         }
     }
     pip.query_async(conn)
@@ -899,6 +902,7 @@ fn update_post_count(
         })
 }
 
+type ListWithSortedRange = (HashMap<u32, i64>, Vec<(u32, u32)>);
 fn update_list(
     cid: Option<u32>,
     yesterday: i64,
@@ -933,7 +937,7 @@ fn update_list(
         .arg("WITHSCORES");
 
     pip.query_async(conn).from_err().and_then(
-        move |(conn, (tids, counts)): (_, (HashMap<u32, i64>, Vec<(u32, u32)>))| {
+        move |(conn, (tids, counts)): (_, ListWithSortedRange)| {
             let mut counts = counts
                 .into_iter()
                 .filter(|(tid, _)| tids.contains_key(tid))
@@ -1019,7 +1023,7 @@ pub fn build_users_cache(
     for v in vec.into_iter() {
         let key = format!("user:{}:set", v.self_id());
         let key_perm = format!("user:{}:set_perm", v.self_id());
-        let v: Vec<(&str, Vec<u8>)> = v.into();
+        let v: Vec<(&str, Vec<u8>)> = v.ref_to();
 
         pip.cmd("HMSET")
             .arg(key.as_str())

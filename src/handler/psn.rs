@@ -266,8 +266,8 @@ impl PSNService {
     fn update_profile_cache(&self, p: UserPSNProfile) {
         actix::spawn(crate::handler::cache::build_hmsets(
             self.get_conn(),
-            vec![p],
-            "user_psn",
+            &[p],
+            crate::handler::cache::USER_PSN_U8,
             false,
         ));
     }
@@ -302,7 +302,6 @@ impl PSNService {
                             // iter existing trophy set and keep the first_earned_date if it's Some().
 
                             for t_old in t_old.trophies.iter() {
-
                                 if t.trophy_id == t_old.trophy_id {
                                     if t_old.first_earned_date.is_some() {
                                         earned_count_old += 1;
