@@ -77,23 +77,21 @@ fn attach_users_form_res(
 ) -> impl Future<Item = HttpResponse, Error = Error> {
     cache.get_users_from_ids(ids).then(move |r| match r {
         Ok(u) => {
-            let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
             if update_t {
                 cache.update_topics(&t);
             }
-            Either::A(ft_ok(res))
+            Either::A(ft_ok(HttpResponse::Ok().json(Topic::attach_users(&t, &u))))
         }
         Err(e) => Either::B(match e {
             ResError::IdsFromCache(ids) => Either::B(
                 db.get_by_id(&db.users_by_id, &ids)
                     .from_err()
                     .and_then(move |u| {
-                        let res = HttpResponse::Ok().json(Topic::attach_users(&t, &u));
                         cache.update_users(&u);
                         if update_t {
                             cache.update_topics(&t);
                         }
-                        res
+                        HttpResponse::Ok().json(Topic::attach_users(&t, &u))
                     }),
             ),
             _ => Either::A(ft_ok(e.render_response())),

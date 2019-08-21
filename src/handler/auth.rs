@@ -87,7 +87,7 @@ impl DatabaseService {
         use crate::handler::db::SimpleQuery;
         self.simple_query_row_trait(query.as_str())
             .and_then(move |r| {
-                let hash = r.get(3).ok_or(ResError::InternalServerError)?;
+                let hash = r.get(3).ok_or(ResError::DataBaseReadError)?;
                 crate::util::hash::verify_password(req.password.as_str(), hash)?;
 
                 use std::convert::TryFrom;

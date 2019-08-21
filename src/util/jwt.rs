@@ -20,6 +20,7 @@ impl JwtPayLoad {
             privilege,
         }
     }
+
     pub fn from(string: &str) -> Result<JwtPayLoad, ResError> {
         let token: JwtPayLoad =
             decode::<JwtPayLoad>(string, get_secret().as_ref(), &Validation::default())
@@ -31,15 +32,18 @@ impl JwtPayLoad {
             Ok(token)
         }
     }
+
     pub fn sign(&self) -> Result<String, ResError> {
         encode(&Header::default(), &self, get_secret().as_ref())
             .map_err(|_| ResError::InternalServerError)
     }
+
     pub fn check_privilege(&self) -> Result<(), ResError> {
         self.check_active()?;
         self.check_blocked()?;
         Ok(())
     }
+
     pub fn check_active(&self) -> Result<(), ResError> {
         if self.privilege > 1 {
             Ok(())
@@ -47,6 +51,7 @@ impl JwtPayLoad {
             Err(ResError::NotActive)
         }
     }
+
     pub fn check_blocked(&self) -> Result<(), ResError> {
         if self.privilege == 0 {
             Err(ResError::Blocked)

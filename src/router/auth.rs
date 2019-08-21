@@ -67,7 +67,7 @@ pub fn activate_by_mail(
             db.update_user(UpdateRequest::make_active(uid))
                 .from_err()
                 .and_then(move |u| {
-                    //ToDo: sign a new jwt token and return auth response instead of user object.
+                    // request for another login after the activation to update user's jwt token.
                     let res = HttpResponse::Ok().json(&u);
                     cache.update_users(&[u]);
                     cache.remove_activation_uuid(uuid.as_str());

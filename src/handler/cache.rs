@@ -942,7 +942,7 @@ fn update_list(
     pip.query_async(conn).from_err().and_then(
         move |(conn, (HashMapBrown(tids), counts)): (_, ListWithSortedRange)| {
             use std::cmp::Ordering;
-            let now = std::time::Instant::now();
+
             let mut counts = counts
                 .into_iter()
                 .filter(|(tid, _)| tids.contains_key(tid))
@@ -994,9 +994,7 @@ fn update_list(
             }
 
             if should_update {
-                Either::A(pip.query_async(conn).from_err().map(move |(_, ())| {
-                    println!("{:?}", std::time::Instant::now().duration_since(now))
-                }))
+                Either::A(pip.query_async(conn).from_err().map(|(_, ())| ()))
             } else {
                 Either::B(ft_ok(()))
             }

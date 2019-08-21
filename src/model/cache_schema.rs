@@ -7,6 +7,8 @@ use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::T
 // (except the data that only live in redis.They are ignored if for whatever reason they are lost or can't be load.)
 // Cache failure could potential be fixed after that.
 
+// trait to handle pipelined response where every X:X:set key followed by it's X:X:set_perm key.
+// take in a function to pattern match the X:X:set_perm key's fields.
 trait CrateFromRedisValues
 where
     Self: Sized + Default + FromRedisValue,
@@ -62,6 +64,8 @@ impl CrateFromRedisValues for Post {}
 
 impl CrateFromRedisValues for User {}
 
+// trait to handle single key response with multiple fields.
+// take in a function to pattern match each field
 trait CrateFromRedisValue {
     fn crate_from_redis_value<F>(v: &Value, mut parse_pattern: F) -> RedisResult<Self>
     where
@@ -126,7 +130,7 @@ impl FromRedisValue for Topic {
             Ok(())
         })
     }
-    /// use this function when querying topic from pipeline and tupled with perm set.
+
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<Topic>> {
         Topic::crate_from_redis_values(items, |t, k, v| match k {
             b"last_reply_time" => t.last_reply_time = parse_naive_date_time(&v),
@@ -201,6 +205,7 @@ impl FromRedisValue for User {
     }
 }
 
+// from_redis_values is ignored as Category key doesn't have any perm fields.
 impl FromRedisValue for Category {
     fn from_redis_value(v: &Value) -> RedisResult<Category> {
         Category::crate_from_redis_value(v, |c, k, v| {
@@ -280,28 +285,19 @@ where
 
 impl FromRef<Topic> for Vec<(&str, Vec<u8>)> {
     fn from_ref(t: &Topic) -> Self {
-        vec![(
-            "topic",
-            serde_json::to_vec(t).unwrap_or_else(|_| [].to_vec()),
-        )]
+        vec![("topic", serde_json::to_vec(t).unwrap_or_else(|_| vec![]))]
     }
 }
 
 impl FromRef<User> for Vec<(&str, Vec<u8>)> {
     fn from_ref(u: &User) -> Self {
-        vec![(
-            "user",
-            serde_json::to_vec(u).unwrap_or_else(|_| [].to_vec()),
-        )]
+        vec![("user", serde_json::to_vec(u).unwrap_or_else(|_| vec![]))]
     }
 }
 
 impl FromRef<Post> for Vec<(&str, Vec<u8>)> {
     fn from_ref(p: &Post) -> Self {
-        vec![(
-            "post",
-            serde_json::to_vec(p).unwrap_or_else(|_| [].to_vec()),
-        )]
+        vec![("post", serde_json::to_vec(p).unwrap_or_else(|_| vec![]))]
     }
 }
 
@@ -320,10 +316,7 @@ impl FromRef<Category> for Vec<(&str, Vec<u8>)> {
 
 impl FromRef<UserPSNProfile> for Vec<(&str, Vec<u8>)> {
     fn from_ref(p: &UserPSNProfile) -> Self {
-        vec![(
-            "profile",
-            serde_json::to_vec(p).unwrap_or_else(|_| [].to_vec()),
-        )]
+        vec![("profile", serde_json::to_vec(p).unwrap_or_else(|_| vec![]))]
     }
 }
 

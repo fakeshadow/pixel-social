@@ -22,7 +22,7 @@ pub trait SelfUserId {
     fn get_user_id(&self) -> u32;
 }
 
-//ToDo: need to improve validator with regex
+// ToDo: need to improve validator with regex
 pub trait Validator
 where
     Self: Sized,

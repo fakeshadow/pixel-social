@@ -1,6 +1,12 @@
+use std::convert::TryFrom;
+
 use actix::prelude::*;
 use actix_web::{web::Data, Error, HttpResponse};
 
+use crate::handler::cache::CacheService;
+use crate::handler::db::DatabaseService;
+use crate::model::errors::ResError;
+use crate::model::topic::Topic;
 use crate::model::{common::GlobalVars, post::PostRequest, topic::TopicRequest};
 
 pub fn hello_world() -> Result<HttpResponse, Error> {
@@ -54,12 +60,6 @@ pub fn add_post(
         })
 }
 
-use crate::handler::cache::CacheService;
-use crate::handler::db::DatabaseService;
-use crate::model::errors::ResError;
-use crate::model::topic::Topic;
-use std::convert::TryFrom;
-
 pub type Pool = l337::Pool<l337_postgres::PostgresConnectionManager<tokio_postgres::NoTls>>;
 
 pub fn build_pool(sys: &mut actix_rt::SystemRunner) -> Pool {
@@ -87,7 +87,7 @@ pub fn raw(db: Data<DatabaseService>) -> impl Future<Item = HttpResponse, Error 
     db.get_by_id_with_uid(
         &db.topics_by_id,
         vec![
-            1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+            1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
         ],
     )
     .from_err()
@@ -122,8 +122,8 @@ fn test_pool(pool: &Pool) -> impl Future<Item = Vec<Topic>, Error = ResError> {
                         .query(
                             &stmt,
                             &[&vec![
-                                1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-                                19, 20,
+                                1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16,
+                                17, 18, 19,
                             ]],
                         )
                         .fold(Vec::with_capacity(20), move |mut v, r| {
