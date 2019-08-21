@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 use futures::future::join_all;
 
 use actix::prelude::{
-    fut, Actor,Arbiter, ActorContext, ActorFuture, Addr, AsyncContext, Context, ContextFutureSpawner,
-    Future, Running, WrapFuture,
+    fut, Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context,
+    ContextFutureSpawner, Future, Running, WrapFuture,
 };
 use actix_web_actors::ws;
 

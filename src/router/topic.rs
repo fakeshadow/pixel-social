@@ -1,9 +1,9 @@
 use actix_web::{
-    Error,
-    HttpResponse, ResponseError, web::{Data, Json, Query},
+    web::{Data, Json, Query},
+    Error, HttpResponse, ResponseError,
 };
 use futures::{
-    future::{Either, IntoFuture, ok as ft_ok},
+    future::{ok as ft_ok, Either, IntoFuture},
     Future,
 };
 
@@ -21,7 +21,7 @@ pub fn add(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
     global: Data<GlobalVars>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     jwt.check_privilege()
         .into_future()
         .from_err()
@@ -46,7 +46,7 @@ pub fn update(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     req.into_inner()
         .attach_user_id(Some(jwt.user_id))
         .check_update()
@@ -65,7 +65,7 @@ pub fn query_handler(
     req: Query<TopicQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     match req.query_type {
         QueryType::Oldest => Either::A(
             cache
@@ -86,7 +86,7 @@ fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Post>, Vec<u32>), ResError>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     match result {
         Ok((p, ids)) => Either::A({
             if page == 1 {
@@ -106,30 +106,31 @@ fn if_query_db(
             }
         }),
         Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => Either::B(
-                Either::A(
-                    db.get_by_id_with_uid(&db.posts_by_id, ids)
-                        .from_err()
-                        .and_then(move |(p, ids)| {
-                            if page == 1 {
-                                Either::A(get_topic_attach_user_form_res(db, cache, tid, ids, p, true))
-                            } else {
-                                Either::B(attach_user_form_res(db, cache, ids, vec![], p, false, true))
-                            }
-                        }),
-                )
-            ),
-            ResError::NoContent => Either::B(
-                Either::B({
-                    if page == 1 {
-                        Either::A(
-                            get_topic_attach_user_form_res(db, cache, tid, vec![], vec![], false)
-                        )
-                    } else {
-                        Either::B(ft_ok(e.render_response()))
-                    }
-                })
-            ),
+            ResError::IdsFromCache(ids) => Either::B(Either::A(
+                db.get_by_id_with_uid(&db.posts_by_id, ids)
+                    .from_err()
+                    .and_then(move |(p, ids)| {
+                        if page == 1 {
+                            Either::A(get_topic_attach_user_form_res(db, cache, tid, ids, p, true))
+                        } else {
+                            Either::B(attach_user_form_res(db, cache, ids, vec![], p, false, true))
+                        }
+                    }),
+            )),
+            ResError::NoContent => Either::B(Either::B({
+                if page == 1 {
+                    Either::A(get_topic_attach_user_form_res(
+                        db,
+                        cache,
+                        tid,
+                        vec![],
+                        vec![],
+                        false,
+                    ))
+                } else {
+                    Either::B(ft_ok(e.render_response()))
+                }
+            })),
             _ => Either::A(ft_ok(e.render_response())),
         }),
     }
@@ -142,7 +143,7 @@ fn get_topic_attach_user_form_res(
     mut ids: Vec<u32>,
     p: Vec<Post>,
     update_p: bool,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     cache.get_topics_from_ids(vec![tid]).then(move |r| match r {
         Ok((t, mut id)) => {
             ids.append(&mut id);
@@ -177,7 +178,7 @@ fn attach_user_form_res(
     p: Vec<Post>,
     update_t: bool,
     update_p: bool,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     cache.get_users_from_ids(ids).then(move |r| match r {
         Ok(u) => {
             let res = HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u));

@@ -265,7 +265,6 @@ pub fn create_table(postgres_url: &str) -> bool {
 
     let query = "SELECT * FROM categories";
 
-
     if rt
         .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
         .ok()

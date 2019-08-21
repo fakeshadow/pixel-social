@@ -1,17 +1,17 @@
 use std::{cell::RefMut, convert::TryFrom};
 
-use futures::{Future, future::join_all, Stream};
+use futures::{future::join_all, Future, Stream};
 use tokio_postgres::{
-    Client, connect, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement, types::ToSql,
+    connect, types::ToSql, Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 };
 
+use crate::model::actors::PSNService;
 use crate::model::{
     actors::TalkService,
     common::{SelfId, SelfUserId},
     errors::ResError,
     user::AuthRequest,
 };
-use crate::model::actors::PSNService;
 
 // database service is not an actor.
 pub struct DatabaseService {
@@ -25,7 +25,7 @@ pub struct DatabaseService {
 }
 
 impl DatabaseService {
-    pub fn init(postgres_url: &str) -> impl Future<Item=DatabaseService, Error=()> {
+    pub fn init(postgres_url: &str) -> impl Future<Item = DatabaseService, Error = ()> {
         connect(postgres_url, NoTls)
             .map_err(|e| panic!("{:?}", e))
             .and_then(|(mut c, conn)| {
@@ -76,7 +76,7 @@ pub trait Query {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> Box<dyn Stream<Item=Row, Error=ResError>> {
+    ) -> Box<dyn Stream<Item = Row, Error = ResError>> {
         Box::new(self.get_client().query(st, p).from_err())
     }
 
@@ -84,9 +84,9 @@ pub trait Query {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> Box<dyn Future<Item=T, Error=ResError>>
-        where
-            T: TryFrom<Row, Error=ResError> + 'static,
+    ) -> Box<dyn Future<Item = T, Error = ResError>>
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
     {
         Box::new(
             self.query_trait(st, p)
@@ -105,9 +105,9 @@ pub trait Query {
         st: &Statement,
         p: &[&dyn ToSql],
         vec: Vec<T>,
-    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
-        where
-            T: TryFrom<Row, Error=ResError> + 'static,
+    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
     {
         Box::new(self.query_trait(st, p).fold(vec, move |mut vec, r| {
             if let Ok(r) = T::try_from(r) {
@@ -143,9 +143,9 @@ pub trait SimpleQuery {
         &self,
         query: &str,
         column_index: usize,
-    ) -> Box<dyn Future<Item=T, Error=ResError>>
-        where
-            T: std::str::FromStr + 'static,
+    ) -> Box<dyn Future<Item = T, Error = ResError>>
+    where
+        T: std::str::FromStr + 'static,
     {
         Box::new(self.simple_query_row_trait(query).and_then(move |r| {
             r.get(column_index)
@@ -155,9 +155,9 @@ pub trait SimpleQuery {
         }))
     }
 
-    fn simple_query_one_trait<T>(&self, query: &str) -> Box<dyn Future<Item=T, Error=ResError>>
-        where
-            T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
+    fn simple_query_one_trait<T>(&self, query: &str) -> Box<dyn Future<Item = T, Error = ResError>>
+    where
+        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
     {
         Box::new(self.simple_query_row_trait(query).and_then(T::try_from))
     }
@@ -166,9 +166,9 @@ pub trait SimpleQuery {
         &self,
         q: &str,
         vec: Vec<T>,
-    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
-        where
-            T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
+    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
+    where
+        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
     {
         Box::new(self.simple_query_trait(q).fold(vec, move |mut vec, r| {
             if let SimpleQueryMessage::Row(r) = r {
@@ -183,7 +183,7 @@ pub trait SimpleQuery {
     fn simple_query_row_trait(
         &self,
         q: &str,
-    ) -> Box<dyn Future<Item=SimpleQueryRow, Error=ResError>> {
+    ) -> Box<dyn Future<Item = SimpleQueryRow, Error = ResError>> {
         Box::new(
             self.simple_query_trait(q)
                 .into_future()
@@ -201,7 +201,7 @@ pub trait SimpleQuery {
     fn simple_query_trait(
         &self,
         query: &str,
-    ) -> Box<dyn Stream<Item=SimpleQueryMessage, Error=ResError>> {
+    ) -> Box<dyn Stream<Item = SimpleQueryMessage, Error = ResError>> {
         Box::new(self.get_client_simple().simple_query(query).from_err())
     }
 
@@ -231,9 +231,9 @@ impl DatabaseService {
         &self,
         st: &Statement,
         ids: Vec<u32>,
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: SelfUserId + SelfId + TryFrom<Row, Error=ResError> + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: SelfUserId + SelfId + TryFrom<Row, Error = ResError> + 'static,
     {
         self.query_trait(st, &[&ids])
             .fold(
@@ -247,16 +247,16 @@ impl DatabaseService {
                 },
             )
             .map(move |(mut v, uids)| {
-                    let mut result = Vec::with_capacity(v.len());
-                    for id in ids.iter() {
-                        for (i, idv) in v.iter().enumerate() {
-                            if id == &idv.self_id() {
-                                result.push(v.swap_remove(i));
-                                break;
-                            }
+                let mut result = Vec::with_capacity(v.len());
+                for id in ids.iter() {
+                    for (i, idv) in v.iter().enumerate() {
+                        if id == &idv.self_id() {
+                            result.push(v.swap_remove(i));
+                            break;
                         }
                     }
-                   (result, uids)
+                }
+                (result, uids)
             })
     }
 
@@ -264,9 +264,9 @@ impl DatabaseService {
         &self,
         st: &Statement,
         ids: &[u32],
-    ) -> impl Future<Item=Vec<T>, Error=ResError>
-        where
-            T: TryFrom<Row, Error=ResError> + 'static,
+    ) -> impl Future<Item = Vec<T>, Error = ResError>
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
     {
         self.query_multi_trait(st, &[&ids], Vec::with_capacity(21))
     }
@@ -275,7 +275,7 @@ impl DatabaseService {
         &self,
         q: &str,
         req: AuthRequest,
-    ) -> impl Future<Item=AuthRequest, Error=ResError> {
+    ) -> impl Future<Item = AuthRequest, Error = ResError> {
         self.simple_query_row_trait(q).then(|r| {
             if let Ok(r) = r {
                 if let Some(r) = r.get(0) {
@@ -296,9 +296,9 @@ impl TalkService {
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> impl Future<Item=Vec<T>, Error=ResError>
-        where
-            T: TryFrom<Row, Error=ResError> + 'static,
+    ) -> impl Future<Item = Vec<T>, Error = ResError>
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
     {
         self.query_multi_trait(st, p, Vec::with_capacity(20))
     }
@@ -307,9 +307,9 @@ impl TalkService {
 // helper functions for build cache on startup
 /// this function will cause a postgres error SqlState("42P01") as we try to load categories table beforehand to prevent unwanted table creation.
 /// it's safe to ignore this error when create db tables.
-pub fn load_all<T>(c: &mut Client, q: &str) -> impl Future<Item=Vec<T>, Error=ResError>
-    where
-        T: TryFrom<SimpleQueryRow>,
+pub fn load_all<T>(c: &mut Client, q: &str) -> impl Future<Item = Vec<T>, Error = ResError>
+where
+    T: TryFrom<SimpleQueryRow>,
 {
     c.simple_query(&q)
         .from_err()
@@ -327,9 +327,9 @@ pub fn simple_query_single_row_handler<T>(
     c: &mut Client,
     query: &str,
     index: usize,
-) -> impl Future<Item=T, Error=ResError>
-    where
-        T: std::str::FromStr,
+) -> impl Future<Item = T, Error = ResError>
+where
+    T: std::str::FromStr,
 {
     c.simple_query(&query)
         .from_err()

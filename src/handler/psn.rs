@@ -2,12 +2,12 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::time::Duration;
 
-use actix::{ActorFuture, AsyncContext, Context, fut::Either as ActorEither, WrapFuture};
+use actix::{fut::Either as ActorEither, ActorFuture, AsyncContext, Context, WrapFuture};
 use futures::{
-    future::{Either, err as ft_err},
+    future::{err as ft_err, Either},
     Future, IntoFuture, Stream,
 };
-use psn_api_rs::{PSN, PSNRequest as PSNRequestLib};
+use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
 
 use crate::handler::{
     cache::{CacheService, GetQueue, GetSharedConn},
@@ -117,7 +117,7 @@ impl PSNService {
         uuid: Option<String>,
         two_step: Option<String>,
         refresh_token: Option<String>,
-    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
+    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
         let mut psn = PSN::new();
 
         if let Some(uuid) = uuid {
@@ -140,7 +140,7 @@ impl PSNService {
     fn handle_trophy_titles_request(
         &mut self,
         online_id: String,
-    ) -> impl ActorFuture<Item=Vec<UserTrophyTitle>, Actor=Self, Error=ResError> {
+    ) -> impl ActorFuture<Item = Vec<UserTrophyTitle>, Actor = Self, Error = ResError> {
         // get profile before and after getting titles and check if the user's np_id remains unchanged.
         self.psn
             .add_online_id(online_id)
@@ -216,7 +216,7 @@ impl PSNService {
         &mut self,
         online_id: String,
         np_communication_id: String,
-    ) -> impl ActorFuture<Item=UserTrophySet, Actor=Self, Error=ResError> {
+    ) -> impl ActorFuture<Item = UserTrophySet, Actor = Self, Error = ResError> {
         self.psn
             .add_online_id(online_id)
             .get_profile()
@@ -251,7 +251,7 @@ impl PSNService {
     fn handle_profile_request(
         &mut self,
         online_id: String,
-    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
+    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
         self.psn
             .add_online_id(online_id)
             .get_profile()
@@ -278,7 +278,7 @@ impl PSNService {
     fn query_update_user_trophy_set(
         &self,
         mut t: UserTrophySet,
-    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
+    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}';",
             t.np_id.as_str(),
@@ -326,7 +326,7 @@ impl PSNService {
                         ResError::DataBaseReadError => return ActorEither::A(actix::fut::err(e)),
                         ResError::ParseError => return ActorEither::A(actix::fut::err(e)),
                         _ => {}
-                    }
+                    },
                 };
                 ActorEither::B(act.update_user_trophy_set(&t).into_actor(act))
             })
@@ -335,7 +335,7 @@ impl PSNService {
     fn update_user_trophy_set(
         &self,
         t: &UserTrophySet,
-    ) -> impl Future<Item=(), Error=ResError> {
+    ) -> impl Future<Item = (), Error = ResError> {
         let mut query = String::new();
 
         let _ = write!(
@@ -378,7 +378,7 @@ impl PSNService {
     fn update_user_trophy_titles(
         &mut self,
         t: &[UserTrophyTitle],
-    ) -> impl Future<Item=(), Error=ResError> {
+    ) -> impl Future<Item = (), Error = ResError> {
         let mut v = Vec::with_capacity(t.len());
 
         for t in t.iter() {
@@ -409,7 +409,7 @@ impl PSNService {
             .map(|_| ())
     }
 
-    fn check_token(&self) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
+    fn check_token(&self) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
         if self.psn.should_refresh() {
             ActorEither::A(
                 PSN::new()
@@ -438,7 +438,7 @@ impl DatabaseService {
         &self,
         np_id: &str,
         page: u32,
-    ) -> impl Future<Item=Vec<UserTrophyTitle>, Error=ResError> {
+    ) -> impl Future<Item = Vec<UserTrophyTitle>, Error = ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_titles WHERE np_id='{}' ORDER BY last_update_date DESC OFFSET {} LIMIT 20",
             np_id,
@@ -459,7 +459,7 @@ impl DatabaseService {
         &self,
         np_id: &str,
         np_communication_id: &str,
-    ) -> impl Future<Item=UserTrophySet, Error=ResError> {
+    ) -> impl Future<Item = UserTrophySet, Error = ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}'",
             np_id, np_communication_id
@@ -473,7 +473,7 @@ impl CacheService {
     pub fn get_psn_profile(
         &self,
         online_id: &str,
-    ) -> impl Future<Item=UserPSNProfile, Error=ResError> {
+    ) -> impl Future<Item = UserPSNProfile, Error = ResError> {
         use crate::handler::cache::FromCacheSingle;
         self.from_cache_single(online_id, "user_psn")
     }

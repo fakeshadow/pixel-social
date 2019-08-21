@@ -1,5 +1,4 @@
 use actix_web::{dev, FromRequest, HttpRequest};
-
 use futures::{
     future::{err as ft_err, Either},
     Future,
@@ -102,8 +101,10 @@ impl DatabaseService {
 
 impl CacheService {
     pub fn get_uid_from_uuid(&self, uuid: &str) -> impl Future<Item = u32, Error = ResError> {
-        self.get_hash_map(uuid).and_then(|hm| {
+        use crate::handler::cache::HashMapBrownFromCache;
+        self.hash_map_brown_from_cache(uuid).and_then(|hm| {
             Ok(hm
+                .0
                 .get("user_id")
                 .ok_or(ResError::Unauthorized)?
                 .parse::<u32>()?)

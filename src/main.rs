@@ -8,7 +8,7 @@ extern crate serde_derive;
 use std::env;
 
 use actix::prelude::System;
-use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
+use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
 
 use dotenv::dotenv;
 
@@ -166,9 +166,10 @@ fn main() -> std::io::Result<()> {
                         web::resource("/update").route(web::post().to_async(router::topic::update)),
                     )
                     .service(
-                        web::resource("").route(web::get().to_async(router::topic::query_handler)),
-                    )
-                    .service(web::resource("").route(web::post().to_async(router::topic::add))),
+                        web::resource("")
+                            .route(web::get().to_async(router::topic::query_handler))
+                            .route(web::post().to_async(router::topic::add)),
+                    ),
             )
             .service(web::scope("/categories").service(
                 web::resource("").route(web::get().to_async(router::category::query_handler)),
@@ -227,7 +228,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-        .bind(format!("{}:{}", &server_ip, &server_port))?
-        .start();
+    .bind(format!("{}:{}", &server_ip, &server_port))?
+    .start();
     sys.run()
 }

@@ -1,11 +1,11 @@
 use std::ops::Deref;
 
 use actix_web::{
-    Error,
-    HttpResponse, web::{Data, Query},
+    web::{Data, Query},
+    Error, HttpResponse,
 };
 use futures::{
-    future::{Either, IntoFuture, ok as ft_ok},
+    future::{ok as ft_ok, Either, IntoFuture},
     Future,
 };
 
@@ -18,7 +18,7 @@ pub fn query_handler(
     req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     match req.deref() {
         PSNRequest::Profile { online_id } => Either::A(Either::A(
             cache
@@ -56,7 +56,7 @@ pub fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     match req.deref() {
         PSNRequest::Auth { .. } => Either::A(Either::A(
             req.into_inner()
@@ -93,7 +93,7 @@ fn handle_response<T: serde::Serialize>(
     r: Result<T, ResError>,
     req: PSNRequest,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     match r {
         Ok(u) => Either::A(ft_ok(HttpResponse::Ok().json(&u))),
         Err(_) => Either::B(req.stringify().into_future().from_err().and_then(move |s| {

@@ -108,7 +108,7 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
                 t.title_detail.last_update_date.as_str(),
                 "%Y-%m-%dT%H:%M:%S%#z",
             )
-                .map_err(|_| ())?,
+            .map_err(|_| ())?,
         })
     }
 }
@@ -184,9 +184,7 @@ impl PSNRequest {
 
     pub fn attach_user_id(self, uid: u32) -> Self {
         if let PSNRequest::Activation {
-            online_id,
-            code,
-            ..
+            online_id, code, ..
         } = self
         {
             PSNRequest::Activation {

@@ -1,30 +1,33 @@
 use chrono::NaiveDateTime;
-use redis::{ErrorKind, from_redis_value, FromRedisValue, RedisResult, Value};
+use redis::{from_redis_value, ErrorKind, FromRedisValue, RedisResult, Value};
 
 use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::Topic, user::User};
 
 // any from redis value error will lead to a database query.
+// (except the data that only live in redis.They are ignored if for whatever reason they are lost or can't be load.)
 // Cache failure could potential be fixed after that.
 
 trait CrateFromRedisValues
-    where
-        Self: Sized + Default + FromRedisValue,
+where
+    Self: Sized + Default + FromRedisValue,
 {
     fn crate_from_redis_values<F>(
         items: &[Value],
         mut attach_perm_fields: F,
     ) -> RedisResult<Vec<Self>>
-        where
-            F: FnMut(&mut Self, &[u8], &[u8]) + Sized,
+    where
+        F: FnMut(&mut Self, &[u8], &[u8]) + Sized,
     {
         if items.is_empty() {
             return Err((ErrorKind::ResponseError, "Response is empty"))?;
         }
 
         let len = items.len();
-        let mut vec = Vec::with_capacity(20);
+
+        let mut vec = Vec::with_capacity(len);
 
         let mut i = 0usize;
+
         loop {
             if i >= len {
                 break;
@@ -32,7 +35,7 @@ trait CrateFromRedisValues
             let mut t: Self = FromRedisValue::from_redis_value(&items[i])?;
 
             if let Some(v) = items.get(i + 1) {
-                if let Value::Bulk(ref items) = v {
+                if let Value::Bulk(ref items) = *v {
                     let mut iter = items.iter();
 
                     while let Some(k) = iter.next() {
@@ -61,9 +64,9 @@ impl CrateFromRedisValues for User {}
 
 trait CrateFromRedisValue {
     fn crate_from_redis_value<F>(v: &Value, mut parse_pattern: F) -> RedisResult<Self>
-        where
-            Self: Default + std::fmt::Debug,
-            F: FnMut(&mut Self, &[u8], &Value) -> RedisResult<()> + Sized,
+    where
+        Self: Default + std::fmt::Debug,
+        F: FnMut(&mut Self, &[u8], &Value) -> RedisResult<()> + Sized,
     {
         match *v {
             Value::Bulk(ref items) => {
@@ -125,14 +128,10 @@ impl FromRedisValue for Topic {
     }
     /// use this function when querying topic from pipeline and tupled with perm set.
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<Topic>> {
-        Topic::crate_from_redis_values(items, |t, k, v| {
-            match k {
-                b"last_reply_time" =>
-                    t.last_reply_time = parse_naive_date_time(&v),
-                b"reply_count" =>
-                    t.reply_count = parse_count(&v),
-                _ => {}
-            }
+        Topic::crate_from_redis_values(items, |t, k, v| match k {
+            b"last_reply_time" => t.last_reply_time = parse_naive_date_time(&v),
+            b"reply_count" => t.reply_count = parse_count(&v),
+            _ => {}
         })
     }
 }
@@ -162,14 +161,10 @@ impl FromRedisValue for Post {
     }
 
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<Post>> {
-        Post::crate_from_redis_values(items, |p, k, v| {
-            match k {
-                b"last_reply_time" =>
-                    p.last_reply_time = parse_naive_date_time(&v),
-                b"reply_count" =>
-                    p.reply_count = parse_count(&v),
-                _ => {}
-            }
+        Post::crate_from_redis_values(items, |p, k, v| match k {
+            b"last_reply_time" => p.last_reply_time = parse_naive_date_time(&v),
+            b"reply_count" => p.reply_count = parse_count(&v),
+            _ => {}
         })
     }
 }
@@ -198,14 +193,10 @@ impl FromRedisValue for User {
     }
 
     fn from_redis_values(items: &[Value]) -> RedisResult<Vec<User>> {
-        User::crate_from_redis_values(items, |u, k, v| {
-            match k {
-                b"last_online" =>
-                    u.last_online = parse_naive_date_time(&v),
-                b"online_status" =>
-                    u.online_status = parse_count(&v),
-                _ => {}
-            }
+        User::crate_from_redis_values(items, |u, k, v| match k {
+            b"last_online" => u.last_online = parse_naive_date_time(&v),
+            b"online_status" => u.online_status = parse_count(&v),
+            _ => {}
         })
     }
 }
@@ -259,6 +250,34 @@ impl FromRedisValue for UserPSNProfile {
     }
 }
 
+// work around to impl FromRedisValue for hashbrown::HashMap
+pub struct HashMapBrown<K, V>(pub hashbrown::HashMap<K, V>);
+
+impl<K, V> FromRedisValue for HashMapBrown<K, V>
+where
+    K: std::hash::Hash + FromRedisValue + Eq,
+    V: FromRedisValue,
+{
+    fn from_redis_value(v: &Value) -> RedisResult<HashMapBrown<K, V>> {
+        match *v {
+            Value::Bulk(ref items) => {
+                let mut rv = hashbrown::HashMap::default();
+                let mut iter = items.iter();
+                while let Some(k) = iter.next() {
+                    if let Some(v) = iter.next() {
+                        rv.insert(from_redis_value(k)?, from_redis_value(v)?);
+                    }
+                }
+                Ok(HashMapBrown(rv))
+            }
+            _ => Err((
+                ErrorKind::ResponseError,
+                "Response type not hashbrown::HashMap compatible",
+            ))?,
+        }
+    }
+}
+
 impl FromRef<Topic> for Vec<(&str, Vec<u8>)> {
     fn from_ref(t: &Topic) -> Self {
         vec![(
@@ -291,7 +310,10 @@ impl FromRef<Category> for Vec<(&str, Vec<u8>)> {
         vec![
             ("id", c.id.to_string().into_bytes()),
             ("name", c.name.as_str().as_bytes().iter().copied().collect()),
-            ("thumbnail", c.thumbnail.as_str().as_bytes().iter().copied().collect()),
+            (
+                "thumbnail",
+                c.thumbnail.as_str().as_bytes().iter().copied().collect(),
+            ),
         ]
     }
 }
@@ -313,12 +335,14 @@ pub trait RefTo<T>: Sized {
     fn ref_to(&self) -> T;
 }
 
-impl<T, U> RefTo<U> for T where U: FromRef<T> {
+impl<T, U> RefTo<U> for T
+where
+    U: FromRef<T>,
+{
     fn ref_to(&self) -> U {
         U::from_ref(self)
     }
 }
-
 
 //  change to std::str::from_utf8 can get rid of unsafe functions.
 fn parse_naive_date_time(t: &[u8]) -> Option<NaiveDateTime> {
@@ -326,7 +350,7 @@ fn parse_naive_date_time(t: &[u8]) -> Option<NaiveDateTime> {
         unsafe { std::str::from_utf8_unchecked(t) },
         "%Y-%m-%d %H:%M:%S%.f",
     )
-        .ok()
+    .ok()
 }
 
 fn parse_count(c: &[u8]) -> Option<u32> {

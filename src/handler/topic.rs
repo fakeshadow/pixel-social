@@ -79,14 +79,22 @@ impl CacheService {
         cid: u32,
         page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_list(&format!("category:{}:list_pop", cid), page, crate::handler::cache::TOPIC_U8)
+        self.get_cache_with_uids_from_list(
+            &format!("category:{}:list_pop", cid),
+            page,
+            crate::handler::cache::TOPIC_U8,
+        )
     }
 
     pub fn get_topics_pop_all(
         &self,
         page: usize,
     ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
-        self.get_cache_with_uids_from_list("category:all:list_pop", page, crate::handler::cache::TOPIC_U8)
+        self.get_cache_with_uids_from_list(
+            "category:all:list_pop",
+            page,
+            crate::handler::cache::TOPIC_U8,
+        )
     }
 
     pub fn get_topics_late(

@@ -3,6 +3,7 @@ use std::convert::TryFrom;
 use chrono::NaiveDateTime;
 use tokio_postgres::{Row, SimpleQueryRow};
 
+use crate::model::psn::{UserTrophy, UserTrophySet};
 use crate::model::{
     category::Category,
     errors::ResError,
@@ -12,7 +13,6 @@ use crate::model::{
     topic::Topic,
     user::User,
 };
-use crate::model::psn::{UserTrophy, UserTrophySet};
 
 impl TryFrom<Row> for User {
     type Error = ResError;
@@ -312,7 +312,6 @@ impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
 impl TryFrom<SimpleQueryRow> for UserTrophySet {
     type Error = ResError;
     fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-
         let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
 
         let len = vec.len();
@@ -337,7 +336,7 @@ impl TryFrom<SimpleQueryRow> for UserTrophySet {
                         None
                     }
                 }
-                None => None
+                None => None,
             };
 
             let first_earned_date = match v.get(2) {
@@ -349,16 +348,14 @@ impl TryFrom<SimpleQueryRow> for UserTrophySet {
                         None
                     }
                 }
-                None => None
+                None => None,
             };
 
-            trophies.push(
-                UserTrophy {
-                    trophy_id: v.get(0).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-                    earned_date,
-                    first_earned_date,
-                }
-            )
+            trophies.push(UserTrophy {
+                trophy_id: v.get(0).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
+                earned_date,
+                first_earned_date,
+            })
         }
 
         Ok(UserTrophySet {
