@@ -197,3 +197,8 @@ impl PSNRequest {
         }
     }
 }
+
+//#[derive(Deserialize)]
+//pub struct PSNGameMeta {
+//    pub
+//}

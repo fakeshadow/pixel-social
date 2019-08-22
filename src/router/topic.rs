@@ -25,18 +25,21 @@ pub fn add(
     jwt.check_privilege()
         .into_future()
         .from_err()
-        .and_then(move |_| {
+        .and_then(move |()| {
             req.into_inner()
                 .attach_user_id(Some(jwt.user_id))
                 .check_new()
                 .into_future()
-                .from_err()
-                .and_then(move |req| db.add_topic(&req, global.get_ref()))
-                .from_err()
-                .and_then(move |t| {
-                    cache.add_topic(&t);
-                    HttpResponse::Ok().json(&t)
+                .and_then(move |req| {
+                    db.check_conn().and_then(move |opt| {
+                        db.if_replace_db(opt).add_topic(&req, global.get_ref())
+                    })
                 })
+        })
+        .from_err()
+        .and_then(move |t| {
+            cache.add_topic(&t);
+            HttpResponse::Ok().json(&t)
         })
 }
 
@@ -52,11 +55,14 @@ pub fn update(
         .into_future()
         .from_err()
         .and_then(move |r| {
-            db.update_topic(&r).from_err().and_then(move |t| {
-                let res = HttpResponse::Ok().json(&t);
-                cache.update_topics(&[t]);
-                res
-            })
+            db.check_conn()
+                .and_then(move |opt| db.if_replace_db(opt).update_topic(&r))
+        })
+        .from_err()
+        .and_then(move |t| {
+            let res = HttpResponse::Ok().json(&t);
+            cache.update_topics(&[t]);
+            res
         })
 }
 
@@ -106,7 +112,7 @@ fn if_query_db(
         }),
         Err(e) => Either::B(match e {
             ResError::IdsFromCache(ids) => Either::B(Either::A(
-                db.get_by_id_with_uid(&db.posts_by_id, ids)
+                db.get_posts_by_id_with_uid(ids)
                     .from_err()
                     .and_then(move |(p, ids)| {
                         if page == 1 {
@@ -150,7 +156,7 @@ fn get_topic_attach_user_form_res(
         }
         Err(e) => Either::B(match e {
             ResError::IdsFromCache(tids) => Either::A(
-                db.get_by_id_with_uid(&db.topics_by_id, tids)
+                db.get_topics_by_id_with_uid(tids)
                     .and_then(|(t, i)| {
                         if t.is_empty() {
                             Err(ResError::NoContent)
@@ -191,21 +197,19 @@ fn attach_user_form_res(
             ))
         }
         Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => Either::B(
-                db.get_by_id(&db.users_by_id, &ids)
-                    .from_err()
-                    .and_then(move |u| {
-                        cache.update_users(&u);
+            ResError::IdsFromCache(ids) => {
+                Either::B(db.get_users_by_id(&ids).from_err().and_then(move |u| {
+                    cache.update_users(&u);
 
-                        if update_t {
-                            cache.update_topics(&t);
-                        }
-                        if update_p {
-                            cache.update_posts(&p);
-                        }
-                        HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u))
-                    }),
-            ),
+                    if update_t {
+                        cache.update_topics(&t);
+                    }
+                    if update_p {
+                        cache.update_posts(&p);
+                    }
+                    HttpResponse::Ok().json(Topic::attach_users_with_post(t.first(), &p, &u))
+                }))
+            }
             _ => Either::A(ft_ok(e.render_response())),
         }),
     })

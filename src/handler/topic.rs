@@ -23,7 +23,7 @@ impl DatabaseService {
 
         use crate::handler::db::Query;
         Either::B(self.query_one_trait(
-            &self.insert_topic,
+            &self.insert_topic.borrow(),
             &[
                 &id,
                 t.user_id.as_ref().unwrap(),
@@ -70,6 +70,13 @@ impl DatabaseService {
 
         use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
+    }
+
+    pub fn get_topics_by_id_with_uid(
+        &self,
+        ids: Vec<u32>,
+    ) -> impl Future<Item = (Vec<Topic>, Vec<u32>), Error = ResError> {
+        self.get_by_id_with_uid(&self.topics_by_id.borrow(), ids)
     }
 }
 

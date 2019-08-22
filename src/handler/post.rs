@@ -1,10 +1,10 @@
+use std::fmt::Write;
+
+use chrono::Utc;
 use futures::{
     future::{err as ft_err, Either},
     Future,
 };
-use std::fmt::Write;
-
-use chrono::Utc;
 
 use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{
@@ -28,7 +28,7 @@ impl DatabaseService {
 
         use crate::handler::db::Query;
         Either::B(self.query_one_trait(
-            &self.insert_post,
+            &self.insert_post.borrow(),
             &[
                 &id,
                 p.user_id.as_ref().unwrap(),
@@ -75,6 +75,13 @@ impl DatabaseService {
 
         use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
+    }
+
+    pub fn get_posts_by_id_with_uid(
+        &self,
+        ids: Vec<u32>,
+    ) -> impl Future<Item = (Vec<Post>, Vec<u32>), Error = ResError> {
+        self.get_by_id_with_uid(&self.posts_by_id.borrow(), ids)
     }
 }
 

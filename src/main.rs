@@ -199,6 +199,10 @@ fn main() -> std::io::Result<()> {
                             .route(web::get().to_async(router::psn::query_handler_with_jwt)),
                     )
                     .service(
+                        web::resource("/community")
+                            .route(web::get().to_async(router::psn::community)),
+                    )
+                    .service(
                         web::resource("").route(web::get().to_async(router::psn::query_handler)),
                     ),
             )

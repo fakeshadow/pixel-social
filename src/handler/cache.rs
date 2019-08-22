@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use std::time::Duration;
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use chrono::{NaiveDateTime, Utc};
 use futures::future::{join_all, ok as ft_ok, Either};
+use futures::IntoFuture;
 use redis::{aio::SharedConnection, cmd, pipe, Client};
 
 use crate::model::cache_schema::HashMapBrown;
@@ -41,16 +43,62 @@ const SET_U8: &[u8; 4] = &[58, 115, 101, 116];
 const PERM_U8: &[u8; 5] = &[95, 112, 101, 114, 109];
 
 pub struct CacheService {
-    pub cache: SharedConnection,
+    pub url: String,
+    pub cache: RefCell<SharedConnection>,
+}
+
+pub trait CheckCacheConn
+where
+    Self: GetSharedConn,
+{
+    fn check_conn(&self) -> Box<dyn Future<Item = Option<SharedConnection>, Error = ResError>> {
+        let url = self.self_url();
+        Box::new(
+            redis::cmd("PING")
+                .query_async(self.get_conn())
+                .map(|(_, ())| None)
+                .or_else(move |_| {
+                    Client::open(url.as_str())
+                        .into_future()
+                        .and_then(|c| c.get_shared_async_connection().map(|c| Some(c)))
+                })
+                .from_err(),
+        )
+    }
+
+    fn if_replace_cache(&self, opt: Option<SharedConnection>) -> &Self {
+        if let Some(c) = opt {
+            self.replace_cache(c);
+        }
+        self
+    }
+
+    fn self_url(&self) -> String;
+
+    fn replace_cache(&self, c: SharedConnection);
+}
+
+impl CheckCacheConn for CacheService {
+    fn self_url(&self) -> String {
+        self.url.to_owned()
+    }
+
+    fn replace_cache(&self, c: SharedConnection) {
+        self.cache.replace(c);
+    }
 }
 
 impl CacheService {
     pub fn init(redis_url: &str) -> impl Future<Item = CacheService, Error = ()> {
+        let url = redis_url.to_owned();
         Client::open(redis_url)
             .unwrap_or_else(|e| panic!("{:?}", e))
             .get_shared_async_connection()
             .map_err(|e| panic!("{:?}", e))
-            .map(|c| CacheService { cache: c })
+            .map(|c| CacheService {
+                url,
+                cache: RefCell::new(c),
+            })
     }
 }
 
@@ -523,7 +571,7 @@ impl GetSharedConn for PSNService {
 
 impl GetSharedConn for CacheService {
     fn get_conn(&self) -> SharedConnection {
-        self.cache.clone()
+        self.cache.borrow().clone()
     }
 }
 

@@ -45,6 +45,10 @@ impl DatabaseService {
         use crate::handler::db::SimpleQuery;
         Either::B(self.simple_query_one_trait(query.as_str()))
     }
+
+    pub fn get_users_by_id(&self, ids: &[u32]) -> impl Future<Item = Vec<User>, Error = ResError> {
+        self.get_by_id(&self.users_by_id.borrow(), ids)
+    }
 }
 
 impl CacheService {

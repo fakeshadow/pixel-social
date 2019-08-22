@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use actix_web::{
-    web::{Data, Query},
+    web::{Data, Json, Query},
     Error, HttpResponse,
 };
 use futures::{
@@ -9,6 +9,7 @@ use futures::{
     Future,
 };
 
+use crate::handler::auth::UserJwtOpt;
 use crate::{
     handler::{auth::UserJwt, cache::CacheService, db::DatabaseService},
     model::{errors::ResError, psn::PSNRequest},
@@ -87,6 +88,17 @@ pub fn query_handler_with_jwt(
         )),
         _ => Either::B(ft_ok(HttpResponse::Ok().finish())),
     }
+}
+
+pub fn community(
+    jwt_opt: UserJwtOpt,
+    //    req: Json<>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
+    let jwt_opt = jwt_opt.0;
+
+    ft_ok(HttpResponse::Ok().json("you are good"))
 }
 
 fn handle_response<T: serde::Serialize>(

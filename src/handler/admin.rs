@@ -78,15 +78,14 @@ impl DatabaseService {
     ) -> impl Future<Item = UpdateRequest, Error = ResError> {
         let id = vec![u.id.as_ref().copied().unwrap_or(0)];
 
-        self.get_by_id::<crate::model::user::User>(&self.users_by_id, &id)
-            .and_then(move |user| {
-                let user = user.first().ok_or(ResError::BadRequest)?;
-                check_admin_level(&u.privilege, self_level, 9)?;
-                if self_level <= user.privilege {
-                    return Err(ResError::Unauthorized);
-                }
-                Ok(u)
-            })
+        self.get_users_by_id(&id).and_then(move |user| {
+            let user = user.first().ok_or(ResError::BadRequest)?;
+            check_admin_level(&u.privilege, self_level, 9)?;
+            if self_level <= user.privilege {
+                return Err(ResError::Unauthorized);
+            }
+            Ok(u)
+        })
     }
 }
 

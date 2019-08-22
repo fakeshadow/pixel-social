@@ -28,12 +28,13 @@ pub fn add_topic(
         is_locked: None,
         is_visible: Some(true),
     };
-    db.add_topic(&req, global.get_ref())
+    db.check_conn()
+        .from_err()
+        .and_then(move |opt| db.if_replace_db(opt).add_topic(&req, global.get_ref()))
         .from_err()
         .and_then(move |t| {
-            let res = HttpResponse::Ok().json(&t);
             cache.add_topic(&t);
-            res
+            HttpResponse::Ok().json(&t)
         })
 }
 
@@ -84,17 +85,19 @@ pub fn pool(pool: Data<Pool>) -> impl Future<Item = HttpResponse, Error = Error>
 }
 
 pub fn raw(db: Data<DatabaseService>) -> impl Future<Item = HttpResponse, Error = Error> {
-    db.get_by_id_with_uid(
-        &db.topics_by_id,
-        vec![
-            1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
-        ],
-    )
-    .from_err()
-    .and_then(move |(t, ids)| {
-        db.get_by_id(&db.users_by_id, &ids)
+    let ids = vec![
+        1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
+    ];
+
+    db.check_conn().from_err().and_then(move |opt| {
+        db.if_replace_db(opt)
+            .get_topics_by_id_with_uid(ids)
             .from_err()
-            .and_then(move |u| HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
+            .and_then(move |(t, ids)| {
+                db.get_users_by_id(&ids)
+                    .from_err()
+                    .and_then(move |u| HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
+            })
     })
 }
 

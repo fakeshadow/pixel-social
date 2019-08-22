@@ -59,7 +59,7 @@ fn if_query_db(
         Ok((t, ids)) => Either::A(attach_users_form_res(ids, t, db, cache, false)),
         Err(e) => Either::B(match e {
             ResError::IdsFromCache(ids) => Either::B(
-                db.get_by_id_with_uid(&db.topics_by_id, ids)
+                db.get_topics_by_id_with_uid(ids)
                     .from_err()
                     .and_then(move |(t, ids)| attach_users_form_res(ids, t, db, cache, true)),
             ),
@@ -83,17 +83,15 @@ fn attach_users_form_res(
             Either::A(ft_ok(HttpResponse::Ok().json(Topic::attach_users(&t, &u))))
         }
         Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => Either::B(
-                db.get_by_id(&db.users_by_id, &ids)
-                    .from_err()
-                    .and_then(move |u| {
-                        cache.update_users(&u);
-                        if update_t {
-                            cache.update_topics(&t);
-                        }
-                        HttpResponse::Ok().json(Topic::attach_users(&t, &u))
-                    }),
-            ),
+            ResError::IdsFromCache(ids) => {
+                Either::B(db.get_users_by_id(&ids).from_err().and_then(move |u| {
+                    cache.update_users(&u);
+                    if update_t {
+                        cache.update_topics(&t);
+                    }
+                    HttpResponse::Ok().json(Topic::attach_users(&t, &u))
+                }))
+            }
             _ => Either::A(ft_ok(e.render_response())),
         }),
     })

@@ -1,4 +1,7 @@
-use std::{cell::RefMut, convert::TryFrom};
+use std::{
+    cell::{RefCell, RefMut},
+    convert::TryFrom,
+};
 
 use futures::{future::join_all, Future, Stream};
 use tokio_postgres::{
@@ -15,21 +18,79 @@ use crate::model::{
 
 // database service is not an actor.
 pub struct DatabaseService {
-    pub db: std::cell::RefCell<Client>,
-    pub topics_by_id: Statement,
-    pub posts_by_id: Statement,
-    pub users_by_id: Statement,
-    pub insert_topic: Statement,
-    pub insert_post: Statement,
-    pub insert_user: Statement,
+    pub url: String,
+    pub db: RefCell<Client>,
+    pub topics_by_id: RefCell<Statement>,
+    pub posts_by_id: RefCell<Statement>,
+    pub users_by_id: RefCell<Statement>,
+    pub insert_topic: RefCell<Statement>,
+    pub insert_post: RefCell<Statement>,
+    pub insert_user: RefCell<Statement>,
 }
 
 impl DatabaseService {
-    pub fn init(postgres_url: &str) -> impl Future<Item = DatabaseService, Error = ()> {
+    pub fn check_conn(
+        &self,
+    ) -> impl Future<Item = Option<(Client, Vec<Statement>)>, Error = ResError> {
+        use futures::future::Either;
+        if self.db.borrow().is_closed() {
+            Either::A(DatabaseService::connect(self.url.as_str()))
+        } else {
+            Either::B(futures::future::ok(None))
+        }
+    }
+
+    pub fn init(postgres_url: &str) -> impl Future<Item = DatabaseService, Error = ResError> {
+        let url = postgres_url.to_owned();
+        DatabaseService::connect(url.as_str()).and_then(|opt| {
+            let (c, mut v) = opt.unwrap();
+            let topics_by_id = v.pop().unwrap();
+            let posts_by_id = v.pop().unwrap();
+            let users_by_id = v.pop().unwrap();
+            let insert_topic = v.pop().unwrap();
+            let insert_post = v.pop().unwrap();
+            let insert_user = v.pop().unwrap();
+
+            Ok(DatabaseService {
+                url,
+                db: RefCell::new(c),
+                topics_by_id: RefCell::new(topics_by_id),
+                posts_by_id: RefCell::new(posts_by_id),
+                users_by_id: RefCell::new(users_by_id),
+                insert_topic: RefCell::new(insert_topic),
+                insert_post: RefCell::new(insert_post),
+                insert_user: RefCell::new(insert_user),
+            })
+        })
+    }
+
+    pub fn if_replace_db(&self, opt: Option<(Client, Vec<Statement>)>) -> &Self {
+        if let Some((c, mut v)) = opt {
+            let topics_by_id = v.pop().unwrap();
+            let posts_by_id = v.pop().unwrap();
+            let users_by_id = v.pop().unwrap();
+            let insert_topic = v.pop().unwrap();
+            let insert_post = v.pop().unwrap();
+            let insert_user = v.pop().unwrap();
+
+            self.db.replace(c);
+            self.topics_by_id.replace(topics_by_id);
+            self.posts_by_id.replace(posts_by_id);
+            self.users_by_id.replace(users_by_id);
+            self.insert_topic.replace(insert_topic);
+            self.insert_post.replace(insert_post);
+            self.insert_user.replace(insert_user);
+        }
+        self
+    }
+
+    pub fn connect(
+        postgres_url: &str,
+    ) -> impl Future<Item = Option<(Client, Vec<Statement>)>, Error = ResError> {
         connect(postgres_url, NoTls)
-            .map_err(|e| panic!("{:?}", e))
+            .from_err()
             .and_then(|(mut c, conn)| {
-                actix::spawn(conn.map_err(|e| panic!("{}", e)));
+                actix::spawn(conn.map_err(|_| ()));
 
                 let p1 = c.prepare("SELECT * FROM topics WHERE id=ANY($1)");
                 let p2 = c.prepare("SELECT * FROM posts WHERE id=ANY($1)");
@@ -48,25 +109,8 @@ impl DatabaseService {
                        RETURNING *");
 
                 join_all(vec![p6, p5, p4, p3, p2, p1])
-                    .map_err(move |e| panic!("{:?}", e))
-                    .map(|mut v: Vec<Statement>| {
-                        let topics_by_id = v.pop().unwrap();
-                        let posts_by_id = v.pop().unwrap();
-                        let users_by_id = v.pop().unwrap();
-                        let insert_topic = v.pop().unwrap();
-                        let insert_post = v.pop().unwrap();
-                        let insert_user = v.pop().unwrap();
-
-                        DatabaseService {
-                            db: std::cell::RefCell::new(c),
-                            topics_by_id,
-                            posts_by_id,
-                            users_by_id,
-                            insert_topic,
-                            insert_post,
-                            insert_user,
-                        }
-                    })
+                    .from_err()
+                    .map(|v| Some((c, v)))
             })
     }
 }

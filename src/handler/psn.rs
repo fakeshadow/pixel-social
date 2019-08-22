@@ -467,6 +467,15 @@ impl DatabaseService {
 
         self.simple_query_one_trait::<UserTrophySet>(query.as_str())
     }
+
+    //    pub fn update_trophy_meta(
+    //        &self,
+    //        test: &str
+    //    ) -> impl Future<Item= () , Error = ResError> {
+    //        let mut query = String::new();
+    //
+    //        self.simple_query_one_trait::<UserTrophySet>(query.as_str())
+    //    }
 }
 
 impl CacheService {

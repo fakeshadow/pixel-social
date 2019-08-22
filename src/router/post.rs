@@ -26,21 +26,20 @@ pub fn add(
     jwt.check_privilege()
         .into_future()
         .from_err()
-        .and_then(move |_| {
+        .and_then(move |()| {
             req.into_inner()
                 .attach_user_id(Some(jwt.user_id))
                 .check_new()
                 .into_future()
-                .from_err()
                 .and_then(move |req| {
-                    db.add_post(req, global.get_ref())
-                        .from_err()
-                        .and_then(move |p| {
-                            let res = HttpResponse::Ok().json(&p);
-                            cache.add_post(&p);
-                            res
-                        })
+                    db.check_conn()
+                        .and_then(move |opt| db.if_replace_db(opt).add_post(req, global.get_ref()))
                 })
+        })
+        .from_err()
+        .and_then(move |p| {
+            cache.add_post(&p);
+            HttpResponse::Ok().json(&p)
         })
 }
 
@@ -56,11 +55,15 @@ pub fn update(
         .into_future()
         .from_err()
         .and_then(move |req| {
-            db.update_post(req).from_err().and_then(move |p| {
-                let res = HttpResponse::Ok().json(&p);
-                cache.update_posts(&[p]);
-                res
-            })
+            //ToDo: further look into logic
+            db.check_conn()
+                .and_then(move |opt| db.if_replace_db(opt).update_post(req))
+        })
+        .from_err()
+        .and_then(move |p| {
+            let res = HttpResponse::Ok().json(&p);
+            cache.update_posts(&[p]);
+            res
         })
 }
 
@@ -73,7 +76,7 @@ pub fn get(
     cache.get_posts_from_ids(vec![id]).then(move |r| match r {
         Ok((p, i)) => Either::A(attach_users_form_res(i, p, db, cache, false)),
         Err(_) => Either::B(
-            db.get_by_id_with_uid(&db.posts_by_id, vec![id])
+            db.get_posts_by_id_with_uid(vec![id])
                 .from_err()
                 .and_then(move |(p, i)| attach_users_form_res(i, p, db, cache, true)),
         ),
@@ -96,18 +99,16 @@ fn attach_users_form_res(
             Either::A(ft_ok(res))
         }
         Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => Either::B(
-                db.get_by_id(&db.users_by_id, &ids)
-                    .from_err()
-                    .and_then(move |u| {
-                        let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
-                        cache.update_users(&u);
-                        if update_p {
-                            cache.update_posts(&p);
-                        }
-                        res
-                    }),
-            ),
+            ResError::IdsFromCache(ids) => {
+                Either::B(db.get_users_by_id(&ids).from_err().and_then(move |u| {
+                    let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));
+                    cache.update_users(&u);
+                    if update_p {
+                        cache.update_posts(&p);
+                    }
+                    res
+                }))
+            }
             _ => Either::A(ft_ok(e.render_response())),
         }),
     })

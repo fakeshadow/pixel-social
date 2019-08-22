@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::{Display, From};
 use psn_api_rs::PSNError;
@@ -39,7 +37,7 @@ pub enum ResError {
     Blocked,
     #[display(fmt = "Forbidden")]
     AuthTimeout,
-    #[display(fmt = "Internal Server Error")]
+    #[display(fmt = "Parsing error.")]
     ParseError,
     #[display(fmt = "No Content Found")]
     NoContent,
@@ -107,11 +105,11 @@ impl ResError {
     }
 }
 
-impl From<tokio_postgres::error::Error> for ResError {
-    fn from(e: tokio_postgres::error::Error) -> ResError {
+impl From<tokio_postgres::Error> for ResError {
+    fn from(e: tokio_postgres::Error) -> ResError {
         ResError::BadRequestDb(DatabaseErrorMessage {
             category: None,
-            description: e.description().to_string(),
+            description: e.to_string(),
         })
     }
 }

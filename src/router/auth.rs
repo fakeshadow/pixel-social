@@ -38,18 +38,17 @@ pub fn register(
         .into_future()
         .from_err()
         .and_then(move |_| {
-            db.check_register(req.into_inner())
-                .from_err()
-                .and_then(move |req| {
-                    db.register(req, global.get_ref())
-                        .from_err()
-                        .and_then(move |u| {
-                            let res = HttpResponse::Ok().json(&u);
-                            cache.add_activation_mail(u.clone());
-                            cache.update_users(&[u]);
-                            res
-                        })
-                })
+            db.check_register(req.into_inner()).and_then(move |req| {
+                db.check_conn()
+                    .and_then(move |opt| db.if_replace_db(opt).register(req, global.get_ref()))
+            })
+        })
+        .from_err()
+        .and_then(move |u| {
+            let res = HttpResponse::Ok().json(&u);
+            cache.add_activation_mail(u.clone());
+            cache.update_users(&[u]);
+            res
         })
 }
 
@@ -87,7 +86,7 @@ pub fn add_activation_mail(
             Ok(u) => Either::A(ft_ok(pop_user_add_activation_mail(cache, u))),
             Err(e) => Either::B(match e {
                 ResError::IdsFromCache(ids) => Either::A(
-                    db.get_by_id(&db.users_by_id, &ids)
+                    db.get_users_by_id(&ids)
                         .from_err()
                         .and_then(|u| pop_user_add_activation_mail(cache, u)),
                 ),

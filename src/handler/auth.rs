@@ -13,6 +13,8 @@ use crate::model::{
 use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;
+// use for req handlers use by both registered and anon guests.
+pub struct UserJwtOpt(pub Option<JwtPayLoad>);
 
 // jwt token extractor from request
 impl FromRequest for JwtPayLoad {
@@ -22,16 +24,34 @@ impl FromRequest for JwtPayLoad {
 
     fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
         match req.headers().get("Authorization") {
-            Some(token) => {
-                let vec: Vec<&str> = token
+            Some(h) => {
+                let vec: Vec<&str> = h
                     .to_str()
-                    .unwrap_or("no token")
+                    .map_err(|_| ResError::ParseError)?
                     .rsplitn(2, ' ')
                     .collect();
-                JwtPayLoad::from(vec[0])
+                JwtPayLoad::from(vec.get(0).ok_or(ResError::Unauthorized)?)
             }
             None => Err(ResError::Unauthorized),
         }
+    }
+}
+
+impl FromRequest for UserJwtOpt {
+    type Error = ();
+    type Future = Result<UserJwtOpt, ()>;
+    type Config = ();
+
+    fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
+        if let Some(h) = req.headers().get("Authorization") {
+            if let Ok(h) = h.to_str() {
+                let h: Vec<&str> = h.rsplitn(2, ' ').collect();
+                if let Some(h) = h.get(0) {
+                    return Ok(UserJwtOpt(JwtPayLoad::from(h).ok()));
+                }
+            }
+        }
+        Ok(UserJwtOpt(None))
     }
 }
 
@@ -69,7 +89,7 @@ impl DatabaseService {
 
         use crate::handler::db::Query;
         Either::B(self.query_one_trait(
-            &self.insert_user,
+            &self.insert_user.borrow(),
             &[
                 &u.id,
                 &u.username,

@@ -24,19 +24,15 @@ pub fn get(
         } else {
             ft_ok(HttpResponse::Ok().json(u.first().map(|u| u.to_user_ref())))
         }),
-        Err(_) => Either::B(
-            db.get_by_id::<crate::model::user::User>(&db.users_by_id, &[id])
-                .from_err()
-                .and_then(move |u| {
-                    let res = if id == jwt.user_id {
-                        HttpResponse::Ok().json(u.first())
-                    } else {
-                        HttpResponse::Ok().json(u.first().map(|u| u.to_user_ref()))
-                    };
-                    cache.update_users(&u);
-                    res
-                }),
-        ),
+        Err(_) => Either::B(db.get_users_by_id(&[id]).from_err().and_then(move |u| {
+            let res = if id == jwt.user_id {
+                HttpResponse::Ok().json(u.first())
+            } else {
+                HttpResponse::Ok().json(u.first().map(|u| u.to_user_ref()))
+            };
+            cache.update_users(&u);
+            res
+        })),
     })
 }
 
@@ -52,10 +48,13 @@ pub fn update(
         .into_future()
         .from_err()
         .and_then(move |req| {
-            db.update_user(req).from_err().and_then(move |u| {
-                let res = HttpResponse::Ok().json(&u);
-                cache.update_users(&[u]);
-                res
-            })
+            db.check_conn()
+                .and_then(move |opt| db.if_replace_db(opt).update_user(req))
+        })
+        .from_err()
+        .and_then(move |u| {
+            let res = HttpResponse::Ok().json(&u);
+            cache.update_users(&[u]);
+            res
         })
 }
