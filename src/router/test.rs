@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use actix::prelude::*;
 use actix_web::{web::Data, Error, HttpResponse};
 
-use crate::handler::cache::CacheService;
+use crate::handler::cache::{CacheService, CheckCacheConn};
 use crate::handler::db::DatabaseService;
 use crate::model::errors::ResError;
 use crate::model::topic::Topic;
@@ -33,8 +33,19 @@ pub fn add_topic(
         .and_then(move |opt| db.if_replace_db(opt).add_topic(&req, global.get_ref()))
         .from_err()
         .and_then(move |t| {
-            cache.add_topic(&t);
-            HttpResponse::Ok().json(&t)
+            cache.check_cache_conn()
+                .then(move |r| {
+                    let res = HttpResponse::Ok().json(&t);
+                    match r {
+                        Ok(opt) => actix::spawn(
+                            cache.if_replace_cache(opt)
+                                .add_topic(t)
+                                .map_err(move |t| cache.add_fail_topic(t))
+                        ),
+                        Err(_) => cache.add_fail_topic(t)
+                    };
+                    res
+                })
         })
 }
 
@@ -55,9 +66,19 @@ pub fn add_post(
     db.add_post(req, global.get_ref())
         .from_err()
         .and_then(move |p| {
-            let res = HttpResponse::Ok().json(&p);
-            cache.add_post(&p);
-            res
+            cache.check_cache_conn()
+                .then(move |r| {
+                    let res = HttpResponse::Ok().json(&p);
+                    match r {
+                        Ok(opt) => actix::spawn(
+                            cache.if_replace_cache(opt)
+                                .add_post(p)
+                                .map_err(move |p| cache.add_fail_post(p))
+                        ),
+                        Err(_) => cache.add_fail_post(p)
+                    };
+                    res
+                })
         })
 }
 

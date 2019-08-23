@@ -2,17 +2,18 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::time::Duration;
 
-use actix::{fut::Either as ActorEither, ActorFuture, AsyncContext, Context, WrapFuture};
+use actix::{ActorFuture, AsyncContext, Context, fut::Either as ActorEither, WrapFuture};
 use futures::{
-    future::{err as ft_err, Either},
+    future::{Either, err as ft_err},
     Future, IntoFuture, Stream,
 };
-use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
+use psn_api_rs::{PSN, PSNRequest as PSNRequestLib};
 
 use crate::handler::{
     cache::{CacheService, GetQueue, GetSharedConn},
     db::{DatabaseService, Query, SimpleQuery},
 };
+use crate::handler::cache::CheckCacheConn;
 use crate::model::{
     actors::PSNService,
     errors::ResError,
@@ -34,80 +35,87 @@ impl PSNService {
             ctx.spawn(act
                 .check_token()
                 .and_then(|_, act: &mut PSNService, _| {
-                    act.get_queue("psn_queue")
+                    //ToDo: db connection is not checked yet.
+                    act.check_cache_conn()
                         .into_actor(act)
-                        .and_then(|q: String, act, _| {
-                            match serde_json::from_str::<PSNRequest>(q.as_str()) {
-                                Ok(req) => match req {
-                                    PSNRequest::Profile {
-                                        online_id
-                                    } => {
-                                        ActorEither::A(ActorEither::A(ActorEither::A(
-                                            act.handle_profile_request(online_id),
-                                        )))
+                        .and_then(|opt, act, _| {
+                            act.if_replace_cache(opt)
+                                .get_queue("psn_queue")
+                                .into_actor(act)
+                                .and_then(|q: String, act, _| {
+                                    match serde_json::from_str::<PSNRequest>(q.as_str()) {
+                                        Ok(req) => match req {
+                                            PSNRequest::Profile {
+                                                online_id
+                                            } => {
+                                                ActorEither::A(ActorEither::A(ActorEither::A(
+                                                    act.handle_profile_request(online_id),
+                                                )))
+                                            }
+                                            PSNRequest::TrophyTitles {
+                                                online_id,
+                                                ..
+                                            } => {
+                                                ActorEither::A(ActorEither::A(ActorEither::B(
+                                                    act.handle_trophy_titles_request(online_id)
+                                                        .and_then(|r: Vec<UserTrophyTitle>, act: &mut PSNService, _| {
+                                                            act.update_user_trophy_titles(&r)
+                                                                .into_actor(act)
+                                                        }),
+                                                )))
+                                            }
+                                            PSNRequest::TrophySet {
+                                                online_id,
+                                                np_communication_id,
+                                            } => ActorEither::A(ActorEither::B(ActorEither::A(
+                                                act.handle_trophy_set_request(online_id, np_communication_id)
+                                                    .and_then(|r: UserTrophySet, act: &mut PSNService, _| {
+                                                        act.query_update_user_trophy_set(r)
+                                                    }),
+                                            ))),
+                                            PSNRequest::Auth {
+                                                uuid,
+                                                two_step,
+                                                refresh_token
+                                            } => {
+                                                ActorEither::A(ActorEither::B(ActorEither::B(
+                                                    act.handle_auth_request(uuid, two_step, refresh_token),
+                                                )))
+                                            }
+                                            PSNRequest::Activation {
+                                                user_id,
+                                                online_id,
+                                                code,
+                                            } => ActorEither::B(ActorEither::A(
+                                                act.psn
+                                                    .add_online_id(online_id)
+                                                    .get_profile()
+                                                    .from_err()
+                                                    .into_actor(act)
+                                                    .and_then(move |u: PSNUserLib, act, _| {
+                                                        if u.about_me == code {
+                                                            let mut u = UserPSNProfile::from(u);
+                                                            u.id = user_id;
+                                                            act.update_profile_cache(u);
+                                                            actix::fut::ok(())
+                                                        } else {
+                                                            // ToDo: add more error detail and send it through message to user.
+                                                            actix::fut::err(ResError::Unauthorized)
+                                                        }
+                                                    }),
+                                            )),
+                                        },
+                                        Err(_) => ActorEither::B(ActorEither::B(actix::fut::ok(()))),
                                     }
-                                    PSNRequest::TrophyTitles {
-                                        online_id,
-                                        ..
-                                    } => {
-                                        ActorEither::A(ActorEither::A(ActorEither::B(
-                                            act.handle_trophy_titles_request(online_id)
-                                                .and_then(|r: Vec<UserTrophyTitle>, act: &mut PSNService, _| {
-                                                    act.update_user_trophy_titles(&r)
-                                                        .into_actor(act)
-                                                }),
-                                        )))
-                                    }
-                                    PSNRequest::TrophySet {
-                                        online_id,
-                                        np_communication_id,
-                                    } => ActorEither::A(ActorEither::B(ActorEither::A(
-                                        act.handle_trophy_set_request(online_id, np_communication_id)
-                                            .and_then(|r: UserTrophySet, act: &mut PSNService, _| {
-                                                act.query_update_user_trophy_set(r)
-                                            }),
-                                    ))),
-                                    PSNRequest::Auth {
-                                        uuid,
-                                        two_step,
-                                        refresh_token
-                                    } => {
-                                        ActorEither::A(ActorEither::B(ActorEither::B(
-                                            act.handle_auth_request(uuid, two_step, refresh_token),
-                                        )))
-                                    }
-                                    PSNRequest::Activation {
-                                        user_id,
-                                        online_id,
-                                        code,
-                                    } => ActorEither::B(ActorEither::A(
-                                        act.psn
-                                            .add_online_id(online_id)
-                                            .get_profile()
-                                            .from_err()
-                                            .into_actor(act)
-                                            .and_then(move |u: PSNUserLib, act, _| {
-                                                if u.about_me == code {
-                                                    let mut u = UserPSNProfile::from(u);
-                                                    u.id = user_id;
-                                                    act.update_profile_cache(u);
-                                                    actix::fut::ok(())
-                                                } else {
-                                                    // ToDo: add more error detail and send it through message to user.
-                                                    actix::fut::err(ResError::Unauthorized)
-                                                }
-                                            }),
-                                    )),
-                                },
-                                Err(_) => ActorEither::B(ActorEither::B(actix::fut::ok(()))),
-                            }
+                                })
                         })
-                }).map_err(|e: ResError, _, _| {
-                match e {
-                    ResError::NoCache => (),
-                    _ => println!("{:?}", e.to_string())
-                }
-            })
+                })
+                .map_err(|e: ResError, _, _| {
+                    match e {
+                        ResError::NoCache => (),
+                        _ => println!("{:?}", e.to_string())
+                    }
+                })
             );
         });
     }
@@ -117,7 +125,7 @@ impl PSNService {
         uuid: Option<String>,
         two_step: Option<String>,
         refresh_token: Option<String>,
-    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
+    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
         let mut psn = PSN::new();
 
         if let Some(uuid) = uuid {
@@ -140,7 +148,7 @@ impl PSNService {
     fn handle_trophy_titles_request(
         &mut self,
         online_id: String,
-    ) -> impl ActorFuture<Item = Vec<UserTrophyTitle>, Actor = Self, Error = ResError> {
+    ) -> impl ActorFuture<Item=Vec<UserTrophyTitle>, Actor=Self, Error=ResError> {
         // get profile before and after getting titles and check if the user's np_id remains unchanged.
         self.psn
             .add_online_id(online_id)
@@ -216,7 +224,7 @@ impl PSNService {
         &mut self,
         online_id: String,
         np_communication_id: String,
-    ) -> impl ActorFuture<Item = UserTrophySet, Actor = Self, Error = ResError> {
+    ) -> impl ActorFuture<Item=UserTrophySet, Actor=Self, Error=ResError> {
         self.psn
             .add_online_id(online_id)
             .get_profile()
@@ -251,7 +259,7 @@ impl PSNService {
     fn handle_profile_request(
         &mut self,
         online_id: String,
-    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
+    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
         self.psn
             .add_online_id(online_id)
             .get_profile()
@@ -278,7 +286,7 @@ impl PSNService {
     fn query_update_user_trophy_set(
         &self,
         mut t: UserTrophySet,
-    ) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
+    ) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}';",
             t.np_id.as_str(),
@@ -335,7 +343,7 @@ impl PSNService {
     fn update_user_trophy_set(
         &self,
         t: &UserTrophySet,
-    ) -> impl Future<Item = (), Error = ResError> {
+    ) -> impl Future<Item=(), Error=ResError> {
         let mut query = String::new();
 
         let _ = write!(
@@ -378,14 +386,14 @@ impl PSNService {
     fn update_user_trophy_titles(
         &mut self,
         t: &[UserTrophyTitle],
-    ) -> impl Future<Item = (), Error = ResError> {
+    ) -> impl Future<Item=(), Error=ResError> {
         let mut v = Vec::with_capacity(t.len());
 
         for t in t.iter() {
             let f = self
                 .get_client()
                 .execute(
-                    self.insert_trophy_title.as_ref().unwrap(),
+                    &self.insert_trophy_title.as_ref().unwrap().borrow(),
                     &[
                         &t.np_id,
                         &t.np_communication_id,
@@ -409,7 +417,7 @@ impl PSNService {
             .map(|_| ())
     }
 
-    fn check_token(&self) -> impl ActorFuture<Item = (), Actor = Self, Error = ResError> {
+    fn check_token(&self) -> impl ActorFuture<Item=(), Actor=Self, Error=ResError> {
         if self.psn.should_refresh() {
             ActorEither::A(
                 PSN::new()
@@ -438,7 +446,7 @@ impl DatabaseService {
         &self,
         np_id: &str,
         page: u32,
-    ) -> impl Future<Item = Vec<UserTrophyTitle>, Error = ResError> {
+    ) -> impl Future<Item=Vec<UserTrophyTitle>, Error=ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_titles WHERE np_id='{}' ORDER BY last_update_date DESC OFFSET {} LIMIT 20",
             np_id,
@@ -459,7 +467,7 @@ impl DatabaseService {
         &self,
         np_id: &str,
         np_communication_id: &str,
-    ) -> impl Future<Item = UserTrophySet, Error = ResError> {
+    ) -> impl Future<Item=UserTrophySet, Error=ResError> {
         let query = format!(
             "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}'",
             np_id, np_communication_id
@@ -482,7 +490,7 @@ impl CacheService {
     pub fn get_psn_profile(
         &self,
         online_id: &str,
-    ) -> impl Future<Item = UserPSNProfile, Error = ResError> {
+    ) -> impl Future<Item=UserPSNProfile, Error=ResError> {
         use crate::handler::cache::FromCacheSingle;
         self.from_cache_single(online_id, "user_psn")
     }

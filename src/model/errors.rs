@@ -13,38 +13,40 @@ pub enum ResError {
     DataBaseReadError,
     #[display(fmt = "Redis Connection Error")]
     RedisConnection,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "BadRequest to Postgres")]
     BadRequestDb(DatabaseErrorMessage),
     #[display(fmt = "BadRequest")]
     BadRequest,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "Username is Taken")]
     UsernameTaken,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "Email is Taken")]
     EmailTaken,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "Invalid Username")]
     InvalidUsername,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "Invalid Password")]
     InvalidPassword,
-    #[display(fmt = "BadRequest")]
+    #[display(fmt = "Invalid Email Address")]
     InvalidEmail,
-    #[display(fmt = "Forbidden")]
+    #[display(fmt = "Wrong Password")]
     WrongPwd,
-    #[display(fmt = "Forbidden")]
+    #[display(fmt = "Unauthorized")]
     Unauthorized,
-    #[display(fmt = "Forbidden")]
+    #[display(fmt = "NotActive")]
     NotActive,
-    #[display(fmt = "Forbidden")]
+    #[display(fmt = "Blocked")]
     Blocked,
-    #[display(fmt = "Forbidden")]
+    #[display(fmt = "AuthTimeout")]
     AuthTimeout,
-    #[display(fmt = "Parsing error.")]
+    #[display(fmt = "Parsing Error")]
     ParseError,
-    #[display(fmt = "No Content Found")]
+    #[display(fmt = "Request Success but No Content Found")]
     NoContent,
-    #[display(fmt = "No Cache Found")]
+    #[display(fmt = "Request Success but No Cache Found")]
     NoCache,
     #[display(fmt = "Ids From Cache")]
     IdsFromCache(Vec<u32>),
+    #[display(fmt = "AWC Http Client Error")]
+    HttpClient,
 }
 
 impl ResponseError for ResError {
@@ -80,7 +82,7 @@ impl ResponseError for ResError {
                 HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized"))
             }
             ResError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new(
-                "Authentication Timeout.Please login again",
+                "Authentication Timeout",
             )),
             ResError::ParseError => {
                 HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing error"))
@@ -151,12 +153,32 @@ impl From<chrono::format::ParseError> for ResError {
     }
 }
 
+impl From<awc::error::SendRequestError> for ResError {
+    fn from(_e: awc::error::SendRequestError) -> ResError {
+        ResError::HttpClient
+    }
+}
+
+impl From<lettre_email::error::Error> for ResError {
+    fn from(_e: lettre_email::error::Error) -> ResError {
+        ResError::InternalServerError
+    }
+}
+
+//ToDo: handle smtp error
+impl From<lettre::smtp::error::Error> for ResError {
+    fn from(_e: lettre::smtp::error::Error) -> ResError {
+        ResError::InternalServerError
+    }
+}
+
 //ToDo: handle psn error.
 impl From<PSNError> for ResError {
     fn from(_e: PSNError) -> ResError {
         ResError::InternalServerError
     }
 }
+
 
 #[derive(Serialize, Debug, Eq, PartialEq, Hash)]
 pub struct DatabaseErrorMessage {
@@ -183,7 +205,6 @@ impl<'a> ErrorMessage<'a> {
 #[derive(Debug, Display, Hash, Eq, PartialEq)]
 pub enum RepError {
     Ignore,
-    JsonIO,
     Database,
     Redis,
     MailBuilder,
@@ -192,30 +213,16 @@ pub enum RepError {
     HttpClient,
 }
 
-impl From<awc::error::SendRequestError> for RepError {
-    fn from(_e: awc::error::SendRequestError) -> RepError {
-        RepError::HttpClient
-    }
-}
-
 impl From<ResError> for RepError {
     fn from(e: ResError) -> RepError {
         match e {
-            ResError::RedisConnection => RepError::Redis,
             ResError::DataBaseReadError => RepError::Database,
-            _ => RepError::Ignore,
+            ResError::RedisConnection => RepError::Redis,
+            _ => RepError::Ignore
         }
     }
 }
 
-impl From<serde_json::Error> for RepError {
-    fn from(e: serde_json::Error) -> RepError {
-        if e.is_io() {
-            return RepError::JsonIO;
-        }
-        RepError::Ignore
-    }
-}
 
 #[derive(Debug)]
 pub struct ErrorReport {

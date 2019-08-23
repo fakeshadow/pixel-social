@@ -1,11 +1,10 @@
-use futures::{
-    future::{ok as ft_ok, Either},
-    IntoFuture,
-};
 use std::{env, time::Duration};
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
-
+use futures::{
+    future::{Either, ok as ft_ok},
+    IntoFuture,
+};
 use lettre::{
     smtp::{
         authentication::{Credentials, Mechanism},
@@ -15,13 +14,13 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::handler::cache::{CacheService, GetQueue};
+use crate::handler::cache::{CacheService, CheckCacheConn, GetQueue};
+use crate::MessageService;
 use crate::model::{
-    errors::{ErrorReport, RepError},
+    errors::{ErrorReport, RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
     user::User,
 };
-use crate::MessageService;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
@@ -52,18 +51,25 @@ impl MessageService {
         });
     }
 
+    // use process email interval to handle reconnection to redis after connection is lost.
     fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
             ctx.spawn(
-                act.get_queue("mail_queue")
+                act.check_cache_conn()
                     .into_actor(act)
-                    .map_err(|e, act, _| act.add_err_to_rep(RepError::from(e)))
-                    .and_then(|s, act, _| {
-                        act.send_mail_user(s.as_str())
-                            .into_future()
+                    .and_then(|opt, act, _| {
+                        act.if_replace_cache(opt)
+                            .get_queue("mail_queue")
                             .into_actor(act)
-                            .map_err(|e, act, _| act.add_err_to_rep(e))
-                    }),
+                            .and_then(|s, act, _| {
+                                act.send_mail_user(s.as_str())
+                                    .into_future()
+                                    .into_actor(act)
+                            })
+                    })
+                    .map_err(|e, act, _| {
+                        act.add_err_to_rep(RepError::from(e));
+                    })
             );
         });
     }
@@ -73,12 +79,14 @@ impl MessageService {
             ctx.spawn(
                 act.get_queue("sms_queue")
                     .into_actor(act)
-                    .map_err(|e, act, _| act.add_err_to_rep(RepError::from(e)))
                     .and_then(|s, act, _| {
                         act.send_sms_user(s.as_str())
                             .into_actor(act)
-                            .map_err(|e, act, _| act.add_err_to_rep(e))
-                    }),
+                    })
+                    .map_err(|e, act, _| {
+                        act.add_err_to_rep(RepError::from(e));
+                    })
+                ,
             );
         });
     }
@@ -120,16 +128,22 @@ impl MessageService {
         let auth_token = env::var("TWILIO_AUTH_TOKEN").ok();
         let self_number = env::var("TWILIO_SELF_NUMBER").ok();
 
-        if url.is_some() && account_id.is_some() && auth_token.is_some() && self_number.is_some() {
-            Some(Twilio {
-                url: url.unwrap(),
-                self_number: self_number.unwrap(),
-                account_id: account_id.unwrap(),
-                auth_token: auth_token.unwrap(),
-            })
-        } else {
-            None
+        if let Some(url) = url {
+            if let Some(account_id) = account_id {
+                if let Some(auth_token) = auth_token {
+                    if let Some(self_number) = self_number {
+                        return Some(Twilio {
+                            url,
+                            self_number,
+                            account_id,
+                            auth_token,
+                        });
+                    }
+                }
+            }
         }
+
+        None
     }
 
     pub fn generate_error_report() -> ErrorReport {
@@ -145,7 +159,7 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item = (), Error = RepError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg.to_owned(),
@@ -153,7 +167,7 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item = (), Error = RepError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
             Err(_) => return Either::A(ft_ok(())),
@@ -162,7 +176,7 @@ impl MessageService {
     }
 
     // twilio api handler.
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item = (), Error = RepError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ResError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
@@ -191,18 +205,18 @@ impl MessageService {
             .map(|_| ())
     }
 
-    fn send_mail_admin(&mut self, rep: &str) -> Result<(), RepError> {
+    fn send_mail_admin(&mut self, rep: &str) -> Result<(), ResError> {
         let mail = Mail::ErrorReport { report: rep };
         self.send_mail(&mail)
     }
 
-    fn send_mail_user(&mut self, s: &str) -> Result<(), RepError> {
+    fn send_mail_user(&mut self, s: &str) -> Result<(), ResError> {
         let mail = serde_json::from_str::<Mail>(s)?;
 
         self.send_mail(&mail)
     }
 
-    fn send_mail(&mut self, mail: &Mail) -> Result<(), RepError> {
+    fn send_mail(&mut self, mail: &Mail) -> Result<(), ResError> {
         let mailer = self.mailer.as_mut().unwrap();
 
         let (to, subject, html, text) = match *mail {
@@ -228,15 +242,13 @@ impl MessageService {
             .from((mailer.self_addr.as_str(), mailer.self_name.as_str()))
             .subject(subject)
             .alternative(html.as_str(), text)
-            .build()
-            .map_err(|_| RepError::MailBuilder)?
+            .build()?
             .into();
 
-        mailer
+        Ok(mailer
             .mailer
             .send(mail)
-            .map(|_| ())
-            .map_err(|_| RepError::MailTransport)
+            .map(|_| ())?)
     }
 }
 

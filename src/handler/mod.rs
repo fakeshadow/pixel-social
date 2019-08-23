@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod auth;
 pub mod cache;
+pub mod cache_update;
 pub mod category;
 pub mod db;
 pub mod messenger;

@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
     let mut sys = System::new("PixelShare");
 
     // cache update and message actor are not passed into data.
-    let _ = CacheUpdateService::connect(&redis_url);
+    let addr = CacheUpdateService::connect(&redis_url);
     let _ = MessageService::connect(&redis_url);
 
     // an actor handle PSN network request.
@@ -86,6 +86,8 @@ fn main() -> std::io::Result<()> {
         let db_url_2 = database_url.clone();
         let rd_url_2 = redis_url.clone();
 
+        let addr = addr.clone();
+
         App::new()
             .register_data(global.clone())
             // The server will generate one async actor for each worker. The num of workers is tied to cpu core count.
@@ -98,10 +100,10 @@ fn main() -> std::io::Result<()> {
                     sessions.clone(),
                 )
             })
-            // db service and cache service are data struct contains postgres connection, prepared querys and redis connections.
+            // db service and cache service are data struct contains postgres connection, prepared queries and redis connections.
             // They are not shared between threads.
             .data_factory(move || crate::handler::db::DatabaseService::init(db_url_2.as_str()))
-            .data_factory(move || crate::handler::cache::CacheService::init(rd_url_2.as_str()))
+            .data_factory(move || crate::handler::cache::CacheService::init(rd_url_2.as_str(), addr.clone()))
             .data(pool.clone())
             .wrap(Logger::default())
             .wrap(

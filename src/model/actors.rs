@@ -1,24 +1,26 @@
+use std::cell::RefCell;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use futures::future::join_all;
-
 use actix::prelude::{
-    fut, Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context,
-    ContextFutureSpawner, Future, Running, WrapFuture,
+    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, fut,
+    Future,Running, WrapFuture,
 };
 use actix_web_actors::ws;
-
+use futures::future::join_all;
 // actor handle psn request
 // psn service impl get queue from cache handler.
 use psn_api_rs::PSN;
 use redis::{aio::SharedConnection, Client as RedisClient};
-use tokio_postgres::{connect, tls::NoTls, Client, Statement};
+use tokio_postgres::{Client, connect, Statement, tls::NoTls};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
     common::{GlobalSessions, GlobalTalks},
     errors::ErrorReport,
     messenger::{Mailer, Twilio},
+    post::Post,
+    topic::Topic,
 };
 
 // websocket heartbeat and connection time out time.
@@ -52,7 +54,10 @@ impl Actor for WsChatSession {
 
 // actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
-    pub cache: Option<SharedConnection>,
+    pub url: String,
+    pub cache: Option<RefCell<SharedConnection>>,
+    pub failed_topic: Mutex<Vec<Topic>>,
+    pub failed_post: Mutex<Vec<Post>>,
 }
 
 impl Actor for CacheUpdateService {
@@ -67,16 +72,22 @@ impl CacheUpdateService {
     pub fn connect(redis_url: &str) -> Addr<CacheUpdateService> {
         let client =
             RedisClient::open(redis_url).unwrap_or_else(|_| panic!("Can't connect to cache"));
+        let url = redis_url.to_owned();
 
         CacheUpdateService::create(move |ctx| {
-            let addr = CacheUpdateService { cache: None };
+            let addr = CacheUpdateService {
+                url,
+                cache: None,
+                failed_topic: Mutex::new(vec![]),
+                failed_post: Mutex::new(vec![]),
+            };
 
             client
                 .get_shared_async_connection()
                 .map_err(|_| panic!("failed to get redis connection"))
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
+                    addr.cache = Some(RefCell::new(conn));
                     fut::ok(())
                 })
                 .wait(ctx);
@@ -110,7 +121,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
+    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)
@@ -160,7 +171,8 @@ impl TalkService {
 
 // actor handles error report, sending email and sms messages.
 pub struct MessageService {
-    pub cache: Option<SharedConnection>,
+    pub url: String,
+    pub cache: Option<RefCell<SharedConnection>>,
     pub mailer: Option<Mailer>,
     pub twilio: Option<Twilio>,
     pub error_report: ErrorReport,
@@ -178,8 +190,11 @@ impl MessageService {
     pub fn connect(redis_url: &str) -> MAILER {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
 
+        let url = redis_url.to_owned();
+
         MessageService::create(move |ctx| {
             let addr = MessageService {
+                url,
                 cache: None,
                 mailer: Self::generate_mailer(),
                 twilio: Self::generate_twilio(),
@@ -191,7 +206,7 @@ impl MessageService {
                 .map_err(|_| panic!("failed to get redis connection"))
                 .into_actor(&addr)
                 .and_then(|conn, addr, _| {
-                    addr.cache = Some(conn);
+                    addr.cache = Some(RefCell::new(conn));
                     fut::ok(())
                 })
                 .wait(ctx);
@@ -214,11 +229,13 @@ impl WsChatSession {
 }
 
 pub struct PSNService {
+    pub db_url: String,
+    pub cache_url: String,
     pub is_active: bool,
     pub psn: PSN,
-    pub db: Option<std::cell::RefCell<Client>>,
-    pub insert_trophy_title: Option<Statement>,
-    pub cache: Option<SharedConnection>,
+    pub db: Option<RefCell<Client>>,
+    pub insert_trophy_title: Option<RefCell<Statement>>,
+    pub cache: Option<RefCell<SharedConnection>>,
 }
 
 impl Actor for PSNService {
@@ -234,8 +251,13 @@ impl PSNService {
         let client = RedisClient::open(redis_url).expect("failed to connect to redis server");
         let conn = connect(postgres_url, NoTls);
 
+        let db_url = postgres_url.to_owned();
+        let cache_url = redis_url.to_owned();
+
         PSNService::create(move |ctx| {
             let act = PSNService {
+                db_url,
+                cache_url,
                 is_active: false,
                 psn: PSN::new(),
                 db: None,
@@ -294,13 +316,13 @@ impl PSNService {
                                     .map_err(|e| panic!("{}", e))
                                     .into_actor(act)
                                     .and_then(|mut vec: Vec<Statement>, act, _| {
-                                        act.insert_trophy_title = vec.pop();
+                                        act.insert_trophy_title = vec.pop().map(RefCell::new);
                                         fut::ok(())
                                     })
                             );
 
-                            act.db = Some(std::cell::RefCell::new(db));
-                            act.cache = Some(cache);
+                            act.db = Some(RefCell::new(db));
+                            act.cache = Some(RefCell::new(cache));
                             fut::ok(())
                         })
                 })
