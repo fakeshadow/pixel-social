@@ -1,9 +1,9 @@
 use actix_web::{
-    Error,
-    HttpResponse, ResponseError, web::{Data, Json, Path},
+    web::{Data, Json, Path},
+    Error, HttpResponse, ResponseError,
 };
 use futures::{
-    future::{Either, IntoFuture, ok as ft_ok},
+    future::{ok as ft_ok, Either, IntoFuture},
     Future,
 };
 
@@ -22,7 +22,7 @@ pub fn add(
     cache: Data<CacheService>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     jwt.check_privilege()
         .into_future()
         .from_err()
@@ -38,19 +38,19 @@ pub fn add(
         })
         .from_err()
         .and_then(move |p| {
-            cache.check_cache_conn()
-                .then(move |r| {
-                    let res = HttpResponse::Ok().json(&p);
-                    match r {
-                        Ok(opt) => actix::spawn(
-                            cache.if_replace_cache(opt)
-                                .add_post(p)
-                                .map_err(move |p| cache.add_fail_post(p))
-                        ),
-                        Err(_) => cache.add_fail_post(p)
-                    };
-                    res
-                })
+            cache.check_cache_conn().then(move |r| {
+                let res = HttpResponse::Ok().json(&p);
+                match r {
+                    Ok(opt) => actix::spawn(
+                        cache
+                            .if_replace_cache(opt)
+                            .add_post(p)
+                            .map_err(move |p| cache.add_fail_post(p)),
+                    ),
+                    Err(_) => cache.add_fail_post(p),
+                };
+                res
+            })
         })
 }
 
@@ -59,7 +59,7 @@ pub fn update(
     req: Json<PostRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     req.into_inner()
         .attach_user_id(Some(jwt.user_id))
         .check_update()
@@ -82,7 +82,7 @@ pub fn get(
     id: Path<u32>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let id = id.into_inner();
     cache.get_posts_from_ids(vec![id]).then(move |r| match r {
         Ok((p, i)) => Either::A(attach_users_form_res(i, p, db, cache, false)),
@@ -100,7 +100,7 @@ fn attach_users_form_res(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     update_p: bool,
-) -> impl Future<Item=HttpResponse, Error=Error> {
+) -> impl Future<Item = HttpResponse, Error = Error> {
     cache.get_users_from_ids(ids).then(move |r| match r {
         Ok(u) => {
             let res = HttpResponse::Ok().json(Post::attach_users(&p, &u));

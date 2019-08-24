@@ -3,8 +3,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use actix::prelude::{
-    Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context, ContextFutureSpawner, fut,
-    Future,Running, WrapFuture,
+    fut, Actor, ActorContext, ActorFuture, Addr, Arbiter, AsyncContext, Context,
+    ContextFutureSpawner, Future, Running, WrapFuture,
 };
 use actix_web_actors::ws;
 use futures::future::join_all;
@@ -12,15 +12,14 @@ use futures::future::join_all;
 // psn service impl get queue from cache handler.
 use psn_api_rs::PSN;
 use redis::{aio::SharedConnection, Client as RedisClient};
-use tokio_postgres::{Client, connect, Statement, tls::NoTls};
+use tokio_postgres::{connect, tls::NoTls, Client, Statement};
 
 use crate::handler::talk::DisconnectRequest;
 use crate::model::{
+    cache_update::FailedCollection,
     common::{GlobalSessions, GlobalTalks},
     errors::ErrorReport,
     messenger::{Mailer, Twilio},
-    post::Post,
-    topic::Topic,
 };
 
 // websocket heartbeat and connection time out time.
@@ -56,8 +55,7 @@ impl Actor for WsChatSession {
 pub struct CacheUpdateService {
     pub url: String,
     pub cache: Option<RefCell<SharedConnection>>,
-    pub failed_topic: Mutex<Vec<Topic>>,
-    pub failed_post: Mutex<Vec<Post>>,
+    pub failed_collection: Mutex<FailedCollection>,
 }
 
 impl Actor for CacheUpdateService {
@@ -78,8 +76,7 @@ impl CacheUpdateService {
             let addr = CacheUpdateService {
                 url,
                 cache: None,
-                failed_topic: Mutex::new(vec![]),
-                failed_post: Mutex::new(vec![]),
+                failed_collection: Mutex::new(FailedCollection::default()),
             };
 
             client
@@ -121,7 +118,7 @@ impl TalkService {
         redis_url: &str,
         talks: GlobalTalks,
         sessions: GlobalSessions,
-    ) -> impl Future<Item=Addr<TalkService>, Error=()> {
+    ) -> impl Future<Item = Addr<TalkService>, Error = ()> {
         let conn = connect(postgres_url, NoTls);
 
         RedisClient::open(redis_url)

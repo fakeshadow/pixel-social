@@ -28,24 +28,25 @@ pub fn add_topic(
         is_locked: None,
         is_visible: Some(true),
     };
+
     db.check_conn()
         .from_err()
         .and_then(move |opt| db.if_replace_db(opt).add_topic(&req, global.get_ref()))
         .from_err()
         .and_then(move |t| {
-            cache.check_cache_conn()
-                .then(move |r| {
-                    let res = HttpResponse::Ok().json(&t);
-                    match r {
-                        Ok(opt) => actix::spawn(
-                            cache.if_replace_cache(opt)
-                                .add_topic(t)
-                                .map_err(move |t| cache.add_fail_topic(t))
-                        ),
-                        Err(_) => cache.add_fail_topic(t)
-                    };
-                    res
-                })
+            cache.check_cache_conn().then(move |r| {
+                let res = HttpResponse::Ok().json(&t);
+                match r {
+                    Ok(opt) => actix::spawn(
+                        cache
+                            .if_replace_cache(opt)
+                            .add_topic(t)
+                            .map_err(move |t| cache.add_fail_topic(t)),
+                    ),
+                    Err(_) => cache.add_fail_topic(t),
+                };
+                res
+            })
         })
 }
 
@@ -66,19 +67,19 @@ pub fn add_post(
     db.add_post(req, global.get_ref())
         .from_err()
         .and_then(move |p| {
-            cache.check_cache_conn()
-                .then(move |r| {
-                    let res = HttpResponse::Ok().json(&p);
-                    match r {
-                        Ok(opt) => actix::spawn(
-                            cache.if_replace_cache(opt)
-                                .add_post(p)
-                                .map_err(move |p| cache.add_fail_post(p))
-                        ),
-                        Err(_) => cache.add_fail_post(p)
-                    };
-                    res
-                })
+            cache.check_cache_conn().then(move |r| {
+                let res = HttpResponse::Ok().json(&p);
+                match r {
+                    Ok(opt) => actix::spawn(
+                        cache
+                            .if_replace_cache(opt)
+                            .add_post(p)
+                            .map_err(move |p| cache.add_fail_post(p)),
+                    ),
+                    Err(_) => cache.add_fail_post(p),
+                };
+                res
+            })
         })
 }
 
@@ -110,7 +111,7 @@ pub fn raw(db: Data<DatabaseService>) -> impl Future<Item = HttpResponse, Error 
         1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
 
-    db.check_conn().from_err().and_then(move |opt| {
+    db.get_ref().check_conn().from_err().and_then(move |opt| {
         db.if_replace_db(opt)
             .get_topics_by_id_with_uid(ids)
             .from_err()

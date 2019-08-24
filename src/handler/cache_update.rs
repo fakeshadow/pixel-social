@@ -1,39 +1,25 @@
 use std::time::Duration;
 
-use actix::prelude::{
-    ActorFuture,
-    AsyncContext,
-    Context,
-    Handler,
-    Message,
-    WrapFuture,
-};
+use actix::prelude::{ActorFuture, AsyncContext, Context, Handler, Message, WrapFuture};
 use chrono::Utc;
-use futures::{Future, future::{Either, join_all}};
+use futures::{
+    future::{join_all, Either},
+    Future,
+};
 use redis::aio::SharedConnection;
 
 use crate::handler::cache::{
-    AddPostCache,
-    AddTopicCache,
-    CategoriesFromCache,
-    CheckCacheConn,
-    FromCache,
-    GetSharedConn,
-    IdsFromList,
-    update_list,
-    update_post_count,
+    update_list, update_post_count, AddPostCache, AddTopicCache, BulkUpdateCache,
+    CategoriesFromCache, CheckCacheConn, FromCache, GetSharedConn, IdsFromList,
 };
-use crate::model::{
-    actors::CacheUpdateService,
-    post::Post,
-    topic::Topic,
-};
+use crate::model::cache_update::FailedType;
 use crate::model::errors::ResError;
+use crate::model::{actors::CacheUpdateService, post::Post, topic::Topic, user::User};
 
 // list_pop update interval time gap in seconds
 const LIST_TIME_DUR: Duration = Duration::from_secs(5);
 // time interval for retry adding failed cache to redis.
-const FAILED_TIME_DUR: Duration = Duration::from_secs(10);
+const FAILED_TIME_DUR: Duration = Duration::from_secs(3);
 
 impl CacheUpdateService {
     pub fn start_interval(&mut self, ctx: &mut Context<Self>) {
@@ -53,20 +39,29 @@ impl CacheUpdateService {
                             .into_actor(act)
                             .and_then(|cat, act, _| {
                                 let conn = act.get_conn();
-                                let yesterday = Utc::now().naive_utc().timestamp_millis() - 86_400_000;
+                                let yesterday =
+                                    Utc::now().naive_utc().timestamp_millis() - 86_400_000;
                                 let mut vec = Vec::new();
 
                                 for c in cat.iter() {
                                     // update_list will also update topic count new.
-                                    vec.push(Either::A(update_list(Some(c.id), yesterday, conn.clone())));
-                                    vec.push(Either::B(update_post_count(c.id, yesterday, conn.clone())));
+                                    vec.push(Either::A(update_list(
+                                        Some(c.id),
+                                        yesterday,
+                                        conn.clone(),
+                                    )));
+                                    vec.push(Either::B(update_post_count(
+                                        c.id,
+                                        yesterday,
+                                        conn.clone(),
+                                    )));
                                 }
                                 vec.push(Either::A(update_list(None, yesterday, conn)));
 
                                 join_all(vec).map(|_| ()).into_actor(act)
                             })
                     })
-                    .map_err(|_e: ResError,_,_|())
+                    .map_err(|_e: ResError, _, _| ()),
             );
         });
     }
@@ -75,33 +70,51 @@ impl CacheUpdateService {
     fn update_failed_cache(&mut self, ctx: &mut Context<Self>) {
         ctx.run_interval(FAILED_TIME_DUR, move |act, ctx| {
             let mut v = Vec::new();
-            if let Ok(lock) = act.failed_topic.lock() {
-                for t in lock.iter() {
-                    v.push(act.add_topic_cache(t));
-                }
-            }
 
-            if let Ok(lock) = act.failed_post.lock() {
-                for p in lock.iter() {
-                    v.push(act.add_post_cache(p));
+            let mut u_t = Vec::new();
+            let mut u_p = Vec::new();
+            let mut u_u = Vec::new();
+
+            let mut uids = Vec::new();
+            let mut pids = Vec::new();
+            let mut tids = Vec::new();
+
+            if let Ok(l) = act.failed_collection.lock() {
+                for (t, typ) in l.topic.iter() {
+                    tids.push(t.id);
+                    match *typ {
+                        FailedType::New => v.push(act.add_topic_cache(t)),
+                        FailedType::Update => u_t.push(t),
+                    };
                 }
-            }
+
+                for (p, typ) in l.post.iter() {
+                    pids.push(p.id);
+                    match *typ {
+                        FailedType::New => v.push(act.add_post_cache(&p)),
+                        FailedType::Update => u_p.push(p),
+                    };
+                }
+
+                for (u, _) in l.user.iter() {
+                    uids.push(u.id);
+                    u_u.push(u)
+                }
+
+                v.push(act.bulk_add_update_cache(u_t, u_p, u_u));
+            };
 
             if !v.is_empty() {
-                ctx.spawn(
-                    join_all(v)
-                        .map_err(|_| ())
-                        .into_actor(act)
-                        .and_then(|_, act, _| {
-                            if let Ok(mut l) = act.failed_topic.lock() {
-                                l.clear();
-                            }
-                            if let Ok(mut l) = act.failed_post.lock() {
-                                l.clear();
-                            }
-                            actix::fut::ok(())
-                        })
-                );
+                ctx.spawn(join_all(v).map_err(|_| ()).into_actor(act).and_then(
+                    move |_, act, _| {
+                        if let Ok(mut l) = act.failed_collection.lock() {
+                            l.remove_by_pids(&pids);
+                            l.remove_by_tids(&tids);
+                            l.remove_by_uids(&uids);
+                        }
+                        actix::fut::ok(())
+                    },
+                ));
             }
         });
     }
@@ -123,6 +136,8 @@ impl AddTopicCache for CacheUpdateService {}
 
 impl AddPostCache for CacheUpdateService {}
 
+impl BulkUpdateCache for CacheUpdateService {}
+
 impl CheckCacheConn for CacheUpdateService {
     fn self_url(&self) -> String {
         self.url.to_owned()
@@ -133,27 +148,46 @@ impl CheckCacheConn for CacheUpdateService {
     }
 }
 
-
 // cache service will push data failed to insert into redis to cache update service.
 // we will just keep retrying to add them to redis.
 #[derive(Message)]
 pub enum CacheFailedMessage {
     FailedTopic(Topic),
     FailedPost(Post),
+    FailedUser(Vec<User>),
+    FailedTopicUpdate(Vec<Topic>),
+    FailedPostUpdate(Vec<Post>),
 }
 
 impl Handler<CacheFailedMessage> for CacheUpdateService {
     type Result = ();
     fn handle(&mut self, msg: CacheFailedMessage, _: &mut Context<Self>) {
         match msg {
-            CacheFailedMessage::FailedPost(p) =>
-                if let Ok(mut l) = self.failed_post.lock() {
-                    l.push(p);
-                },
-            CacheFailedMessage::FailedTopic(t) =>
-                if let Ok(mut l) = self.failed_topic.lock() {
-                    l.push(t);
-                },
+            CacheFailedMessage::FailedPost(p) => {
+                if let Ok(mut l) = self.failed_collection.lock() {
+                    l.add_post_new(p);
+                }
+            }
+            CacheFailedMessage::FailedTopic(t) => {
+                if let Ok(mut l) = self.failed_collection.lock() {
+                    l.add_topic_new(t);
+                }
+            }
+            CacheFailedMessage::FailedTopicUpdate(t) => {
+                if let Ok(mut l) = self.failed_collection.lock() {
+                    l.add_topic_update(t);
+                }
+            }
+            CacheFailedMessage::FailedPostUpdate(p) => {
+                if let Ok(mut l) = self.failed_collection.lock() {
+                    l.add_post_update(p);
+                }
+            }
+            CacheFailedMessage::FailedUser(t) => {
+                if let Ok(mut l) = self.failed_collection.lock() {
+                    l.add_user(t);
+                }
+            }
         }
     }
 }

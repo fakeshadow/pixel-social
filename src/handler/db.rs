@@ -29,6 +29,8 @@ pub struct DatabaseService {
 }
 
 impl DatabaseService {
+    /// database connection is only checked on insert request.
+    /// Connections are not shared between threads so the recovery will happen separately.
     pub fn check_conn(
         &self,
     ) -> impl Future<Item = Option<(Client, Vec<Statement>)>, Error = ResError> {

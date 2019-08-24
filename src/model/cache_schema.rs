@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use redis::{ErrorKind, from_redis_value, FromRedisValue, RedisResult, Value};
+use redis::{from_redis_value, ErrorKind, FromRedisValue, RedisResult, Value};
 
 use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::Topic, user::User};
 
@@ -10,15 +10,15 @@ use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::T
 // trait to handle pipelined response where every X:X:set key followed by it's X:X:set_perm key.
 // take in a function to pattern match the X:X:set_perm key's fields.
 trait CrateFromRedisValues
-    where
-        Self: Sized + Default + FromRedisValue,
+where
+    Self: Sized + Default + FromRedisValue,
 {
     fn crate_from_redis_values<F>(
         items: &[Value],
         mut attach_perm_fields: F,
     ) -> RedisResult<Vec<Self>>
-        where
-            F: FnMut(&mut Self, &[u8], &[u8]) + Sized,
+    where
+        F: FnMut(&mut Self, &[u8], &[u8]) + Sized,
     {
         if items.is_empty() {
             return Err((ErrorKind::ResponseError, "Response is empty").into());
@@ -68,9 +68,9 @@ impl CrateFromRedisValues for User {}
 // take in a function to pattern match each field
 trait CrateFromRedisValue {
     fn crate_from_redis_value<F>(v: &Value, mut parse_pattern: F) -> RedisResult<Self>
-        where
-            Self: Default + std::fmt::Debug,
-            F: FnMut(&mut Self, &[u8], &Value) -> RedisResult<()> + Sized,
+    where
+        Self: Default + std::fmt::Debug,
+        F: FnMut(&mut Self, &[u8], &Value) -> RedisResult<()> + Sized,
     {
         match *v {
             Value::Bulk(ref items) => {
@@ -259,9 +259,9 @@ impl FromRedisValue for UserPSNProfile {
 pub struct HashMapBrown<K, V>(pub hashbrown::HashMap<K, V>);
 
 impl<K, V> FromRedisValue for HashMapBrown<K, V>
-    where
-        K: std::hash::Hash + FromRedisValue + Eq,
-        V: FromRedisValue,
+where
+    K: std::hash::Hash + FromRedisValue + Eq,
+    V: FromRedisValue,
 {
     fn from_redis_value(v: &Value) -> RedisResult<HashMapBrown<K, V>> {
         match *v {
@@ -278,7 +278,8 @@ impl<K, V> FromRedisValue for HashMapBrown<K, V>
             _ => Err((
                 ErrorKind::ResponseError,
                 "Response type not hashbrown::HashMap compatible",
-            ).into()),
+            )
+                .into()),
         }
     }
 }
@@ -329,8 +330,8 @@ pub trait RefTo<T>: Sized {
 }
 
 impl<T, U> RefTo<U> for T
-    where
-        U: FromRef<T>,
+where
+    U: FromRef<T>,
 {
     fn ref_to(&self) -> U {
         U::from_ref(self)
@@ -343,7 +344,7 @@ fn parse_naive_date_time(t: &[u8]) -> Option<NaiveDateTime> {
         unsafe { std::str::from_utf8_unchecked(t) },
         "%Y-%m-%d %H:%M:%S%.f",
     )
-        .ok()
+    .ok()
 }
 
 fn parse_count(c: &[u8]) -> Option<u32> {

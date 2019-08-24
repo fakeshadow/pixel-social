@@ -2,7 +2,7 @@ use std::{env, time::Duration};
 
 use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
 use futures::{
-    future::{Either, ok as ft_ok},
+    future::{ok as ft_ok, Either},
     IntoFuture,
 };
 use lettre::{
@@ -13,19 +13,38 @@ use lettre::{
     SmtpClient, Transport,
 };
 use lettre_email::Email;
+use redis::aio::SharedConnection;
 
-use crate::handler::cache::{CacheService, CheckCacheConn, GetQueue};
-use crate::MessageService;
+use crate::handler::cache::{CacheService, CheckCacheConn, GetQueue, GetSharedConn};
 use crate::model::{
     errors::{ErrorReport, RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
     user::User,
 };
+use crate::MessageService;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
 const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
 const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
+
+impl GetQueue for MessageService {}
+
+impl GetSharedConn for MessageService {
+    fn get_conn(&self) -> SharedConnection {
+        self.cache.as_ref().unwrap().borrow().clone()
+    }
+}
+
+impl CheckCacheConn for MessageService {
+    fn self_url(&self) -> String {
+        self.url.to_owned()
+    }
+
+    fn replace_cache(&self, c: SharedConnection) {
+        self.cache.as_ref().map(|s| s.replace(c));
+    }
+}
 
 impl MessageService {
     pub fn start_interval(&self, ctx: &mut Context<Self>) {
@@ -62,14 +81,12 @@ impl MessageService {
                             .get_queue("mail_queue")
                             .into_actor(act)
                             .and_then(|s, act, _| {
-                                act.send_mail_user(s.as_str())
-                                    .into_future()
-                                    .into_actor(act)
+                                act.send_mail_user(s.as_str()).into_future().into_actor(act)
                             })
                     })
                     .map_err(|e, act, _| {
                         act.add_err_to_rep(RepError::from(e));
-                    })
+                    }),
             );
         });
     }
@@ -79,14 +96,10 @@ impl MessageService {
             ctx.spawn(
                 act.get_queue("sms_queue")
                     .into_actor(act)
-                    .and_then(|s, act, _| {
-                        act.send_sms_user(s.as_str())
-                            .into_actor(act)
-                    })
+                    .and_then(|s, act, _| act.send_sms_user(s.as_str()).into_actor(act))
                     .map_err(|e, act, _| {
                         act.add_err_to_rep(RepError::from(e));
-                    })
-                ,
+                    }),
             );
         });
     }
@@ -159,7 +172,7 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg.to_owned(),
@@ -167,7 +180,7 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
             Err(_) => return Either::A(ft_ok(())),
@@ -176,7 +189,7 @@ impl MessageService {
     }
 
     // twilio api handler.
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item = (), Error = ResError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
@@ -245,10 +258,7 @@ impl MessageService {
             .build()?
             .into();
 
-        Ok(mailer
-            .mailer
-            .send(mail)
-            .map(|_| ())?)
+        Ok(mailer.mailer.send(mail).map(|_| ())?)
     }
 }
 

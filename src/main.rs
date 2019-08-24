@@ -55,28 +55,32 @@ fn main() -> std::io::Result<()> {
     // build_cache function returns global variables.
     let (global, global_talks, global_sessions) =
         build_cache(&database_url, &redis_url, is_init).expect("Unable to build cache");
+    // only global is wrapped in web::Data, global_talks and global_sessions are passed to every TalkService actor.
     let global = web::Data::new(global);
 
     let mut sys = System::new("PixelShare");
 
-    // cache update and message actor are not passed into data.
+    // CacheUpdateService is an async actor who pass it's recipient to CacheService
     let addr = CacheUpdateService::connect(&redis_url);
+    // MessageService is an async actor live only in main thread.
     let _ = MessageService::connect(&redis_url);
-
-    // an actor handle PSN network request.
+    // PSNService is just like MessageService
     let _ = PSNService::connect(&database_url, &redis_url);
 
-    // async connection pool test. currently running much slower than actor pattern.
+    // async connection pool test. currently running much slower than actor pattern and only used in /test/l337_pool
     let pool = crate::router::test::build_pool(&mut sys);
 
     HttpServer::new(move || {
-        // Use a cache pass through flow for data.
-        // Anything can't be find in redis will hit postgres and trigger an redis update.
-        // Most data have a expire time in redis or can be removed manually.
-        // Only a small portion of data are stored permanently in redis
-        // (Mainly the reply_count and reply_timestamp of topics/categories/posts). The online status and last online time for user
-        // Removing them will result in some ordering issue.
-
+        /*
+            Use a cache pass through flow for data.
+            Anything can't be find in redis will hit postgres and trigger an redis update.
+            A failed insertion to postgres will be ignored and returned as an error.
+            A failed insertion to redis after a successful postgres insertion will be passed to CacheUpdateService actor and retry from there.
+            Most data have a expire time in redis or can be removed manually.
+            Only a small portion of data are stored permanently in redis
+            (Mainly the reply_count and reply_timestamp of topics/categories/posts). The online status and last online time for user
+            Removing them will result in some ordering issue.
+        */
         let talks = global_talks.clone();
         let sessions = global_sessions.clone();
 
@@ -86,7 +90,7 @@ fn main() -> std::io::Result<()> {
         let db_url_2 = database_url.clone();
         let rd_url_2 = redis_url.clone();
 
-        let addr = addr.clone();
+        let recipient = addr.clone().recipient();
 
         App::new()
             .register_data(global.clone())
@@ -103,7 +107,9 @@ fn main() -> std::io::Result<()> {
             // db service and cache service are data struct contains postgres connection, prepared queries and redis connections.
             // They are not shared between threads.
             .data_factory(move || crate::handler::db::DatabaseService::init(db_url_2.as_str()))
-            .data_factory(move || crate::handler::cache::CacheService::init(rd_url_2.as_str(), addr.clone()))
+            .data_factory(move || {
+                crate::handler::cache::CacheService::init(rd_url_2.as_str(), recipient.clone())
+            })
             .data(pool.clone())
             .wrap(Logger::default())
             .wrap(

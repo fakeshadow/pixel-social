@@ -1,12 +1,11 @@
 use std::cell::RefCell;
 
-use actix::prelude::{Addr, Future, Recipient};
+use actix::prelude::{Future, Recipient};
 use chrono::{NaiveDateTime, Utc};
-use futures::future::{Either, ok as ft_ok};
+use futures::future::{ok as ft_ok, Either};
 use futures::IntoFuture;
-use redis::{aio::SharedConnection, Client, cmd, pipe};
+use redis::{aio::SharedConnection, cmd, pipe, Client};
 
-use crate::{MessageService, PSNService};
 use crate::handler::cache_update::CacheFailedMessage;
 use crate::model::{
     actors::TalkService,
@@ -18,7 +17,7 @@ use crate::model::{
     topic::Topic,
     user::User,
 };
-use crate::model::actors::CacheUpdateService;
+use crate::PSNService;
 
 // page offsets of list query
 const LIMIT: usize = 20;
@@ -30,16 +29,13 @@ const HASH_LIFE: usize = 172_800;
 // mail life is expire time of mail hash in seconds
 const MAIL_LIFE: usize = 3600;
 
-// u8 from "category:", "topic:", "user:", "post:"
-pub const CATEGORY_U8: &[u8; 9] = &[99, 97, 116, 101, 103, 111, 114, 121, 58];
-pub const TOPIC_U8: &[u8; 6] = &[116, 111, 112, 105, 99, 58];
-pub const USER_U8: &[u8; 5] = &[117, 115, 101, 114, 58];
-pub const POST_U8: &[u8; 5] = &[112, 111, 115, 116, 58];
-pub const USER_PSN_U8: &[u8; 9] = &[117, 115, 101, 114, 95, 112, 115, 110, 58];
-// u8 from ":set"
-const SET_U8: &[u8; 4] = &[58, 115, 101, 116];
-// u8 from "_perm"
-const PERM_U8: &[u8; 5] = &[95, 112, 101, 114, 109];
+pub const CATEGORY_U8: &[u8] = b"category:";
+pub const TOPIC_U8: &[u8] = b"topic:";
+pub const USER_U8: &[u8] = b"user:";
+pub const POST_U8: &[u8] = b"post:";
+pub const USER_PSN_U8: &[u8] = b"user_psn:";
+const SET_U8: &[u8] = b":set";
+const PERM_U8: &[u8] = b"_perm";
 
 pub struct CacheService {
     pub url: String,
@@ -48,7 +44,10 @@ pub struct CacheService {
 }
 
 impl CacheService {
-    pub fn init(redis_url: &str, addr: Addr<CacheUpdateService>) -> impl Future<Item=CacheService, Error=()> {
+    pub fn init(
+        redis_url: &str,
+        recipient: Recipient<CacheFailedMessage>,
+    ) -> impl Future<Item = CacheService, Error = ()> {
         let url = redis_url.to_owned();
         Client::open(redis_url)
             .unwrap_or_else(|e| panic!("{:?}", e))
@@ -57,26 +56,26 @@ impl CacheService {
             .map(|c| CacheService {
                 url,
                 cache: RefCell::new(c),
-                recipient: addr.recipient(),
+                recipient,
             })
     }
 }
 
 impl CacheService {
     pub fn update_users(&self, u: &[User]) {
-        actix::spawn(build_hmsets(self.get_conn(), u, USER_U8, false));
+        actix::spawn(build_hmsets(self.get_conn(), u, USER_U8, false).map_err(|_| ()));
     }
 
     pub fn update_categories(&self, c: &[Category]) {
-        actix::spawn(build_hmsets(self.get_conn(), c, CATEGORY_U8, false));
+        actix::spawn(build_hmsets(self.get_conn(), c, CATEGORY_U8, false).map_err(|_| ()));
     }
 
     pub fn update_topics(&self, t: &[Topic]) {
-        actix::spawn(build_hmsets(self.get_conn(), t, TOPIC_U8, true));
+        actix::spawn(build_hmsets(self.get_conn(), t, TOPIC_U8, true).map_err(|_| ()));
     }
 
     pub fn update_posts(&self, t: &[Post]) {
-        actix::spawn(build_hmsets(self.get_conn(), t, POST_U8, true));
+        actix::spawn(build_hmsets(self.get_conn(), t, POST_U8, true).map_err(|_| ()));
     }
 
     pub fn get_cache_with_uids_from_list<T>(
@@ -84,9 +83,9 @@ impl CacheService {
         list_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
@@ -99,9 +98,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, true)
     }
@@ -111,9 +110,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, false)
     }
@@ -123,9 +122,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, false, false)
     }
@@ -137,9 +136,9 @@ impl CacheService {
         set_key: &'static [u8],
         is_rev: bool,
         is_reverse_lex: bool,
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.ids_from_cache_zrange(is_rev, zrange_key, (page - 1) * 20)
             .and_then(move |(conn, mut ids)| {
@@ -154,21 +153,44 @@ impl CacheService {
         &self,
         ids: Vec<u32>,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         Self::from_cache_with_perm_with_uids(self.get_conn(), ids, set_key)
     }
 
     // return topic and post as error if for whatever reason the insert to redis is failed.
     // the return topic/post will be send to CacheUpdateService actor and retry until they are all successfully insert into redis.
-    pub fn add_topic(&self, t: Topic) -> impl Future<Item=(), Error=Topic> {
+    pub fn add_topic(&self, t: Topic) -> impl Future<Item = (), Error = Topic> {
         self.add_topic_cache(&t).map_err(|_| t)
     }
 
-    pub fn add_post(&self, p: Post) -> impl Future<Item=(), Error=Post> {
+    pub fn add_post(&self, p: Post) -> impl Future<Item = (), Error = Post> {
         self.add_post_cache(&p).map_err(|_| p)
+    }
+
+    // Don't confused these with update_topics/posts/users methods. The latter methods run in spawned futures and the errors are ignored.
+    // They are separate methods as we don't want to retry every failed update cache for most times the data are from expired cache query and not actual content update.
+    pub fn update_topics_return_fail(
+        &self,
+        t: Vec<Topic>,
+    ) -> impl Future<Item = (), Error = Vec<Topic>> {
+        build_hmsets(self.get_conn(), &t, TOPIC_U8, true).map_err(|_| t)
+    }
+
+    pub fn update_post_return_fail(
+        &self,
+        p: Vec<Post>,
+    ) -> impl Future<Item = (), Error = Vec<Post>> {
+        build_hmsets(self.get_conn(), &p, POST_U8, true).map_err(|_| p)
+    }
+
+    pub fn update_user_return_fail(
+        &self,
+        u: Vec<User>,
+    ) -> impl Future<Item = (), Error = Vec<User>> {
+        build_hmsets(self.get_conn(), &u, USER_U8, false).map_err(|_| u)
     }
 
     // only send message once and ignore the result.
@@ -178,6 +200,20 @@ impl CacheService {
 
     pub fn add_fail_post(&self, p: Post) {
         let _ = self.recipient.do_send(CacheFailedMessage::FailedPost(p));
+    }
+
+    pub fn add_fail_topic_update(&self, t: Vec<Topic>) {
+        let _ = self
+            .recipient
+            .do_send(CacheFailedMessage::FailedTopicUpdate(t));
+    }
+    pub fn add_fail_post_update(&self, p: Vec<Post>) {
+        let _ = self
+            .recipient
+            .do_send(CacheFailedMessage::FailedPostUpdate(p));
+    }
+    pub fn add_fail_user_update(&self, u: Vec<User>) {
+        let _ = self.recipient.do_send(CacheFailedMessage::FailedUser(u));
     }
 
     pub fn add_category(&self, c: &Category) {
@@ -208,7 +244,7 @@ impl CacheService {
         uid: u32,
         uuid: String,
         mail: String,
-    ) -> impl Future<Item=(), Error=()> {
+    ) -> impl Future<Item = (), Error = ()> {
         cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
@@ -243,15 +279,15 @@ impl CacheService {
     pub fn add_psn_request_with_privilege(
         &self,
         req: &str,
-    ) -> impl Future<Item=(), Error=ResError> {
+    ) -> impl Future<Item = (), Error = ResError> {
         self.add_psn_request(req, 0)
     }
 
-    pub fn add_psn_request_now(&self, req: &str) -> impl Future<Item=(), Error=ResError> {
+    pub fn add_psn_request_now(&self, req: &str) -> impl Future<Item = (), Error = ResError> {
         self.add_psn_request(req, Utc::now().timestamp_millis())
     }
 
-    fn add_psn_request(&self, req: &str, score: i64) -> impl Future<Item=(), Error=ResError> {
+    fn add_psn_request(&self, req: &str, score: i64) -> impl Future<Item = (), Error = ResError> {
         cmd("ZADD")
             .arg("psn_queue")
             .arg(score)
@@ -268,7 +304,7 @@ impl TalkService {
         uid: u32,
         status: u32,
         set_last_online_time: bool,
-    ) -> impl Future<Item=(), Error=ResError> {
+    ) -> impl Future<Item = (), Error = ResError> {
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
 
@@ -287,16 +323,16 @@ impl TalkService {
     pub fn get_users_cache_from_ids(
         &self,
         uids: Vec<u32>,
-    ) -> impl Future<Item=Vec<User>, Error=ResError> {
+    ) -> impl Future<Item = Vec<User>, Error = ResError> {
         self.users_from_cache(uids)
     }
 }
 
 pub trait GetQueue
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
-    fn get_queue(&self, key: &str) -> Box<dyn Future<Item=String, Error=ResError>> {
+    fn get_queue(&self, key: &str) -> Box<dyn Future<Item = String, Error = ResError>> {
         let mut pip = pipe();
         pip.atomic();
         pip.cmd("zrange")
@@ -315,19 +351,10 @@ pub trait GetQueue
     }
 }
 
-impl GetQueue for MessageService {}
-
 impl GetQueue for PSNService {}
-
 
 pub trait GetSharedConn {
     fn get_conn(&self) -> SharedConnection;
-}
-
-impl GetSharedConn for MessageService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.as_ref().unwrap().borrow().clone()
-    }
 }
 
 impl GetSharedConn for PSNService {
@@ -348,12 +375,15 @@ impl GetSharedConn for TalkService {
     }
 }
 
-
+/// redis connection is only checked on insert request.
+/// Connections are not shared between threads so the recovery will happen separately.
 pub trait CheckCacheConn
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
-    fn check_cache_conn(&self) -> Box<dyn Future<Item=Option<SharedConnection>, Error=ResError>> {
+    fn check_cache_conn(
+        &self,
+    ) -> Box<dyn Future<Item = Option<SharedConnection>, Error = ResError>> {
         let url = self.self_url();
         Box::new(
             redis::cmd("PING")
@@ -390,16 +420,6 @@ impl CheckCacheConn for CacheService {
     }
 }
 
-impl CheckCacheConn for MessageService {
-    fn self_url(&self) -> String {
-        self.url.to_owned()
-    }
-
-    fn replace_cache(&self, c: SharedConnection) {
-        self.cache.as_ref().map(|s| s.replace(c));
-    }
-}
-
 impl CheckCacheConn for PSNService {
     fn self_url(&self) -> String {
         self.cache_url.to_owned()
@@ -409,7 +429,6 @@ impl CheckCacheConn for PSNService {
         self.cache.as_ref().map(|s| s.replace(c));
     }
 }
-
 
 fn count_ids(
     (conn, ids): (SharedConnection, Vec<u32>),
@@ -424,15 +443,15 @@ fn count_ids(
 /// ids from list and sorted set will return an error if the result is empty.
 /// we assume no data can be found on database if we don't have according id in cache.
 pub trait IdsFromList
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
     fn ids_from_cache_list(
         &self,
         list_key: &str,
         start: usize,
         end: usize,
-    ) -> Box<dyn Future<Item=(SharedConnection, Vec<u32>), Error=ResError>> {
+    ) -> Box<dyn Future<Item = (SharedConnection, Vec<u32>), Error = ResError>> {
         Box::new(
             cmd("lrange")
                 .arg(list_key)
@@ -445,19 +464,18 @@ pub trait IdsFromList
     }
 }
 
-
 impl IdsFromList for CacheService {}
 
 trait IdsFromSortedSet
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
     fn ids_from_cache_zrange(
         &self,
         is_rev: bool,
         list_key: &str,
         offset: usize,
-    ) -> Box<dyn Future<Item=(SharedConnection, Vec<u32>), Error=ResError>> {
+    ) -> Box<dyn Future<Item = (SharedConnection, Vec<u32>), Error = ResError>> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
@@ -482,13 +500,13 @@ trait IdsFromSortedSet
 impl IdsFromSortedSet for CacheService {}
 
 pub trait HashMapBrownFromCache
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
     fn hash_map_brown_from_cache(
         &self,
         key: &str,
-    ) -> Box<dyn Future<Item=HashMapBrown<String, String>, Error=ResError>> {
+    ) -> Box<dyn Future<Item = HashMapBrown<String, String>, Error = ResError>> {
         Box::new(
             cmd("HGETALL")
                 .arg(key)
@@ -502,10 +520,10 @@ pub trait HashMapBrownFromCache
 impl HashMapBrownFromCache for CacheService {}
 
 pub trait DeleteCache
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
-    fn del_cache(&self, key: &str) -> Box<dyn Future<Item=(), Error=ResError>> {
+    fn del_cache(&self, key: &str) -> Box<dyn Future<Item = (), Error = ResError>> {
         Box::new(
             cmd("del")
                 .arg(key)
@@ -519,16 +537,16 @@ pub trait DeleteCache
 impl DeleteCache for CacheService {}
 
 pub trait FromCacheSingle
-    where
-        Self: GetSharedConn,
+where
+    Self: GetSharedConn,
 {
     fn from_cache_single<T>(
         &self,
         key: &str,
         set_key: &str,
-    ) -> Box<dyn Future<Item=T, Error=ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + 'static,
+    ) -> Box<dyn Future<Item = T, Error = ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + 'static,
     {
         Box::new(
             cmd("HGETALL")
@@ -549,9 +567,9 @@ pub trait FromCache {
         set_key: &'static [u8],
         have_perm_fields: bool,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
-    ) -> Box<dyn Future<Item=Vec<T>, Error=ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + 'static,
+    ) -> Box<dyn Future<Item = Vec<T>, Error = ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + 'static,
     {
         let mut pip = pipe();
         pip.atomic();
@@ -589,7 +607,6 @@ pub trait FromCache {
 
 impl FromCache for CacheService {}
 
-
 impl FromCache for TalkService {}
 
 impl CacheService {
@@ -597,9 +614,9 @@ impl CacheService {
         conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &'static [u8],
-    ) -> impl Future<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         Self::from_cache(conn, ids, set_key, true).map(|t: Vec<T>| {
             let len = t.len();
@@ -613,13 +630,13 @@ impl CacheService {
 }
 
 pub trait UsersFromCache
-    where
-        Self: GetSharedConn + FromCache,
+where
+    Self: GetSharedConn + FromCache,
 {
     fn users_from_cache(
         &self,
         uids: Vec<u32>,
-    ) -> Box<dyn Future<Item=Vec<User>, Error=ResError>> {
+    ) -> Box<dyn Future<Item = Vec<User>, Error = ResError>> {
         Box::new(Self::from_cache::<User>(
             self.get_conn(),
             uids,
@@ -634,10 +651,10 @@ impl UsersFromCache for TalkService {}
 impl UsersFromCache for CacheService {}
 
 pub trait CategoriesFromCache
-    where
-        Self: FromCache + GetSharedConn + IdsFromList,
+where
+    Self: FromCache + GetSharedConn + IdsFromList,
 {
-    fn categories_from_cache(&self) -> Box<dyn Future<Item=Vec<Category>, Error=ResError>> {
+    fn categories_from_cache(&self) -> Box<dyn Future<Item = Vec<Category>, Error = ResError>> {
         Box::new(
             self.ids_from_cache_list("category_id:meta", 0, 999)
                 .and_then(|(conn, vec): (_, Vec<u32>)| {
@@ -650,7 +667,7 @@ pub trait CategoriesFromCache
 impl CategoriesFromCache for CacheService {}
 
 pub trait AddTopicCache: GetSharedConn {
-    fn add_topic_cache(&self, t: &Topic) -> Box<dyn Future<Item=(), Error=ResError>> {
+    fn add_topic_cache(&self, t: &Topic) -> Box<dyn Future<Item = (), Error = ResError>> {
         let mut pip = pipe();
         pip.atomic();
 
@@ -699,17 +716,19 @@ pub trait AddTopicCache: GetSharedConn {
             .arg(tid)
             .ignore();
 
-        Box::new(pip.query_async(self.get_conn())
-            //ToDo: add error handling
-            .from_err()
-            .map(|(_, ())| ()))
+        Box::new(
+            pip.query_async(self.get_conn())
+                //ToDo: add error handling
+                .from_err()
+                .map(|(_, ())| ()),
+        )
     }
 }
 
 impl AddTopicCache for CacheService {}
 
 pub trait AddPostCache: GetSharedConn {
-    fn add_post_cache(&self, p: &Post) -> Box<dyn Future<Item=(), Error=ResError>> {
+    fn add_post_cache(&self, p: &Post) -> Box<dyn Future<Item = (), Error = ResError>> {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -825,22 +844,92 @@ pub trait AddPostCache: GetSharedConn {
         Box::new(
             pip.query_async(self.get_conn())
                 .from_err()
-                .map(|(_, ())| ())
+                .map(|(_, ())| ()),
         )
     }
 }
 
 impl AddPostCache for CacheService {}
 
+pub trait BulkUpdateCache: GetSharedConn {
+    fn bulk_add_update_cache(
+        &self,
+        t: Vec<&Topic>,
+        p: Vec<&Post>,
+        u: Vec<&User>,
+    ) -> Box<dyn Future<Item = (), Error = ResError>> {
+        let mut pip = pipe();
+        pip.atomic();
+
+        let mut key = Vec::with_capacity(28);
+        key.extend_from_slice(TOPIC_U8);
+
+        for t in t.into_iter() {
+            let mut key = key.clone();
+            key.extend_from_slice(t.self_id_string().as_bytes());
+            key.extend_from_slice(SET_U8);
+
+            let t: Vec<(&'static str, Vec<u8>)> = t.ref_to();
+
+            pip.cmd("HMSET")
+                .arg(key.as_slice())
+                .arg(t)
+                .ignore()
+                .cmd("expire")
+                .arg(key.as_slice())
+                .arg(HASH_LIFE)
+                .ignore();
+        }
+
+        let mut key = Vec::with_capacity(28);
+        key.extend_from_slice(POST_U8);
+
+        for p in p.into_iter() {
+            let mut key = key.clone();
+            key.extend_from_slice(p.self_id_string().as_bytes());
+            key.extend_from_slice(SET_U8);
+
+            let p: Vec<(&'static str, Vec<u8>)> = p.ref_to();
+
+            pip.cmd("HMSET")
+                .arg(key.as_slice())
+                .arg(p)
+                .ignore()
+                .cmd("expire")
+                .arg(key.as_slice())
+                .arg(HASH_LIFE)
+                .ignore();
+        }
+
+        let mut key = Vec::with_capacity(28);
+        key.extend_from_slice(USER_U8);
+
+        for u in u.into_iter() {
+            let mut key = key.clone();
+            key.extend_from_slice(u.self_id_string().as_bytes());
+            key.extend_from_slice(SET_U8);
+
+            let u: Vec<(&'static str, Vec<u8>)> = u.ref_to();
+
+            pip.cmd("HMSET").arg(key.as_slice()).arg(u).ignore();
+        }
+
+        Box::new(
+            pip.query_async(self.get_conn())
+                .from_err()
+                .map(|(_, ())| println!("updating cache")),
+        )
+    }
+}
 
 pub fn build_hmsets<T>(
     conn: SharedConnection,
     vec: &[T],
     set_key: &'static [u8],
     should_expire: bool,
-) -> impl Future<Item=(), Error=()>
-    where
-        T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
+) -> impl Future<Item = (), Error = ResError>
+where
+    T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
 {
     let mut pip = pipe();
     pip.atomic();
@@ -864,12 +953,12 @@ pub fn build_hmsets<T>(
         }
     }
     pip.query_async(conn)
-        .map_err(|_| ())
+        .from_err()
         .map(|(_, ())| println!("updating cache"))
 }
 
 impl CacheService {
-    pub fn remove_category(&self, cid: u32) -> impl Future<Item=(), Error=ResError> {
+    pub fn remove_category(&self, cid: u32) -> impl Future<Item = (), Error = ResError> {
         // ToDo: future test the pipe lined cmd results
         let mut pip = pipe();
         pip.atomic();
@@ -936,7 +1025,7 @@ pub fn update_post_count(
     cid: u32,
     yesterday: i64,
     conn: SharedConnection,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
 
@@ -968,7 +1057,7 @@ pub fn update_list(
     cid: Option<u32>,
     yesterday: i64,
     conn: SharedConnection,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
             format!("category:{}:list_pop", cid),
@@ -1065,7 +1154,7 @@ pub fn build_list(
     conn: SharedConnection,
     vec: Vec<u32>,
     key: String,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -1081,7 +1170,7 @@ pub fn build_list(
 pub fn build_users_cache(
     vec: Vec<User>,
     conn: SharedConnection,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
@@ -1105,7 +1194,7 @@ pub fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -1151,7 +1240,7 @@ pub fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future<Item=(), Error=ResError> {
+) -> impl Future<Item = (), Error = ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 

@@ -81,9 +81,9 @@ impl ResponseError for ResError {
             ResError::Unauthorized => {
                 HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized"))
             }
-            ResError::AuthTimeout => HttpResponse::Forbidden().json(ErrorMessage::new(
-                "Authentication Timeout",
-            )),
+            ResError::AuthTimeout => {
+                HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout"))
+            }
             ResError::ParseError => {
                 HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing error"))
             }
@@ -179,7 +179,6 @@ impl From<PSNError> for ResError {
     }
 }
 
-
 #[derive(Serialize, Debug, Eq, PartialEq, Hash)]
 pub struct DatabaseErrorMessage {
     category: Option<String>,
@@ -218,11 +217,10 @@ impl From<ResError> for RepError {
         match e {
             ResError::DataBaseReadError => RepError::Database,
             ResError::RedisConnection => RepError::Redis,
-            _ => RepError::Ignore
+            _ => RepError::Ignore,
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct ErrorReport {
