@@ -3,16 +3,11 @@ use actix_web::{
     Error,
     HttpResponse, ResponseError, web::{Data, Json, Query},
 };
-use futures::{
-    FutureExt, TryFutureExt,
-};
+use futures::{FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{
-        AddToCache, CacheService,
-        CheckCacheConn,
-    },
+    cache::{AddToCache, CacheService, CheckCacheConn},
     db::DatabaseService,
 };
 use crate::model::{
@@ -29,7 +24,10 @@ pub fn add(
     req: Json<TopicRequest>,
     global: Data<GlobalVars>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    add_async(jwt, db, cache, req, global).boxed_local().compat().from_err()
+    add_async(jwt, db, cache, req, global)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 pub async fn add_async(
@@ -45,20 +43,24 @@ pub async fn add_async(
         .attach_user_id(Some(jwt.user_id))
         .check_new()?;
 
-    let opt = db.check_conn().await?;
-    let t = db.if_replace_db(opt).add_topic(&req, global.get_ref()).await?;
+    let t = db
+        .check_conn()
+        .await?
+        .add_topic(&req, global.get_ref())
+        .await?;
 
     let res = HttpResponse::Ok().json(&t);
 
     match cache.check_cache_conn().await {
         Ok(opt) => {
             actix::spawn(
-                cache.if_replace_cache(opt)
+                cache
+                    .if_replace_cache(opt)
                     .add_topic_cache_01(&t)
-                    .map_err(move |_| cache.send_failed_topic(t))
+                    .map_err(move |_| cache.send_failed_topic(t)),
             );
         }
-        Err(_) => cache.send_failed_topic(t)
+        Err(_) => cache.send_failed_topic(t),
     };
 
     Ok(res)
@@ -70,9 +72,11 @@ pub fn update(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_async(jwt, db, cache, req).boxed_local().compat().from_err()
+    update_async(jwt, db, cache, req)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
-
 
 async fn update_async(
     jwt: UserJwt,
@@ -80,35 +84,43 @@ async fn update_async(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
 ) -> Result<HttpResponse, ResError> {
-    let req = req.into_inner().attach_user_id(Some(jwt.user_id)).check_update()?;
+    let req = req
+        .into_inner()
+        .attach_user_id(Some(jwt.user_id))
+        .check_update()?;
 
-    let opt = db.check_conn().await?;
-
-    let t = db.if_replace_db(opt).update_topic(&req).await?;
+    let t = db.check_conn().await?.update_topic(&req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
-    let t = vec![t];
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache.if_replace_cache(opt)
-                .update_topic_return_fail(t)
-                .map_err(move |t|
-                    cache.send_failed_topic_update(t)
-                ),
-        ),
-        Err(_) => cache.send_failed_topic_update(t)
-    };
+    update_topic_with_fail_check(cache, t).await;
 
     Ok(res)
 }
+
+pub(crate) async fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
+    let t = vec![t];
+    match cache.check_cache_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .update_topic_return_fail(t)
+                .map_err(move |t| cache.send_failed_topic_update(t)),
+        ),
+        Err(_) => cache.send_failed_topic_update(t),
+    };
+}
+
 
 pub fn query_handler(
     req: Query<TopicQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_async(req, db, cache).boxed_local().compat().from_err()
+    query_handler_async(req, db, cache)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 pub async fn query_handler_async(
@@ -141,22 +153,26 @@ async fn if_query_db(
 
     let (p, mut uids) = match result {
         Ok((p, uids)) => (p, uids),
-        Err(e) => if let ResError::IdsFromCache(pids) = e {
-            should_update_p = true;
-            db.get_posts_with_uid(&pids).await?
-        } else {
-            return Ok(e.render_response());
+        Err(e) => {
+            if let ResError::IdsFromCache(pids) = e {
+                should_update_p = true;
+                db.get_posts_with_uid(&pids).await?
+            } else {
+                return Ok(e.render_response());
+            }
         }
     };
 
     let (t, mut uid) = if page == 1 {
         match cache.get_topics_from_ids(vec![tid]).await {
             Ok((t, uid)) => (t, uid),
-            Err(e) => if let ResError::IdsFromCache(tids) = e {
-                should_update_t = true;
-                db.get_topics_with_uid(&tids).await?
-            } else {
-                return Ok(e.render_response());
+            Err(e) => {
+                if let ResError::IdsFromCache(tids) = e {
+                    should_update_t = true;
+                    db.get_topics_with_uid(&tids).await?
+                } else {
+                    return Ok(e.render_response());
+                }
             }
         }
     } else {
@@ -167,11 +183,13 @@ async fn if_query_db(
 
     let u = match cache.get_users_from_ids(uids).await {
         Ok(u) => u,
-        Err(e) => if let ResError::IdsFromCache(uids) = e {
-            should_update_u = true;
-            db.get_users_by_id(&uids).await?
-        } else {
-            vec![]
+        Err(e) => {
+            if let ResError::IdsFromCache(uids) = e {
+                should_update_u = true;
+                db.get_users_by_id(&uids).await?
+            } else {
+                vec![]
+            }
         }
     };
 

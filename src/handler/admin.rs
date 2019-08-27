@@ -46,11 +46,7 @@ impl DatabaseService {
         self.update_category(req).await
     }
 
-    pub async fn admin_remove_category(
-        &self,
-        cid: u32,
-        self_level: u32,
-    ) -> Result<(), ResError> {
+    pub async fn admin_remove_category(&self, cid: u32, self_level: u32) -> Result<(), ResError> {
         let _ = check_admin_level(&Some(1), self_level, 9)?;
         self.remove_category(cid).await
     }
@@ -65,7 +61,9 @@ impl DatabaseService {
         let user = self.get_users_by_id(&id).await?;
         let user = user.first().ok_or(ResError::BadRequest)?;
 
-        if self_level <= user.privilege { return Err(ResError::Unauthorized); }
+        if self_level <= user.privilege {
+            return Err(ResError::Unauthorized);
+        }
 
         check_admin_level(&u.privilege, self_level, 9).map(|_| u)
     }

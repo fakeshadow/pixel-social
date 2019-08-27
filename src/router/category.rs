@@ -1,17 +1,12 @@
 use actix::prelude::Future as Future01;
 use actix_web::{
-    Error,
-    HttpResponse, ResponseError, web::{Data, Query},
+    web::{Data, Query},
+    Error, HttpResponse, ResponseError,
 };
-use futures::{
-    future::{FutureExt, TryFutureExt}
-};
+use futures::future::{FutureExt, TryFutureExt};
 
 use crate::{
-    handler::{
-        cache::CacheService,
-        db::DatabaseService,
-    },
+    handler::{cache::CacheService, db::DatabaseService},
     model::{
         category::{CategoryQuery, QueryType},
         errors::ResError,
@@ -23,8 +18,11 @@ pub fn query_handler(
     req: Query<CategoryQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_async(req, db, cache).boxed_local().compat().from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    query_handler_async(req, db, cache)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 async fn query_handler_async(
@@ -41,9 +39,7 @@ async fn query_handler_async(
             if_query_db(db, cache, result).await
         }
         QueryType::PopularAll => {
-            let result = cache
-                .get_topics_pop_all(req.page.unwrap_or(1))
-                .await;
+            let result = cache.get_topics_pop_all(req.page.unwrap_or(1)).await;
 
             if_query_db(db, cache, result).await
         }
@@ -54,16 +50,14 @@ async fn query_handler_async(
 
             if_query_db(db, cache, result).await
         }
-        QueryType::All => {
-            match cache.get_categories_all().await {
-                Ok(c) => Ok(HttpResponse::Ok().json(&c)),
-                Err(_) => {
-                    let c = db.get_categories_all().await?;
-                    cache.update_categories(&c);
-                    Ok(HttpResponse::Ok().json(&c))
-                }
+        QueryType::All => match cache.get_categories_all().await {
+            Ok(c) => Ok(HttpResponse::Ok().json(&c)),
+            Err(_) => {
+                let c = db.get_categories_all().await?;
+                cache.update_categories(&c);
+                Ok(HttpResponse::Ok().json(&c))
             }
-        }
+        },
     }
 }
 
@@ -77,11 +71,13 @@ async fn if_query_db(
 
     let (t, mut uids) = match result {
         Ok(t) => t,
-        Err(e) => if let ResError::IdsFromCache(tids) = e {
-            should_update_t = true;
-            db.get_topics_with_uid(&tids).await?
-        } else {
-            return Ok(e.render_response());
+        Err(e) => {
+            if let ResError::IdsFromCache(tids) = e {
+                should_update_t = true;
+                db.get_topics_with_uid(&tids).await?
+            } else {
+                return Ok(e.render_response());
+            }
         }
     };
 
@@ -89,11 +85,13 @@ async fn if_query_db(
 
     let u = match result {
         Ok(u) => u,
-        Err(e) => if let ResError::IdsFromCache(uids) = e {
-            should_update_u = true;
-            db.get_users_by_id(&uids).await?
-        } else {
-            vec![]
+        Err(e) => {
+            if let ResError::IdsFromCache(uids) = e {
+                should_update_u = true;
+                db.get_users_by_id(&uids).await?
+            } else {
+                vec![]
+            }
         }
     };
 

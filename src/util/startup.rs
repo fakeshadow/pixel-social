@@ -2,26 +2,22 @@ use actix::SystemRunner;
 use chrono::NaiveDateTime;
 use futures::{FutureExt, TryFutureExt, TryStreamExt};
 use futures01::Future as Future01;
-use tokio_postgres::{connect, SimpleQueryMessage, tls::NoTls};
+use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
 use crate::handler::{
     cache::{
-        build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01, build_users_cache_01,
+        build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01,
+        build_users_cache_01,
     },
     db::load_all_to_01,
 };
+use crate::model::talk::Talk;
 use crate::model::{
     category::Category,
-    common::{
-        GlobalSessions,
-        GlobalTalks,
-        GlobalVar, GlobalVars,
-        new_global_talks_sessions,
-    },
+    common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
     topic::Topic,
     user::User,
 };
-use crate::model::talk::Talk;
 
 //return global arc after building cache
 pub fn build_cache(
@@ -30,25 +26,35 @@ pub fn build_cache(
     redis_url: &str,
     is_init: bool,
 ) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
-    let (mut c, conn): (tokio_postgres::Client, _) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
-
+    let (mut c, conn): (tokio_postgres::Client, _) = sys
+        .block_on(connect(postgres_url, NoTls).boxed().compat())
+        .unwrap_or_else(|e| panic!("{}", e));
 
     tokio::spawn(conn.map(|_| ()));
 
-    let c_cache = sys.block_on(redis::Client::open(redis_url).unwrap_or_else(|e| panic!("{}", e))
-        .get_shared_async_connection())
+    let c_cache = sys
+        .block_on(
+            redis::Client::open(redis_url)
+                .unwrap_or_else(|e| panic!("{}", e))
+                .get_shared_async_connection(),
+        )
         .unwrap_or_else(|e| panic!("{}", e));
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
 
-    let categories = sys.block_on(load_all_to_01::<Category>(&mut c, query)).unwrap_or_else(|_| panic!("Failed to load categories"));
+    let categories = sys
+        .block_on(load_all_to_01::<Category>(&mut c, query))
+        .unwrap_or_else(|_| panic!("Failed to load categories"));
 
-    let _ = sys.block_on(build_hmsets_01(
-        c_cache.clone(),
-        &categories,
-        crate::handler::cache::CATEGORY_U8,
-        false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
+    let _ = sys
+        .block_on(build_hmsets_01(
+            c_cache.clone(),
+            &categories,
+            crate::handler::cache::CATEGORY_U8,
+            false,
+        ))
+        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -62,22 +68,35 @@ pub fn build_cache(
         category_ids.push(cat.id);
 
         // count posts and topics for each category and write to redis
-        let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
-        let t_count = sys.block_on(crate::handler::db::simple_query_single_row_handler_to_01::<u32>(&mut c, query.as_str(), 0)).unwrap_or(0);
+        let query = format!(
+            "SELECT COUNT(id) FROM topics WHERE category_id = {}",
+            cat.id
+        );
+        let t_count = sys
+            .block_on(crate::handler::db::simple_query_single_row_handler_to_01::<
+                u32,
+            >(&mut c, query.as_str(), 0))
+            .unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let p_count = sys.block_on(crate::handler::db::simple_query_single_row_handler_to_01::<u32>(&mut c, query.as_str(), 0)).unwrap_or(0);
+        let p_count = sys
+            .block_on(crate::handler::db::simple_query_single_row_handler_to_01::<
+                u32,
+            >(&mut c, query.as_str(), 0))
+            .unwrap_or(0);
 
-        let _ = sys.block_on(
-            redis::cmd("HMSET")
-                .arg(&format!("category:{}:set", cat.id))
-                .arg(&[
-                    ("topic_count", t_count.to_string()),
-                    ("post_count", p_count.to_string()),
-                ])
-                .query_async(c_cache.clone())
-                .map(|(_, ())| ())
-        ).unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
+        let _ = sys
+            .block_on(
+                redis::cmd("HMSET")
+                    .arg(&format!("category:{}:set", cat.id))
+                    .arg(&[
+                        ("topic_count", t_count.to_string()),
+                        ("post_count", p_count.to_string()),
+                    ])
+                    .query_async(c_cache.clone())
+                    .map(|(_, ())| ()),
+            )
+            .unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
@@ -85,7 +104,8 @@ pub fn build_cache(
             "SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC",
             cat.id
         );
-        let t = sys.block_on(crate::handler::db::load_all_to_01::<Topic>(&mut c, &query))
+        let t = sys
+            .block_on(crate::handler::db::load_all_to_01::<Topic>(&mut c, &query))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -94,7 +114,8 @@ pub fn build_cache(
             cat.id
         );
         let reply_count = Vec::new();
-        let f = c.simple_query(&query)
+        let f = c
+            .simple_query(&query)
             .try_fold(reply_count, |mut reply_count, row| {
                 if let SimpleQueryMessage::Row(row) = row {
                     if let Ok(count) = row.get(0).unwrap().parse::<u32>() {
@@ -104,10 +125,11 @@ pub fn build_cache(
                     }
                 }
                 futures::future::ok(reply_count)
-            },
-            );
+            });
 
-        let mut reply_count: Vec<(u32, u32)> = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+        let mut reply_count: Vec<(u32, u32)> = sys
+            .block_on(f.boxed().compat())
+            .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
         // attach reply count to topics
         let t = t
@@ -141,8 +163,9 @@ pub fn build_cache(
     sys.block_on(build_list(
         c_cache.clone(),
         category_ids,
-        "category_id:meta".to_owned()))
-        .unwrap_or_else(|_| panic!("Failed to build category lists"));
+        "category_id:meta".to_owned(),
+    ))
+    .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // load all posts with tid id and created_at
     let f = c
@@ -183,7 +206,9 @@ pub fn build_cache(
             futures::future::ok(reply_count)
         });
 
-    let mut reply_count: Vec<(u32, u32)> = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+    let mut reply_count: Vec<(u32, u32)> = sys
+        .block_on(f.boxed().compat())
+        .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
     let mut last_pid = 1;
 
@@ -211,7 +236,11 @@ pub fn build_cache(
             .unwrap_or_else(|_| panic!("Failed to build posts cache"));
     }
 
-    let users = sys.block_on(crate::handler::db::load_all_to_01::<User>(&mut c, "SELECT * FROM users"))
+    let users = sys
+        .block_on(crate::handler::db::load_all_to_01::<User>(
+            &mut c,
+            "SELECT * FROM users",
+        ))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
@@ -225,7 +254,8 @@ pub fn build_cache(
     sys.block_on(build_users_cache_01(users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
-    let talks = sys.block_on(load_all_to_01::<Talk>(&mut c, "SELECT * FROM talks"))
+    let talks = sys
+        .block_on(load_all_to_01::<Talk>(&mut c, "SELECT * FROM talks"))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
     let (talks, sessions) = new_global_talks_sessions(talks);
@@ -241,12 +271,17 @@ pub fn build_cache(
 
 // return true if built tables success
 pub fn create_table(sys: &mut SystemRunner, postgres_url: &str) -> bool {
-    let (mut c, conn) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let (mut c, conn) = sys
+        .block_on(connect(postgres_url, NoTls).boxed().compat())
+        .unwrap_or_else(|e| panic!("{}", e));
     tokio::spawn(conn.map(|_| ()));
 
     let query = "SELECT * FROM categories";
 
-    if sys.block_on(crate::handler::db::load_all_to_01::<Category>(&mut c, query))
+    if sys
+        .block_on(crate::handler::db::load_all_to_01::<Category>(
+            &mut c, query,
+        ))
         .ok()
         .is_some()
     {
@@ -422,13 +457,17 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
     let f = c.simple_query(&query).try_collect::<Vec<_>>();
 
-    let _ = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic! {"failed to create tables"});
+    let _ = sys
+        .block_on(f.boxed().compat())
+        .unwrap_or_else(|_| panic! {"failed to create tables"});
 
     true
 }
 
 pub fn drop_table(sys: &mut SystemRunner, postgres_url: &str) {
-    let (mut c, conn) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let (mut c, conn) = sys
+        .block_on(connect(postgres_url, NoTls).boxed().compat())
+        .unwrap_or_else(|e| panic!("{}", e));
     tokio::spawn(conn.map(|_| ()));
 
     let query = "
@@ -448,5 +487,7 @@ DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 
     let f = c.simple_query(query).try_collect::<Vec<_>>();
-    let _ = sys.block_on(f.boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let _ = sys
+        .block_on(f.boxed().compat())
+        .unwrap_or_else(|e| panic!("{}", e));
 }

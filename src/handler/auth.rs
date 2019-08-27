@@ -1,9 +1,18 @@
-use actix_web::{dev, FromRequest, HttpRequest};
-use futures::FutureExt;
-use tokio_postgres::{SimpleQueryMessage, SimpleQueryRow};
 
-use crate::handler::{cache::CacheService, db::DatabaseService};
-use crate::handler::db::SimpleQuery;
+
+use actix_web::{dev, FromRequest, HttpRequest};
+use futures::{
+    compat::Future01CompatExt,
+    FutureExt
+};
+
+use crate::handler::{
+    cache::{
+        CacheService,
+    }, db::{
+        DatabaseService,
+        SimpleQuery,
+    }};
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -56,10 +65,7 @@ impl FromRequest for UserJwtOpt {
 }
 
 impl DatabaseService {
-    pub async fn check_register(
-        &self,
-        req: &AuthRequest,
-    ) -> Result<(), ResError> {
+    pub async fn check_register(&self, req: &AuthRequest) -> Result<(), ResError> {
         let username = req.username.as_str();
         let query = format!(
             "SELECT username, email FROM users
@@ -89,11 +95,7 @@ impl DatabaseService {
         }
     }
 
-    pub async fn register(
-        &self,
-        r: AuthRequest,
-        g: &GlobalVars,
-    ) -> Result<User, ResError> {
+    pub async fn register(&self, r: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
         let hash = crate::util::hash::hash_password(&r.password)?;
 
         let id = g.lock().map(|mut lock| lock.next_uid()).await;
@@ -111,7 +113,8 @@ impl DatabaseService {
                 &u.avatar_url,
                 &u.signature,
             ],
-        ).await
+        )
+            .await
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
@@ -132,14 +135,9 @@ impl DatabaseService {
 }
 
 impl CacheService {
-    //    pub fn get_uid_from_uuid(&self, uuid: &str) -> impl Future<Item=u32, Error=ResError> {
-//        use crate::handler::cache::HashMapBrownFromCache;
-//        self.hash_map_brown_from_cache(uuid).and_then(|hm| {
-//            Ok(hm
-//                .0
-//                .get("user_id")
-//                .ok_or(ResError::Unauthorized)?
-//                .parse::<u32>()?)
-//        })
-//    }
+    pub async fn get_uid_from_uuid(&self, uuid: &str) -> Result<u32, ResError> {
+        use crate::handler::cache::HashMapBrownFromCache;
+        let hm = self.hash_map_brown_from_cache_01(uuid).compat().await?;
+        Ok(hm.0.get("user_id").ok_or(ResError::Unauthorized)?.parse::<u32>()?)
+    }
 }

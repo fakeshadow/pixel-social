@@ -1,19 +1,9 @@
-use std::{
-    cell::RefCell,
-    env,
-    time::Duration,
-};
+use std::{cell::RefCell, env, time::Duration};
 
 use actix::prelude::{Actor, ActorFuture, Addr, AsyncContext, Context, Future, WrapFuture};
-use futures::{
-    compat::Future01CompatExt,
-    FutureExt,
-    TryFutureExt,
-};
 use futures01::{
-    Future as Future01,
     future::{Either, ok as ft_ok},
-    IntoFuture,
+    Future as Future01, IntoFuture,
 };
 use lettre::{
     smtp::{
@@ -25,7 +15,7 @@ use lettre::{
 use lettre_email::Email;
 use redis::aio::SharedConnection;
 
-use crate::handler::cache::{CacheService, CheckCacheConn, DeleteCache, GetQueue, GetSharedConn};
+use crate::handler::cache::{CacheService, CheckCacheConn, GetQueue, GetSharedConn};
 use crate::model::{
     errors::{ErrorReport, RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
@@ -36,7 +26,6 @@ const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
 const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
 const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
-
 
 // actor handles error report, sending email and sms messages.
 pub struct MessageService {
@@ -57,27 +46,19 @@ impl Actor for MessageService {
 
 impl MessageService {
     pub(crate) async fn init(redis_url: &str) -> Result<Addr<MessageService>, ResError> {
-        let executor =
-            crate::util::executor_compat::Executor03As01::new(tokio_executor::DefaultExecutor::current());
-
-        let cache = redis::Client::open(redis_url)?.get_shared_async_connection_with_executor(executor).compat().await?;
+        let cache = crate::handler::cache::connect_cache(redis_url).await?.ok_or(ResError::RedisConnection)?;
 
         let url = redis_url.to_owned();
 
-        Ok(
-            MessageService::create(move |ctx| {
-                MessageService {
-                    url,
-                    cache: RefCell::new(cache),
-                    mailer: Self::generate_mailer(),
-                    twilio: Self::generate_twilio(),
-                    error_report: Self::generate_error_report(),
-                }
-            })
-        )
+        Ok(MessageService::create(move |_| MessageService {
+            url,
+            cache: RefCell::new(cache),
+            mailer: Self::generate_mailer(),
+            twilio: Self::generate_twilio(),
+            error_report: Self::generate_error_report(),
+        }))
     }
 }
-
 
 impl GetQueue for MessageService {}
 

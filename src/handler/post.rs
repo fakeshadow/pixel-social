@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::future::Future;
 
 use chrono::Utc;
-use futures01::Future as Future01;
 use futures::FutureExt;
+use futures01::Future as Future01;
 
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, POST_U8},
@@ -17,11 +17,7 @@ use crate::model::{
 };
 
 impl DatabaseService {
-    pub async fn add_post(
-        &self,
-        p: PostRequest,
-        g: &GlobalVars,
-    ) -> Result<Post, ResError> {
+    pub async fn add_post(&self, p: PostRequest, g: &GlobalVars) -> Result<Post, ResError> {
         let id = g.lock().map(|mut lock| lock.next_pid()).await;
 
         let now = &Utc::now().naive_local();
@@ -39,7 +35,8 @@ impl DatabaseService {
                 now,
                 now,
             ],
-        ).await
+        )
+        .await
     }
 
     pub async fn update_post(&self, p: PostRequest) -> Result<Post, ResError> {
@@ -77,10 +74,7 @@ impl DatabaseService {
         self.simple_query_one_trait(query.as_str()).await
     }
 
-    pub async fn get_posts_with_uid(
-        &self,
-        ids: &[u32],
-    ) -> Result<(Vec<Post>, Vec<u32>), ResError> {
+    pub async fn get_posts_with_uid(&self, ids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {
         let st = self.posts_by_id.borrow();
         self.get_by_id_with_uid(&st, ids).await
     }
@@ -90,7 +84,7 @@ impl CacheService {
     pub fn get_posts_from_ids(
         &self,
         ids: Vec<u32>,
-    ) -> impl Future<Output=Result<(Vec<Post>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
         self.get_cache_with_uids_from_ids(ids, crate::handler::cache::POST_U8)
     }
 
@@ -98,7 +92,7 @@ impl CacheService {
         &self,
         tid: u32,
         page: usize,
-    ) -> impl Future<Output=Result<(Vec<Post>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
         self.get_cache_with_uids_from_zrange(
             &format!("topic:{}:posts_time_created", tid),
             page,
@@ -110,7 +104,7 @@ impl CacheService {
         &self,
         tid: u32,
         page: usize,
-    ) -> impl Future<Output=Result<(Vec<Post>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
         self.get_cache_with_uids_from_zrevrange_reverse_lex(
             &format!("topic:{}:posts_reply", tid),
             page,
@@ -122,15 +116,20 @@ impl CacheService {
         actix::spawn(build_hmsets_01(self.get_conn(), t, POST_U8, true).map_err(|_| ()));
     }
 
-
-    pub fn update_post_return_fail(&self, p: Vec<Post>) -> impl Future01<Item=(), Error=Vec<Post>> {
+    pub fn update_post_return_fail(
+        &self,
+        p: Vec<Post>,
+    ) -> impl Future01<Item = (), Error = Vec<Post>> {
         build_hmsets_01(self.get_conn(), &p, POST_U8, true).map_err(|_| p)
     }
-
 
     pub fn send_failed_post(&self, p: Post) {
         let _ = self.recipient.do_send(CacheFailedMessage::FailedPost(p));
     }
 
-    pub fn send_failed_post_update(&self, p: Vec<Post>) { let _ = self.recipient.do_send(CacheFailedMessage::FailedPostUpdate(p)); }
+    pub fn send_failed_post_update(&self, p: Vec<Post>) {
+        let _ = self
+            .recipient
+            .do_send(CacheFailedMessage::FailedPostUpdate(p));
+    }
 }

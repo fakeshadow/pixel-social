@@ -2,10 +2,7 @@ use actix_web::{
     Error,
     HttpResponse, ResponseError, web::{Data, Json, Path},
 };
-use futures::{
-    FutureExt,
-    TryFutureExt,
-};
+use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
 use crate::handler::{
@@ -27,7 +24,10 @@ pub fn add(
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    add_async(jwt, db, cache, req, global).boxed_local().compat().from_err()
+    add_async(jwt, db, cache, req, global)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 pub async fn add_async(
@@ -44,14 +44,17 @@ pub async fn add_async(
         .attach_user_id(Some(jwt.user_id))
         .check_new()?;
 
-    let opt = db.check_conn().await?;
-
-    let p = db.if_replace_db(opt).add_post(req, global.get_ref()).await?;
+    let p = db
+        .check_conn()
+        .await?
+        .add_post(req, global.get_ref())
+        .await?;
 
     let res = HttpResponse::Ok().json(&p);
     match cache.check_cache_conn().await {
         Ok(opt) => actix::spawn(
-            cache.if_replace_cache(opt)
+            cache
+                .if_replace_cache(opt)
                 .add_post_cache_01(&p)
                 .map_err(move |_| cache.send_failed_post(p)),
         ),
@@ -66,7 +69,10 @@ pub fn update(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_async(jwt, req, db, cache).boxed_local().compat().from_err()
+    update_async(jwt, req, db, cache)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 async fn update_async(
@@ -75,28 +81,33 @@ async fn update_async(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> Result<HttpResponse, Error> {
-    let req = req.into_inner()
+    let req = req
+        .into_inner()
         .attach_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let opt = db.check_conn().await?;
-    let p = db.if_replace_db(opt).update_post(req).await?;
+    let p = db.check_conn().await?.update_post(req).await?;
 
     let res = HttpResponse::Ok().json(&p);
-    let p = vec![p];
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache.if_replace_cache(opt)
-                .update_post_return_fail(p)
-                .map_err(move |p|
-                    cache.send_failed_post_update(p)
-                ),
-        ),
-        Err(_) => cache.send_failed_post_update(p)
-    };
+
+    update_post_with_fail_check(cache, p).await;
 
     Ok(res)
 }
+
+pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
+    let p = vec![p];
+    match cache.check_cache_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .update_post_return_fail(p)
+                .map_err(move |p| cache.send_failed_post_update(p)),
+        ),
+        Err(_) => cache.send_failed_post_update(p),
+    };
+}
+
 
 pub fn get(
     id: Path<u32>,
@@ -118,21 +129,25 @@ async fn get_async(
 
     let (p, uids) = match cache.get_posts_from_ids(vec![id]).await {
         Ok((p, uids)) => (p, uids),
-        Err(e) => if let ResError::IdsFromCache(pids) = e {
-            should_update_p = true;
-            db.get_posts_with_uid(&pids).await?
-        } else {
-            return Ok(e.render_response());
+        Err(e) => {
+            if let ResError::IdsFromCache(pids) = e {
+                should_update_p = true;
+                db.get_posts_with_uid(&pids).await?
+            } else {
+                return Ok(e.render_response());
+            }
         }
     };
 
     let u = match cache.get_users_from_ids(uids).await {
         Ok(u) => u,
-        Err(e) => if let ResError::IdsFromCache(uids) = e {
-            should_update_u = true;
-            db.get_users_by_id(&uids).await?
-        } else {
-            vec![]
+        Err(e) => {
+            if let ResError::IdsFromCache(uids) = e {
+                should_update_u = true;
+                db.get_users_by_id(&uids).await?
+            } else {
+                vec![]
+            }
         }
     };
 

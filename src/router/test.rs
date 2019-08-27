@@ -1,16 +1,15 @@
-use actix_web::{Error, HttpResponse, web::{Data, Json}};
-use futures::{
-    future::{FutureExt, TryFutureExt},
+use actix_web::{
+    web::{Data, Json},
+    Error, HttpResponse,
 };
+use futures::future::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::{
-    auth::UserJwt,
-    cache::CacheService,
-    db::DatabaseService,
-};
+use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
-    common::GlobalVars, errors::ResError, post::PostRequest,
+    common::GlobalVars,
+    errors::ResError,
+    post::PostRequest,
     topic::{Topic, TopicRequest},
 };
 
@@ -18,7 +17,7 @@ pub fn add_topic(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     global: Data<GlobalVars>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     let req = TopicRequest {
         id: None,
         user_id: Some(1),
@@ -36,14 +35,17 @@ pub fn add_topic(
         privilege: 9,
     };
 
-    crate::router::topic::add_async(jwt, db, cache, Json(req), global).boxed_local().compat().from_err()
+    crate::router::topic::add_async(jwt, db, cache, Json(req), global)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
 pub fn add_post(
     global: Data<GlobalVars>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     let req = PostRequest {
         id: None,
         user_id: Some(1),
@@ -60,15 +62,17 @@ pub fn add_post(
         privilege: 9,
     };
 
-    crate::router::post::add_async(jwt, db, cache, Json(req), global).boxed_local().compat().from_err()
+    crate::router::post::add_async(jwt, db, cache, Json(req), global)
+        .boxed_local()
+        .compat()
+        .from_err()
 }
 
-
-pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item=HttpResponse, Error=Error> {
+pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item = HttpResponse, Error = Error> {
     raw_async(db).boxed_local().compat().from_err()
 }
 
-pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item=HttpResponse, Error=Error> {
+pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse, Error = Error> {
     raw_cache_async(cache).boxed_local().compat().from_err()
 }
 
@@ -92,4 +96,3 @@ async fn raw_cache_async(cache: Data<CacheService>) -> Result<HttpResponse, ResE
     let u = cache.get_users_from_ids(uids).await?;
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }
-

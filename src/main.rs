@@ -9,15 +9,15 @@ use std::{
 };
 
 use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
-use futures::{future::{FutureExt, TryFutureExt}};
+use futures::future::{FutureExt, TryFutureExt};
 
 use dotenv::dotenv;
 
 use crate::util::startup::{build_cache, create_table, drop_table};
 
+mod handler;
 mod model;
 mod router;
-mod handler;
 mod util;
 
 #[tokio::main]
@@ -65,12 +65,32 @@ async fn main() -> std::io::Result<()> {
         so run async await directly in main function could result in a runtime freeze.
     */
     // CacheUpdateService is an async actor who pass it's recipient to CacheService
-    let addr = sys.block_on(crate::handler::cache_update::CacheUpdateService::init(&redis_url).boxed_local().compat()).expect("Failed to create Cache Update Service");
+    let addr = sys
+        .block_on(
+            crate::handler::cache_update::CacheUpdateService::init(&redis_url)
+                .boxed_local()
+                .compat(),
+        )
+        .expect("Failed to create Cache Update Service");
     let recipient = addr.recipient();
 
     // MessageService is an async actor runs in main thread. Be ware a panic from this actor and cache update service will stop the whole server
     // (no unwrap is used in these actors and all errors are mapped to ())
-    let _ = sys.block_on(crate::handler::messenger::MessageService::init(redis_url.as_str()).boxed_local().compat()).expect("Failed to create Message Service");
+    let _ = sys
+        .block_on(
+            crate::handler::messenger::MessageService::init(redis_url.as_str())
+                .boxed_local()
+                .compat(),
+        )
+        .expect("Failed to create Message Service");
+
+    let _ = sys
+        .block_on(
+            crate::handler::psn::PSNService::init(postgres_url.as_str(), redis_url.as_str())
+                .boxed_local()
+                .compat(),
+        )
+        .expect("Failed to create Message Service");
 
     let dbs = Arc::new(Mutex::new(Vec::new()));
     let caches = Arc::new(Mutex::new(Vec::new()));
@@ -81,15 +101,35 @@ async fn main() -> std::io::Result<()> {
     for _i in 0..workers {
         // db service and cache service are data struct contains postgres connection, prepared queries and redis connections.
         // They are not shared between workers.
-        let db = sys.block_on(crate::handler::db::DatabaseService::init(postgres_url.as_str()).boxed_local().compat()).unwrap();
-        let cache = sys.block_on(crate::handler::cache::CacheService::init(redis_url.as_str(), recipient.clone()).boxed_local().compat()).unwrap();
+        let db = sys
+            .block_on(
+                crate::handler::db::DatabaseService::init(postgres_url.as_str())
+                    .boxed_local()
+                    .compat(),
+            )
+            .unwrap();
+        let cache = sys
+            .block_on(
+                crate::handler::cache::CacheService::init(redis_url.as_str(), recipient.clone())
+                    .boxed_local()
+                    .compat(),
+            )
+            .unwrap();
         // TalkService is an actor handle websocket connections and communication between client websocket actors.
         // Every worker have a talk service actor with a postgres connection and a redis connection.
         // global_talks and sessions are shared between all workers and talk service actors.
-        let talk = sys.block_on(
-            crate::handler::talk::TalkService::init(postgres_url.as_str(), redis_url.as_str(), global_talks.clone(), global_sessions.clone())
-                .boxed_local().compat()
-        ).unwrap();
+        let talk = sys
+            .block_on(
+                crate::handler::talk::TalkService::init(
+                    postgres_url.as_str(),
+                    redis_url.as_str(),
+                    global_talks.clone(),
+                    global_sessions.clone(),
+                )
+                    .boxed_local()
+                    .compat(),
+            )
+            .unwrap();
 
         dbs.lock().unwrap().push(db);
         caches.lock().unwrap().push(cache);
@@ -131,18 +171,18 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/admin")
-//                    .service(
-//                        web::resource("/user")
-//                            .route(web::post().to_async(router::admin::update_user)),
-//                    )
-//                    .service(
-//                        web::resource("/post")
-//                            .route(web::post().to_async(router::admin::update_post)),
-//                    )
-//                    .service(
-//                        web::resource("/topic")
-//                            .route(web::post().to_async(router::admin::update_topic)),
-//                    )
+                    .service(
+                        web::resource("/user")
+                            .route(web::post().to_async(router::admin::update_user)),
+                    )
+                    .service(
+                        web::resource("/post")
+                            .route(web::post().to_async(router::admin::update_post)),
+                    )
+                    .service(
+                        web::resource("/topic")
+                            .route(web::post().to_async(router::admin::update_topic)),
+                    )
                     .service(
                         web::scope("/category")
                             .service(
@@ -168,14 +208,14 @@ async fn main() -> std::io::Result<()> {
                     .service(
                         web::resource("/login").route(web::post().to_async(router::auth::login)),
                     )
-//                    .service(
-//                        web::resource("/activation/mail")
-//                            .route(web::post().to_async(router::auth::add_activation_mail)),
-//                    )
-//                    .service(
-//                        web::resource("/activation/mail/{uuid}")
-//                            .route(web::get().to_async(router::auth::activate_by_mail)),
-//                    ),
+                    .service(
+                        web::resource("/activation/mail")
+                            .route(web::post().to_async(router::auth::add_activation_mail)),
+                    )
+                    .service(
+                        web::resource("/activation/mail/{uuid}")
+                            .route(web::get().to_async(router::auth::activate_by_mail)),
+                    ),
             )
             .service(web::scope("/categories").service(
                 web::resource("").route(web::get().to_async(router::category::query_handler)),
@@ -240,9 +280,9 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-        .bind(format!("{}:{}", &server_ip, &server_port)).unwrap()
+        .bind(format!("{}:{}", &server_ip, &server_port))
+        .unwrap()
         .workers(workers)
         .start();
     sys.run()
 }
-

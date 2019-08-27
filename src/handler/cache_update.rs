@@ -4,26 +4,15 @@ use std::time::Duration;
 
 use actix::{Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture};
 use chrono::Utc;
-use futures::{
-    compat::Future01CompatExt,
-};
-use futures01::{
-    Future as Future01,
-    future::Either,
-};
-use redis::{
-    aio::SharedConnection,
-    cmd,
-    pipe,
-};
+use futures01::{Future as Future01, future::Either};
+use redis::{aio::SharedConnection, cmd, pipe};
 
-use crate::handler::cache::{AddToCache, CategoriesFromCache, CheckCacheConn, FromCache, GetSharedConn, IdsFromList};
+use crate::handler::cache::{
+    AddToCache, CategoriesFromCache, CheckCacheConn, FromCache, GetSharedConn, IdsFromList,
+};
 use crate::model::{
     cache_schema::HashMapBrown,
-    cache_update::{
-        FailedCollection,
-        FailedType,
-    },
+    cache_update::{FailedCollection, FailedType},
     category::Category,
     errors::ResError,
     post::Post,
@@ -35,7 +24,6 @@ use crate::model::{
 const LIST_TIME_DUR: Duration = Duration::from_secs(5);
 // time interval for retry adding failed cache to redis.
 const FAILED_TIME_DUR: Duration = Duration::from_secs(3);
-
 
 // actor the same as CacheService except it runs interval functions on start up.
 pub struct CacheUpdateService {
@@ -53,21 +41,17 @@ impl Actor for CacheUpdateService {
 }
 
 impl CacheUpdateService {
-    pub(crate)async fn init(redis_url: &str) -> Result<Addr<CacheUpdateService>, ResError> {
-
-        let executor =
-            crate::util::executor_compat::Executor03As01::new(tokio_executor::DefaultExecutor::current());
-
-        let cache = redis::Client::open(redis_url)?.get_shared_async_connection_with_executor(executor).compat().await?;
+    pub(crate) async fn init(redis_url: &str) -> Result<Addr<CacheUpdateService>, ResError> {
+        let cache = crate::handler::cache::connect_cache(redis_url)
+            .await?
+            .ok_or(ResError::RedisConnection)?;
 
         let url = redis_url.to_owned();
 
-        Ok(CacheUpdateService::create(move |_| {
-            CacheUpdateService {
-                url,
-                cache: RefCell::new(cache),
-                failed_collection: Mutex::new(FailedCollection::default()),
-            }
+        Ok(CacheUpdateService::create(move |_| CacheUpdateService {
+            url,
+            cache: RefCell::new(cache),
+            failed_collection: Mutex::new(FailedCollection::default()),
         }))
     }
 
@@ -166,17 +150,20 @@ impl CacheUpdateService {
             };
 
             if !v.is_empty() {
-                ctx.spawn(futures01::future::join_all(v).map_err(|_| ()).into_actor(act).and_then(
-                    move |_, act, _| {
-                        if let Ok(mut l) = act.failed_collection.lock() {
-                            l.remove_by_pids(&pids);
-                            l.remove_by_tids(&tids);
-                            l.remove_by_uids(&uids);
-                            l.remove_by_cids(&cids);
-                        }
-                        actix::fut::ok(())
-                    },
-                ));
+                ctx.spawn(
+                    futures01::future::join_all(v)
+                        .map_err(|_| ())
+                        .into_actor(act)
+                        .and_then(move |_, act, _| {
+                            if let Ok(mut l) = act.failed_collection.lock() {
+                                l.remove_by_pids(&pids);
+                                l.remove_by_tids(&tids);
+                                l.remove_by_uids(&uids);
+                                l.remove_by_cids(&cids);
+                            }
+                            actix::fut::ok(())
+                        }),
+                );
             }
         });
     }
@@ -217,69 +204,71 @@ fn update_list_01(
         .arg("-inf")
         .arg("WITHSCORES");
 
-    pip.query_async(conn)
-        .map_err(ResError::from)
-        .and_then(
-            move |(conn, (HashMapBrown(tids), counts)): (_, ListWithSortedRange)| {
-                use std::cmp::Ordering;
+    pip.query_async(conn).map_err(ResError::from).and_then(
+        move |(conn, (HashMapBrown(tids), counts)): (_, ListWithSortedRange)| {
+            use std::cmp::Ordering;
 
-                let mut counts = counts
-                    .into_iter()
-                    .filter(|(tid, _)| tids.contains_key(tid))
-                    .collect::<Vec<(u32, u32)>>();
+            let mut counts = counts
+                .into_iter()
+                .filter(|(tid, _)| tids.contains_key(tid))
+                .collect::<Vec<(u32, u32)>>();
 
-                counts.sort_by(|(a0, a1), (b0, b1)| {
-                    if a1 == b1 {
-                        if let Some(a) = tids.get(a0) {
-                            if let Some(b) = tids.get(b0) {
-                                if a > b {
-                                    return Ordering::Less;
-                                } else if a < b {
-                                    return Ordering::Greater;
-                                };
-                            }
+            counts.sort_by(|(a0, a1), (b0, b1)| {
+                if a1 == b1 {
+                    if let Some(a) = tids.get(a0) {
+                        if let Some(b) = tids.get(b0) {
+                            if a > b {
+                                return Ordering::Less;
+                            } else if a < b {
+                                return Ordering::Greater;
+                            };
                         }
-                        Ordering::Equal
-                    } else {
-                        Ordering::Greater
                     }
-                });
-
-                let counts = counts.into_iter().map(|(id, _)| id).collect::<Vec<u32>>();
-
-                let mut should_update = false;
-                let mut pip = pipe();
-                pip.atomic();
-
-                if !tids.is_empty() {
-                    if let Some(key) = set_key {
-                        pip.cmd("HSET")
-                            .arg(&key)
-                            .arg("topic_count_new")
-                            .arg(tids.len())
-                            .ignore();
-                        should_update = true;
-                    }
+                    Ordering::Equal
+                } else {
+                    Ordering::Greater
                 }
+            });
 
-                if !counts.is_empty() {
-                    pip.cmd("del")
-                        .arg(&list_key)
-                        .ignore()
-                        .cmd("rpush")
-                        .arg(&list_key)
-                        .arg(counts)
+            let counts = counts.into_iter().map(|(id, _)| id).collect::<Vec<u32>>();
+
+            let mut should_update = false;
+            let mut pip = pipe();
+            pip.atomic();
+
+            if !tids.is_empty() {
+                if let Some(key) = set_key {
+                    pip.cmd("HSET")
+                        .arg(&key)
+                        .arg("topic_count_new")
+                        .arg(tids.len())
                         .ignore();
                     should_update = true;
                 }
+            }
 
-                if should_update {
-                    Either::A(pip.query_async(conn).map_err(ResError::from).map(|(_, ())| ()))
-                } else {
-                    Either::B(futures01::future::ok(()))
-                }
-            },
-        )
+            if !counts.is_empty() {
+                pip.cmd("del")
+                    .arg(&list_key)
+                    .ignore()
+                    .cmd("rpush")
+                    .arg(&list_key)
+                    .arg(counts)
+                    .ignore();
+                should_update = true;
+            }
+
+            if should_update {
+                Either::A(
+                    pip.query_async(conn)
+                        .map_err(ResError::from)
+                        .map(|(_, ())| ()),
+                )
+            } else {
+                Either::B(futures01::future::ok(()))
+            }
+        },
+    )
 }
 
 fn update_post_count_01(
@@ -311,7 +300,6 @@ fn update_post_count_01(
             }
         })
 }
-
 
 impl CheckCacheConn for CacheUpdateService {
     fn self_url(&self) -> String {

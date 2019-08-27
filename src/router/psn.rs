@@ -4,28 +4,16 @@ use actix_web::{
     Error,
     HttpResponse, web::{Data, Json, Query},
 };
-use futures::{
-    FutureExt,
-    TryFutureExt,
-};
-use futures01::{
-    future::{Either, IntoFuture, ok as ft_ok},
-    Future as Future01,
-};
+use futures::{FutureExt, TryFutureExt};
+use futures01::Future as Future01;
 
 use crate::{
     handler::{
-        auth::{
-            UserJwt,
-            UserJwtOpt,
-        },
+        auth::{UserJwt, UserJwtOpt},
         cache::CacheService,
         db::DatabaseService,
     },
-    model::{
-        errors::ResError,
-        psn::PSNRequest,
-    },
+    model::{psn::PSNRequest},
 };
 
 pub fn query_handler(
@@ -33,14 +21,16 @@ pub fn query_handler(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_async(req, db, cache).boxed_local().compat().from_err()
+    query_handler_async(req, db, cache)
+        .boxed_local()
+        .compat()
 }
 
 async fn query_handler_async(
     req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     match req.deref() {
         PSNRequest::Profile { online_id } => {
             if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
@@ -61,7 +51,10 @@ async fn query_handler_async(
             np_communication_id,
         } => {
             if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
-                if let Ok(s) = db.get_trophy_set(p.np_id.as_str(), np_communication_id.as_str()).await {
+                if let Ok(s) = db
+                    .get_trophy_set(p.np_id.as_str(), np_communication_id.as_str())
+                    .await
+                {
                     return Ok(HttpResponse::Ok().json(&s));
                 }
             }
@@ -80,14 +73,16 @@ pub fn query_handler_with_jwt(
     req: Query<PSNRequest>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_with_jwt_async(jwt, req, cache).boxed_local().compat().from_err()
+    query_handler_with_jwt_async(jwt, req, cache)
+        .boxed_local()
+        .compat()
 }
 
 async fn query_handler_with_jwt_async(
     jwt: UserJwt,
     req: Query<PSNRequest>,
     cache: Data<CacheService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     match req.deref() {
         PSNRequest::Auth { .. } => {
             let req = req
@@ -98,10 +93,7 @@ async fn query_handler_with_jwt_async(
             let _ = cache.add_psn_request_privilege(req.as_str()).await?;
         }
         PSNRequest::Activation { .. } => {
-            let req = req
-                .into_inner()
-                .attach_user_id(jwt.user_id)
-                .stringify()?;
+            let req = req.into_inner().attach_user_id(jwt.user_id).stringify()?;
 
             let _ = cache.add_psn_request_now(req.as_str()).await?;
         }
@@ -110,14 +102,21 @@ async fn query_handler_with_jwt_async(
     Ok(HttpResponse::Ok().finish())
 }
 
-
 pub fn community(
     jwt_opt: UserJwtOpt,
     //    req: Json<>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item=HttpResponse, Error=Error> {
-    let jwt_opt = jwt_opt.0;
+    community_async(jwt_opt, db, cache).boxed_local().compat()
+}
 
-    ft_ok(HttpResponse::Ok().json("you are good"))
+async fn community_async(
+    jwt_opt: UserJwtOpt,
+    //    req: Json<>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
+) -> Result<HttpResponse, Error> {
+    let jwt_opt = jwt_opt.0;
+    Ok(HttpResponse::Ok().finish())
 }

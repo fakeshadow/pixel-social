@@ -32,7 +32,8 @@ pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
 
     let origin_filename = vec.pop().ok_or(ResError::BadRequest)?;
 
-    let file_type = vec.pop()
+    let file_type = vec
+        .pop()
         .map(|typ| {
             if typ != "jpg" && typ != "png" && typ != "gif" {
                 return Err(ResError::BadRequest);
@@ -47,12 +48,21 @@ pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
     let new_filename = format!("{}_{}.{}", origin_filename, &random_number, file_type);
     let path = format!("{}{}", "./public/", new_filename.as_str());
 
-    let mut file = File::create(path.as_str()).await.map_err(|_| ResError::InternalServerError)?;
+    let mut file = File::create(path.as_str())
+        .await
+        .map_err(|_| ResError::InternalServerError)?;
 
-    let bytes = field.compat().try_collect::<Vec<Bytes>>().await.map_err(|_| ResError::InternalServerError)?;
+    let bytes = field
+        .compat()
+        .try_collect::<Vec<Bytes>>()
+        .await
+        .map_err(|_| ResError::InternalServerError)?;
     let bytes = bytes.first().ok_or(ResError::InternalServerError)?;
 
-    let _ = file.write_all(bytes.as_ref()).await.map_err(|_| ResError::InternalServerError)?;
+    let _ = file
+        .write_all(bytes.as_ref())
+        .await
+        .map_err(|_| ResError::InternalServerError)?;
 
     Ok(UploadResponse::new(origin_filename, new_filename))
 }

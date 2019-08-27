@@ -2,15 +2,20 @@ use std::fmt::Write;
 use std::future::Future;
 
 use futures::{
-    FutureExt,
     compat::Future01CompatExt,
-    TryFutureExt,
+    FutureExt,
+    TryFutureExt
 };
+use futures01::Future as Future01;
 
 use crate::handler::{
-    cache::CacheService,
-    db::DatabaseService,
-    cache_update::CacheFailedMessage
+    cache::{
+    build_hmsets_01,
+    CacheService,
+    CATEGORY_U8,
+    GetSharedConn},
+    cache_update::CacheFailedMessage,
+    db::DatabaseService
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -24,10 +29,7 @@ impl DatabaseService {
         self.simple_query_multi_trait("SELECT * FROM categories", Vec::new())
     }
 
-    pub async fn update_category(
-        &self,
-        c: CategoryRequest,
-    ) -> Result<Category, ResError> {
+    pub async fn update_category(&self, c: CategoryRequest) -> Result<Category, ResError> {
         let mut query = String::new();
         query.push_str("UPDATE categories SET");
         if let Some(s) = c.thumbnail {
@@ -84,5 +86,13 @@ impl CacheService {
         self.categories_from_cache_01().compat()
     }
 
-    pub fn send_failed_category(&self, c: Category) { let _ = self.recipient.do_send(CacheFailedMessage::FailedCategory(c)); }
+    pub fn update_categories(&self, c: &[Category]) {
+        actix::spawn(build_hmsets_01(self.get_conn(), c, CATEGORY_U8, false).map_err(|_| ()));
+    }
+
+    pub fn send_failed_category(&self, c: Category) {
+        let _ = self
+            .recipient
+            .do_send(CacheFailedMessage::FailedCategory(c));
+    }
 }

@@ -49,7 +49,10 @@ impl DatabaseService {
         self.simple_query_one_trait(query.as_str()).await
     }
 
-    pub fn get_users_by_id(&self, ids: &[u32]) -> impl Future<Output=Result<Vec<User>, ResError>> {
+    pub fn get_users_by_id(
+        &self,
+        ids: &[u32],
+    ) -> impl Future<Output = Result<Vec<User>, ResError>> {
         use crate::handler::db::Query;
         self.query_multi_trait(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
     }
@@ -59,7 +62,7 @@ impl CacheService {
     pub fn get_users_from_ids(
         &self,
         mut ids: Vec<u32>,
-    ) -> impl Future<Output=Result<Vec<User>, ResError>> {
+    ) -> impl Future<Output = Result<Vec<User>, ResError>> {
         ids.sort();
         ids.dedup();
         use crate::handler::cache::UsersFromCache;
@@ -70,7 +73,10 @@ impl CacheService {
         actix::spawn(build_hmsets_01(self.get_conn(), u, USER_U8, false).map_err(|_| ()));
     }
 
-    pub fn update_user_return_fail(&self, u: Vec<User>) -> impl Future01<Item=(), Error=Vec<User>> {
+    pub fn update_user_return_fail(
+        &self,
+        u: Vec<User>,
+    ) -> impl Future01<Item = (), Error = Vec<User>> {
         build_hmsets_01(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
     }
 
