@@ -1,49 +1,55 @@
-use actix::prelude::*;
-use actix_rt::Runtime;
-use chrono::NaiveDateTime;
-use tokio_postgres::{connect, tls::NoTls, SimpleQueryMessage};
 
-use crate::handler::cache::{
-    build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list, build_users_cache,
+use actix::SystemRunner;
+use chrono::NaiveDateTime;
+use futures::{ FutureExt, TryFutureExt, TryStreamExt};
+use futures01::Future as Future01;
+use tokio_postgres::{connect, SimpleQueryMessage, tls::NoTls};
+
+use crate::handler::{
+    cache::{
+        build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01, build_users_cache_01,
+    },
+    db::load_all_to_01,
 };
 use crate::model::{
     category::Category,
-    common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
+    common::{
+        GlobalSessions,
+        GlobalTalks,
+        GlobalVar, GlobalVars,
+        new_global_talks_sessions,
+    },
     topic::Topic,
     user::User,
 };
+use crate::model::talk::Talk;
 
 //return global arc after building cache
 pub fn build_cache(
+    sys: &mut SystemRunner,
     postgres_url: &str,
     redis_url: &str,
     is_init: bool,
 ) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
-    let mut rt = Runtime::new().unwrap();
-    let (mut c, conn) = rt
-        .block_on(connect(postgres_url, NoTls))
-        .unwrap_or_else(|e| panic!("{}", e));
+    let (mut c, connection) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let connection = connection.map(|_| ());
 
-    rt.spawn(conn.map_err(|e| panic!("{}", e)));
+    actix::spawn(connection.unit_error().boxed().compat());
 
-    let c_cache = redis::Client::open(redis_url).unwrap_or_else(|e| panic!("{}", e));
-    let c_cache = rt
-        .block_on(c_cache.get_shared_async_connection())
+    let c_cache = sys.block_on(redis::Client::open(redis_url).unwrap_or_else(|e| panic!("{}", e))
+        .get_shared_async_connection())
         .unwrap_or_else(|e| panic!("{}", e));
 
     // Load all categories and make hash map sets.
     let query = "SELECT * FROM categories";
-    let categories = rt
-        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
-        .unwrap_or_else(|_| panic!("Failed to load categories from db"));
 
-    rt.block_on(build_hmsets(
+    let categories = sys.block_on(load_all_to_01::<Category>(&mut c, query)).unwrap_or_else(|_| panic!("Failed to load categories"));
+
+    let _ = sys.block_on(build_hmsets_01(
         c_cache.clone(),
         &categories,
         crate::handler::cache::CATEGORY_U8,
-        false,
-    ))
-    .unwrap_or_else(|_| panic!("Failed to update categories sets"));
+        false)).unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -57,29 +63,22 @@ pub fn build_cache(
         category_ids.push(cat.id);
 
         // count posts and topics for each category and write to redis
-        let query = format!(
-            "SELECT COUNT(id) FROM topics WHERE category_id = {}",
-            cat.id
-        );
-        let f =
-            crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
-        let t_count = rt.block_on(f).unwrap_or(0);
+        let query = format!("SELECT COUNT(id) FROM topics WHERE category_id = {}", cat.id);
+        let t_count = sys.block_on(crate::handler::db::simple_query_single_row_handler_to_01::<u32>(&mut c, query.as_str(), 0)).unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let f =
-            crate::handler::db::simple_query_single_row_handler::<u32>(&mut c, query.as_str(), 0);
-        let p_count = rt.block_on(f).unwrap_or(0);
+        let p_count = sys.block_on(crate::handler::db::simple_query_single_row_handler_to_01::<u32>(&mut c, query.as_str(), 0)).unwrap_or(0);
 
-        let f = redis::cmd("HMSET")
-            .arg(&format!("category:{}:set", cat.id))
-            .arg(&[
-                ("topic_count", t_count.to_string()),
-                ("post_count", p_count.to_string()),
-            ])
-            .query_async(c_cache.clone())
-            .map(|(_, ())| ());
-        rt.block_on(f)
-            .unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
+        let _ = sys.block_on(
+            redis::cmd("HMSET")
+                .arg(&format!("category:{}:set", cat.id))
+                .arg(&[
+                    ("topic_count", t_count.to_string()),
+                    ("post_count", p_count.to_string()),
+                ])
+                .query_async(c_cache.clone())
+                .map(|(_, ())| ())
+        ).unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category
@@ -87,8 +86,7 @@ pub fn build_cache(
             "SELECT * FROM topics WHERE category_id = {} ORDER BY created_at DESC",
             cat.id
         );
-        let t = rt
-            .block_on(crate::handler::db::load_all::<Topic>(&mut c, &query))
+        let t = sys.block_on(crate::handler::db::load_all_to_01::<Topic>(&mut c, &query))
             .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
         // load topics reply count
@@ -97,9 +95,8 @@ pub fn build_cache(
             cat.id
         );
         let reply_count = Vec::new();
-        let f = c.simple_query(&query).map_err(|e| panic!("{}", e)).fold(
-            reply_count,
-            |mut reply_count, row| {
+        let f = c.simple_query(&query)
+            .try_fold(reply_count, |mut reply_count, row| {
                 if let SimpleQueryMessage::Row(row) = row {
                     if let Ok(count) = row.get(0).unwrap().parse::<u32>() {
                         if let Ok(tid) = row.get(1).unwrap().parse::<u32>() {
@@ -107,13 +104,11 @@ pub fn build_cache(
                         }
                     }
                 }
-                Ok(reply_count)
+                futures::future::ok(reply_count)
             },
-        );
+            );
 
-        let mut reply_count: Vec<(u32, u32)> = rt
-            .block_on(f)
-            .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+        let mut reply_count: Vec<(u32, u32)> = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
         // attach reply count to topics
         let t = t
@@ -141,21 +136,20 @@ pub fn build_cache(
             };
         }
 
-        rt.block_on(build_topics_cache_list(is_init, sets, c_cache.clone()))
+        sys.block_on(build_topics_cache_list_01(is_init, sets, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build category sets"));
     }
-    rt.block_on(build_list(
+    sys.block_on(build_list(
         c_cache.clone(),
         category_ids,
-        "category_id:meta".to_owned(),
-    ))
-    .unwrap_or_else(|_| panic!("Failed to build category lists"));
+        "category_id:meta".to_owned()))
+        .unwrap_or_else(|_| panic!("Failed to build category lists"));
 
     // load all posts with tid id and created_at
     let f = c
         .simple_query("SELECT topic_id, id, created_at FROM posts")
         .map_err(|e| panic!("{}", e))
-        .fold(Vec::new(), |mut posts, row| {
+        .try_fold(Vec::new(), |mut posts, row| {
             if let SimpleQueryMessage::Row(row) = row {
                 let tid = row.get(0).unwrap().parse::<u32>().unwrap();
                 let pid = row.get(1).unwrap().parse::<u32>().unwrap();
@@ -164,18 +158,18 @@ pub fn build_cache(
                         .unwrap();
                 posts.push((tid, pid, None, time));
             }
-            Ok(posts)
+            futures::future::ok(posts)
         });
 
-    let posts = rt
-        .block_on(f)
+    let posts = sys
+        .block_on(f.boxed().compat())
         .unwrap_or_else(|_| panic!("Failed to load posts"));
 
     // load topics reply count
     let f = c
         .simple_query("SELECT COUNT(post_id), post_id FROM posts GROUP BY post_id")
         .map_err(|e| panic!("{}", e))
-        .fold(Vec::new(), |mut reply_count, row| {
+        .try_fold(Vec::new(), |mut reply_count, row| {
             if let SimpleQueryMessage::Row(row) = row {
                 if let Some(str) = row.get(0) {
                     if let Ok(count) = str.parse::<u32>() {
@@ -187,12 +181,10 @@ pub fn build_cache(
                     }
                 }
             }
-            Ok(reply_count)
+            futures::future::ok(reply_count)
         });
 
-    let mut reply_count: Vec<(u32, u32)> = rt
-        .block_on(f)
-        .unwrap_or_else(|_| panic!("Failed to get topics reply count"));
+    let mut reply_count: Vec<(u32, u32)> = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic!("Failed to get topics reply count"));
 
     let mut last_pid = 1;
 
@@ -216,15 +208,11 @@ pub fn build_cache(
         .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
     if !posts.is_empty() {
-        rt.block_on(build_posts_cache_list(is_init, posts, c_cache.clone()))
+        sys.block_on(build_posts_cache_list_01(is_init, posts, c_cache.clone()))
             .unwrap_or_else(|_| panic!("Failed to build posts cache"));
     }
 
-    let users = rt
-        .block_on(crate::handler::db::load_all::<User>(
-            &mut c,
-            "SELECT * FROM users",
-        ))
+    let users = sys.block_on(crate::handler::db::load_all_to_01::<User>(&mut c, "SELECT * FROM users"))
         .unwrap_or_else(|_| panic!("Failed to load users"));
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
@@ -235,11 +223,10 @@ pub fn build_cache(
             last_uid = u.id
         };
     }
-    rt.block_on(build_users_cache(users, c_cache.clone()))
+    sys.block_on(build_users_cache_01(users, c_cache.clone()))
         .unwrap_or_else(|_| panic!("Failed to build users cache"));
 
-    let talks = rt
-        .block_on(crate::handler::db::load_all(&mut c, "SELECT * FROM talks"))
+    let talks = sys.block_on(load_all_to_01::<Talk>(&mut c, "SELECT * FROM talks"))
         .unwrap_or_else(|_| panic!("Failed to load talks"));
 
     let (talks, sessions) = new_global_talks_sessions(talks);
@@ -254,19 +241,14 @@ pub fn build_cache(
 }
 
 // return true if built tables success
-pub fn create_table(postgres_url: &str) -> bool {
-    let mut rt = Runtime::new().unwrap();
-
-    let (mut c, conn) = rt
-        .block_on(connect(postgres_url, NoTls))
-        .unwrap_or_else(|_| panic!("Can't connect to db"));
-
-    rt.spawn(conn.map_err(|e| panic!("{}", e)));
+pub fn create_table(sys: &mut SystemRunner, postgres_url: &str) -> bool {
+    let (mut c, connection) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let connection = connection.map(|_| ());
+    actix::spawn(connection.unit_error().boxed().compat());
 
     let query = "SELECT * FROM categories";
 
-    if rt
-        .block_on(crate::handler::db::load_all::<Category>(&mut c, query))
+    if sys.block_on(crate::handler::db::load_all_to_01::<Category>(&mut c, query))
         .ok()
         .is_some()
     {
@@ -440,23 +422,17 @@ VALUES (1, 1, 1, 'Welcome To PixelShare', 'PixelShare is a gaming oriented commu
 INSERT INTO posts (id, user_id, topic_id, category_id, post_content)
 VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
-    let f = c.simple_query(&query).into_future();
+    let f = c.simple_query(&query).try_collect::<Vec<_>>();
 
-    rt.block_on(f)
-        .map(|_| println!("dummy tables generated"))
-        .unwrap_or_else(|_| panic!("fail to create default tables"));
+    let _ = sys.block_on(f.boxed().compat()).unwrap_or_else(|_| panic! {"failed to create tables"});
 
     true
 }
 
-pub fn drop_table(postgres_url: &str) {
-    let mut rt = Runtime::new().unwrap();
-
-    let (mut c, conn) = rt
-        .block_on(connect(postgres_url, NoTls))
-        .unwrap_or_else(|_| panic!("Can't connect to db"));
-
-    rt.spawn(conn.map_err(|e| panic!("{}", e)));
+pub fn drop_table(sys: &mut SystemRunner, postgres_url: &str) {
+    let (mut c, conn) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    let conn = conn.map(|_| ());
+    actix::spawn(conn.unit_error().boxed().compat());
 
     let query = "
 DROP TABLE IF EXISTS associates;
@@ -474,12 +450,6 @@ DROP TYPE IF EXISTS trophy_set;
 DROP TABLE IF EXISTS topics;
 DROP TABLE IF EXISTS posts;";
 
-    let f = c
-        .simple_query(query)
-        .into_future()
-        .map_err(|(e, _)| println!("{:?}", e));
-
-    rt.block_on(f)
-        .map(|_| println!("All tables have been drop. pixel_rs exited"))
-        .expect("failed to clear db");
+    let f = c.simple_query(query).try_collect::<Vec<_>>();
+    let _ = sys.block_on(f.boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
 }

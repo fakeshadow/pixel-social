@@ -1,7 +1,7 @@
 ### **A Simple Community App backend**
 
 #### Requirement:
-`Rustup 1.36 and above`<br>
+`Rustup 1.39.0-nightly and above`<br>
 `PostgreSQL 10 and above`<br>
 `Redis 5.0.4 and above`<br>
 `Flutter 1.5 and above with flutter_web preview`<br>

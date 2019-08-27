@@ -2,19 +2,21 @@ use std::time::Instant;
 
 use actix::prelude::{ActorContext, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::{
-    web::{Data, Payload},
-    Error, HttpRequest, HttpResponse,
+    Error,
+    HttpRequest, HttpResponse, web::{Data, Payload},
 };
 use actix_web_actors::ws;
 use serde::Deserialize;
 
 use crate::handler::talk::{
-    Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
-    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TextMessageRequest, UserRelationRequest,
+    Admin,
+    AuthRequest,
+    ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory, JoinTalkRequest, RemoveUserRequest,
+    TALK, TalkByIdRequest, TalkService, TextMessageRequest, UserRelationRequest,
     UsersByIdRequest,
 };
 use crate::model::{
-    actors::{TalkService, WsChatSession, TALK},
+    actors::WsChatSession,
     talk::SessionMessage,
 };
 use crate::util::jwt::JwtPayLoad;

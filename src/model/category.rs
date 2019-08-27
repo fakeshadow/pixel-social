@@ -41,18 +41,18 @@ impl SelfIdString for Category {
 }
 
 impl CategoryRequest {
-    pub fn check_new(&self) -> Result<(), ResError> {
+    pub fn check_new(self) -> Result<Self, ResError> {
         if self.name.is_none() || self.thumbnail.is_none() {
             Err(ResError::BadRequest)
         } else {
-            Ok(())
+            Ok(self)
         }
     }
-    pub fn check_update(&self) -> Result<(), ResError> {
+    pub fn check_update(self) -> Result<Self, ResError> {
         if self.id.is_none() {
             Err(ResError::BadRequest)
         } else {
-            Ok(())
+            Ok(self)
         }
     }
 }

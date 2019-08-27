@@ -3,7 +3,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use actix::prelude::Addr;
 use hashbrown::HashMap;
 
-use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
+use crate::model::{
+    actors::WsChatSession,
+    errors::ResError,
+    talk::Talk
+};
 use crate::util::validation as validate;
 
 pub trait GetSelfCategory {
@@ -70,17 +74,17 @@ where
         Ok(self)
     }
 
-    fn check_register(&self) -> Result<(), ResError> {
+    fn check_register(self) -> Result<Self, ResError> {
         self.check_email()?;
         self.check_password()?;
         self.check_username()?;
-        Ok(())
+        Ok(self)
     }
 
-    fn check_login(&self) -> Result<(), ResError> {
+    fn check_login(self) -> Result<Self, ResError> {
         self.check_password()?;
         self.check_username()?;
-        Ok(())
+        Ok(self)
     }
 }
 
@@ -102,6 +106,7 @@ pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalks, GlobalSe
     )
 }
 
+#[derive(Debug)]
 pub struct GlobalVar {
     pub last_uid: u32,
     pub last_pid: u32,

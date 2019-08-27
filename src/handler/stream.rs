@@ -1,13 +1,12 @@
-use std::fs;
-use std::io::Write;
-
-use actix_multipart::{Field, MultipartError};
-use actix_web::{error, web, Error};
-use futures::{
-    future::{err, Either},
-    Future, Stream,
-};
+use actix_multipart::{Field};
+use async_std::fs::File;
+use async_std::prelude::*;
+use bytes::Bytes;
+use futures::{ compat::Stream01CompatExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures01::Future as Future01;
 use rand::Rng;
+
+use crate::model::errors::ResError;
 
 #[derive(Serialize)]
 pub struct UploadResponse {
@@ -24,72 +23,37 @@ impl UploadResponse {
     }
 }
 
-pub fn save_file(field: Field) -> impl Future<Item = UploadResponse, Error = Error> {
+pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
     // need to add an file size limiter here;
 
-    let params = match field.content_disposition() {
-        Some(content_disposition) => content_disposition,
-        None => {
-            return Either::A(err(error::ErrorBadRequest(
-                "Form data key or content is empty",
-            )))
-        }
-    };
-
-    let origin_filename = match params.get_filename() {
-        Some(name) => name,
-        None => return Either::A(err(error::ErrorBadRequest("No filename found"))),
-    };
+    let params = field.content_disposition().ok_or(ResError::BadRequest)?;
+    let origin_filename = params.get_filename().ok_or(ResError::BadRequest)?;
 
     let mut vec: Vec<&str> = origin_filename.rsplitn(2, '.').collect();
 
-    let file_name = match vec.pop() {
-        Some(name) => name,
-        None => return Either::A(err(error::ErrorBadRequest("No file name found"))),
-    };
+    let origin_filename = vec.pop().ok_or(ResError::BadRequest)?;
 
-    let file_type = match vec.pop() {
-        Some(typ) => {
+    let file_type = vec.pop()
+        .map(|typ| {
             if typ != "jpg" && typ != "png" && typ != "gif" {
-                return Either::A(err(error::ErrorBadRequest(format!(
-                    ".{} can't be uploaded",
-                    typ
-                ))));
+                return Err(ResError::BadRequest);
             }
-            typ
-        }
-        None => return Either::A(err(error::ErrorBadRequest("No file extension found"))),
-    };
+            Ok(typ)
+        })
+        .ok_or(ResError::BadRequest)??;
 
     let mut rng = rand::thread_rng();
     let random_number: u32 = rng.gen();
 
-    let new_filename = format!("{}_{}.{}", &file_name, &random_number, &file_type);
+    let new_filename = format!("{}_{}.{}", origin_filename, &random_number, file_type);
+    let path = format!("{}{}", "./public/", new_filename.as_str());
 
-    let file = match fs::File::create(format!("{}{}", "./public/", &new_filename)) {
-        Ok(file) => file,
-        Err(e) => return Either::A(err(error::ErrorInternalServerError(e))),
-    };
+    let mut file = File::create(path.as_str()).await.map_err(|_| ResError::InternalServerError)?;
 
-    Either::B(
-        field
-            .fold(
-                (UploadResponse::new(origin_filename, new_filename), file),
-                move |(response, mut file), bytes| {
-                    web::block(move || {
-                        file.write_all(bytes.as_ref())
-                            .map_err(|e| MultipartError::Payload(error::PayloadError::Io(e)))?;
-                        Ok((response, file))
-                    })
-                    .map_err(
-                        |e: error::BlockingError<MultipartError>| match e {
-                            error::BlockingError::Error(e) => e,
-                            error::BlockingError::Canceled => MultipartError::Incomplete,
-                        },
-                    )
-                },
-            )
-            .map(|(response, _)| response)
-            .map_err(error::ErrorInternalServerError),
-    )
+    let bytes = field.compat().try_collect::<Vec<Bytes>>().await.map_err(|_| ResError::InternalServerError)?;
+    let bytes = bytes.first().ok_or(ResError::InternalServerError)?;
+
+    let _ = file.write_all(bytes.as_ref()).await.map_err(|_| ResError::InternalServerError)?;
+
+    Ok(UploadResponse::new(origin_filename, new_filename))
 }

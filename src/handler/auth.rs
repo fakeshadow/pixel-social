@@ -1,10 +1,8 @@
 use actix_web::{dev, FromRequest, HttpRequest};
-use futures::{
-    future::{err as ft_err, Either},
-    Future,
-};
+use tokio_postgres::{SimpleQueryMessage, SimpleQueryRow};
 
 use crate::handler::{cache::CacheService, db::DatabaseService};
+use crate::handler::db::SimpleQuery;
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -13,6 +11,7 @@ use crate::model::{
 use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;
+
 // use for req handlers use by both registered and anon guests.
 pub struct UserJwtOpt(pub Option<JwtPayLoad>);
 
@@ -56,39 +55,54 @@ impl FromRequest for UserJwtOpt {
 }
 
 impl DatabaseService {
-    pub fn check_register(
+    pub async fn check_register(
         &self,
-        r: AuthRequest,
-    ) -> impl Future<Item = AuthRequest, Error = ResError> {
+        req: &AuthRequest,
+    ) -> Result<(), ResError> {
+        let username = req.username.as_str();
         let query = format!(
             "SELECT username, email FROM users
              WHERE username='{}' OR email='{}'",
-            r.username,
-            r.email.as_ref().unwrap()
+            username,
+            req.email.as_ref().unwrap()
         );
-        self.unique_username_email_check(query.as_str(), r)
+
+        match self.simple_query_row_trait(query.as_str()).await {
+            Ok(row) => {
+                if let Some(name) = row.get(0) {
+                    if name == username {
+                        return Err(ResError::UsernameTaken);
+                    } else {
+                        return Err(ResError::EmailTaken);
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => {
+                if let ResError::NoContent = e {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
-    pub fn register(
+    pub async fn register(
         &self,
         r: AuthRequest,
         g: &GlobalVars,
-    ) -> impl Future<Item = User, Error = ResError> {
-        let hash = match crate::util::hash::hash_password(&r.password) {
-            Ok(hash) => hash,
-            Err(e) => return Either::A(ft_err(e)),
-        };
-        let id = match g.lock() {
-            Ok(mut var) => var.next_uid(),
-            Err(_) => return Either::A(ft_err(ResError::InternalServerError)),
-        };
-        let u = match r.make_user(id, &hash) {
-            Ok(u) => u,
-            Err(e) => return Either::A(ft_err(e)),
-        };
+    ) -> Result<User, ResError> {
+        let hash = crate::util::hash::hash_password(&r.password)?;
+
+        let id = g.lock()
+            .map(|mut var| var.next_uid())
+            .map_err(|_| ResError::InternalServerError)?;
+
+        let u = r.make_user(id, &hash)?;
 
         use crate::handler::db::Query;
-        Either::B(self.query_one_trait(
+        self.query_one_trait(
             &self.insert_user.borrow(),
             &[
                 &u.id,
@@ -98,36 +112,35 @@ impl DatabaseService {
                 &u.avatar_url,
                 &u.signature,
             ],
-        ))
+        ).await
     }
 
-    pub fn login(&self, req: AuthRequest) -> impl Future<Item = AuthResponse, Error = ResError> {
+    pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
+        use std::convert::TryFrom;
+
         let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
 
-        use crate::handler::db::SimpleQuery;
-        self.simple_query_row_trait(query.as_str())
-            .and_then(move |r| {
-                let hash = r.get(3).ok_or(ResError::DataBaseReadError)?;
-                crate::util::hash::verify_password(req.password.as_str(), hash)?;
+        let row = self.simple_query_row_trait(query.as_str()).await?;
+        let hash = row.get(3).ok_or(ResError::DataBaseReadError)?;
 
-                use std::convert::TryFrom;
-                let user = User::try_from(r)?;
-                let token = JwtPayLoad::new(user.id, user.privilege).sign()?;
+        crate::util::hash::verify_password(req.password.as_str(), hash)?;
 
-                Ok(AuthResponse { token, user })
-            })
+        let user = User::try_from(row)?;
+        let token = JwtPayLoad::new(user.id, user.privilege).sign()?;
+
+        Ok(AuthResponse { token, user })
     }
 }
 
 impl CacheService {
-    pub fn get_uid_from_uuid(&self, uuid: &str) -> impl Future<Item = u32, Error = ResError> {
-        use crate::handler::cache::HashMapBrownFromCache;
-        self.hash_map_brown_from_cache(uuid).and_then(|hm| {
-            Ok(hm
-                .0
-                .get("user_id")
-                .ok_or(ResError::Unauthorized)?
-                .parse::<u32>()?)
-        })
-    }
+    //    pub fn get_uid_from_uuid(&self, uuid: &str) -> impl Future<Item=u32, Error=ResError> {
+//        use crate::handler::cache::HashMapBrownFromCache;
+//        self.hash_map_brown_from_cache(uuid).and_then(|hm| {
+//            Ok(hm
+//                .0
+//                .get("user_id")
+//                .ok_or(ResError::Unauthorized)?
+//                .parse::<u32>()?)
+//        })
+//    }
 }

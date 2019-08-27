@@ -1,18 +1,21 @@
 use std::fmt::Write;
+use std::future::Future;
 
-use futures::{
-    future::{err as ft_err, Either},
-    Future,
+use futures::compat::Future01CompatExt;
+use futures01::Future as Future01;
+
+use crate::handler::{
+    cache::{build_hmsets_01, CacheService, GetSharedConn, USER_U8},
+    cache_update::CacheFailedMessage,
+    db::DatabaseService,
 };
-
-use crate::handler::{cache::CacheService, db::DatabaseService};
 use crate::model::{
     errors::ResError,
     user::{UpdateRequest, User},
 };
 
 impl DatabaseService {
-    pub fn update_user(&self, u: UpdateRequest) -> impl Future<Item = User, Error = ResError> {
+    pub async fn update_user(&self, u: UpdateRequest) -> Result<User, ResError> {
         let mut query = String::new();
         query.push_str("UPDATE users SET");
 
@@ -39,15 +42,16 @@ impl DatabaseService {
                 u.id.unwrap()
             );
         } else {
-            return Either::A(ft_err(ResError::BadRequest));
+            return Err(ResError::BadRequest);
         }
 
         use crate::handler::db::SimpleQuery;
-        Either::B(self.simple_query_one_trait(query.as_str()))
+        self.simple_query_one_trait(query.as_str()).await
     }
 
-    pub fn get_users_by_id(&self, ids: &[u32]) -> impl Future<Item = Vec<User>, Error = ResError> {
-        self.get_by_id(&self.users_by_id.borrow(), ids)
+    pub fn get_users_by_id(&self, ids: &[u32]) -> impl Future<Output=Result<Vec<User>, ResError>> {
+        use crate::handler::db::Query;
+        self.query_multi_trait(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
     }
 }
 
@@ -55,10 +59,22 @@ impl CacheService {
     pub fn get_users_from_ids(
         &self,
         mut ids: Vec<u32>,
-    ) -> impl Future<Item = Vec<User>, Error = ResError> {
+    ) -> impl Future<Output=Result<Vec<User>, ResError>> {
         ids.sort();
         ids.dedup();
         use crate::handler::cache::UsersFromCache;
-        self.users_from_cache(ids)
+        self.users_from_cache_01(ids).compat()
+    }
+
+    pub fn update_users(&self, u: &[User]) {
+        actix::spawn(build_hmsets_01(self.get_conn(), u, USER_U8, false).map_err(|_| ()));
+    }
+
+    pub fn update_user_return_fail(&self, u: Vec<User>) -> impl Future01<Item=(), Error=Vec<User>> {
+        build_hmsets_01(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
+    }
+
+    pub fn send_failed_user(&self, u: Vec<User>) {
+        let _ = self.recipient.do_send(CacheFailedMessage::FailedUser(u));
     }
 }

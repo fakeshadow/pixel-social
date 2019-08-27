@@ -1,14 +1,17 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
-    web::{Data, Query},
-    Error, HttpResponse, ResponseError,
+    Error,
+    HttpResponse, ResponseError, web::{Data, Query},
 };
 use futures::{
-    future::{ok as ft_ok, Either},
-    Future,
+    future::{FutureExt, TryFutureExt}
 };
 
 use crate::{
-    handler::{cache::CacheService, db::DatabaseService},
+    handler::{
+        cache::CacheService,
+        db::DatabaseService,
+    },
     model::{
         category::{CategoryQuery, QueryType},
         errors::ResError,
@@ -20,79 +23,87 @@ pub fn query_handler(
     req: Query<CategoryQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> impl Future01<Item=HttpResponse, Error=Error> {
+    query_handler_async(req, db, cache).boxed_local().compat().from_err()
+}
+
+async fn query_handler_async(
+    req: Query<CategoryQuery>,
+    db: Data<DatabaseService>,
+    cache: Data<CacheService>,
+) -> Result<HttpResponse, ResError> {
     match req.query_type {
-        QueryType::PopularAll => Either::A(Either::A(
-            cache
-                .get_topics_pop_all(req.page.unwrap_or(1))
-                .then(move |r| if_query_db(db, cache, r)),
-        )),
-        QueryType::Popular => Either::A(Either::B(
-            cache
+        QueryType::Popular => {
+            let result = cache
                 .get_topics_pop(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
-                .then(move |r| if_query_db(db, cache, r)),
-        )),
-        QueryType::Latest => Either::B(Either::A(
-            cache
+                .await;
+
+            if_query_db(db, cache, result).await
+        }
+        QueryType::PopularAll => {
+            let result = cache
+                .get_topics_pop_all(req.page.unwrap_or(1))
+                .await;
+
+            if_query_db(db, cache, result).await
+        }
+        QueryType::Latest => {
+            let result = cache
                 .get_topics_late(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
-                .then(move |r| if_query_db(db, cache, r)),
-        )),
-        QueryType::All => Either::B(Either::B(cache.get_categories_all().then(
-            move |r| match r {
-                Ok(c) => Either::A(ft_ok(HttpResponse::Ok().json(&c))),
-                Err(_) => Either::B(db.get_categories_all().from_err().and_then(move |c| {
-                    let res = HttpResponse::Ok().json(&c);
+                .await;
+
+            if_query_db(db, cache, result).await
+        }
+        QueryType::All => {
+            match cache.get_categories_all().await {
+                Ok(c) => Ok(HttpResponse::Ok().json(&c)),
+                Err(_) => {
+                    let c = db.get_categories_all().await?;
                     cache.update_categories(&c);
-                    res
-                })),
-            },
-        ))),
+                    Ok(HttpResponse::Ok().json(&c))
+                }
+            }
+        }
     }
 }
 
-fn if_query_db(
+async fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Topic>, Vec<u32>), ResError>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    match result {
-        Ok((t, ids)) => Either::A(attach_users_form_res(ids, t, db, cache, false)),
-        Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => Either::B(
-                db.get_topics_by_id_with_uid(ids)
-                    .from_err()
-                    .and_then(move |(t, ids)| attach_users_form_res(ids, t, db, cache, true)),
-            ),
-            _ => Either::A(ft_ok(e.render_response())),
-        }),
-    }
-}
+) -> Result<HttpResponse, ResError> {
+    let mut should_update_t = false;
+    let mut should_update_u = false;
 
-fn attach_users_form_res(
-    ids: Vec<u32>,
-    t: Vec<Topic>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
-    update_t: bool,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    cache.get_users_from_ids(ids).then(move |r| match r {
-        Ok(u) => {
-            if update_t {
-                cache.update_topics(&t);
-            }
-            Either::A(ft_ok(HttpResponse::Ok().json(Topic::attach_users(&t, &u))))
+    let (t, mut uids) = match result {
+        Ok(t) => t,
+        Err(e) => if let ResError::IdsFromCache(tids) = e {
+            should_update_t = true;
+            db.get_topics_with_uid(&tids).await?
+        } else {
+            return Ok(e.render_response());
         }
-        Err(e) => Either::B(match e {
-            ResError::IdsFromCache(ids) => {
-                Either::B(db.get_users_by_id(&ids).from_err().and_then(move |u| {
-                    cache.update_users(&u);
-                    if update_t {
-                        cache.update_topics(&t);
-                    }
-                    HttpResponse::Ok().json(Topic::attach_users(&t, &u))
-                }))
-            }
-            _ => Either::A(ft_ok(e.render_response())),
-        }),
-    })
+    };
+
+    let result = cache.get_users_from_ids(uids).await;
+
+    let u = match result {
+        Ok(u) => u,
+        Err(e) => if let ResError::IdsFromCache(uids) = e {
+            should_update_u = true;
+            db.get_users_by_id(&uids).await?
+        } else {
+            vec![]
+        }
+    };
+
+    if should_update_u {
+        cache.update_users(&u);
+    }
+    if should_update_t {
+        cache.update_topics(&t);
+    }
+
+    let res = Topic::attach_users(&t, &u);
+    Ok(HttpResponse::Ok().json(&res))
 }

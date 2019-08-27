@@ -1,10 +1,16 @@
-use futures::{
-    future::{err as ft_err, Either},
-    Future,
-};
 use std::fmt::Write;
+use std::future::Future;
 
-use crate::handler::{cache::CacheService, db::DatabaseService};
+use futures::{
+    compat::Future01CompatExt,
+    TryFutureExt,
+};
+
+use crate::handler::{
+    cache::CacheService,
+    db::DatabaseService,
+    cache_update::CacheFailedMessage
+};
 use crate::model::{
     category::{Category, CategoryRequest},
     common::GlobalVars,
@@ -12,15 +18,15 @@ use crate::model::{
 };
 
 impl DatabaseService {
-    pub fn get_categories_all(&self) -> impl Future<Item = Vec<Category>, Error = ResError> {
+    pub fn get_categories_all(&self) -> impl Future<Output=Result<Vec<Category>, ResError>> {
         use crate::handler::db::SimpleQuery;
         self.simple_query_multi_trait("SELECT * FROM categories", Vec::new())
     }
 
-    pub fn update_category(
+    pub async fn update_category(
         &self,
         c: CategoryRequest,
-    ) -> impl Future<Item = Category, Error = ResError> {
+    ) -> Result<Category, ResError> {
         let mut query = String::new();
         query.push_str("UPDATE categories SET");
         if let Some(s) = c.thumbnail {
@@ -33,30 +39,30 @@ impl DatabaseService {
             query.remove(query.len() - 1);
             let _ = write!(&mut query, " WHERE id='{}' RETURNING *", c.id.unwrap());
         } else {
-            return Either::A(ft_err(ResError::BadRequest));
+            return Err(ResError::BadRequest);
         };
 
         use crate::handler::db::SimpleQuery;
-        Either::B(self.simple_query_one_trait(query.as_str()))
+        self.simple_query_one_trait(query.as_str()).await
     }
 
-    pub fn remove_category(&self, cid: u32) -> impl Future<Item = (), Error = ResError> {
+    pub fn remove_category(&self, cid: u32) -> impl Future<Output=Result<(), ResError>> {
         let query = format!("DELETE FROM categories WHERE id={}", cid);
 
         use crate::handler::db::SimpleQuery;
-        self.simple_query_row_trait(query.as_str()).map(|_| ())
+        self.simple_query_row_trait(query.as_str()).map_ok(|_| ())
     }
 
-    pub fn add_category(
+    pub async fn add_category(
         &self,
         c: CategoryRequest,
         g: &GlobalVars,
-    ) -> impl Future<Item = Category, Error = ResError> {
+    ) -> Result<Category, ResError> {
         use crate::handler::db::SimpleQuery;
 
         let cid = match g.lock() {
             Ok(mut g) => g.next_cid(),
-            Err(_) => return Either::A(ft_err(ResError::InternalServerError)),
+            Err(_) => return Err(ResError::InternalServerError),
         };
 
         let query = format!(
@@ -70,13 +76,15 @@ impl DatabaseService {
             c.thumbnail.unwrap()
         );
 
-        Either::B(self.simple_query_one_trait(query.as_str()))
+        self.simple_query_one_trait(query.as_str()).await
     }
 }
 
 impl CacheService {
-    pub fn get_categories_all(&self) -> impl Future<Item = Vec<Category>, Error = ResError> {
+    pub fn get_categories_all(&self) -> impl Future<Output=Result<Vec<Category>, ResError>> {
         use crate::handler::cache::CategoriesFromCache;
-        self.categories_from_cache()
+        self.categories_from_cache_01().compat()
     }
+
+    pub fn send_failed_category(&self, c: Category) { let _ = self.recipient.do_send(CacheFailedMessage::FailedCategory(c)); }
 }

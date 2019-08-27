@@ -1,8 +1,18 @@
-use std::{env, time::Duration};
+use std::{
+    cell::RefCell,
+    env,
+    time::Duration,
+};
 
-use actix::prelude::{ActorFuture, AsyncContext, Context, Future, WrapFuture};
+use actix::prelude::{Actor, ActorFuture, Addr, AsyncContext, Context, Future, WrapFuture};
 use futures::{
-    future::{ok as ft_ok, Either},
+    compat::Future01CompatExt,
+    FutureExt,
+    TryFutureExt,
+};
+use futures01::{
+    Future as Future01,
+    future::{Either, ok as ft_ok},
     IntoFuture,
 };
 use lettre::{
@@ -15,24 +25,62 @@ use lettre::{
 use lettre_email::Email;
 use redis::aio::SharedConnection;
 
-use crate::handler::cache::{CacheService, CheckCacheConn, GetQueue, GetSharedConn};
+use crate::handler::cache::{CacheService, CheckCacheConn, DeleteCache, GetQueue, GetSharedConn};
 use crate::model::{
     errors::{ErrorReport, RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
     user::User,
 };
-use crate::MessageService;
 
 const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
 const SMS_TIME_GAP: Duration = Duration::from_millis(500);
 const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
 const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
 
+
+// actor handles error report, sending email and sms messages.
+pub struct MessageService {
+    pub url: String,
+    pub cache: RefCell<SharedConnection>,
+    pub mailer: Option<Mailer>,
+    pub twilio: Option<Twilio>,
+    pub error_report: ErrorReport,
+}
+
+impl Actor for MessageService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_interval(ctx);
+    }
+}
+
+impl MessageService {
+    pub(crate) async fn init(redis_url: &str) -> Result<Addr<MessageService>, ResError> {
+        let cache = redis::Client::open(redis_url)?.get_shared_async_connection().compat().await?;
+
+        let url = redis_url.to_owned();
+
+        Ok(
+            MessageService::create(move |ctx| {
+                MessageService {
+                    url,
+                    cache: RefCell::new(cache),
+                    mailer: Self::generate_mailer(),
+                    twilio: Self::generate_twilio(),
+                    error_report: Self::generate_error_report(),
+                }
+            })
+        )
+    }
+}
+
+
 impl GetQueue for MessageService {}
 
 impl GetSharedConn for MessageService {
     fn get_conn(&self) -> SharedConnection {
-        self.cache.as_ref().unwrap().borrow().clone()
+        self.cache.borrow().clone()
     }
 }
 
@@ -42,7 +90,7 @@ impl CheckCacheConn for MessageService {
     }
 
     fn replace_cache(&self, c: SharedConnection) {
-        self.cache.as_ref().map(|s| s.replace(c));
+        self.cache.replace(c);
     }
 }
 
@@ -74,11 +122,11 @@ impl MessageService {
     fn process_mail(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(MAIL_TIME_GAP, move |act, ctx| {
             ctx.spawn(
-                act.check_cache_conn()
+                act.check_cache_conn_01()
                     .into_actor(act)
                     .and_then(|opt, act, _| {
                         act.if_replace_cache(opt)
-                            .get_queue("mail_queue")
+                            .get_queue_01("mail_queue")
                             .into_actor(act)
                             .and_then(|s, act, _| {
                                 act.send_mail_user(s.as_str()).into_future().into_actor(act)
@@ -94,7 +142,7 @@ impl MessageService {
     fn process_sms(&self, ctx: &mut Context<Self>) {
         ctx.run_interval(SMS_TIME_GAP, move |act, ctx| {
             ctx.spawn(
-                act.get_queue("sms_queue")
+                act.get_queue_01("sms_queue")
                     .into_actor(act)
                     .and_then(|s, act, _| act.send_sms_user(s.as_str()).into_actor(act))
                     .map_err(|e, act, _| {
@@ -172,7 +220,7 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg.to_owned(),
@@ -180,7 +228,7 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
             Err(_) => return Either::A(ft_ok(())),
@@ -189,7 +237,7 @@ impl MessageService {
     }
 
     // twilio api handler.
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item = (), Error = ResError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ResError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 
@@ -268,13 +316,13 @@ impl CacheService {
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Ok(m) = serde_json::to_string(&mail) {
-            actix::spawn(self.add_activation_mail_self(u.id, uuid, m));
+            actix::spawn(self.add_activation_mail_01(u.id, uuid, m).map_err(|_| ()));
         }
     }
 
     pub fn remove_activation_uuid(&self, uuid: &str) {
         use crate::handler::cache::DeleteCache;
-        actix::spawn(self.del_cache(uuid).map_err(|_| ()))
+        actix::spawn(self.del_cache_01(uuid).map_err(|_| ()))
     }
 }
 

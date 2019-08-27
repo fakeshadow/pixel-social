@@ -1,4 +1,4 @@
-use crate::model::{post::Post, topic::Topic, user::User};
+use crate::model::{category::Category, post::Post, topic::Topic, user::User};
 
 pub enum FailedType {
     Update,
@@ -9,11 +9,16 @@ pub struct FailedCollection {
     pub topic: Vec<(Topic, FailedType)>,
     pub post: Vec<(Post, FailedType)>,
     pub user: Vec<(User, FailedType)>,
+    pub category: Vec<(Category, FailedType)>,
 }
 
 impl FailedCollection {
     pub fn add_topic_new(&mut self, t: Topic) {
         self.topic.push((t, FailedType::New));
+    }
+
+    pub fn add_category_new(&mut self, c: Category) {
+        self.category.push((c, FailedType::New));
     }
 
     pub fn add_post_new(&mut self, t: Post) {
@@ -70,6 +75,17 @@ impl FailedCollection {
             }
         }
     }
+
+    pub fn remove_by_cids(&mut self, ids: &[u32]) {
+        for id in ids.iter() {
+            for (index, (t, _)) in self.category.iter().enumerate() {
+                if id == &t.id {
+                    self.category.remove(index);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 impl Default for FailedCollection {
@@ -78,6 +94,9 @@ impl Default for FailedCollection {
             topic: vec![],
             post: vec![],
             user: vec![],
+            category: vec![],
         }
     }
 }
+
+
