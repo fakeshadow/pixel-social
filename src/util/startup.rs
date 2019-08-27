@@ -1,7 +1,6 @@
-
 use actix::SystemRunner;
 use chrono::NaiveDateTime;
-use futures::{ FutureExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, TryFutureExt, TryStreamExt};
 use futures01::Future as Future01;
 use tokio_postgres::{connect, SimpleQueryMessage, tls::NoTls};
 
@@ -31,10 +30,10 @@ pub fn build_cache(
     redis_url: &str,
     is_init: bool,
 ) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ()> {
-    let (mut c, connection) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
-    let connection = connection.map(|_| ());
+    let (mut c, conn): (tokio_postgres::Client, _) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
 
-    actix::spawn(connection.unit_error().boxed().compat());
+
+    tokio::spawn(conn.map(|_| ()));
 
     let c_cache = sys.block_on(redis::Client::open(redis_url).unwrap_or_else(|e| panic!("{}", e))
         .get_shared_async_connection())
@@ -242,9 +241,8 @@ pub fn build_cache(
 
 // return true if built tables success
 pub fn create_table(sys: &mut SystemRunner, postgres_url: &str) -> bool {
-    let (mut c, connection) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
-    let connection = connection.map(|_| ());
-    actix::spawn(connection.unit_error().boxed().compat());
+    let (mut c, conn) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
+    tokio::spawn(conn.map(|_| ()));
 
     let query = "SELECT * FROM categories";
 
@@ -431,8 +429,7 @@ VALUES (1, 1, 1, 1, 'First Reply Only to stop cache build from complaining');");
 
 pub fn drop_table(sys: &mut SystemRunner, postgres_url: &str) {
     let (mut c, conn) = sys.block_on(connect(postgres_url, NoTls).boxed().compat()).unwrap_or_else(|e| panic!("{}", e));
-    let conn = conn.map(|_| ());
-    actix::spawn(conn.unit_error().boxed().compat());
+    tokio::spawn(conn.map(|_| ()));
 
     let query = "
 DROP TABLE IF EXISTS associates;

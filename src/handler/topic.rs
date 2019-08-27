@@ -3,9 +3,11 @@ use std::future::Future;
 
 use chrono::Utc;
 use futures01::Future as Future01;
+use futures::FutureExt;
 
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, TOPIC_U8},
+    cache_update::CacheFailedMessage,
     db::DatabaseService,
 };
 use crate::model::{
@@ -13,7 +15,6 @@ use crate::model::{
     errors::ResError,
     topic::{Topic, TopicRequest},
 };
-use crate::handler::cache_update::CacheFailedMessage;
 
 impl DatabaseService {
     pub async fn add_topic(
@@ -21,10 +22,7 @@ impl DatabaseService {
         t: &TopicRequest,
         g: &GlobalVars,
     ) -> Result<Topic, ResError> {
-        let id = g
-            .lock()
-            .map(|mut var| var.next_tid())
-            .map_err(|_| ResError::InternalServerError)?;
+        let id = g.lock().map(|mut lock| lock.next_tid()).await;
 
         let now = &Utc::now().naive_utc();
 

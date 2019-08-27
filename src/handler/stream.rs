@@ -1,9 +1,8 @@
-use actix_multipart::{Field};
+use actix_multipart::Field;
 use async_std::fs::File;
 use async_std::prelude::*;
 use bytes::Bytes;
-use futures::{ compat::Stream01CompatExt, StreamExt, TryFutureExt, TryStreamExt};
-use futures01::Future as Future01;
+use futures::{compat::Stream01CompatExt, TryStreamExt};
 use rand::Rng;
 
 use crate::model::errors::ResError;

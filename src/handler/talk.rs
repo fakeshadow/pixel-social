@@ -19,7 +19,6 @@ use futures01::{
     future::{Either, err as ft_err},
     Future as Future01,
 };
-use futures::compat::Stream01CompatExt;
 use hashbrown::HashMap;
 use redis::{
     aio::SharedConnection,

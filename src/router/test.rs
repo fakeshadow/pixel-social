@@ -69,7 +69,7 @@ pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item=HttpResponse, Error=
 }
 
 pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item=HttpResponse, Error=Error> {
-    Box::pin(raw_cache_async(cache)).compat().from_err()
+    raw_cache_async(cache).boxed_local().compat().from_err()
 }
 
 async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, ResError> {

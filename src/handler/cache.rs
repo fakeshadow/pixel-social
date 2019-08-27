@@ -55,8 +55,11 @@ impl CacheService {
     ) -> Result<CacheService, ResError> {
         let url = redis_url.to_owned();
 
+        let executor =
+            crate::util::executor_compat::Executor03As01::new(tokio_executor::DefaultExecutor::current());
+
         let conn = Client::open(redis_url)?
-            .get_shared_async_connection()
+            .get_shared_async_connection_with_executor(executor)
             .compat()
             .await?;
 

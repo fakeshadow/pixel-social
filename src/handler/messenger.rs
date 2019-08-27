@@ -57,7 +57,10 @@ impl Actor for MessageService {
 
 impl MessageService {
     pub(crate) async fn init(redis_url: &str) -> Result<Addr<MessageService>, ResError> {
-        let cache = redis::Client::open(redis_url)?.get_shared_async_connection().compat().await?;
+        let executor =
+            crate::util::executor_compat::Executor03As01::new(tokio_executor::DefaultExecutor::current());
+
+        let cache = redis::Client::open(redis_url)?.get_shared_async_connection_with_executor(executor).compat().await?;
 
         let url = redis_url.to_owned();
 

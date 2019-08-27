@@ -3,6 +3,7 @@ use std::future::Future;
 
 use chrono::Utc;
 use futures01::Future as Future01;
+use futures::FutureExt;
 
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, POST_U8},
@@ -21,10 +22,7 @@ impl DatabaseService {
         p: PostRequest,
         g: &GlobalVars,
     ) -> Result<Post, ResError> {
-        let id = g
-            .lock()
-            .map(|mut var| var.next_pid())
-            .map_err(|_| ResError::InternalServerError)?;
+        let id = g.lock().map(|mut lock| lock.next_pid()).await;
 
         let now = &Utc::now().naive_local();
 

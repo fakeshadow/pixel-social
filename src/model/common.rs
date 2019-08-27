@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use actix::prelude::Addr;
 use hashbrown::HashMap;
@@ -89,7 +89,8 @@ where
 }
 
 // type and struct for global vars
-pub type GlobalVars = Mutex<GlobalVar>;
+// use future aware mutex for globals
+pub type GlobalVars = futures::lock::Mutex<GlobalVar>;
 pub type GlobalTalks = Arc<RwLock<HashMap<u32, Talk>>>;
 pub type GlobalSessions = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
 
@@ -116,7 +117,7 @@ pub struct GlobalVar {
 
 impl GlobalVar {
     pub fn new(last_uid: u32, last_pid: u32, last_tid: u32, last_cid: u32) -> GlobalVars {
-        Mutex::new(GlobalVar {
+        futures::lock::Mutex::new(GlobalVar {
             last_uid,
             last_pid,
             last_tid,

@@ -1,4 +1,5 @@
 use actix_web::{dev, FromRequest, HttpRequest};
+use futures::FutureExt;
 use tokio_postgres::{SimpleQueryMessage, SimpleQueryRow};
 
 use crate::handler::{cache::CacheService, db::DatabaseService};
@@ -95,9 +96,7 @@ impl DatabaseService {
     ) -> Result<User, ResError> {
         let hash = crate::util::hash::hash_password(&r.password)?;
 
-        let id = g.lock()
-            .map(|mut var| var.next_uid())
-            .map_err(|_| ResError::InternalServerError)?;
+        let id = g.lock().map(|mut lock| lock.next_uid()).await;
 
         let u = r.make_user(id, &hash)?;
 

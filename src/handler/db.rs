@@ -14,6 +14,7 @@ use crate::model::{
     errors::ResError,
     topic::Topic,
 };
+use tokio_executor::Executor;
 
 // database service is not an actor.
 pub struct DatabaseService {
@@ -85,9 +86,8 @@ impl DatabaseService {
     async fn connect(postgres_url: &str) -> Result<Option<(Client, Vec<Statement>)>, ResError> {
         let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
-        let conn = conn.map(|_| ());
-
         //ToDo: remove compat layer when actix convert to use std::future;
+        let conn = conn.map(|_| ());
         actix::spawn(conn.unit_error().boxed().compat());
 
         let p1 = c.prepare_typed("SELECT * FROM topics WHERE id=ANY($1)", &[Type::OID_ARRAY]);

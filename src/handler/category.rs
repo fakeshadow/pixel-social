@@ -2,6 +2,7 @@ use std::fmt::Write;
 use std::future::Future;
 
 use futures::{
+    FutureExt,
     compat::Future01CompatExt,
     TryFutureExt,
 };
@@ -60,10 +61,7 @@ impl DatabaseService {
     ) -> Result<Category, ResError> {
         use crate::handler::db::SimpleQuery;
 
-        let cid = match g.lock() {
-            Ok(mut g) => g.next_cid(),
-            Err(_) => return Err(ResError::InternalServerError),
-        };
+        let cid = g.lock().map(|mut lock| lock.next_cid()).await;
 
         let query = format!(
             "
