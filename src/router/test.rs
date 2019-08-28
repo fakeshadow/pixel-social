@@ -8,7 +8,6 @@ use futures01::Future as Future01;
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
     common::GlobalVars,
-    errors::ResError,
     post::PostRequest,
     topic::{Topic, TopicRequest},
 };
@@ -38,7 +37,6 @@ pub fn add_topic(
     crate::router::topic::add_async(jwt, db, cache, Json(req), global)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 pub fn add_post(
@@ -65,18 +63,17 @@ pub fn add_post(
     crate::router::post::add_async(jwt, db, cache, Json(req), global)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item = HttpResponse, Error = Error> {
-    raw_async(db).boxed_local().compat().from_err()
+    raw_async(db).boxed_local().compat()
 }
 
 pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse, Error = Error> {
-    raw_cache_async(cache).boxed_local().compat().from_err()
+    raw_cache_async(cache).boxed_local().compat()
 }
 
-async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, ResError> {
+async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, Error> {
     let ids = vec![
         1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
@@ -87,7 +84,7 @@ async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, ResError> 
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }
 
-async fn raw_cache_async(cache: Data<CacheService>) -> Result<HttpResponse, ResError> {
+async fn raw_cache_async(cache: Data<CacheService>) -> Result<HttpResponse, Error> {
     let ids = vec![
         1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];

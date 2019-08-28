@@ -143,7 +143,7 @@ impl From<&TrophyLib> for UserTrophy {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "query_type")]
 pub enum PSNRequest {
     Profile {
@@ -170,10 +170,6 @@ pub enum PSNRequest {
 }
 
 impl PSNRequest {
-    pub fn stringify(&self) -> Result<String, ResError> {
-        Ok(serde_json::to_string(&self)?)
-    }
-
     pub fn check_privilege(self, privilege: u32) -> Result<Self, ResError> {
         if privilege < 9 {
             Err(ResError::Unauthorized)

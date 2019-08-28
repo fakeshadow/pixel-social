@@ -14,7 +14,7 @@ impl DatabaseService {
         self_level: u32,
         t: &TopicRequest,
     ) -> Result<Topic, ResError> {
-        let _ = update_topic_check(self_level, &t)?;
+        update_topic_check(self_level, &t)?;
         self.update_topic(t).await
     }
 
@@ -23,7 +23,7 @@ impl DatabaseService {
         self_level: u32,
         p: PostRequest,
     ) -> Result<Post, ResError> {
-        let _ = update_post_check(self_level, &p)?;
+        update_post_check(self_level, &p)?;
         self.update_post(p).await
     }
 
@@ -33,7 +33,7 @@ impl DatabaseService {
         req: CategoryRequest,
         g: &GlobalVars,
     ) -> Result<Category, ResError> {
-        let _ = update_category_check(self_level, &req)?;
+        update_category_check(self_level, &req)?;
         self.add_category(req, g).await
     }
 
@@ -42,12 +42,12 @@ impl DatabaseService {
         self_level: u32,
         req: CategoryRequest,
     ) -> Result<Category, ResError> {
-        let _ = update_category_check(self_level, &req)?;
+        update_category_check(self_level, &req)?;
         self.update_category(req).await
     }
 
     pub async fn admin_remove_category(&self, cid: u32, self_level: u32) -> Result<(), ResError> {
-        let _ = check_admin_level(&Some(1), self_level, 9)?;
+        check_admin_level(&Some(1), self_level, 9)?;
         self.remove_category(cid).await
     }
 

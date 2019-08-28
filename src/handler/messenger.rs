@@ -2,8 +2,8 @@ use std::{cell::RefCell, env, time::Duration};
 
 use actix::prelude::{Actor, ActorFuture, Addr, AsyncContext, Context, Future, WrapFuture};
 use futures01::{
-    future::{Either, ok as ft_ok},
-    Future as Future01, IntoFuture,
+    future::{ok as ft_ok, Either},
+    IntoFuture,
 };
 use lettre::{
     smtp::{
@@ -46,7 +46,9 @@ impl Actor for MessageService {
 
 impl MessageService {
     pub(crate) async fn init(redis_url: &str) -> Result<Addr<MessageService>, ResError> {
-        let cache = crate::handler::cache::connect_cache(redis_url).await?.ok_or(ResError::RedisConnection)?;
+        let cache = crate::handler::cache::connect_cache(redis_url)
+            .await?
+            .ok_or(ResError::RedisConnection)?;
 
         let url = redis_url.to_owned();
 
@@ -204,7 +206,7 @@ impl MessageService {
         }
     }
 
-    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms_admin(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
         let msg = SmsMessage {
             to: self.twilio.as_ref().unwrap().self_number.to_string(),
             message: msg.to_owned(),
@@ -212,7 +214,7 @@ impl MessageService {
         self.send_sms(msg)
     }
 
-    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms_user(&mut self, msg: &str) -> impl Future<Item = (), Error = ResError> {
         let msg = match serde_json::from_str::<SmsMessage>(msg) {
             Ok(s) => s,
             Err(_) => return Either::A(ft_ok(())),
@@ -221,7 +223,7 @@ impl MessageService {
     }
 
     // twilio api handler.
-    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item=(), Error=ResError> {
+    fn send_sms(&mut self, msg: SmsMessage) -> impl Future<Item = (), Error = ResError> {
         let t = self.twilio.as_ref().unwrap();
         let url = format!("{}{}/Messages.json", t.url.as_str(), t.account_id.as_str());
 

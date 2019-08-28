@@ -1,7 +1,7 @@
 use actix::prelude::Future as Future01;
 use actix_web::{
-    Error,
-    HttpResponse, ResponseError, web::{Data, Json, Query},
+    web::{Data, Json, Query},
+    Error, HttpResponse, ResponseError,
 };
 use futures::{FutureExt, TryFutureExt};
 
@@ -23,11 +23,10 @@ pub fn add(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
     global: Data<GlobalVars>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     add_async(jwt, db, cache, req, global)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 pub async fn add_async(
@@ -36,8 +35,8 @@ pub async fn add_async(
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
     global: Data<GlobalVars>,
-) -> Result<HttpResponse, ResError> {
-    let _ = jwt.check_privilege()?;
+) -> Result<HttpResponse, Error> {
+    jwt.check_privilege()?;
     let req = req
         .into_inner()
         .attach_user_id(Some(jwt.user_id))
@@ -71,11 +70,8 @@ pub fn update(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_async(jwt, db, cache, req)
-        .boxed_local()
-        .compat()
-        .from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_async(jwt, db, cache, req).boxed_local().compat()
 }
 
 async fn update_async(
@@ -83,7 +79,7 @@ async fn update_async(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Json<TopicRequest>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
         .attach_user_id(Some(jwt.user_id))
@@ -111,23 +107,19 @@ pub(crate) async fn update_topic_with_fail_check(cache: Data<CacheService>, t: T
     };
 }
 
-
 pub fn query_handler(
     req: Query<TopicQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_async(req, db, cache)
-        .boxed_local()
-        .compat()
-        .from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    query_handler_async(req, db, cache).boxed_local().compat()
 }
 
 pub async fn query_handler_async(
     req: Query<TopicQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Oldest => {
             let result = cache.get_posts_old(req.topic_id, req.page).await;
@@ -146,7 +138,7 @@ async fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Post>, Vec<u32>), ResError>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let mut should_update_u = false;
     let mut should_update_p = false;
     let mut should_update_t = false;

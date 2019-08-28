@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
 use actix_web::{
-    Error,
-    HttpResponse, web::{Data, Json, Query},
+    web::{Data, Json, Query},
+    Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
@@ -12,16 +12,18 @@ use crate::{
         auth::{UserJwt, UserJwtOpt},
         cache::CacheService,
         db::DatabaseService,
+        psn::{AddPSNRequest, PSNServiceAddr},
     },
-    model::{psn::PSNRequest},
+    model::psn::PSNRequest,
 };
 
 pub fn query_handler(
     req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_async(req, db, cache)
+    addr: Data<PSNServiceAddr>,
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    query_handler_async(req, db, cache, addr)
         .boxed_local()
         .compat()
 }
@@ -30,6 +32,7 @@ async fn query_handler_async(
     req: Query<PSNRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
+    addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     match req.deref() {
         PSNRequest::Profile { online_id } => {
@@ -62,8 +65,7 @@ async fn query_handler_async(
         _ => (),
     };
 
-    let req = req.stringify()?;
-    let _ = cache.add_psn_request_now(req.as_str()).await?;
+    addr.do_send(AddPSNRequest(req.into_inner(), false));
 
     Ok(HttpResponse::Ok().finish())
 }
@@ -71,9 +73,9 @@ async fn query_handler_async(
 pub fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    query_handler_with_jwt_async(jwt, req, cache)
+    addr: Data<PSNServiceAddr>,
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    query_handler_with_jwt_async(jwt, req, addr)
         .boxed_local()
         .compat()
 }
@@ -81,21 +83,19 @@ pub fn query_handler_with_jwt(
 async fn query_handler_with_jwt_async(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    cache: Data<CacheService>,
+    addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     match req.deref() {
         PSNRequest::Auth { .. } => {
-            let req = req
-                .into_inner()
-                .check_privilege(jwt.privilege)?
-                .stringify()?;
+            let req = req.into_inner().check_privilege(jwt.privilege)?;
 
-            let _ = cache.add_psn_request_privilege(req.as_str()).await?;
+            addr.do_send(AddPSNRequest(req, true));
         }
         PSNRequest::Activation { .. } => {
-            let req = req.into_inner().attach_user_id(jwt.user_id).stringify()?;
-
-            let _ = cache.add_psn_request_now(req.as_str()).await?;
+            addr.do_send(AddPSNRequest(
+                req.into_inner().attach_user_id(jwt.user_id),
+                false,
+            ));
         }
         _ => (),
     };
@@ -107,16 +107,16 @@ pub fn community(
     //    req: Json<>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     community_async(jwt_opt, db, cache).boxed_local().compat()
 }
 
 async fn community_async(
     jwt_opt: UserJwtOpt,
     //    req: Json<>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    _db: Data<DatabaseService>,
+    _cache: Data<CacheService>,
 ) -> Result<HttpResponse, Error> {
-    let jwt_opt = jwt_opt.0;
+    let _jwt_opt = jwt_opt.0;
     Ok(HttpResponse::Ok().finish())
 }

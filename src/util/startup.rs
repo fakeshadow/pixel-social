@@ -47,14 +47,13 @@ pub fn build_cache(
         .block_on(load_all_to_01::<Category>(&mut c, query))
         .unwrap_or_else(|_| panic!("Failed to load categories"));
 
-    let _ = sys
-        .block_on(build_hmsets_01(
-            c_cache.clone(),
-            &categories,
-            crate::handler::cache::CATEGORY_U8,
-            false,
-        ))
-        .unwrap_or_else(|_| panic!("Failed to update categories sets"));
+    sys.block_on(build_hmsets_01(
+        c_cache.clone(),
+        &categories,
+        crate::handler::cache::CATEGORY_U8,
+        false,
+    ))
+    .unwrap_or_else(|_| panic!("Failed to update categories sets"));
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -85,18 +84,17 @@ pub fn build_cache(
             >(&mut c, query.as_str(), 0))
             .unwrap_or(0);
 
-        let _ = sys
-            .block_on(
-                redis::cmd("HMSET")
-                    .arg(&format!("category:{}:set", cat.id))
-                    .arg(&[
-                        ("topic_count", t_count.to_string()),
-                        ("post_count", p_count.to_string()),
-                    ])
-                    .query_async(c_cache.clone())
-                    .map(|(_, ())| ()),
-            )
-            .unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
+        sys.block_on(
+            redis::cmd("HMSET")
+                .arg(&format!("category:{}:set", cat.id))
+                .arg(&[
+                    ("topic_count", t_count.to_string()),
+                    ("post_count", p_count.to_string()),
+                ])
+                .query_async(c_cache.clone())
+                .map(|(_, ())| ()),
+        )
+        .unwrap_or_else(|_| panic!("Failed to build category post/topic count"));
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
         // load topics belong to category

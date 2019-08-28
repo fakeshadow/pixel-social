@@ -59,8 +59,7 @@ pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
         .map_err(|_| ResError::InternalServerError)?;
     let bytes = bytes.first().ok_or(ResError::InternalServerError)?;
 
-    let _ = file
-        .write_all(bytes.as_ref())
+    file.write_all(bytes.as_ref())
         .await
         .map_err(|_| ResError::InternalServerError)?;
 

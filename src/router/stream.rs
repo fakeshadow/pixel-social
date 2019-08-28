@@ -20,5 +20,5 @@ pub fn upload_file(
         })
         .flatten()
         .collect()
-        .map(|result| HttpResponse::Ok().json(result))
+        .map(|r| HttpResponse::Ok().json(r))
 }

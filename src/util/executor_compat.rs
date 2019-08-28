@@ -5,7 +5,7 @@ use futures01::{
     future::{ExecuteError as ExecuteError01, Executor as Executor01},
     Future as Future01,
 };
-use tokio_executor::{Executor};
+use tokio_executor::Executor;
 
 /*
     took from https://github.com/mitsuhiko/redis-rs/pull/229

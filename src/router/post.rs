@@ -1,16 +1,16 @@
 use actix_web::{
-    Error,
-    HttpResponse, ResponseError, web::{Data, Json, Path},
+    web::{Data, Json, Path},
+    Error, HttpResponse, ResponseError,
 };
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
+use crate::handler::cache::AddToCache;
 use crate::handler::{
     auth::UserJwt,
     cache::{CacheService, CheckCacheConn},
     db::DatabaseService,
 };
-use crate::handler::cache::AddToCache;
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -23,11 +23,10 @@ pub fn add(
     cache: Data<CacheService>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     add_async(jwt, db, cache, req, global)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 pub async fn add_async(
@@ -36,8 +35,8 @@ pub async fn add_async(
     cache: Data<CacheService>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
-) -> Result<HttpResponse, ResError> {
-    let _ = jwt.check_privilege()?;
+) -> Result<HttpResponse, Error> {
+    jwt.check_privilege()?;
 
     let req = req
         .into_inner()
@@ -68,11 +67,8 @@ pub fn update(
     req: Json<PostRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_async(jwt, req, db, cache)
-        .boxed_local()
-        .compat()
-        .from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_async(jwt, req, db, cache).boxed_local().compat()
 }
 
 async fn update_async(
@@ -108,20 +104,19 @@ pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
     };
 }
 
-
 pub fn get(
     id: Path<u32>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    get_async(id, db, cache).boxed_local().compat().from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    get_async(id, db, cache).boxed_local().compat()
 }
 
 async fn get_async(
     id: Path<u32>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
     let mut should_update_p = false;

@@ -1,21 +1,13 @@
 use std::fmt::Write;
 use std::future::Future;
 
-use futures::{
-    compat::Future01CompatExt,
-    FutureExt,
-    TryFutureExt
-};
+use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
 use crate::handler::{
-    cache::{
-    build_hmsets_01,
-    CacheService,
-    CATEGORY_U8,
-    GetSharedConn},
+    cache::{build_hmsets_01, CacheService, GetSharedConn, CATEGORY_U8},
     cache_update::CacheFailedMessage,
-    db::DatabaseService
+    db::DatabaseService,
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -24,7 +16,7 @@ use crate::model::{
 };
 
 impl DatabaseService {
-    pub fn get_categories_all(&self) -> impl Future<Output=Result<Vec<Category>, ResError>> {
+    pub fn get_categories_all(&self) -> impl Future<Output = Result<Vec<Category>, ResError>> {
         use crate::handler::db::SimpleQuery;
         self.simple_query_multi_trait("SELECT * FROM categories", Vec::new())
     }
@@ -49,7 +41,7 @@ impl DatabaseService {
         self.simple_query_one_trait(query.as_str()).await
     }
 
-    pub fn remove_category(&self, cid: u32) -> impl Future<Output=Result<(), ResError>> {
+    pub fn remove_category(&self, cid: u32) -> impl Future<Output = Result<(), ResError>> {
         let query = format!("DELETE FROM categories WHERE id={}", cid);
 
         use crate::handler::db::SimpleQuery;
@@ -81,7 +73,7 @@ impl DatabaseService {
 }
 
 impl CacheService {
-    pub fn get_categories_all(&self) -> impl Future<Output=Result<Vec<Category>, ResError>> {
+    pub fn get_categories_all(&self) -> impl Future<Output = Result<Vec<Category>, ResError>> {
         use crate::handler::cache::CategoriesFromCache;
         self.categories_from_cache_01().compat()
     }

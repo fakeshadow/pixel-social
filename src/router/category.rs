@@ -19,17 +19,14 @@ pub fn query_handler(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    query_handler_async(req, db, cache)
-        .boxed_local()
-        .compat()
-        .from_err()
+    query_handler_async(req, db, cache).boxed_local().compat()
 }
 
 async fn query_handler_async(
     req: Query<CategoryQuery>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Popular => {
             let result = cache
@@ -65,7 +62,7 @@ async fn if_query_db(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     result: Result<(Vec<Topic>, Vec<u32>), ResError>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let mut should_update_t = false;
     let mut should_update_u = false;
 

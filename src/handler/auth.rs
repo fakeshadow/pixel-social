@@ -1,18 +1,10 @@
-
-
 use actix_web::{dev, FromRequest, HttpRequest};
-use futures::{
-    compat::Future01CompatExt,
-    FutureExt
-};
+use futures::{compat::Future01CompatExt, FutureExt};
 
 use crate::handler::{
-    cache::{
-        CacheService,
-    }, db::{
-        DatabaseService,
-        SimpleQuery,
-    }};
+    cache::CacheService,
+    db::{DatabaseService, SimpleQuery},
+};
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -114,7 +106,7 @@ impl DatabaseService {
                 &u.signature,
             ],
         )
-            .await
+        .await
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
@@ -138,6 +130,10 @@ impl CacheService {
     pub async fn get_uid_from_uuid(&self, uuid: &str) -> Result<u32, ResError> {
         use crate::handler::cache::HashMapBrownFromCache;
         let hm = self.hash_map_brown_from_cache_01(uuid).compat().await?;
-        Ok(hm.0.get("user_id").ok_or(ResError::Unauthorized)?.parse::<u32>()?)
+        Ok(hm
+            .0
+            .get("user_id")
+            .ok_or(ResError::Unauthorized)?
+            .parse::<u32>()?)
     }
 }

@@ -1,12 +1,12 @@
 use actix_web::{
-    Error,
-    HttpResponse,  web::{Data, Json, Path},
+    web::{Data, Json, Path},
+    Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::handler::cache::CheckCacheConn;
+use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
     common::{GlobalVars, Validator},
     errors::ResError,
@@ -16,7 +16,7 @@ use crate::model::{
 pub fn login(
     db: Data<DatabaseService>,
     req: Json<AuthRequest>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     login_async(db, req).boxed_local().compat()
 }
 
@@ -34,7 +34,7 @@ pub fn register(
     cache: Data<CacheService>,
     global: Data<GlobalVars>,
     req: Json<AuthRequest>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     register_async(db, cache, global, req)
         .boxed_local()
         .compat()
@@ -48,9 +48,13 @@ async fn register_async(
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_register()?;
 
-    let _ = db.check_register(&req).await?;
+    db.check_register(&req).await?;
 
-    let u = db.check_conn().await?.register(req, global.get_ref()).await?;
+    let u = db
+        .check_conn()
+        .await?
+        .register(req, global.get_ref())
+        .await?;
 
     let res = HttpResponse::Ok().json(&u);
 
@@ -69,8 +73,10 @@ pub fn activate_by_mail(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Path<(String)>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    activate_by_mail_async(db, cache, req).boxed_local().compat()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    activate_by_mail_async(db, cache, req)
+        .boxed_local()
+        .compat()
 }
 
 async fn activate_by_mail_async(
@@ -105,8 +111,10 @@ pub fn add_activation_mail(
     jwt: UserJwt,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    add_activation_mail_async(jwt, db, cache).boxed_local().compat()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    add_activation_mail_async(jwt, db, cache)
+        .boxed_local()
+        .compat()
 }
 
 async fn add_activation_mail_async(
@@ -116,10 +124,12 @@ async fn add_activation_mail_async(
 ) -> Result<HttpResponse, Error> {
     let mut u = match cache.get_users_from_ids(vec![jwt.user_id]).await {
         Ok(u) => u,
-        Err(e) => if let ResError::IdsFromCache(ids) = e {
-            db.get_users_by_id(&ids).await?
-        } else {
-            return Err(e)?
+        Err(e) => {
+            if let ResError::IdsFromCache(ids) = e {
+                db.get_users_by_id(&ids).await?
+            } else {
+                return Err(e.into());
+            }
         }
     };
 
@@ -128,6 +138,6 @@ async fn add_activation_mail_async(
             cache.add_activation_mail(u);
             Ok(HttpResponse::Ok().finish())
         }
-        None => Err(ResError::BadRequest)?,
+        None => Err(ResError::BadRequest.into()),
     }
 }

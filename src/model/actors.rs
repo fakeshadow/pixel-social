@@ -1,10 +1,6 @@
-
 use std::time::{Duration, Instant};
 
-use actix::prelude::{
-    Actor, ActorContext, Addr, AsyncContext,
-    Running,
-};
+use actix::prelude::{Actor, ActorContext, Addr, AsyncContext, Running};
 use actix_web_actors::ws;
 
 use crate::handler::talk::DisconnectRequest;

@@ -3,13 +3,10 @@ use std::future::Future;
 
 use actix::Recipient;
 use chrono::NaiveDateTime;
-use futures01::{
-    Future as Future01,
-    IntoFuture as IntoFuture01,
-};
 use futures::compat::Future01CompatExt;
-use redis::{Client, cmd, pipe};
+use futures01::{Future as Future01, IntoFuture as IntoFuture01};
 use redis::aio::SharedConnection;
+use redis::{cmd, pipe, Client};
 
 use crate::handler::cache_update::CacheFailedMessage;
 use crate::model::{
@@ -81,7 +78,7 @@ impl CacheService {
         uid: u32,
         uuid: String,
         mail: String,
-    ) -> impl Future01<Item=(), Error=ResError> {
+    ) -> impl Future01<Item = (), Error = ResError> {
         cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
@@ -122,9 +119,9 @@ impl CacheService {
         list_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
@@ -140,9 +137,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, true)
     }
@@ -152,9 +149,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, false)
     }
@@ -164,9 +161,9 @@ impl CacheService {
         zrange_key: &str,
         page: usize,
         set_key: &'static [u8],
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, false, false)
     }
@@ -178,9 +175,9 @@ impl CacheService {
         set_key: &'static [u8],
         is_rev: bool,
         is_reverse_lex: bool,
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.ids_from_cache_zrange_01(is_rev, zrange_key, (page - 1) * 20)
             .and_then(move |(conn, mut ids)| {
@@ -196,9 +193,9 @@ impl CacheService {
         &self,
         ids: Vec<u32>,
         set_key: &'static [u8],
-    ) -> impl Future<Output=Result<(Vec<T>, Vec<u32>), ResError>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         Self::from_cache_with_perm_with_uids_01(self.get_conn(), ids, set_key).compat()
     }
@@ -207,9 +204,9 @@ impl CacheService {
         conn: SharedConnection,
         ids: Vec<u32>,
         set_key: &'static [u8],
-    ) -> impl Future01<Item=(Vec<T>, Vec<u32>), Error=ResError>
-        where
-            T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
+    ) -> impl Future01<Item = (Vec<T>, Vec<u32>), Error = ResError>
+    where
+        T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         Self::from_cache_01(conn, ids, set_key, true).map(|t: Vec<T>| {
             let len = t.len();
@@ -386,8 +383,7 @@ fn count_ids(
     }
 }
 
-pub trait HashMapBrownFromCache: GetSharedConn
-{
+pub trait HashMapBrownFromCache: GetSharedConn {
     fn hash_map_brown_from_cache_01(
         &self,
         key: &str,
@@ -404,8 +400,8 @@ pub trait HashMapBrownFromCache: GetSharedConn
 
 pub trait FromCacheSingle: GetSharedConn {
     fn from_cache_single_01<T>(&self, key: &str, set_key: &str) -> BoxedFuture01Result<T>
-        where
-            T: std::marker::Send + redis::FromRedisValue + 'static,
+    where
+        T: std::marker::Send + redis::FromRedisValue + 'static,
     {
         Box::new(
             cmd("HGETALL")
@@ -425,8 +421,8 @@ pub trait FromCache {
         have_perm_fields: bool,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
     ) -> BoxedFuture01Result<Vec<T>>
-        where
-            T: std::marker::Send + redis::FromRedisValue + 'static,
+    where
+        T: std::marker::Send + redis::FromRedisValue + 'static,
     {
         let mut pip = pipe();
         pip.atomic();
@@ -865,9 +861,9 @@ pub fn build_hmsets_01<T>(
     vec: &[T],
     set_key: &'static [u8],
     should_expire: bool,
-) -> impl Future01<Item=(), Error=ResError>
-    where
-        T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
+) -> impl Future01<Item = (), Error = ResError>
+where
+    T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
 {
     let mut pip = pipe();
     pip.atomic();
@@ -903,7 +899,7 @@ pub fn build_list(
     conn: SharedConnection,
     vec: Vec<u32>,
     key: String,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -921,7 +917,7 @@ pub fn build_list(
 pub fn build_users_cache_01(
     vec: Vec<User>,
     conn: SharedConnection,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
@@ -947,7 +943,7 @@ pub fn build_topics_cache_list_01(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -995,7 +991,7 @@ pub fn build_posts_cache_list_01(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 

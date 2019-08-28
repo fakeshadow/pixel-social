@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use actix::{Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture};
 use chrono::Utc;
-use futures01::{Future as Future01, future::Either};
+use futures01::{future::Either, Future as Future01};
 use redis::{aio::SharedConnection, cmd, pipe};
 
 use crate::handler::cache::{
@@ -29,6 +29,7 @@ const FAILED_TIME_DUR: Duration = Duration::from_secs(3);
 pub struct CacheUpdateService {
     pub url: String,
     pub cache: RefCell<SharedConnection>,
+    // use sync mutex as we don't want to lose any data unless every piece of the collection is insert into redis successfully
     pub failed_collection: Mutex<FailedCollection>,
 }
 
@@ -151,6 +152,8 @@ impl CacheUpdateService {
 
             if !v.is_empty() {
                 ctx.spawn(
+                    // ToDo: don't use join all as we could have some good insertion while others are failed
+                    // ToDo: It's better to use future03 here with try fold as well as return all the ids that are failed wrapped in a ResError.
                     futures01::future::join_all(v)
                         .map_err(|_| ())
                         .into_actor(act)
@@ -175,7 +178,7 @@ fn update_list_01(
     cid: Option<u32>,
     yesterday: i64,
     conn: SharedConnection,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
             format!("category:{}:list_pop", cid),
@@ -275,7 +278,7 @@ fn update_post_count_01(
     cid: u32,
     yesterday: i64,
     conn: SharedConnection,
-) -> impl Future01<Item=(), Error=ResError> {
+) -> impl Future01<Item = (), Error = ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
 

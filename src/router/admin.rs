@@ -1,16 +1,15 @@
 use actix_web::{
-    Error,
-    HttpResponse, web::{Data, Json, Path},
+    web::{Data, Json, Path},
+    Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::handler::cache::{AddToCache, CheckCacheConn};
+use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
     category::CategoryRequest,
     common::{GlobalVars, Validator},
-    errors::ResError,
     post::PostRequest,
     topic::TopicRequest,
     user::UpdateRequest,
@@ -22,11 +21,10 @@ pub fn add_category(
     global: Data<GlobalVars>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     add_category_async(jwt, req, global, cache, db)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 async fn add_category_async(
@@ -35,7 +33,7 @@ async fn add_category_async(
     global: Data<GlobalVars>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_new()?;
     let c = db
         .admin_add_category(jwt.privilege, req, global.get_ref())
@@ -63,11 +61,10 @@ pub fn update_category(
     req: Json<CategoryRequest>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     update_category_async(jwt, req, cache, db)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 async fn update_category_async(
@@ -75,7 +72,7 @@ async fn update_category_async(
     req: Json<CategoryRequest>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_update()?;
     let c = db.admin_update_category(jwt.privilege, req).await?;
 
@@ -90,11 +87,10 @@ pub fn remove_category(
     id: Path<(u32)>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
+) -> impl Future01<Item = HttpResponse, Error = Error> {
     remove_category_async(jwt, id, cache, db)
         .boxed_local()
         .compat()
-        .from_err()
 }
 
 async fn remove_category_async(
@@ -102,10 +98,10 @@ async fn remove_category_async(
     id: Path<(u32)>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
-    let _ = db.admin_remove_category(id, jwt.privilege).await?;
+    db.admin_remove_category(id, jwt.privilege).await?;
     //ToDo: fix remove category cache
     //    let _ = cache.remove_category(id).await?;
 
@@ -117,8 +113,10 @@ pub fn update_user(
     req: Json<UpdateRequest>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_user_async(jwt, req, cache, db).boxed_local().compat()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_user_async(jwt, req, cache, db)
+        .boxed_local()
+        .compat()
 }
 
 async fn update_user_async(
@@ -127,10 +125,7 @@ async fn update_user_async(
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
 ) -> Result<HttpResponse, Error> {
-    let req = req
-        .into_inner()
-        .attach_id(None)
-        .check_update()?;
+    let req = req.into_inner().attach_id(None).check_update()?;
 
     let req = db.update_user_check(jwt.privilege, req).await?;
 
@@ -148,8 +143,10 @@ pub fn update_topic(
     req: Json<TopicRequest>,
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_topic_async(jwt, req, cache, db).boxed_local().compat()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_topic_async(jwt, req, cache, db)
+        .boxed_local()
+        .compat()
 }
 
 async fn update_topic_async(
@@ -158,9 +155,7 @@ async fn update_topic_async(
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
 ) -> Result<HttpResponse, Error> {
-    let req = req.into_inner()
-        .attach_user_id(None)
-        .check_update()?;
+    let req = req.into_inner().attach_user_id(None).check_update()?;
 
     let t = db
         .check_conn()
@@ -180,8 +175,10 @@ pub fn update_post(
     req: Json<PostRequest>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_post_async(jwt, req, db, cache).boxed_local().compat()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_post_async(jwt, req, db, cache)
+        .boxed_local()
+        .compat()
 }
 
 async fn update_post_async(
@@ -190,11 +187,13 @@ async fn update_post_async(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
 ) -> Result<HttpResponse, Error> {
-    let req = req.into_inner()
-        .attach_user_id(None)
-        .check_update()?;
+    let req = req.into_inner().attach_user_id(None).check_update()?;
 
-    let p = db.check_conn().await?.admin_update_post(jwt.privilege, req).await?;
+    let p = db
+        .check_conn()
+        .await?
+        .admin_update_post(jwt.privilege, req)
+        .await?;
 
     let res = HttpResponse::Ok().json(&p);
 

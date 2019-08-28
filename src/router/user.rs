@@ -1,25 +1,27 @@
 use actix_web::{
-    Error,
-    HttpResponse, web::{Data, Json, Path},
+    web::{Data, Json, Path},
+    Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
-use crate::handler::cache::CheckCacheConn;
-use crate::model::{common::Validator, errors::ResError, user::UpdateRequest};
-use crate::model::user::User;
+use crate::handler::{
+    auth::UserJwt,
+    cache::{CacheService, CheckCacheConn},
+    db::DatabaseService,
+};
+use crate::model::{
+    common::Validator,
+    user::{UpdateRequest, User},
+};
 
 pub fn get(
     jwt: UserJwt,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Path<(u32)>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    get_async(jwt, db, cache, req)
-        .boxed_local()
-        .compat()
-        .from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    get_async(jwt, db, cache, req).boxed_local().compat()
 }
 
 async fn get_async(
@@ -27,7 +29,7 @@ async fn get_async(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Path<(u32)>,
-) -> Result<HttpResponse, ResError> {
+) -> Result<HttpResponse, Error> {
     let id = req.into_inner();
     let u = match cache.get_users_from_ids(vec![id]).await {
         Ok(u) => u,
@@ -46,11 +48,8 @@ pub fn update(
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
     req: Json<UpdateRequest>,
-) -> impl Future01<Item=HttpResponse, Error=Error> {
-    update_async(jwt, db, cache, req)
-        .boxed_local()
-        .compat()
-        .from_err()
+) -> impl Future01<Item = HttpResponse, Error = Error> {
+    update_async(jwt, db, cache, req).boxed_local().compat()
 }
 
 async fn update_async(

@@ -6,8 +6,8 @@ use std::{
 use futures::{future::join_all, FutureExt, TryFutureExt, TryStreamExt};
 use futures01::Future as Future01;
 use tokio_postgres::{
-    Client,
-    NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement, types::{ToSql, Type},
+    types::{ToSql, Type},
+    Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 };
 
 use crate::model::{
@@ -139,8 +139,8 @@ impl DatabaseService {
         st: &Statement,
         ids: &[u32],
     ) -> Result<(Vec<T>, Vec<u32>), ResError>
-        where
-            T: SelfUserId + SelfId + TryFrom<Row, Error=ResError>,
+    where
+        T: SelfUserId + SelfId + TryFrom<Row, Error = ResError>,
     {
         let (mut v, uids) = self
             .get_client()
@@ -187,8 +187,8 @@ pub trait GetDbClient {
 
 pub trait Query: GetDbClient {
     fn query_one_trait<T>(&self, st: &Statement, p: &[&dyn ToSql]) -> PinedBoxFutureResult<T>
-        where
-            T: TryFrom<Row, Error=ResError>,
+    where
+        T: TryFrom<Row, Error = ResError>,
     {
         Box::pin(
             self.get_client()
@@ -207,8 +207,8 @@ pub trait Query: GetDbClient {
         p: &[&dyn ToSql],
         vec: Vec<T>,
     ) -> PinedBoxFutureResult<Vec<T>>
-        where
-            T: TryFrom<Row, Error=ResError> + 'static,
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
     {
         Box::pin(
             self.get_client()
@@ -230,8 +230,8 @@ pub trait SimpleQuery: GetDbClient {
         query: &str,
         column_index: usize,
     ) -> PinedBoxFutureResult<T>
-        where
-            T: std::str::FromStr,
+    where
+        T: std::str::FromStr,
     {
         Box::pin(self.simple_query_row_trait(query).map(move |r| {
             r?.get(column_index)
@@ -242,15 +242,15 @@ pub trait SimpleQuery: GetDbClient {
     }
 
     fn simple_query_one_trait<T>(&self, query: &str) -> PinedBoxFutureResult<T>
-        where
-            T: TryFrom<SimpleQueryRow, Error=ResError>,
+    where
+        T: TryFrom<SimpleQueryRow, Error = ResError>,
     {
         Box::pin(self.simple_query_row_trait(query).map(|r| T::try_from(r?)))
     }
 
     fn simple_query_multi_trait<T>(&self, query: &str, vec: Vec<T>) -> PinedBoxFutureResult<Vec<T>>
-        where
-            T: TryFrom<SimpleQueryRow, Error=ResError> + 'static,
+    where
+        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
     {
         Box::pin(
             self.get_client()
@@ -283,9 +283,9 @@ pub trait SimpleQuery: GetDbClient {
 // helper functions for build cache on startup
 /// this function will cause a postgres error SqlState("42P01") as we try to load categories table beforehand to prevent unwanted table creation.
 /// it's safe to ignore this error when create db tables.
-pub fn load_all_to_01<T>(c: &mut Client, q: &str) -> impl Future01<Item=Vec<T>, Error=ResError>
-    where
-        T: TryFrom<SimpleQueryRow> + Send + 'static,
+pub fn load_all_to_01<T>(c: &mut Client, q: &str) -> impl Future01<Item = Vec<T>, Error = ResError>
+where
+    T: TryFrom<SimpleQueryRow> + Send + 'static,
 {
     c.simple_query(&q)
         .try_fold(Vec::new(), move |mut vec, row| {
@@ -305,9 +305,9 @@ pub fn simple_query_single_row_handler_to_01<T>(
     c: &mut Client,
     query: &str,
     index: usize,
-) -> impl Future01<Item=T, Error=ResError>
-    where
-        T: std::str::FromStr,
+) -> impl Future01<Item = T, Error = ResError>
+where
+    T: std::str::FromStr,
 {
     c.simple_query(query)
         .try_collect::<Vec<SimpleQueryMessage>>()

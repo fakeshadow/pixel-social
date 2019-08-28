@@ -8,8 +8,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
-use futures::future::{FutureExt, TryFutureExt};
+use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
+use futures::{FutureExt, TryFutureExt};
 
 use dotenv::dotenv;
 
@@ -64,6 +64,7 @@ async fn main() -> std::io::Result<()> {
         actix runtime only run on future0.1 so all async functions must be converted before running.
         so run async await directly in main function could result in a runtime freeze.
     */
+
     // CacheUpdateService is an async actor who pass it's recipient to CacheService
     let addr = sys
         .block_on(
@@ -84,7 +85,9 @@ async fn main() -> std::io::Result<()> {
         )
         .expect("Failed to create Message Service");
 
-    let _ = sys
+    // PSNService is an async actor runs in main thread. It passes it's addr to App::data().
+    // Request to PSN data will hit local cache and db with a delayed schedule request to PSN handled by PSNService actor.
+    let psn = sys
         .block_on(
             crate::handler::psn::PSNService::init(postgres_url.as_str(), redis_url.as_str())
                 .boxed_local()
@@ -98,7 +101,7 @@ async fn main() -> std::io::Result<()> {
 
     // build data for individual work.
     let workers = 12;
-    for _i in 0..workers {
+    for i in 0..workers {
         // db service and cache service are data struct contains postgres connection, prepared queries and redis connections.
         // They are not shared between workers.
         let db = sys
@@ -107,14 +110,14 @@ async fn main() -> std::io::Result<()> {
                     .boxed_local()
                     .compat(),
             )
-            .unwrap();
+            .unwrap_or_else(|_| panic!("Failed to create Database Service for worker : {}", i));
         let cache = sys
             .block_on(
                 crate::handler::cache::CacheService::init(redis_url.as_str(), recipient.clone())
                     .boxed_local()
                     .compat(),
             )
-            .unwrap();
+            .unwrap_or_else(|_| panic!("Failed to create Cache Service for worker : {}", i));
         // TalkService is an actor handle websocket connections and communication between client websocket actors.
         // Every worker have a talk service actor with a postgres connection and a redis connection.
         // global_talks and sessions are shared between all workers and talk service actors.
@@ -126,10 +129,10 @@ async fn main() -> std::io::Result<()> {
                     global_talks.clone(),
                     global_sessions.clone(),
                 )
-                    .boxed_local()
-                    .compat(),
+                .boxed_local()
+                .compat(),
             )
-            .unwrap();
+            .unwrap_or_else(|_| panic!("Failed to create Talk Service for worker : {}", i));
 
         dbs.lock().unwrap().push(db);
         caches.lock().unwrap().push(cache);
@@ -157,6 +160,7 @@ async fn main() -> std::io::Result<()> {
             .data(db)
             .data(cache)
             .data(talk)
+            .data(psn.clone())
             .wrap(Logger::default())
             .wrap(
                 actix_cors::Cors::new()
@@ -280,9 +284,9 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-        .bind(format!("{}:{}", &server_ip, &server_port))
-        .unwrap()
-        .workers(workers)
-        .start();
+    .bind(format!("{}:{}", &server_ip, &server_port))
+    .unwrap()
+    .workers(workers)
+    .start();
     sys.run()
 }

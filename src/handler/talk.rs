@@ -8,7 +8,7 @@ use actix::prelude::{
     fut, Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture,
 };
 use chrono::{NaiveDateTime, Utc};
-use futures::{future::join_all, FutureExt,TryFutureExt};
+use futures::{future::join_all, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 use hashbrown::HashMap;
 use redis::{aio::SharedConnection, cmd};
