@@ -86,7 +86,7 @@ async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, Error> {
 
 async fn raw_cache_async(cache: Data<CacheService>) -> Result<HttpResponse, Error> {
     let ids = vec![
-        1u32, 20, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
+        1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
 
     let (t, uids) = cache.get_topics_from_ids(ids).await?;

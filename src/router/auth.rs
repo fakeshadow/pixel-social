@@ -5,7 +5,6 @@ use actix_web::{
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::cache::CheckCacheConn;
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
     common::{GlobalVars, Validator},
@@ -48,8 +47,6 @@ async fn register_async(
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_register()?;
 
-    db.check_register(&req).await?;
-
     let u = db
         .check_conn()
         .await?
@@ -60,11 +57,7 @@ async fn register_async(
 
     cache.add_activation_mail(u.clone());
 
-    actix::spawn(
-        cache
-            .update_user_return_fail(vec![u])
-            .map_err(move |u| cache.send_failed_user(u)),
-    );
+    crate::router::user::update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }
@@ -92,17 +85,9 @@ async fn activate_by_mail_async(
 
     let res = HttpResponse::Ok().json(&u);
 
-    let u = vec![u];
     cache.remove_activation_uuid(uuid.as_str());
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .update_user_return_fail(u)
-                .map_err(move |u| cache.send_failed_user(u)),
-        ),
-        Err(_) => cache.send_failed_user(u),
-    };
+
+    crate::router::user::update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }

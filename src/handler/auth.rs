@@ -3,7 +3,7 @@ use futures::{compat::Future01CompatExt, FutureExt};
 
 use crate::handler::{
     cache::CacheService,
-    db::{DatabaseService, SimpleQuery},
+    db::{DatabaseService, GetDbClient, Query},
 };
 use crate::model::{
     common::GlobalVars,
@@ -57,44 +57,35 @@ impl FromRequest for UserJwtOpt {
 }
 
 impl DatabaseService {
-    pub async fn check_register(&self, req: &AuthRequest) -> Result<(), ResError> {
-        let username = req.username.as_str();
-        let query = format!(
-            "SELECT username, email FROM users
-             WHERE username='{}' OR email='{}'",
-            username,
-            req.email.as_ref().unwrap()
-        );
+    pub async fn register(&self, req: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
+        let st = self
+            .get_client()
+            .prepare("SELECT * FROM users WHERE username=$1 OR email=$2")
+            .await?;
 
-        match self.simple_query_row_trait(query.as_str()).await {
-            Ok(row) => {
-                if let Some(name) = row.get(0) {
-                    if name == username {
-                        return Err(ResError::UsernameTaken);
-                    } else {
-                        return Err(ResError::EmailTaken);
-                    }
-                }
-                Ok(())
+        let username = req.username.as_str();
+        // unwrap() is safe as we checked the field in AuthRequest and make it's not none in router.
+        let email = req.email.as_ref().map(String::as_str).unwrap();
+
+        let users: Vec<User> = self
+            .query_multi_trait(&st, &[&username, &email], Vec::with_capacity(2))
+            .await?;
+
+        for u in users.iter() {
+            if u.username.as_str() == username {
+                return Err(ResError::UsernameTaken);
             }
-            Err(e) => {
-                if let ResError::NoContent = e {
-                    Ok(())
-                } else {
-                    Err(e)
-                }
+            if u.email.as_str() == email {
+                return Err(ResError::EmailTaken);
             }
         }
-    }
 
-    pub async fn register(&self, r: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
-        let hash = crate::util::hash::hash_password(&r.password)?;
+        let hash = crate::util::hash::hash_password(req.password.as_str())?;
 
         let id = g.lock().map(|mut lock| lock.next_uid()).await;
 
-        let u = r.make_user(id, &hash)?;
+        let u = req.make_user(id, hash.as_str())?;
 
-        use crate::handler::db::Query;
         self.query_one_trait(
             &self.insert_user.borrow(),
             &[
@@ -110,16 +101,15 @@ impl DatabaseService {
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
-        use std::convert::TryFrom;
+        let st = self
+            .get_client()
+            .prepare("SELECT * FROM users WHERE username=$1")
+            .await?;
 
-        let query = format!("SELECT * FROM users WHERE username='{}'", &req.username);
+        let user: User = self.query_one_trait(&st, &[&req.username]).await?;
 
-        let row = self.simple_query_row_trait(query.as_str()).await?;
-        let hash = row.get(3).ok_or(ResError::DataBaseReadError)?;
+        crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 
-        crate::util::hash::verify_password(req.password.as_str(), hash)?;
-
-        let user = User::try_from(row)?;
         let token = JwtPayLoad::new(user.id, user.privilege).sign()?;
 
         Ok(AuthResponse { token, user })

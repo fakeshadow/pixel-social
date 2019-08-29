@@ -14,6 +14,7 @@ use hashbrown::HashMap;
 use redis::{aio::SharedConnection, cmd};
 use tokio_postgres::Statement;
 
+use crate::handler::db::GetDbClient;
 use crate::handler::{
     cache::{FromCache, GetSharedConn, UsersFromCache},
     db::{Query, SimpleQuery},
@@ -375,29 +376,40 @@ impl TalkService {
         self.query_one_trait(&self.get_relations, &[&uid])
     }
 
+    fn prepare_insert_talk_st(&self) -> impl Future<Output = Result<Statement, ResError>> {
+        self.get_client()
+            .prepare(
+                "INSERT INTO talks
+            (id, name, description, owner, admin, users)
+            VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *",
+            )
+            .map_err(ResError::from)
+    }
+
     fn insert_talk_db(
         &self,
+        st: &Statement,
         last_tid: u32,
         msg: &CreateTalkRequest,
     ) -> impl Future<Output = Result<Talk, ResError>> {
-        let query = format!(
-            "INSERT INTO talks
-            (id, name, description, owner, admin, users)
-            VALUES ({}, '{}', '{}', {}, ARRAY [{}], ARRAY [{}])
-             RETURNING *",
-            (last_tid + 1),
-            msg.name,
-            msg.description,
-            msg.owner,
-            msg.owner,
-            msg.owner
-        );
+        let vec = vec![msg.owner];
 
-        self.simple_query_one_trait(query.as_str())
+        self.query_one_trait(
+            st,
+            &[
+                &(last_tid + 1),
+                &msg.name,
+                &msg.description,
+                &msg.owner,
+                &vec,
+                &vec,
+            ],
+        )
     }
 
     fn get_last_tid_db(&self) -> impl Future<Output = Result<u32, ResError>> {
-        self.simple_query_single_row_trait::<u32>("SELECT Max(id) FROM talks", 0)
+        self.simple_query_single_column_trait::<u32>("SELECT Max(id) FROM talks", 0)
     }
 }
 
@@ -514,19 +526,26 @@ impl Handler<CreateTalkRequest> for TalkService {
                 .into_actor(self)
                 .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
                 .and_then(move |tid, act, _| {
-                    act.insert_talk_db(tid, &msg)
+                    act.prepare_insert_talk_st()
                         .boxed_local()
                         .compat()
                         .into_actor(act)
                         .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                        .map(move |t, act, _| {
-                            let s = SendMessage::Talks(vec![&t]).stringify();
-                            let _ = act
-                                .insert_talk_hm(t)
-                                .map_err(|e| act.parse_send_res_error(sid, &e))
-                                .map(|_| {
-                                    act.send_message(msg.owner, s.as_str());
-                                });
+                        .and_then(move |st, act, _| {
+                            act.insert_talk_db(&st, tid, &msg)
+                                .boxed_local()
+                                .compat()
+                                .into_actor(act)
+                                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
+                                .map(move |t, act, _| {
+                                    let s = SendMessage::Talks(vec![&t]).stringify();
+                                    let _ = act
+                                        .insert_talk_hm(t)
+                                        .map_err(|e| act.parse_send_res_error(sid, &e))
+                                        .map(|_| {
+                                            act.send_message(msg.owner, s.as_str());
+                                        });
+                                })
                         })
                 }),
         );

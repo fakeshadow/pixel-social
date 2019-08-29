@@ -7,14 +7,11 @@ use actix_web::{
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::{
-    handler::{
-        auth::{UserJwt, UserJwtOpt},
-        cache::CacheService,
-        db::DatabaseService,
-        psn::{AddPSNRequest, PSNServiceAddr},
-    },
-    model::psn::PSNRequest,
+use crate::handler::{
+    auth::{UserJwt, UserJwtOpt},
+    cache::CacheService,
+    db::DatabaseService,
+    psn::{AddPSNRequest, PSNRequest, PSNServiceAddr},
 };
 
 pub fn query_handler(

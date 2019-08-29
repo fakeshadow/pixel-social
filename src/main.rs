@@ -39,12 +39,15 @@ async fn main() -> std::io::Result<()> {
     let mut is_init = false;
     for arg in args.iter() {
         if arg == "drop" {
-            drop_table(&mut sys, &postgres_url);
+            sys.block_on(drop_table(&postgres_url).boxed_local().compat())
+                .unwrap_or_else(|e| panic!("{}", e));
             let _ = crate::handler::cache::clear_cache(&redis_url);
             std::process::exit(1);
         }
         if arg == "build" {
-            let success = create_table(&mut sys, &postgres_url);
+            let success = sys
+                .block_on(create_table(&postgres_url).boxed_local().compat())
+                .unwrap_or_else(|e| panic!("{}", e));
             if success {
                 is_init = true;
             } else {
@@ -54,8 +57,13 @@ async fn main() -> std::io::Result<()> {
     }
 
     // build_cache function returns global variables.
-    let (global, global_talks, global_sessions) =
-        build_cache(&mut sys, &postgres_url, &redis_url, is_init).unwrap();
+    let (global, global_talks, global_sessions) = sys
+        .block_on(
+            build_cache(&postgres_url, &redis_url, is_init)
+                .boxed_local()
+                .compat(),
+        )
+        .unwrap();
 
     // only global is wrapped in web::Data, global_talks and global_sessions are passed to every TalkService actor.
     let global = web::Data::new(global);
@@ -288,5 +296,6 @@ async fn main() -> std::io::Result<()> {
     .unwrap()
     .workers(workers)
     .start();
+
     sys.run()
 }

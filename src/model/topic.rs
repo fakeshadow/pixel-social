@@ -85,12 +85,15 @@ impl TopicRequest {
             Ok(self)
         }
     }
+    // logic to separate user and admin's update privilege.
+    // we simply mark all admin related fields to None.
     pub fn check_update(mut self) -> Result<Self, ResError> {
         if self.id.is_none() {
             return Err(ResError::BadRequest);
         }
         if self.user_id.is_some() {
             self.is_locked = None;
+            self.is_visible = None;
         }
         Ok(self)
     }

@@ -37,6 +37,7 @@ pub async fn add_async(
     global: Data<GlobalVars>,
 ) -> Result<HttpResponse, Error> {
     jwt.check_privilege()?;
+
     let req = req
         .into_inner()
         .attach_user_id(Some(jwt.user_id))

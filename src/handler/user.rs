@@ -1,13 +1,13 @@
-use std::fmt::Write;
 use std::future::Future;
 
 use futures::compat::Future01CompatExt;
 use futures01::Future as Future01;
+use tokio_postgres::types::ToSql;
 
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, USER_U8},
     cache_update::CacheFailedMessage,
-    db::DatabaseService,
+    db::{DatabaseService, GetDbClient, Query},
 };
 use crate::model::{
     errors::ResError,
@@ -16,44 +16,66 @@ use crate::model::{
 
 impl DatabaseService {
     pub async fn update_user(&self, u: UpdateRequest) -> Result<User, ResError> {
-        let mut query = String::new();
-        query.push_str("UPDATE users SET");
+        let mut query = String::from("UPDATE users SET");
+        let mut params = Vec::new();
+        let mut index = 1u8;
 
         if let Some(s) = u.username.as_ref() {
-            let _ = write!(&mut query, " username = '{}',", s);
-        }
-        if let Some(s) = u.avatar_url.as_ref() {
-            let _ = write!(&mut query, " avatar_url = '{}',", s);
-        }
-        if let Some(s) = u.signature.as_ref() {
-            let _ = write!(&mut query, " signature = '{}',", s);
-        }
-        if let Some(s) = u.show_email.as_ref() {
-            let _ = write!(&mut query, " show_email = {},", s);
-        }
-        if let Some(s) = u.privilege.as_ref() {
-            let _ = write!(&mut query, " privilege = {},", s);
+            query.push_str(" username=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
 
+        if let Some(s) = u.avatar_url.as_ref() {
+            query.push_str(" avatar_url=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
+        }
+        if let Some(s) = u.signature.as_ref() {
+            query.push_str(" signature=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
+        }
+        if let Some(s) = u.show_email.as_ref() {
+            query.push_str(" show_email=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
+        }
+        if let Some(s) = u.privilege.as_ref() {
+            query.push_str(" privilege=$");
+            query.push_str(index.to_string().as_str());
+            params.push(s as &dyn ToSql);
+            index += 1;
+        }
         if query.ends_with(',') {
-            let _ = write!(
-                &mut query,
-                " updated_at = DEFAULT WHERE id = {} RETURNING *",
-                u.id.unwrap()
-            );
+            query.pop();
+            query.push_str(" WHERE id=$");
         } else {
             return Err(ResError::BadRequest);
         }
 
-        use crate::handler::db::SimpleQuery;
-        self.simple_query_one_trait(query.as_str()).await
+        query.push_str(index.to_string().as_str());
+        params.push(u.id.as_ref().unwrap() as &dyn ToSql);
+
+        query.push_str(" RETURNING *");
+
+        let st = self.get_client().prepare(query.as_str()).await?;
+
+        self.query_one_trait(&st, &params).await
     }
 
     pub fn get_users_by_id(
         &self,
         ids: &[u32],
     ) -> impl Future<Output = Result<Vec<User>, ResError>> {
-        use crate::handler::db::Query;
         self.query_multi_trait(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
     }
 }

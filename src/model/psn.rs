@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use chrono::NaiveDateTime;
 
-use crate::model::{common::SelfIdString, errors::ResError};
+use crate::model::common::SelfIdString;
 
 pub type TrophyTitleLib = psn_api_rs::models::TrophyTitle;
 pub type TrophyTitlesLib = psn_api_rs::models::TrophyTitles;
@@ -81,11 +81,11 @@ pub struct UserTrophyTitle {
     pub np_id: String,
     pub np_communication_id: String,
     pub is_visible: bool,
-    pub progress: u8,
-    pub earned_platinum: u8,
-    pub earned_gold: u8,
-    pub earned_silver: u8,
-    pub earned_bronze: u8,
+    pub progress: u32,
+    pub earned_platinum: u32,
+    pub earned_gold: u32,
+    pub earned_silver: u32,
+    pub earned_bronze: u32,
     pub last_update_date: NaiveDateTime,
 }
 
@@ -99,11 +99,11 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
             np_id: "place_holder".to_string(),
             np_communication_id: t.np_communication_id,
             is_visible: true,
-            progress: t.title_detail.progress,
-            earned_platinum: e.platinum as u8,
-            earned_gold: e.gold as u8,
-            earned_silver: e.silver as u8,
-            earned_bronze: e.bronze as u8,
+            progress: t.title_detail.progress as u32,
+            earned_platinum: e.platinum,
+            earned_gold: e.gold,
+            earned_silver: e.silver,
+            earned_bronze: e.bronze,
             last_update_date: NaiveDateTime::parse_from_str(
                 t.title_detail.last_update_date.as_str(),
                 "%Y-%m-%dT%H:%M:%S%#z",
@@ -123,7 +123,7 @@ pub struct UserTrophySet {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserTrophy {
-    pub trophy_id: u8,
+    pub trophy_id: u32,
     pub earned_date: Option<NaiveDateTime>,
     pub first_earned_date: Option<NaiveDateTime>,
 }
@@ -136,65 +136,57 @@ impl From<&TrophyLib> for UserTrophy {
         };
 
         UserTrophy {
-            trophy_id: t.trophy_id,
+            trophy_id: t.trophy_id as u32,
             earned_date,
             first_earned_date: earned_date,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(tag = "query_type")]
-pub enum PSNRequest {
-    Profile {
-        online_id: String,
-    },
-    TrophyTitles {
-        online_id: String,
-        page: String,
-    },
-    TrophySet {
-        online_id: String,
-        np_communication_id: String,
-    },
-    Auth {
-        uuid: Option<String>,
-        two_step: Option<String>,
-        refresh_token: Option<String>,
-    },
-    Activation {
-        user_id: Option<u32>,
-        online_id: String,
-        code: String,
-    },
+#[derive(Serialize)]
+pub struct TrophyData {
+    pub trophy_id: u32,
+    pub trophy_hidden: bool,
+    pub trophy_type: String,
+    pub trophy_name: String,
+    pub trophy_detail: String,
+    pub trophy_icon_url: String,
+    pub trophy_rare: u8,
+    pub trophy_earned_rate: String,
 }
 
-impl PSNRequest {
-    pub fn check_privilege(self, privilege: u32) -> Result<Self, ResError> {
-        if privilege < 9 {
-            Err(ResError::Unauthorized)
-        } else {
-            Ok(self)
-        }
-    }
-
-    pub fn attach_user_id(self, uid: u32) -> Self {
-        if let PSNRequest::Activation {
-            online_id, code, ..
-        } = self
-        {
-            PSNRequest::Activation {
-                user_id: Some(uid),
-                online_id,
-                code,
-            }
-        } else {
-            panic!("should not happen unless the router code has been changed")
-        }
-    }
+// anti cheating data.
+#[derive(Deserialize)]
+pub struct PSNTrophyArgumentRequest {
+    pub user_id: Option<u32>,
+    pub np_communication_id: String,
+    pub trophy_id: u32,
+    pub should_before: Option<ShouldBeforeAfter>,
+    pub should_after: Option<ShouldBeforeAfter>,
+    pub should_absent_time: Option<ShouldAbsentTime>,
 }
 
-//#[derive(Deserialize)]
-//pub struct PSNGameMeta {
-//    pub
-//}
+#[derive(Deserialize)]
+pub struct ShouldBeforeAfter {
+    pub trophy_id: u32,
+    pub reason: String,
+    pub agreement: Option<u32>,
+    pub disagreement: Option<u32>,
+}
+
+#[derive(Deserialize)]
+pub struct ShouldAbsentTime {
+    pub beginning: NaiveDateTime,
+    pub ending: Option<NaiveDateTime>,
+    pub is_regular: bool,
+    pub reason: String,
+    pub agreement: Option<u32>,
+    pub disagreement: Option<u32>,
+}
+
+// general trophy data.
+#[derive(Serialize)]
+pub struct TrophySetData {
+    pub np_communication_id: String,
+    pub trophies: Vec<TrophyData>,
+}

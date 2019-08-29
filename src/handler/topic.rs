@@ -1,10 +1,11 @@
-use std::fmt::Write;
 use std::future::Future;
 
 use chrono::Utc;
 use futures::FutureExt;
 use futures01::Future as Future01;
+use tokio_postgres::types::ToSql;
 
+use crate::handler::db::{GetDbClient, Query};
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, TOPIC_U8},
     cache_update::CacheFailedMessage,
@@ -22,7 +23,6 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_utc();
 
-        use crate::handler::db::Query;
         self.query_one_trait(
             &self.insert_topic.borrow(),
             &[
@@ -42,37 +42,65 @@ impl DatabaseService {
     //ToDo: add query for moving topic to other table.
     pub async fn update_topic(&self, t: &TopicRequest) -> Result<Topic, ResError> {
         let mut query = String::from("UPDATE topics SET");
+        let mut params = Vec::new();
+        let mut index = 1u8;
 
+        //ToDo: add query for moving topic to other table.
         if let Some(s) = &t.title {
-            let _ = write!(&mut query, " title='{}',", s);
+            query.push_str(" title=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
         if let Some(s) = &t.body {
-            let _ = write!(&mut query, " body='{}',", s);
+            query.push_str(" body=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
         if let Some(s) = &t.thumbnail {
-            let _ = write!(&mut query, " thumbnail='{}',", s);
+            query.push_str(" thumbnail=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
         if let Some(s) = &t.is_locked {
-            let _ = write!(&mut query, " is_locked={},", s);
+            query.push_str(" is_locked=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
         if let Some(s) = &t.is_visible {
-            let _ = write!(&mut query, " is_visible={},", s);
+            query.push_str(" is_visible=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
         // update update_at or return err as the query is empty.
-        if query.ends_with(',') {
-            let _ = write!(&mut query, " updated_at=DEFAULT");
-        } else {
+        if index == 1 {
             return Err(ResError::BadRequest);
         }
 
-        let _ = write!(&mut query, " WHERE id={} ", t.id.unwrap());
-        if let Some(s) = t.user_id {
-            let _ = write!(&mut query, "AND user_id={} ", s);
-        }
-        query.push_str("RETURNING *");
+        query.push_str(" updated_at=DEFAULT WHERE id=$");
+        query.push_str(index.to_string().as_str());
+        params.push(t.id.as_ref().unwrap() as &dyn ToSql);
+        index += 1;
 
-        use crate::handler::db::SimpleQuery;
-        self.simple_query_one_trait(query.as_str()).await
+        if let Some(s) = t.user_id.as_ref() {
+            query.push_str(" AND user_id=$");
+            query.push_str(index.to_string().as_str());
+            params.push(s as &dyn ToSql);
+        }
+        query.push_str(" RETURNING *");
+
+        let st = self.get_client().prepare(query.as_str()).await?;
+
+        self.query_one_trait(&st, &params).await
     }
 
     pub async fn get_topics_with_uid(

@@ -1,14 +1,14 @@
-use std::fmt::Write;
 use std::future::Future;
 
 use chrono::Utc;
 use futures::FutureExt;
 use futures01::Future as Future01;
+use tokio_postgres::types::ToSql;
 
 use crate::handler::{
     cache::{build_hmsets_01, CacheService, GetSharedConn, POST_U8},
     cache_update::CacheFailedMessage,
-    db::DatabaseService,
+    db::{DatabaseService, GetDbClient, Query},
 };
 use crate::model::{
     common::GlobalVars,
@@ -22,7 +22,6 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_local();
 
-        use crate::handler::db::Query;
         self.query_one_trait(
             &self.insert_post.borrow(),
             &[
@@ -41,37 +40,56 @@ impl DatabaseService {
 
     pub async fn update_post(&self, p: PostRequest) -> Result<Post, ResError> {
         let mut query = String::from("UPDATE posts SET");
+        let mut params = Vec::new();
+        let mut index = 1u8;
 
-        if let Some(s) = p.topic_id {
-            let _ = write!(&mut query, " topic_id = {},", s);
+        if let Some(s) = p.topic_id.as_ref() {
+            query.push_str(" topic_id=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
-        if let Some(s) = p.post_id {
-            let _ = write!(&mut query, " post_id = {},", s);
+        if let Some(s) = p.post_id.as_ref() {
+            query.push_str(" post_id=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
-        if let Some(s) = p.post_content {
-            let _ = write!(&mut query, " post_content = '{}',", s);
+        if let Some(s) = p.post_content.as_ref() {
+            query.push_str(" post_content=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
-        if let Some(s) = p.is_locked {
-            let _ = write!(&mut query, " is_locked = {},", s);
+        if let Some(s) = p.is_locked.as_ref() {
+            query.push_str(" is_locked=$");
+            query.push_str(index.to_string().as_str());
+            query.push_str(",");
+            params.push(s as &dyn ToSql);
+            index += 1;
         }
 
-        if query.ends_with(',') {
-            let _ = write!(
-                &mut query,
-                " updated_at = DEFAULT WHERE id = {}",
-                p.id.unwrap()
-            );
-        } else {
+        if index == 1 {
             return Err(ResError::BadRequest);
         }
 
-        if let Some(s) = p.user_id {
-            let _ = write!(&mut query, " AND user_id = {}", s);
+        query.push_str(" updated_at=DEFAULT WHERE id=$");
+        query.push_str(index.to_string().as_str());
+        params.push(p.id.as_ref().unwrap() as &dyn ToSql);
+        index += 1;
+
+        if let Some(s) = p.user_id.as_ref() {
+            query.push_str(" AND user_id=$");
+            query.push_str(index.to_string().as_str());
+            params.push(s as &dyn ToSql);
         }
         query.push_str(" RETURNING *");
 
-        use crate::handler::db::SimpleQuery;
-        self.simple_query_one_trait(query.as_str()).await
+        let st = self.get_client().prepare(query.as_str()).await?;
+        self.query_one_trait(&st, &params).await
     }
 
     pub async fn get_posts_with_uid(&self, ids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {

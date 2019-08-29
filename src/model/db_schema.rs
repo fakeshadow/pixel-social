@@ -21,7 +21,7 @@ impl TryFrom<Row> for User {
             id: row.try_get(0)?,
             username: row.try_get(1)?,
             email: row.try_get(2)?,
-            hashed_password: "1".to_owned(),
+            hashed_password: row.try_get(3)?,
             avatar_url: row.try_get(4)?,
             signature: row.try_get(5)?,
             created_at: row.try_get(6)?,
@@ -88,6 +88,21 @@ impl TryFrom<Row> for Talk {
     }
 }
 
+impl TryFrom<Row> for Category {
+    type Error = ResError;
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(Category {
+            id: row.try_get(0)?,
+            name: row.try_get(1)?,
+            thumbnail: row.try_get(2)?,
+            topic_count: None,
+            post_count: None,
+            topic_count_new: None,
+            post_count_new: None,
+        })
+    }
+}
+
 impl TryFrom<Row> for Relation {
     type Error = ResError;
     fn try_from(row: Row) -> Result<Self, Self::Error> {
@@ -119,43 +134,19 @@ impl TryFrom<Row> for PrivateMessage {
     }
 }
 
-impl TryFrom<SimpleQueryRow> for Post {
+impl TryFrom<Row> for UserTrophyTitle {
     type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let post_id = match r.get(4) {
-            Some(s) => s.parse::<u32>().ok(),
-            None => None,
-        };
-        Ok(Post {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            user_id: r
-                .get(1)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            topic_id: r
-                .get(2)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            category_id: r
-                .get(3)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            post_id,
-            post_content: r.get(5).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            created_at: NaiveDateTime::parse_from_str(
-                r.get(6).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            updated_at: NaiveDateTime::parse_from_str(
-                r.get(7).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-            last_reply_time: None,
-            is_locked: r.get(8).ok_or(ResError::DataBaseReadError)? == "t",
-            reply_count: None,
+    fn try_from(row: Row) -> Result<Self, Self::Error> {
+        Ok(UserTrophyTitle {
+            np_id: row.try_get(0)?,
+            np_communication_id: row.try_get(1)?,
+            is_visible: row.try_get(2)?,
+            progress: row.try_get(3)?,
+            earned_platinum: row.try_get(4)?,
+            earned_gold: row.try_get(5)?,
+            earned_silver: row.try_get(6)?,
+            earned_bronze: row.try_get(7)?,
+            last_update_date: row.try_get(8)?,
         })
     }
 }
@@ -289,80 +280,67 @@ impl TryFrom<SimpleQueryRow> for Talk {
     }
 }
 
-impl TryFrom<SimpleQueryRow> for UserTrophyTitle {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        Ok(UserTrophyTitle {
-            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
-            progress: r.get(3).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_platinum: r.get(4).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_gold: r.get(5).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_silver: r.get(6).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            earned_bronze: r.get(7).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-            last_update_date: NaiveDateTime::parse_from_str(
-                r.get(8).ok_or(ResError::DataBaseReadError)?,
-                "%Y-%m-%d %H:%M:%S%.f",
-            )?,
-        })
-    }
-}
-
 impl TryFrom<SimpleQueryRow> for UserTrophySet {
     type Error = ResError;
     fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
         let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
 
-        let len = vec.len();
-
-        let vec: Vec<&str> = if len < 6 {
-            Vec::with_capacity(0)
-        } else {
-            vec[2..(len - 2)].split("\",\"").collect()
-        };
-
-        let mut trophies = Vec::with_capacity(vec.len());
-
-        for v in vec.iter() {
-            let len = v.len();
-            let v: Vec<&str> = v[1..(len - 1)].split(',').collect();
-            let earned_date = match v.get(1) {
-                Some(s) => {
-                    let len = s.len();
-                    if len > 2 {
-                        NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            };
-
-            let first_earned_date = match v.get(2) {
-                Some(s) => {
-                    let len = s.len();
-                    if len > 2 {
-                        NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
-                    } else {
-                        None
-                    }
-                }
-                None => None,
-            };
-
-            trophies.push(UserTrophy {
-                trophy_id: v.get(0).ok_or(ResError::DataBaseReadError)?.parse::<u8>()?,
-                earned_date,
-                first_earned_date,
-            })
-        }
-
         Ok(UserTrophySet {
             np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
             np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
             is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
-            trophies,
+            trophies: generate_trophies(vec)?,
         })
     }
+}
+
+fn generate_trophies(vec: &str) -> Result<Vec<UserTrophy>, ResError> {
+    let len = vec.len();
+
+    let vec: Vec<&str> = if len < 6 {
+        Vec::with_capacity(0)
+    } else {
+        vec[2..(len - 2)].split("\",\"").collect()
+    };
+
+    let mut trophies = Vec::with_capacity(vec.len());
+
+    for v in vec.iter() {
+        let len = v.len();
+        let v: Vec<&str> = v[1..(len - 1)].split(',').collect();
+        let earned_date = match v.get(1) {
+            Some(s) => {
+                let len = s.len();
+                if len > 2 {
+                    NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+
+        let first_earned_date = match v.get(2) {
+            Some(s) => {
+                let len = s.len();
+                if len > 2 {
+                    NaiveDateTime::parse_from_str(&s[2..len - 2], "%Y-%m-%d %H:%M:%S").ok()
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+
+        trophies.push(UserTrophy {
+            trophy_id: v
+                .get(0)
+                .ok_or(ResError::DataBaseReadError)?
+                .parse::<u32>()?,
+            earned_date,
+            first_earned_date,
+        })
+    }
+
+    Ok(trophies)
 }

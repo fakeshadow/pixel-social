@@ -1,10 +1,10 @@
 use std::{
     cell::{RefCell, RefMut},
     convert::TryFrom,
+    future::Future,
 };
 
 use futures::{future::join_all, FutureExt, TryFutureExt, TryStreamExt};
-use futures01::Future as Future01;
 use tokio_postgres::{
     types::{ToSql, Type},
     Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
@@ -210,22 +210,12 @@ pub trait Query: GetDbClient {
     where
         T: TryFrom<Row, Error = ResError> + 'static,
     {
-        Box::pin(
-            self.get_client()
-                .query(st, p)
-                .map_err(ResError::from)
-                .try_fold(vec, move |mut vec, r| {
-                    if let Ok(r) = T::try_from(r) {
-                        vec.push(r);
-                    }
-                    futures::future::ok(vec)
-                }),
-        )
+        Box::pin(query_multi(&mut self.get_client(), st, p, vec))
     }
 }
 
 pub trait SimpleQuery: GetDbClient {
-    fn simple_query_single_row_trait<T>(
+    fn simple_query_single_column_trait<T>(
         &self,
         query: &str,
         column_index: usize,
@@ -233,12 +223,10 @@ pub trait SimpleQuery: GetDbClient {
     where
         T: std::str::FromStr,
     {
-        Box::pin(self.simple_query_row_trait(query).map(move |r| {
-            r?.get(column_index)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<T>()
-                .map_err(|_| ResError::ParseError)
-        }))
+        Box::pin(
+            self.simple_query_row_trait(query)
+                .map(move |r| parse_one_simple_row_column(r, column_index)),
+        )
     }
 
     fn simple_query_one_trait<T>(&self, query: &str) -> PinedBoxFutureResult<T>
@@ -248,79 +236,70 @@ pub trait SimpleQuery: GetDbClient {
         Box::pin(self.simple_query_row_trait(query).map(|r| T::try_from(r?)))
     }
 
-    fn simple_query_multi_trait<T>(&self, query: &str, vec: Vec<T>) -> PinedBoxFutureResult<Vec<T>>
-    where
-        T: TryFrom<SimpleQueryRow, Error = ResError> + 'static,
-    {
-        Box::pin(
-            self.get_client()
-                .simple_query(query)
-                .map_err(ResError::from)
-                .try_fold(vec, move |mut vec, r| {
-                    if let SimpleQueryMessage::Row(r) = r {
-                        if let Ok(v) = T::try_from(r) {
-                            vec.push(v);
-                        }
-                    }
-                    futures::future::ok(vec)
-                }),
-        )
-    }
-
     fn simple_query_row_trait(&self, q: &str) -> PinedBoxFutureResult<SimpleQueryRow> {
         Box::pin(
             self.get_client()
                 .simple_query(q)
                 .try_collect::<Vec<SimpleQueryMessage>>()
-                .map(|r| match r?.pop().ok_or(ResError::BadRequest)? {
-                    SimpleQueryMessage::Row(r) => Ok(r),
-                    _ => Err(ResError::NoContent),
-                }),
+                .map(|r| pop_simple_message(r?)),
         )
     }
 }
 
-// helper functions for build cache on startup
-/// this function will cause a postgres error SqlState("42P01") as we try to load categories table beforehand to prevent unwanted table creation.
-/// it's safe to ignore this error when create db tables.
-pub fn load_all_to_01<T>(c: &mut Client, q: &str) -> impl Future01<Item = Vec<T>, Error = ResError>
+fn parse_one_simple_row_column<T>(
+    result: Result<SimpleQueryRow, ResError>,
+    column_index: usize,
+) -> Result<T, ResError>
 where
-    T: TryFrom<SimpleQueryRow> + Send + 'static,
+    T: std::str::FromStr,
 {
-    c.simple_query(&q)
-        .try_fold(Vec::new(), move |mut vec, row| {
-            if let SimpleQueryMessage::Row(row) = row {
-                if let Ok(v) = T::try_from(row) {
-                    vec.push(v)
-                }
+    result?
+        .get(column_index)
+        .ok_or(ResError::DataBaseReadError)?
+        .parse::<T>()
+        .map_err(|_| ResError::ParseError)
+}
+
+fn pop_simple_message(mut vec: Vec<SimpleQueryMessage>) -> Result<SimpleQueryRow, ResError> {
+    vec.pop();
+    match vec.pop().ok_or(ResError::BadRequest)? {
+        SimpleQueryMessage::Row(r) => Ok(r),
+        _ => pop_simple_message(vec),
+    }
+}
+
+
+// helper functions for build cache on startup
+pub fn query_multi<T>(
+    client: &mut Client,
+    st: &Statement,
+    params: &[&dyn ToSql],
+    vec: Vec<T>,
+) -> impl Future<Output = Result<Vec<T>, ResError>>
+    where
+        T: TryFrom<Row, Error = ResError> + 'static,
+{
+    client
+        .query(st, params)
+        .map_err(ResError::from)
+        .try_fold(vec, move |mut vec, r| {
+            if let Ok(r) = T::try_from(r) {
+                vec.push(r);
             }
             futures::future::ok(vec)
         })
-        .map_err(ResError::from)
-        .boxed()
-        .compat()
 }
 
-pub fn simple_query_single_row_handler_to_01<T>(
+pub fn simple_query_one_column<T>(
     c: &mut Client,
     query: &str,
     index: usize,
-) -> impl Future01<Item = T, Error = ResError>
+) -> impl Future<Output = Result<T, ResError>>
 where
     T: std::str::FromStr,
 {
     c.simple_query(query)
         .try_collect::<Vec<SimpleQueryMessage>>()
-        .map(|r| match r?.pop().ok_or(ResError::BadRequest)? {
-            SimpleQueryMessage::Row(r) => Ok(r),
-            _ => Err(ResError::NoContent),
-        })
-        .map(move |r| {
-            r?.get(index)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<T>()
-                .map_err(|_| ResError::ParseError)
-        })
-        .boxed()
-        .compat()
+        .map(|r| pop_simple_message(r?))
+        .map(move |r| parse_one_simple_row_column(r, index))
 }
