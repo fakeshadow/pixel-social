@@ -72,6 +72,7 @@ async fn update_async(
     Ok(res)
 }
 
+// ToDo: don't wait for redis response and spawn futures directly.
 pub(crate) async fn update_user_with_fail_check(cache: Data<CacheService>, u: User) {
     let u = vec![u];
     match cache.check_cache_conn().await {

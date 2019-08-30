@@ -38,52 +38,8 @@ const PROFILE_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
 const TROPHY_TITLES_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
 const TROPHY_SET_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
 
-pub type PSNServiceAddr = Addr<PSNService>;
-
-pub struct PSNService {
-    pub db_url: String,
-    pub cache_url: String,
-    pub is_active: bool,
-    pub psn: PSN,
-    pub db: RefCell<tokio_postgres::Client>,
-    pub insert_trophy_title: RefCell<Statement>,
-    pub cache: RefCell<SharedConnection>,
-    pub queue: VecDeque<PSNRequest>,
-    // stores all reqs' timestamp goes to PSN.
-    // profile request use <online_id> as key,
-    // trophy_list request use <online_id:::titles> as key,
-    // trophy_set request use <online_id:::np_communication_id> as key
-    // chrono::Utc::now().timestamp as score
-    pub req_time_stamp: hashbrown::HashMap<Vec<u8>, i64>,
-}
-
-impl Actor for PSNService {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.start_interval(ctx);
-    }
-}
-
-impl PSNService {
-    pub(crate) async fn init(
-        postgres_url: &str,
-        redis_url: &str,
-    ) -> Result<PSNServiceAddr, ResError> {
-        let db_url = postgres_url.to_owned();
-        let cache_url = redis_url.to_owned();
-
-        let cache = crate::handler::cache::connect_cache(redis_url)
-            .await?
-            .ok_or(ResError::RedisConnection)?;
-        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
-
-        //ToDo: remove compat layer when actix convert to use std::future;
-        let conn = conn.map(|_| ());
-        actix::spawn(conn.unit_error().boxed().compat());
-
-        let p1 = db.prepare(
-            "INSERT INTO psn_user_trophy_titles
+const INSERT_TITLES: &str =
+    "INSERT INTO psn_user_trophy_titles
 (np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (np_id, np_communication_id) DO UPDATE SET
@@ -114,12 +70,56 @@ END,
 is_visible = CASE WHEN psn_user_trophy_titles.progress > EXCLUDED.progress
 THEN FALSE
 ELSE TRUE
-END").await?;
+END";
+
+pub type PSNServiceAddr = Addr<PSNService>;
+
+pub struct PSNService {
+    pub db_url: String,
+    pub cache_url: String,
+    pub psn: PSN,
+    pub db: RefCell<tokio_postgres::Client>,
+    pub insert_trophy_title: RefCell<Statement>,
+    pub cache: RefCell<SharedConnection>,
+    pub queue: VecDeque<PSNRequest>,
+    // stores all reqs' timestamp goes to PSN.
+    // profile request use <online_id> as key,
+    // trophy_list request use <online_id:::titles> as key,
+    // trophy_set request use <online_id:::np_communication_id> as key
+    // chrono::Utc::now().timestamp is score
+    pub req_time_stamp: hashbrown::HashMap<Vec<u8>, i64>,
+}
+
+impl Actor for PSNService {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.start_interval(ctx);
+    }
+}
+
+impl PSNService {
+    pub(crate) async fn init(
+        postgres_url: &str,
+        redis_url: &str,
+    ) -> Result<PSNServiceAddr, ResError> {
+        let db_url = postgres_url.to_owned();
+        let cache_url = redis_url.to_owned();
+
+        let cache = crate::handler::cache::connect_cache(redis_url)
+            .await?
+            .ok_or(ResError::RedisConnection)?;
+        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
+
+        //ToDo: remove compat layer when actix convert to use std::future;
+        let conn = conn.map(|_| ());
+        actix::spawn(conn.unit_error().boxed().compat());
+
+        let p1 = db.prepare(INSERT_TITLES).await?;
 
         Ok(PSNService::create(move |_| PSNService {
             db_url,
             cache_url,
-            is_active: false,
             psn: PSN::new(),
             db: RefCell::new(db),
             insert_trophy_title: RefCell::new(p1),
@@ -142,10 +142,10 @@ END").await?;
             PSNRequest::Profile { .. } => PROFILE_TIME_GATE,
             PSNRequest::TrophyTitles { .. } => TROPHY_TITLES_TIME_GATE,
             PSNRequest::TrophySet { .. } => TROPHY_SET_TIME_GATE,
-            _ => return false,
+            _ => return true,
         };
 
-        self.is_in_time_gate(req.generate_entry_key().as_slice(), time_gate)
+        !self.is_in_time_gate(req.generate_entry_key().as_slice(), time_gate)
     }
 
     fn is_in_time_gate(&self, entry: &[u8], time_gate: i64) -> bool {
@@ -291,7 +291,7 @@ impl PSNService {
         ctx.run_interval(PSN_TIME_GAP, move |act, ctx| {
             ctx.spawn(
                 act.check_token()
-                    .and_then(|_, act: &mut PSNService, _| {
+                    .and_then(move |_, act: &mut PSNService, _| {
                         if let Some(r) = act.queue.pop_front() {
                             let req = r.clone();
                             ActorEither::A(match r {
@@ -400,7 +400,6 @@ impl PSNService {
         psn.auth().from_err().into_actor(self).map(|p, act, _| {
             println!("{:#?}", p);
             act.psn = p;
-            act.is_active = true;
         })
     }
 

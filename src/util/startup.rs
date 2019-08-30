@@ -263,7 +263,7 @@ pub async fn build_cache(
     let categories =
         crate::handler::db::query_multi::<Category>(&mut c, &st, &[], Vec::new()).await?;
 
-    let _ = build_hmsets_01(
+    build_hmsets_01(
         c_cache.clone(),
         &categories,
         crate::handler::cache::CATEGORY_U8,
@@ -288,18 +288,16 @@ pub async fn build_cache(
             "SELECT COUNT(id) FROM topics WHERE category_id = {}",
             cat.id
         );
-        let t_count =
-            crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
-                .await
-                .unwrap_or(0);
+        let t_count = crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
+            .await
+            .unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let p_count =
-            crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
-                .await
-                .unwrap_or(0);
+        let p_count = crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
+            .await
+            .unwrap_or(0);
 
-        let _ = redis::cmd("HMSET")
+        redis::cmd("HMSET")
             .arg(&format!("category:{}:set", cat.id))
             .arg(&[
                 ("topic_count", t_count.to_string()),
@@ -365,12 +363,12 @@ pub async fn build_cache(
             };
         }
 
-        let _ = build_topics_cache_list_01(is_init, sets, c_cache.clone())
+        build_topics_cache_list_01(is_init, sets, c_cache.clone())
             .compat()
             .await?;
     }
 
-    let _ = build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned())
+    build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned())
         .compat()
         .await?;
 
@@ -450,7 +448,7 @@ pub async fn build_cache(
             last_uid = u.id
         };
     }
-    let _ = build_users_cache_01(users, c_cache.clone())
+    build_users_cache_01(users, c_cache.clone())
         .compat()
         .await?;
 
@@ -469,7 +467,7 @@ pub async fn build_cache(
     ))
 }
 
-// return true if built tables success
+// return Ok(false) if tables already exist.
 pub async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
     let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
@@ -481,7 +479,7 @@ pub async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
         return Ok(false);
     }
 
-    let _ = c.simple_query(BUILD_TABLES).try_collect::<Vec<_>>().await?;
+    c.simple_query(BUILD_TABLES).try_collect::<Vec<_>>().await?;
 
     Ok(true)
 }
@@ -491,6 +489,6 @@ pub async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
 
     tokio::spawn(conn.map(|_| ()));
 
-    let _ = c.simple_query(DROP_TABLES).try_collect::<Vec<_>>().await?;
+    c.simple_query(DROP_TABLES).try_collect::<Vec<_>>().await?;
     Ok(())
 }

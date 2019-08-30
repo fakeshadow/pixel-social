@@ -31,6 +31,7 @@ async fn query_handler_async(
     cache: Data<CacheService>,
     addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
+    // return local result if there is any.
     match req.deref() {
         PSNRequest::Profile { online_id } => {
             if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
@@ -62,6 +63,8 @@ async fn query_handler_async(
         _ => (),
     };
 
+    // send request to psn service actor no matter the local result.
+    // psn service actor will handle if the request will add to psn queue by using time gate.
     addr.do_send(AddPSNRequest(req.into_inner(), false));
 
     Ok(HttpResponse::Ok().finish())
@@ -86,6 +89,7 @@ async fn query_handler_with_jwt_async(
         PSNRequest::Auth { .. } => {
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 
+            // auth request is add to the front of queue.
             addr.do_send(AddPSNRequest(req, true));
         }
         PSNRequest::Activation { .. } => {

@@ -153,8 +153,8 @@ impl From<chrono::format::ParseError> for ResError {
     }
 }
 
-impl From<awc::error::SendRequestError> for ResError {
-    fn from(_e: awc::error::SendRequestError) -> ResError {
+impl From<actix_web::client::SendRequestError> for ResError {
+    fn from(_e: actix_web::client::SendRequestError) -> ResError {
         ResError::HttpClient
     }
 }

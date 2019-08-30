@@ -1,6 +1,7 @@
 use std::{cell::RefCell, env, time::Duration};
 
 use actix::prelude::{Actor, ActorFuture, Addr, AsyncContext, Context, Future, WrapFuture};
+use actix_web::client;
 use futures01::{
     future::{ok as ft_ok, Either},
     IntoFuture,
@@ -233,9 +234,9 @@ impl MessageService {
             ("Body", msg.message),
         ];
 
-        let c = awc::Client::build()
+        let c = client::Client::build()
             .connector(
-                awc::Connector::new()
+                client::Connector::new()
                     .timeout(Duration::from_secs(5))
                     .finish(),
             )
@@ -244,7 +245,7 @@ impl MessageService {
         c.post(&url)
             .basic_auth(t.account_id.as_str(), Some(t.auth_token.as_str()))
             .set_header(
-                awc::http::header::CONTENT_TYPE,
+                actix_web::http::header::CONTENT_TYPE,
                 "application/x-www-form-urlencoded",
             )
             .send_form(&form)

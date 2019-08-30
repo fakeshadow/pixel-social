@@ -99,7 +99,7 @@ impl TryFrom<TrophyTitleLib> for UserTrophyTitle {
             np_id: "place_holder".to_string(),
             np_communication_id: t.np_communication_id,
             is_visible: true,
-            progress: t.title_detail.progress as u32,
+            progress: u32::from(t.title_detail.progress),
             earned_platinum: e.platinum,
             earned_gold: e.gold,
             earned_silver: e.silver,
@@ -136,7 +136,7 @@ impl From<&TrophyLib> for UserTrophy {
         };
 
         UserTrophy {
-            trophy_id: t.trophy_id as u32,
+            trophy_id: u32::from(t.trophy_id),
             earned_date,
             first_earned_date: earned_date,
         }

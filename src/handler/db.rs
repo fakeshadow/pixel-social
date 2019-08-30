@@ -15,7 +15,25 @@ use crate::model::{
     errors::ResError,
 };
 
-// database service is not an actor.
+const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
+const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
+const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
+
+const INSERT_TOPIC: &str = "INSERT INTO topics
+(id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING *";
+
+const INSERT_POST: &str = "INSERT INTO posts
+(id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING *";
+
+const INSERT_USER: &str = "INSERT INTO users
+(id, username, email, hashed_password, avatar_url, signature)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING *";
+
 pub struct DatabaseService {
     pub url: String,
     pub client: RefCell<Client>,
@@ -84,14 +102,11 @@ impl DatabaseService {
         let conn = conn.map(|_| ());
         actix::spawn(conn.unit_error().boxed().compat());
 
-        let p1 = c.prepare_typed("SELECT * FROM topics WHERE id=ANY($1)", &[Type::OID_ARRAY]);
-        let p2 = c.prepare_typed("SELECT * FROM posts WHERE id=ANY($1)", &[Type::OID_ARRAY]);
-        let p3 = c.prepare_typed("SELECT * FROM users WHERE id=ANY($1)", &[Type::OID_ARRAY]);
+        let p1 = c.prepare_typed(SELECT_TOPIC, &[Type::OID_ARRAY]);
+        let p2 = c.prepare_typed(SELECT_POST, &[Type::OID_ARRAY]);
+        let p3 = c.prepare_typed(SELECT_USER, &[Type::OID_ARRAY]);
         let p4 = c.prepare_typed(
-            "INSERT INTO topics
-                       (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                       RETURNING *",
+            INSERT_TOPIC,
             &[
                 Type::OID,
                 Type::OID,
@@ -103,15 +118,21 @@ impl DatabaseService {
                 Type::TIMESTAMP,
             ],
         );
-        let p5 = c.prepare_typed("INSERT INTO posts
-                       (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                       RETURNING *", &[Type::OID, Type::OID, Type::OID, Type::OID, Type::OID, Type::VARCHAR, Type::TIMESTAMP, Type::TIMESTAMP]);
+        let p5 = c.prepare_typed(
+            INSERT_POST,
+            &[
+                Type::OID,
+                Type::OID,
+                Type::OID,
+                Type::OID,
+                Type::OID,
+                Type::VARCHAR,
+                Type::TIMESTAMP,
+                Type::TIMESTAMP,
+            ],
+        );
         let p6 = c.prepare_typed(
-            "INSERT INTO users
-                       (id, username, email, hashed_password, avatar_url, signature)
-                       VALUES ($1, $2, $3, $4, $5, $6)
-                       RETURNING *",
+            INSERT_USER,
             &[
                 Type::OID,
                 Type::VARCHAR,
@@ -198,9 +219,6 @@ pub trait Query: GetDbClient {
         )
     }
 
-    /// when folding stream into data struct the error from parsing column are ignored.
-    /// We send all the good data to frontend.
-    /// this also applies to simple_query_multi_trait.
     fn query_multi_trait<T>(
         &self,
         st: &Statement,
@@ -268,16 +286,17 @@ fn pop_simple_message(mut vec: Vec<SimpleQueryMessage>) -> Result<SimpleQueryRow
     }
 }
 
-
 // helper functions for build cache on startup
+/// when folding stream into data struct the error from parsing column are ignored.
+/// We send all the good data to frontend.
 pub fn query_multi<T>(
     client: &mut Client,
     st: &Statement,
     params: &[&dyn ToSql],
     vec: Vec<T>,
 ) -> impl Future<Output = Result<Vec<T>, ResError>>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
+where
+    T: TryFrom<Row, Error = ResError> + 'static,
 {
     client
         .query(st, params)
