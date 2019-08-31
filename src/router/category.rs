@@ -66,7 +66,7 @@ async fn if_query_db(
     let mut should_update_t = false;
     let mut should_update_u = false;
 
-    let (t, mut uids) = match result {
+    let (t, uids) = match result {
         Ok(t) => t,
         Err(e) => {
             if let ResError::IdsFromCache(tids) = e {
@@ -78,9 +78,7 @@ async fn if_query_db(
         }
     };
 
-    let result = cache.get_users_from_ids(uids).await;
-
-    let u = match result {
+    let u = match cache.get_users_from_ids(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {

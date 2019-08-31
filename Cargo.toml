@@ -14,7 +14,7 @@ actix-web = { version = "1.0.7", features = ["rust-tls"] }
 actix-web-actors = "1.0.2"
 bcrypt = "0.4.0"
 bytes = "0.4.12"
-chrono = { version = "0.4.7", features = ["serde"] }
+chrono = { version = "0.4.8", features = ["serde"] }
 derive_more = "0.14.1"
 dotenv = "0.14.1"
 env_logger = "0.6.1"

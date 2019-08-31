@@ -31,6 +31,10 @@ async fn query_handler_async(
     cache: Data<CacheService>,
     addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
+    // send request to psn service actor no matter the local result.
+    // psn service actor will handle if the request will add to psn queue by using time gate.
+    addr.do_send(AddPSNRequest(req.deref().clone(), false));
+
     // return local result if there is any.
     match req.deref() {
         PSNRequest::Profile { online_id } => {
@@ -62,10 +66,6 @@ async fn query_handler_async(
         }
         _ => (),
     };
-
-    // send request to psn service actor no matter the local result.
-    // psn service actor will handle if the request will add to psn queue by using time gate.
-    addr.do_send(AddPSNRequest(req.into_inner(), false));
 
     Ok(HttpResponse::Ok().finish())
 }
