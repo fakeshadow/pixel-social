@@ -15,6 +15,7 @@ use crate::model::{
     errors::ResError,
     post::{Post, PostRequest},
 };
+use futures::compat::Future01CompatExt;
 
 impl DatabaseService {
     pub async fn add_post(&self, p: PostRequest, g: &GlobalVars) -> Result<Post, ResError> {
@@ -137,8 +138,10 @@ impl CacheService {
     pub fn update_post_return_fail(
         &self,
         p: Vec<Post>,
-    ) -> impl Future01<Item = (), Error = Vec<Post>> {
-        build_hmsets_01(self.get_conn(), &p, POST_U8, true).map_err(|_| p)
+    ) -> impl Future<Output = Result<(), Vec<Post>>> {
+        build_hmsets_01(self.get_conn(), &p, POST_U8, true)
+            .map_err(|_| p)
+            .compat()
     }
 
     pub fn send_failed_post(&self, p: Post) {

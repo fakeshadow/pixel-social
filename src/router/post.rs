@@ -86,22 +86,31 @@ async fn update_async(
 
     let res = HttpResponse::Ok().json(&p);
 
-    update_post_with_fail_check(cache, p).await;
+    update_post_with_fail_check(cache, p);
 
     Ok(res)
 }
 
-pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
+pub fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
     let p = vec![p];
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .update_post_return_fail(p)
-                .map_err(move |p| cache.send_failed_post_update(p)),
-        ),
-        Err(_) => cache.send_failed_post_update(p),
-    };
+
+    actix::spawn(
+        async {
+            match cache.check_cache_conn().await {
+                Ok(opt) => {
+                    let _ = cache
+                        .if_replace_cache(opt)
+                        .update_post_return_fail(p)
+                        .map_err(move |p| cache.send_failed_post_update(p))
+                        .await;
+                }
+                Err(_) => cache.send_failed_post_update(p),
+            };
+            Ok(())
+        }
+            .boxed_local()
+            .compat(),
+    );
 }
 
 pub fn get(

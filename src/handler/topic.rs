@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use chrono::Utc;
-use futures::FutureExt;
+use futures::{compat::Future01CompatExt, FutureExt};
 use futures01::Future as Future01;
 use tokio_postgres::types::ToSql;
 
@@ -164,8 +164,10 @@ impl CacheService {
     pub fn update_topic_return_fail(
         &self,
         t: Vec<Topic>,
-    ) -> impl Future01<Item = (), Error = Vec<Topic>> {
-        build_hmsets_01(self.get_conn(), &t, TOPIC_U8, true).map_err(|_| t)
+    ) -> impl Future<Output = Result<(), Vec<Topic>>> {
+        build_hmsets_01(self.get_conn(), &t, TOPIC_U8, true)
+            .map_err(|_| t)
+            .compat()
     }
 
     // send failed data to CacheUpdateService actor and retry from there.

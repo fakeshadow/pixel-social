@@ -8,7 +8,7 @@ use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
 use crate::handler::{
-    auth::{UserJwt, UserJwtOpt},
+    auth::UserJwt,
     cache::CacheService,
     db::DatabaseService,
     psn::{AddPSNRequest, PSNRequest, PSNServiceAddr},
@@ -104,7 +104,7 @@ async fn query_handler_with_jwt_async(
 }
 
 pub fn community(
-    jwt_opt: UserJwtOpt,
+    jwt_opt: Option<UserJwt>,
     //    req: Json<>,
     db: Data<DatabaseService>,
     cache: Data<CacheService>,
@@ -113,11 +113,12 @@ pub fn community(
 }
 
 async fn community_async(
-    jwt_opt: UserJwtOpt,
+    jwt_opt: Option<UserJwt>,
     //    req: Json<>,
     _db: Data<DatabaseService>,
     _cache: Data<CacheService>,
 ) -> Result<HttpResponse, Error> {
-    let _jwt_opt = jwt_opt.0;
+    println!("{}", jwt_opt.is_some());
+    //    let _jwt_opt = jwt_opt.0;
     Ok(HttpResponse::Ok().finish())
 }

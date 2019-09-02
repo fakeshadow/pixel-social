@@ -98,8 +98,10 @@ impl CacheService {
     pub fn update_user_return_fail(
         &self,
         u: Vec<User>,
-    ) -> impl Future01<Item = (), Error = Vec<User>> {
-        build_hmsets_01(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
+    ) -> impl Future<Output = Result<(), Vec<User>>> {
+        build_hmsets_01(self.get_conn(), &u, USER_U8, true)
+            .map_err(|_| u)
+            .compat()
     }
 
     pub fn send_failed_user(&self, u: Vec<User>) {

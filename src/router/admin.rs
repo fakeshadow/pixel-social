@@ -133,7 +133,7 @@ async fn update_user_async(
 
     let res = HttpResponse::Ok().json(&u);
 
-    crate::router::user::update_user_with_fail_check(cache, u).await;
+    crate::router::user::update_user_with_fail_check(cache, u);
 
     Ok(res)
 }
@@ -165,7 +165,7 @@ async fn update_topic_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    crate::router::topic::update_topic_with_fail_check(cache, t).await;
+    crate::router::topic::update_topic_with_fail_check(cache, t);
 
     Ok(res)
 }
@@ -197,7 +197,7 @@ async fn update_post_async(
 
     let res = HttpResponse::Ok().json(&p);
 
-    crate::router::post::update_post_with_fail_check(cache, p).await;
+    crate::router::post::update_post_with_fail_check(cache, p);
 
     Ok(res)
 }

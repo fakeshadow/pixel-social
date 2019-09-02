@@ -90,22 +90,31 @@ async fn update_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    update_topic_with_fail_check(cache, t).await;
+    update_topic_with_fail_check(cache, t);
 
     Ok(res)
 }
 
-pub(crate) async fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
+pub(crate) fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
     let t = vec![t];
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .update_topic_return_fail(t)
-                .map_err(move |t| cache.send_failed_topic_update(t)),
-        ),
-        Err(_) => cache.send_failed_topic_update(t),
-    };
+
+    actix::spawn(
+        async {
+            match cache.check_cache_conn().await {
+                Ok(opt) => {
+                    let _ = cache
+                        .if_replace_cache(opt)
+                        .update_topic_return_fail(t)
+                        .map_err(move |t| cache.send_failed_topic_update(t))
+                        .await;
+                }
+                Err(_) => cache.send_failed_topic_update(t),
+            };
+            Ok(())
+        }
+            .boxed_local()
+            .compat(),
+    );
 }
 
 pub fn query_handler(
