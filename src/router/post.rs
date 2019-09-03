@@ -2,13 +2,12 @@ use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse, ResponseError,
 };
-use futures::{FutureExt, TryFutureExt};
+use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::cache::AddToCache;
 use crate::handler::{
     auth::UserJwt,
-    cache::{CacheService, CheckCacheConn},
+    cache::{AddToCache, CacheService, CheckCacheConn},
     db::DatabaseService,
 };
 use crate::model::{
@@ -50,15 +49,26 @@ pub async fn add_async(
         .await?;
 
     let res = HttpResponse::Ok().json(&p);
-    match cache.check_cache_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .add_post_cache_01(&p)
-                .map_err(move |_| cache.send_failed_post(p)),
-        ),
-        Err(_) => cache.send_failed_post(p),
-    }
+
+    actix::spawn(
+        async {
+            match cache.check_cache_conn().await {
+                Ok(opt) => {
+                    let _ = cache
+                        .if_replace_cache(opt)
+                        .add_post_cache_01(&p)
+                        .compat()
+                        .map_err(move |_| cache.send_failed_post(p))
+                        .await;
+                }
+                Err(_) => cache.send_failed_post(p),
+            };
+            Ok(())
+        }
+            .boxed_local()
+            .compat(),
+    );
+
     Ok(res)
 }
 

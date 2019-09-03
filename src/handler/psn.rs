@@ -297,8 +297,7 @@ impl PSNService {
                             ActorEither::A(match r {
                                 PSNRequest::Profile { online_id } => {
                                     ActorEither::A(ActorEither::A(ActorEither::A(
-                                        act.handle_profile_request(online_id)
-                                            .map(move |_, _, _| req),
+                                        act.handle_profile_request(online_id).map(|_, _, _| req),
                                     )))
                                 }
                                 PSNRequest::TrophyTitles { online_id, .. } => {
@@ -309,7 +308,7 @@ impl PSNService {
                                                   _| {
                                                 act.update_user_trophy_titles(&r)
                                                     .into_actor(act)
-                                                    .map(move |_, _, _| req)
+                                                    .map(|_, _, _| req)
                                             },
                                         ),
                                     )))
@@ -322,7 +321,7 @@ impl PSNService {
                                         .and_then(
                                             move |r: UserTrophySet, act: &mut PSNService, _| {
                                                 act.query_update_user_trophy_set(r)
-                                                    .map(move |_, _, _| req)
+                                                    .map(|_, _, _| req)
                                             },
                                         ),
                                 ))),

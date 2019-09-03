@@ -7,7 +7,8 @@ use crate::model::{category::Category, post::Post, psn::UserPSNProfile, topic::T
 // (except the data that only live in redis.They are ignored if for whatever reason they are lost or can't be load.)
 // Cache failure could potential be fixed after that.
 
-// trait to handle pipelined response where every X:X:set key followed by it's X:X:set_perm key.
+// trait to handle pipelined response where every X:X:set key followed by it's X:X:set_perm key
+// (as we use pipelined query in redis so the return result will be mixed).
 // take in a function to pattern match the X:X:set_perm key's fields.
 trait CrateFromRedisValues
 where

@@ -2,11 +2,14 @@ use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
-use futures::{FutureExt, TryFutureExt};
+use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
-use crate::handler::cache::{AddToCache, CheckCacheConn};
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
+use crate::handler::{
+    auth::UserJwt,
+    cache::{AddToCache, CacheService, CheckCacheConn},
+    db::DatabaseService,
+};
 use crate::model::{
     category::CategoryRequest,
     common::{GlobalVars, Validator},
@@ -41,17 +44,24 @@ async fn add_category_async(
 
     let res = HttpResponse::Ok().json(&c);
 
-    match cache.check_cache_conn().await {
-        Ok(opt) => {
-            actix::spawn(
-                cache
-                    .if_replace_cache(opt)
-                    .add_category_cache_01(&c)
-                    .map_err(move |_| cache.send_failed_category(c)),
-            );
+    actix::spawn(
+        async {
+            match cache.check_cache_conn().await {
+                Ok(opt) => {
+                    let _ = cache
+                        .if_replace_cache(opt)
+                        .add_category_cache_01(&c)
+                        .compat()
+                        .map_err(move |_| cache.send_failed_category(c))
+                        .await;
+                }
+                Err(_) => cache.send_failed_category(c),
+            };
+            Ok(())
         }
-        Err(_) => cache.send_failed_category(c),
-    };
+            .boxed_local()
+            .compat(),
+    );
 
     Ok(res)
 }

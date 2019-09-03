@@ -3,7 +3,7 @@ use actix_web::{
     web::{Data, Json, Query},
     Error, HttpResponse, ResponseError,
 };
-use futures::{FutureExt, TryFutureExt};
+use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
@@ -51,17 +51,24 @@ pub async fn add_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    match cache.check_cache_conn().await {
-        Ok(opt) => {
-            actix::spawn(
-                cache
-                    .if_replace_cache(opt)
-                    .add_topic_cache_01(&t)
-                    .map_err(move |_| cache.send_failed_topic(t)),
-            );
+    actix::spawn(
+        async {
+            match cache.check_cache_conn().await {
+                Ok(opt) => {
+                    let _ = cache
+                        .if_replace_cache(opt)
+                        .add_topic_cache_01(&t)
+                        .compat()
+                        .map_err(move |_| cache.send_failed_topic(t))
+                        .await;
+                }
+                Err(_) => cache.send_failed_topic(t),
+            };
+            Ok(())
         }
-        Err(_) => cache.send_failed_topic(t),
-    };
+            .boxed_local()
+            .compat(),
+    );
 
     Ok(res)
 }
