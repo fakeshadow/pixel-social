@@ -46,7 +46,7 @@ async fn add_category_async(
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)
@@ -165,7 +165,7 @@ async fn update_topic_async(
     cache: Data<CacheService>,
     db: Data<DatabaseService>,
 ) -> Result<HttpResponse, Error> {
-    let req = req.into_inner().attach_user_id(None).check_update()?;
+    let req = req.into_inner().add_user_id(None).check_update()?;
 
     let t = db
         .check_conn()

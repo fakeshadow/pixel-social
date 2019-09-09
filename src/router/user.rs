@@ -77,7 +77,7 @@ pub(crate) fn update_user_with_fail_check(cache: Data<CacheService>, u: User) {
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)

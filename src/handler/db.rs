@@ -207,7 +207,7 @@ pub trait GetDbClient {
 }
 
 pub trait Query: GetDbClient {
-    fn query_one_trait<T>(&self, st: &Statement, p: &[&dyn ToSql]) -> PinedBoxFutureResult<T>
+    fn query_one<T>(&self, st: &Statement, p: &[&dyn ToSql]) -> PinedBoxFutureResult<T>
     where
         T: TryFrom<Row, Error = ResError>,
     {
@@ -219,7 +219,7 @@ pub trait Query: GetDbClient {
         )
     }
 
-    fn query_multi_trait<T>(
+    fn query_multi<T>(
         &self,
         st: &Statement,
         p: &[&dyn ToSql],
@@ -228,43 +228,39 @@ pub trait Query: GetDbClient {
     where
         T: TryFrom<Row, Error = ResError> + 'static,
     {
-        Box::pin(query_multi(&mut self.get_client(), st, p, vec))
+        Box::pin(query_multi_fn(&mut self.get_client(), st, p, vec))
     }
 }
 
 pub trait SimpleQuery: GetDbClient {
-    fn simple_query_single_column_trait<T>(
-        &self,
-        query: &str,
-        column_index: usize,
-    ) -> PinedBoxFutureResult<T>
+    fn simple_query_column<T>(&self, query: &str, column_index: usize) -> PinedBoxFutureResult<T>
     where
         T: std::str::FromStr,
     {
         Box::pin(
-            self.simple_query_row_trait(query)
-                .map(move |r| parse_one_simple_row_column(r, column_index)),
+            self.simple_query_row(query)
+                .map(move |r| parse_column_by_index(r, column_index)),
         )
     }
 
-    fn simple_query_one_trait<T>(&self, query: &str) -> PinedBoxFutureResult<T>
+    fn simple_query_one<T>(&self, query: &str) -> PinedBoxFutureResult<T>
     where
         T: TryFrom<SimpleQueryRow, Error = ResError>,
     {
-        Box::pin(self.simple_query_row_trait(query).map(|r| T::try_from(r?)))
+        Box::pin(self.simple_query_row(query).map(|r| T::try_from(r?)))
     }
 
-    fn simple_query_row_trait(&self, q: &str) -> PinedBoxFutureResult<SimpleQueryRow> {
+    fn simple_query_row(&self, q: &str) -> PinedBoxFutureResult<SimpleQueryRow> {
         Box::pin(
             self.get_client()
                 .simple_query(q)
                 .try_collect::<Vec<SimpleQueryMessage>>()
-                .map(|r| pop_simple_message(r?)),
+                .map(|r| pop_simple_query_row(r?)),
         )
     }
 }
 
-fn parse_one_simple_row_column<T>(
+fn parse_column_by_index<T>(
     result: Result<SimpleQueryRow, ResError>,
     column_index: usize,
 ) -> Result<T, ResError>
@@ -278,18 +274,18 @@ where
         .map_err(|_| ResError::ParseError)
 }
 
-fn pop_simple_message(mut vec: Vec<SimpleQueryMessage>) -> Result<SimpleQueryRow, ResError> {
+fn pop_simple_query_row(mut vec: Vec<SimpleQueryMessage>) -> Result<SimpleQueryRow, ResError> {
     vec.pop();
     match vec.pop().ok_or(ResError::BadRequest)? {
         SimpleQueryMessage::Row(r) => Ok(r),
-        _ => pop_simple_message(vec),
+        _ => pop_simple_query_row(vec),
     }
 }
 
 // helper functions for build cache on startup
 /// when folding stream into data struct the error from parsing column are ignored.
 /// We send all the good data to frontend.
-pub fn query_multi<T>(
+pub fn query_multi_fn<T>(
     client: &mut Client,
     st: &Statement,
     params: &[&dyn ToSql],
@@ -319,6 +315,6 @@ where
 {
     c.simple_query(query)
         .try_collect::<Vec<SimpleQueryMessage>>()
-        .map(|r| pop_simple_message(r?))
-        .map(move |r| parse_one_simple_row_column(r, index))
+        .map(|r| pop_simple_query_row(r?))
+        .map(move |r| parse_column_by_index(r, index))
 }

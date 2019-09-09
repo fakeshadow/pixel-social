@@ -541,7 +541,7 @@ impl PSNService {
             t.np_id.as_str(),
             t.np_communication_id.as_str()
         );
-        self.simple_query_one_trait(query.as_str())
+        self.simple_query_one(query.as_str())
             .boxed_local()
             .compat()
             .into_actor(self)
@@ -632,7 +632,7 @@ impl PSNService {
         );
 
         Either::B(
-            self.simple_query_row_trait(query.as_str())
+            self.simple_query_row(query.as_str())
                 .map_ok(|_| ())
                 .boxed_local()
                 .compat(),
@@ -710,7 +710,7 @@ impl DatabaseService {
 
         let st = self.get_client().prepare(query.as_str()).await?;
 
-        self.query_multi_trait(&st, &[&np_id], Vec::with_capacity(20))
+        self.query_multi(&st, &[&np_id], Vec::with_capacity(20))
             .await
     }
 
@@ -724,7 +724,7 @@ impl DatabaseService {
             np_id, np_communication_id
         );
 
-        self.simple_query_one_trait::<UserTrophySet>(query.as_str())
+        self.simple_query_one::<UserTrophySet>(query.as_str())
     }
 
     //    pub fn update_trophy_set_argument(

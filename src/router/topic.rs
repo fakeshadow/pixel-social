@@ -40,7 +40,7 @@ pub async fn add_async(
 
     let req = req
         .into_inner()
-        .attach_user_id(Some(jwt.user_id))
+        .add_user_id(Some(jwt.user_id))
         .check_new()?;
 
     let t = db
@@ -53,7 +53,7 @@ pub async fn add_async(
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)
@@ -90,7 +90,7 @@ async fn update_async(
 ) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
-        .attach_user_id(Some(jwt.user_id))
+        .add_user_id(Some(jwt.user_id))
         .check_update()?;
 
     let t = db.check_conn().await?.update_topic(&req).await?;
@@ -107,7 +107,7 @@ pub(crate) fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) 
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)

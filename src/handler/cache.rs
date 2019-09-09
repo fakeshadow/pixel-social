@@ -815,11 +815,11 @@ pub trait DeleteCache: GetSharedConn {
 /// redis connection is only checked on insert request.
 /// Connections are not shared between threads so the recovery will happen separately.
 pub trait CheckCacheConn: GetSharedConn {
-    fn check_cache_conn(&self) -> PinedBoxFutureResult<Option<SharedConnection>> {
-        Box::pin(self.check_cache_conn_01().compat())
+    fn check_conn(&self) -> PinedBoxFutureResult<Option<SharedConnection>> {
+        Box::pin(self.check_conn_01().compat())
     }
 
-    fn check_cache_conn_01(&self) -> BoxedFuture01Result<Option<SharedConnection>> {
+    fn check_conn_01(&self) -> BoxedFuture01Result<Option<SharedConnection>> {
         let url = self.self_url();
         Box::new(
             redis::cmd("PING")

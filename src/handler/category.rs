@@ -21,7 +21,7 @@ impl DatabaseService {
             .get_client()
             .prepare("SELECT * FROM categories")
             .await?;
-        self.query_multi_trait(&st, &[], Vec::new()).await
+        self.query_multi(&st, &[], Vec::new()).await
     }
 
     pub async fn update_category(&self, c: CategoryRequest) -> Result<Category, ResError> {
@@ -57,7 +57,7 @@ impl DatabaseService {
 
         let st = self.get_client().prepare(query.as_str()).await?;
 
-        self.query_one_trait(&st, &params).await
+        self.query_one(&st, &params).await
     }
 
     pub async fn remove_category(&self, cid: u32) -> Result<(), ResError> {
@@ -87,7 +87,7 @@ impl DatabaseService {
 
         let cid = g.lock().map(|mut lock| lock.next_cid()).await;
 
-        self.query_one_trait(
+        self.query_one(
             &st,
             &[
                 &cid,

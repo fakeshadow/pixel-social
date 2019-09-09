@@ -65,7 +65,7 @@ impl CacheUpdateService {
     fn update_list_pop(&mut self, ctx: &mut Context<Self>) {
         ctx.run_interval(LIST_TIME_DUR, move |act, ctx| {
             ctx.spawn(
-                act.check_cache_conn_01()
+                act.check_conn_01()
                     .into_actor(act)
                     .and_then(|opt, act, _| {
                         act.if_replace_cache(opt)

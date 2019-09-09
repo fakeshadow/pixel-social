@@ -7,6 +7,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use actix::prelude::{
     fut, Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture,
 };
+
 use chrono::{NaiveDateTime, Utc};
 use futures::{future::join_all, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
@@ -354,7 +355,7 @@ impl TalkService {
     where
         T: std::convert::TryFrom<tokio_postgres::Row, Error = ResError> + 'static,
     {
-        self.query_multi_trait(st, p, Vec::with_capacity(20))
+        self.query_multi(st, p, Vec::with_capacity(20))
     }
 
     fn join_talk_db(&self, req: JoinTalkRequest) -> impl Future<Output = Result<Talk, ResError>> {
@@ -369,11 +370,11 @@ impl TalkService {
         if t.users.contains(sid) {
             return futures::future::Either::Right(futures::future::err(ResError::BadRequest));
         };
-        futures::future::Either::Left(self.query_one_trait::<Talk>(&self.join_talk, &[&sid, &tid]))
+        futures::future::Either::Left(self.query_one::<Talk>(&self.join_talk, &[&sid, &tid]))
     }
 
     fn get_relation(&self, uid: u32) -> impl Future<Output = Result<Relation, ResError>> {
-        self.query_one_trait(&self.get_relations, &[&uid])
+        self.query_one(&self.get_relations, &[&uid])
     }
 
     fn prepare_insert_talk_st(&self) -> impl Future<Output = Result<Statement, ResError>> {
@@ -395,7 +396,7 @@ impl TalkService {
     ) -> impl Future<Output = Result<Talk, ResError>> {
         let vec = vec![msg.owner];
 
-        self.query_one_trait(
+        self.query_one(
             st,
             &[
                 &(last_tid + 1),
@@ -409,7 +410,7 @@ impl TalkService {
     }
 
     fn get_last_tid_db(&self) -> impl Future<Output = Result<u32, ResError>> {
-        self.simple_query_single_column_trait::<u32>("SELECT Max(id) FROM talks", 0)
+        self.simple_query_column::<u32>("SELECT Max(id) FROM talks", 0)
     }
 }
 
@@ -442,31 +443,28 @@ impl Handler<TextMessageRequest> for TalkService {
 
         if let Some(tid) = msg.talk_id {
             ctx.spawn(
-                self.query_one_trait::<PublicMessage>(
-                    &self.insert_pub_msg,
-                    &[&tid, &msg.text, &now],
-                )
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |_, act, _| {
-                    let s = SendMessage::PublicMessage(&vec![PublicMessage {
-                        text: msg.text,
-                        time: now,
-                        talk_id: msg.talk_id.unwrap(),
-                    }])
-                    .stringify();
+                self.query_one::<PublicMessage>(&self.insert_pub_msg, &[&tid, &msg.text, &now])
+                    .boxed_local()
+                    .compat()
+                    .into_actor(self)
+                    .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
+                    .map(move |_, act, _| {
+                        let s = SendMessage::PublicMessage(&vec![PublicMessage {
+                            text: msg.text,
+                            time: now,
+                            talk_id: msg.talk_id.unwrap(),
+                        }])
+                        .stringify();
 
-                    act.send_message_many(sid, tid, s.as_str());
-                }),
+                        act.send_message_many(sid, tid, s.as_str());
+                    }),
             );
             return;
         }
 
         if let Some(uid) = msg.user_id {
             ctx.spawn(
-                self.query_one_trait::<PrivateMessage>(
+                self.query_one::<PrivateMessage>(
                     &self.insert_prv_msg,
                     &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
                 )
@@ -718,7 +716,7 @@ impl Handler<RemoveUserRequest> for TalkService {
                     };
 
                     ctx.spawn(
-                        self.simple_query_one_trait::<Talk>(query.as_str())
+                        self.simple_query_one::<Talk>(query.as_str())
                             .boxed_local()
                             .compat()
                             .into_actor(self)
@@ -768,7 +766,7 @@ impl Handler<Admin> for TalkService {
         query.push_str(&format!(" WHERE id = {}", tid));
 
         ctx.spawn(
-            self.simple_query_one_trait::<Talk>(query.as_str())
+            self.simple_query_one::<Talk>(query.as_str())
                 .boxed_local()
                 .compat()
                 .into_actor(self)
@@ -796,7 +794,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
             let query = format!("DELETE FROM talks WHERE id = {}", tid);
 
             ctx.spawn(
-                self.simple_query_row_trait(query.as_str())
+                self.simple_query_row(query.as_str())
                     .boxed_local()
                     .compat()
                     .into_actor(self)

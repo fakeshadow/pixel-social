@@ -52,7 +52,7 @@ pub async fn add_async(
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)
@@ -106,7 +106,7 @@ pub fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
 
     actix::spawn(
         async {
-            match cache.check_cache_conn().await {
+            match cache.check_conn().await {
                 Ok(opt) => {
                     let _ = cache
                         .if_replace_cache(opt)

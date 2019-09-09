@@ -1,9 +1,8 @@
 use actix_multipart::Field;
-use async_std::fs::File;
-use async_std::prelude::*;
 use bytes::Bytes;
 use futures::{compat::Stream01CompatExt, TryStreamExt};
 use rand::Rng;
+use tokio::{fs::File, io::AsyncWriteExt};
 
 use crate::model::errors::ResError;
 

@@ -23,7 +23,7 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_local();
 
-        self.query_one_trait(
+        self.query_one(
             &self.insert_post.borrow(),
             &[
                 &id,
@@ -90,7 +90,7 @@ impl DatabaseService {
         query.push_str(" RETURNING *");
 
         let st = self.get_client().prepare(query.as_str()).await?;
-        self.query_one_trait(&st, &params).await
+        self.query_one(&st, &params).await
     }
 
     pub async fn get_posts_with_uid(&self, ids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {

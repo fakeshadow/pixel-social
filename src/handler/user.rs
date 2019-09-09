@@ -69,14 +69,14 @@ impl DatabaseService {
 
         let st = self.get_client().prepare(query.as_str()).await?;
 
-        self.query_one_trait(&st, &params).await
+        self.query_one(&st, &params).await
     }
 
     pub fn get_users_by_id(
         &self,
         ids: &[u32],
     ) -> impl Future<Output = Result<Vec<User>, ResError>> {
-        self.query_multi_trait(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
+        self.query_multi(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
     }
 }
 

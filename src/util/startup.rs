@@ -261,7 +261,7 @@ pub async fn build_cache(
     let st = c.prepare("SELECT * FROM categories").await?;
 
     let categories =
-        crate::handler::db::query_multi::<Category>(&mut c, &st, &[], Vec::new()).await?;
+        crate::handler::db::query_multi_fn::<Category>(&mut c, &st, &[], Vec::new()).await?;
 
     build_hmsets_01(
         c_cache.clone(),
@@ -314,8 +314,8 @@ pub async fn build_cache(
             .prepare("SELECT * FROM topics WHERE category_id = $1 ORDER BY created_at DESC")
             .await?;
 
-        let t =
-            crate::handler::db::query_multi::<Topic>(&mut c, &st, &[&cat.id], Vec::new()).await?;
+        let t = crate::handler::db::query_multi_fn::<Topic>(&mut c, &st, &[&cat.id], Vec::new())
+            .await?;
 
         // load topics reply count
         let query = format!(
@@ -438,7 +438,7 @@ pub async fn build_cache(
 
     let st = c.prepare("SELECT * FROM users").await?;
 
-    let users = crate::handler::db::query_multi::<User>(&mut c, &st, &[], Vec::new()).await?;
+    let users = crate::handler::db::query_multi_fn::<User>(&mut c, &st, &[], Vec::new()).await?;
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
@@ -454,7 +454,7 @@ pub async fn build_cache(
 
     let st = c.prepare("SELECT * FROM talks").await?;
 
-    let talks = crate::handler::db::query_multi::<Talk>(&mut c, &st, &[], Vec::new()).await?;
+    let talks = crate::handler::db::query_multi_fn::<Talk>(&mut c, &st, &[], Vec::new()).await?;
 
     let (talks, sessions) = new_global_talks_sessions(talks);
 

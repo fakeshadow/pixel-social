@@ -47,7 +47,7 @@ impl DatabaseService {
         let email = req.email.as_ref().map(String::as_str).unwrap();
 
         let users: Vec<User> = self
-            .query_multi_trait(&st, &[&username, &email], Vec::with_capacity(2))
+            .query_multi(&st, &[&username, &email], Vec::with_capacity(2))
             .await?;
 
         for u in users.iter() {
@@ -65,7 +65,7 @@ impl DatabaseService {
 
         let u = req.make_user(id, hash.as_str())?;
 
-        self.query_one_trait(
+        self.query_one(
             &self.insert_user.borrow(),
             &[
                 &u.id,
@@ -85,7 +85,7 @@ impl DatabaseService {
             .prepare("SELECT * FROM users WHERE username=$1")
             .await?;
 
-        let user: User = self.query_one_trait(&st, &[&req.username]).await?;
+        let user: User = self.query_one(&st, &[&req.username]).await?;
 
         crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 

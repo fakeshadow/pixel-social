@@ -23,7 +23,7 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_utc();
 
-        self.query_one_trait(
+        self.query_one(
             &self.insert_topic.borrow(),
             &[
                 &id,
@@ -100,7 +100,7 @@ impl DatabaseService {
 
         let st = self.get_client().prepare(query.as_str()).await?;
 
-        self.query_one_trait(&st, &params).await
+        self.query_one(&st, &params).await
     }
 
     pub async fn get_topics_with_uid(

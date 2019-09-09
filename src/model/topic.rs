@@ -74,7 +74,7 @@ pub struct TopicRequest {
 }
 
 impl TopicRequest {
-    pub fn attach_user_id(mut self, id: Option<u32>) -> Self {
+    pub fn add_user_id(mut self, id: Option<u32>) -> Self {
         self.user_id = id;
         self
     }
