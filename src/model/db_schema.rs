@@ -151,6 +151,20 @@ impl TryFrom<Row> for UserTrophyTitle {
     }
 }
 
+impl TryFrom<Row> for UserTrophySet {
+    type Error = ResError;
+    fn try_from(r: Row) -> Result<Self, Self::Error> {
+        let vec = r.try_get(3)?;
+
+        Ok(UserTrophySet {
+            np_id: r.try_get(0)?,
+            np_communication_id: r.try_get(1)?,
+            is_visible: r.try_get(2)?,
+            trophies: generate_trophies(vec)?,
+        })
+    }
+}
+
 impl TryFrom<SimpleQueryRow> for Talk {
     type Error = ResError;
     fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
@@ -199,19 +213,19 @@ impl TryFrom<SimpleQueryRow> for Talk {
     }
 }
 
-impl TryFrom<SimpleQueryRow> for UserTrophySet {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
-
-        Ok(UserTrophySet {
-            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
-            trophies: generate_trophies(vec)?,
-        })
-    }
-}
+//impl TryFrom<SimpleQueryRow> for UserTrophySet {
+//    type Error = ResError;
+//    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
+//        let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
+//
+//        Ok(UserTrophySet {
+//            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
+//            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
+//            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
+//            trophies: generate_trophies(vec)?,
+//        })
+//    }
+//}
 
 fn generate_trophies(vec: &str) -> Result<Vec<UserTrophy>, ResError> {
     let len = vec.len();

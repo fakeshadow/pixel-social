@@ -11,7 +11,7 @@ use crate::handler::{
     auth::UserJwt,
     cache::CacheService,
     db::DatabaseService,
-    psn::{AddPSNRequest, PSNRequest, PSNServiceAddr},
+    psn::{PSNRequest, PSNServiceAddr},
 };
 
 pub fn query_handler(
@@ -33,7 +33,10 @@ async fn query_handler_async(
 ) -> Result<HttpResponse, Error> {
     // send request to psn service actor no matter the local result.
     // psn service actor will handle if the request will add to psn queue by using time gate.
-    addr.do_send(AddPSNRequest(req.deref().clone(), false));
+    let req_temp = req.deref().clone();
+    tokio::spawn(async move {
+        addr.do_send((req_temp, false)).await;
+    });
 
     // return local result if there is any.
     match req.deref() {
@@ -90,13 +93,15 @@ async fn query_handler_with_jwt_async(
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 
             // auth request is add to the front of queue.
-            addr.do_send(AddPSNRequest(req, true));
+            tokio::spawn(async move {
+                addr.do_send((req, true)).await;
+            });
         }
         PSNRequest::Activation { .. } => {
-            addr.do_send(AddPSNRequest(
-                req.into_inner().attach_user_id(jwt.user_id),
-                false,
-            ));
+            tokio::spawn(async move {
+                addr.do_send((req.into_inner().attach_user_id(jwt.user_id), false))
+                    .await;
+            });
         }
         _ => (),
     };

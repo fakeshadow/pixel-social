@@ -65,7 +65,7 @@ async fn main() -> std::io::Result<()> {
         )
         .unwrap();
 
-    // only global is wrapped in web::Data, global_talks and global_sessions are passed to every TalkService actor.
+    // global is wrapped in web::Data, global_talks and global_sessions are passed to every TalkService actor.
     let global = web::Data::new(global);
 
     /*
@@ -93,15 +93,17 @@ async fn main() -> std::io::Result<()> {
         )
         .expect("Failed to create Message Service");
 
-    // PSNService is an async actor runs in main thread. It passes it's addr to App::data().
-    // Request to PSN data will hit local cache and db with a delayed schedule request to PSN handled by PSNService actor.
+    // PSNService contain two spawned futures runs in main thread. It return it's addr(unbounded channel sender) on init.
+    // Request to PSN data will hit local cache and db with a delayed schedule request.
     let psn = sys
         .block_on(
             crate::handler::psn::PSNService::init(postgres_url.as_str(), redis_url.as_str())
                 .boxed_local()
                 .compat(),
         )
-        .expect("Failed to create Message Service");
+        .expect("Failed to create Test Service");
+    // psn is wrapped in Mutex so we wrap it in web::Data just like global.
+    let psn = web::Data::new(psn);
 
     let dbs = Arc::new(Mutex::new(Vec::new()));
     let caches = Arc::new(Mutex::new(Vec::new()));
@@ -126,6 +128,7 @@ async fn main() -> std::io::Result<()> {
                     .compat(),
             )
             .unwrap_or_else(|_| panic!("Failed to create Cache Service for worker : {}", i));
+
         // TalkService is an actor handle websocket connections and communication between client websocket actors.
         // Every worker have a talk service actor with a postgres connection and a redis connection.
         // global_talks and sessions are shared between all workers and talk service actors.
@@ -164,11 +167,12 @@ async fn main() -> std::io::Result<()> {
         let talk = talks.lock().unwrap().pop().unwrap();
 
         App::new()
+            // global and psn are both wrapped in Data<Mutex> so use register_data to avoid double Arc
             .register_data(global.clone())
+            .register_data(psn.clone())
             .data(db)
             .data(cache)
             .data(talk)
-            .data(psn.clone())
             .wrap(Logger::default())
             .wrap(
                 actix_cors::Cors::new()
