@@ -42,38 +42,37 @@ const TROPHY_TITLES_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
 const TROPHY_SET_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
 
 const INSERT_TITLES: &str =
-    "INSERT INTO psn_user_trophy_titles
-(np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (np_id, np_communication_id) DO UPDATE SET
-progress = CASE WHEN psn_user_trophy_titles.progress < EXCLUDED.progress
-THEN EXCLUDED.progress
-ELSE psn_user_trophy_titles.progress
-END,
-earned_platinum = CASE WHEN psn_user_trophy_titles.earned_platinum < EXCLUDED.earned_platinum
-THEN EXCLUDED.earned_platinum
-ELSE psn_user_trophy_titles.earned_platinum
-END,
-earned_gold = CASE WHEN psn_user_trophy_titles.earned_gold < EXCLUDED.earned_gold
-THEN EXCLUDED.earned_gold
-ELSE psn_user_trophy_titles.earned_gold
-END,
-earned_silver = CASE WHEN psn_user_trophy_titles.earned_silver < EXCLUDED.earned_silver
-THEN EXCLUDED.earned_silver
-ELSE psn_user_trophy_titles.earned_silver
-END,
-earned_bronze = CASE WHEN psn_user_trophy_titles.earned_bronze < EXCLUDED.earned_bronze
-THEN EXCLUDED.earned_bronze
-ELSE psn_user_trophy_titles.earned_bronze
-END,
-last_update_date = CASE WHEN psn_user_trophy_titles.last_update_date < EXCLUDED.last_update_date
-THEN EXCLUDED.last_update_date
-ELSE psn_user_trophy_titles.last_update_date
-END,
-is_visible = CASE WHEN psn_user_trophy_titles.progress > EXCLUDED.progress
-THEN FALSE
-ELSE TRUE
-END";
+    "INSERT INTO psn_user_trophy_titles (np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (np_id, np_communication_id) DO UPDATE SET
+            progress = CASE WHEN psn_user_trophy_titles.progress < EXCLUDED.progress
+                THEN EXCLUDED.progress
+                ELSE psn_user_trophy_titles.progress
+                END,
+            earned_platinum = CASE WHEN psn_user_trophy_titles.earned_platinum < EXCLUDED.earned_platinum
+                THEN EXCLUDED.earned_platinum
+                ELSE psn_user_trophy_titles.earned_platinum
+                END,
+            earned_gold = CASE WHEN psn_user_trophy_titles.earned_gold < EXCLUDED.earned_gold
+                THEN EXCLUDED.earned_gold
+                ELSE psn_user_trophy_titles.earned_gold
+                END,
+            earned_silver = CASE WHEN psn_user_trophy_titles.earned_silver < EXCLUDED.earned_silver
+                THEN EXCLUDED.earned_silver
+                ELSE psn_user_trophy_titles.earned_silver
+                END,
+            earned_bronze = CASE WHEN psn_user_trophy_titles.earned_bronze < EXCLUDED.earned_bronze
+                THEN EXCLUDED.earned_bronze
+                ELSE psn_user_trophy_titles.earned_bronze
+                END,
+            last_update_date = CASE WHEN psn_user_trophy_titles.last_update_date < EXCLUDED.last_update_date
+                THEN EXCLUDED.last_update_date
+                ELSE psn_user_trophy_titles.last_update_date
+                END,
+            is_visible = CASE WHEN psn_user_trophy_titles.progress > EXCLUDED.progress
+                THEN FALSE
+                ELSE TRUE
+                END";
 
 pub struct PSNService {
     pub db_url: String,
@@ -106,7 +105,7 @@ impl PSNService {
 
         // use an unbounded channel to inject request to queue from other threads.
         let (addr, receiver) = futures::channel::mpsc::unbounded::<(PSNRequest, bool)>();
-
+        
         // queue is passed to both PSNService and QueueInjector.
         let queue = Arc::new(Mutex::new(VecDeque::new()));
 
@@ -454,7 +453,6 @@ impl PSNService {
         }
 
         let titles: Vec<Result<TrophyTitlesLib, ResError>> = futures::future::join_all(f).await;
-        let titles: Vec<Option<TrophyTitlesLib>> = titles.into_iter().map(|t| t.ok()).collect();
 
         let mut v: Vec<UserTrophyTitle> = Vec::new();
 
@@ -465,7 +463,7 @@ impl PSNService {
         }
 
         for titles in titles.into_iter() {
-            if let Some(titles) = titles {
+            if let Ok(titles) = titles {
                 for title in titles.trophy_titles.into_iter() {
                     if let Ok(title) = title.try_into() {
                         v.push(title)

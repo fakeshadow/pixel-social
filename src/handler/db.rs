@@ -15,24 +15,27 @@ use crate::model::{
     errors::ResError,
 };
 
-const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
-const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
-const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
+const SELECT_TOPIC: &str =
+    "SELECT * FROM topics WHERE id=ANY($1)";
+const SELECT_POST: &str =
+    "SELECT * FROM posts WHERE id=ANY($1)";
+const SELECT_USER: &str =
+    "SELECT * FROM users WHERE id=ANY($1)";
 
-const INSERT_TOPIC: &str = "INSERT INTO topics
-(id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING *";
+const INSERT_TOPIC: &str =
+    "INSERT INTO topics (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *";
 
-const INSERT_POST: &str = "INSERT INTO posts
-(id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING *";
+const INSERT_POST: &str =
+    "INSERT INTO posts (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *";
 
-const INSERT_USER: &str = "INSERT INTO users
-(id, username, email, hashed_password, avatar_url, signature)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING *";
+const INSERT_USER: &str =
+    "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *";
 
 pub struct DatabaseService {
     pub url: String,
