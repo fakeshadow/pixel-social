@@ -15,12 +15,9 @@ use crate::model::{
     errors::ResError,
 };
 
-const SELECT_TOPIC: &str =
-    "SELECT * FROM topics WHERE id=ANY($1)";
-const SELECT_POST: &str =
-    "SELECT * FROM posts WHERE id=ANY($1)";
-const SELECT_USER: &str =
-    "SELECT * FROM users WHERE id=ANY($1)";
+const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
+const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
+const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
 
 const INSERT_TOPIC: &str =
     "INSERT INTO topics (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
@@ -203,8 +200,6 @@ impl GetDbClient for DatabaseService {
 
 impl Query for DatabaseService {}
 
-impl SimpleQuery for DatabaseService {}
-
 pub trait GetDbClient {
     fn get_client(&self) -> RefMut<Client>;
 }
@@ -236,23 +231,6 @@ pub trait Query: GetDbClient {
 }
 
 pub trait SimpleQuery: GetDbClient {
-    fn simple_query_column<T>(&self, query: &str, column_index: usize) -> PinedBoxFutureResult<T>
-    where
-        T: std::str::FromStr,
-    {
-        Box::pin(
-            self.simple_query_row(query)
-                .map(move |r| parse_column_by_index(r, column_index)),
-        )
-    }
-
-    fn simple_query_one<T>(&self, query: &str) -> PinedBoxFutureResult<T>
-    where
-        T: TryFrom<SimpleQueryRow, Error = ResError>,
-    {
-        Box::pin(self.simple_query_row(query).map(|r| T::try_from(r?)))
-    }
-
     fn simple_query_row(&self, q: &str) -> PinedBoxFutureResult<SimpleQueryRow> {
         Box::pin(
             self.get_client()

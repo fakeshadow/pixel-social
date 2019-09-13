@@ -1,7 +1,7 @@
-use std::convert::TryFrom;
-
 use chrono::NaiveDateTime;
-use tokio_postgres::{Row, SimpleQueryRow};
+use tokio_postgres::Row;
+
+use std::convert::TryFrom;
 
 use crate::model::psn::{UserTrophy, UserTrophySet};
 use crate::model::{
@@ -161,54 +161,6 @@ impl TryFrom<Row> for UserTrophySet {
             np_communication_id: r.try_get(1)?,
             is_visible: r.try_get(2)?,
             trophies: generate_trophies(vec)?,
-        })
-    }
-}
-
-impl TryFrom<SimpleQueryRow> for Talk {
-    type Error = ResError;
-    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-        let admin = r.get(6).ok_or(ResError::DataBaseReadError)?;
-        let users = r.get(7).ok_or(ResError::DataBaseReadError)?;
-
-        let alen = admin.len();
-        let ulen = users.len();
-
-        let admin: Vec<&str> = if alen < 2 {
-            Vec::with_capacity(0)
-        } else {
-            admin[1..(alen - 1)].split(',').collect()
-        };
-        let users: Vec<&str> = if ulen < 2 {
-            Vec::with_capacity(0)
-        } else {
-            users[1..(ulen - 1)].split(',').collect()
-        };
-
-        Ok(Talk {
-            id: r
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            name: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            description: r.get(2).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            secret: r.get(3).ok_or(ResError::DataBaseReadError)?.to_owned(),
-            privacy: r
-                .get(4)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            owner: r
-                .get(5)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
-            admin: admin
-                .into_iter()
-                .map(|a| a.parse::<u32>())
-                .collect::<Result<Vec<u32>, _>>()?,
-            users: users
-                .into_iter()
-                .map(|u| u.parse::<u32>())
-                .collect::<Result<Vec<u32>, _>>()?,
         })
     }
 }

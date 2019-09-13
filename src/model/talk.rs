@@ -19,8 +19,8 @@ pub struct Talk {
 #[derive(Serialize)]
 #[serde(tag = "type", content = "content")]
 pub enum SendMessage<'a> {
-    PublicMessage(&'a Vec<PublicMessage>),
-    PrivateMessage(&'a Vec<PrivateMessage>),
+    PublicMessage(&'a [PublicMessage]),
+    PrivateMessage(&'a [PrivateMessage]),
     Users(&'a [User]),
     Talks(Vec<&'a Talk>),
     Friends(&'a [u32]),

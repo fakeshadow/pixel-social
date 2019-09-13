@@ -1,24 +1,24 @@
-use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::cell::RefMut;
-use std::fmt::Write;
 use std::future::Future;
+use std::rc::Rc;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-use actix::prelude::{
-    fut, Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture,
-};
-
+use actix::prelude::{Actor, Addr, Context, Handler, Message};
+use actix::{ActorFuture, ResponseActFuture, WrapFuture};
+use actix_async_await::ResponseStdFuture;
 use chrono::{NaiveDateTime, Utc};
+use futures::compat::Future01CompatExt;
 use futures::{future::join_all, FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 use hashbrown::HashMap;
 use redis::{aio::SharedConnection, cmd};
-use tokio_postgres::Statement;
+use tokio_postgres::{Client, Statement};
 
 use crate::handler::db::GetDbClient;
 use crate::handler::{
     cache::{FromCache, GetSharedConn, UsersFromCache},
-    db::{Query, SimpleQuery},
+    db::Query,
 };
 use crate::model::{
     actors::WsChatSession,
@@ -27,6 +27,14 @@ use crate::model::{
     talk::{PrivateMessage, PublicMessage, Relation, SendMessage, SessionMessage, Talk},
 };
 
+const INSERT_TALK: &str = "INSERT INTO talks (id, name, description, owner, admin, users)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *";
+
+const REMOVE_ADMIN: &str =
+    "UPDATE talks SET admin=array_remove(admin, $1) WHERE id=$2 AND owner=$3";
+
+const REMOVE_USER: &str = "UPDATE talks SET users=array_remove(users, $1) WHERE id=$2";
+
 // actor handles communication between websocket sessions actors
 // with a database connection(each actor) for messages and talks query. a redis connection(each actor) for users' cache info query.
 pub struct TalkService {
@@ -34,14 +42,14 @@ pub struct TalkService {
     pub cache_url: String,
     pub talks: GlobalTalks,
     pub sessions: GlobalSessions,
-    pub db: std::cell::RefCell<tokio_postgres::Client>,
-    pub cache: SharedConnection,
-    pub insert_pub_msg: Statement,
-    pub insert_prv_msg: Statement,
-    pub get_pub_msg: Statement,
-    pub get_prv_msg: Statement,
-    pub get_relations: Statement,
-    pub join_talk: Statement,
+    pub db: Rc<RefCell<tokio_postgres::Client>>,
+    pub cache: Rc<RefCell<SharedConnection>>,
+    pub insert_pub_msg: Rc<RefCell<Statement>>,
+    pub insert_prv_msg: Rc<RefCell<Statement>>,
+    pub get_pub_msg: Rc<RefCell<Statement>>,
+    pub get_prv_msg: Rc<RefCell<Statement>>,
+    pub get_relations: Rc<RefCell<Statement>>,
+    pub join_talk: Rc<RefCell<Statement>>,
 }
 
 impl Actor for TalkService {
@@ -60,9 +68,7 @@ impl TalkService {
         let cache = crate::handler::cache::connect_cache(redis_url)
             .await?
             .ok_or(ResError::RedisConnection)?;
-        let (db, mut sts) = Self::connect(postgres_url)
-            .await?
-            .ok_or(ResError::DataBaseReadError)?;
+        let (db, mut sts) = Self::connect(postgres_url).await?;
 
         let db_url = postgres_url.to_owned();
         let cache_url = redis_url.to_owned();
@@ -80,21 +86,19 @@ impl TalkService {
                 cache_url,
                 talks,
                 sessions,
-                db: std::cell::RefCell::new(db),
-                cache,
-                insert_pub_msg,
-                insert_prv_msg,
-                get_pub_msg,
-                get_prv_msg,
-                get_relations,
-                join_talk,
+                db: Rc::new(RefCell::new(db)),
+                cache: Rc::new(RefCell::new(cache)),
+                insert_pub_msg: Rc::new(RefCell::new(insert_pub_msg)),
+                insert_prv_msg: Rc::new(RefCell::new(insert_prv_msg)),
+                get_pub_msg: Rc::new(RefCell::new(get_pub_msg)),
+                get_prv_msg: Rc::new(RefCell::new(get_prv_msg)),
+                get_relations: Rc::new(RefCell::new(get_relations)),
+                join_talk: Rc::new(RefCell::new(join_talk)),
             }
         }))
     }
 
-    async fn connect(
-        postgres_url: &str,
-    ) -> Result<Option<(tokio_postgres::Client, Vec<Statement>)>, ResError> {
+    async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
         let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
         actix::spawn(conn.map(|_| ()).unit_error().boxed().compat());
 
@@ -115,159 +119,7 @@ impl TalkService {
             sts.push(v?);
         }
 
-        Ok(Some((db, sts)))
-    }
-}
-
-impl GetSharedConn for TalkService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.borrow().clone()
-    }
-}
-
-impl FromCache for TalkService {}
-
-impl UsersFromCache for TalkService {}
-
-impl TalkService {
-    fn set_online_status_01(
-        &self,
-        uid: u32,
-        status: u32,
-        set_last_online_time: bool,
-    ) -> impl Future01<Item = (), Error = ResError> {
-        let mut arg = Vec::with_capacity(2);
-        arg.push(("online_status", status.to_string()));
-
-        if set_last_online_time {
-            arg.push(("last_online", Utc::now().naive_utc().to_string()))
-        }
-
-        cmd("HMSET")
-            .arg(&format!("user:{}:set_perm", uid))
-            .arg(arg)
-            .query_async(self.get_conn())
-            .map_err(ResError::from)
-            .map(|(_, ())| ())
-    }
-}
-
-impl TalkService {
-    // ToDo: add online offline filter
-    fn send_message_many(&mut self, sid: u32, tid: u32, msg: &str) {
-        match self.get_talk_hm(tid) {
-            Ok(t) => {
-                for u in t.users.iter() {
-                    self.send_message(*u, msg);
-                }
-            }
-            Err(e) => self.parse_send_res_error(sid, &e),
-        }
-    }
-
-    fn send_message(&self, sid: u32, msg: &str) {
-        match self.get_session_hm(sid) {
-            Ok(a) => a.do_send(SessionMessage(msg.to_owned())),
-            Err(e) => self.parse_send_res_error(sid, &e),
-        };
-    }
-
-    fn parse_send_res_error(&self, sid: u32, e: &ResError) {
-        if let Ok(addr) = self.get_session_hm(sid) {
-            addr.do_send(SessionMessage(
-                SendMessage::Error(e.stringify()).stringify(),
-            ));
-        }
-    }
-
-    fn get_talks_hm(&self) -> Result<HashMap<u32, Talk>, ResError> {
-        self.read_talks(|t| Ok(t.clone()))
-    }
-
-    fn get_talk_hm(&self, talk_id: u32) -> Result<Talk, ResError> {
-        self.read_talks(|t| t.get(&talk_id).cloned().ok_or(ResError::NotFound))
-    }
-
-    fn get_session_hm(&self, sid: u32) -> Result<Addr<WsChatSession>, ResError> {
-        self.read_sessions(|s| s.get(&sid).cloned().ok_or(ResError::NotFound))
-    }
-
-    fn insert_talk_hm(&self, talk: Talk) -> Result<(), ResError> {
-        self.write_talks(|mut t| {
-            t.insert(talk.id, talk)
-                .map(|_| ())
-                .ok_or(ResError::NotFound)
-        })
-    }
-
-    fn insert_session_hm(&self, sid: u32, addr: Addr<WsChatSession>) -> Result<(), ResError> {
-        self.write_sessions(|mut s| s.insert(sid, addr).map(|_| ()).ok_or(ResError::NotFound))
-    }
-
-    fn insert_user_hm(&self, sid: u32, tid: u32) -> Result<(), ResError> {
-        self.write_talks(|mut t| {
-            t.get_mut(&tid)
-                .map(|t| t.users.push(sid))
-                .ok_or(ResError::NotFound)
-        })
-    }
-
-    fn remove_talk_hm(&self, tid: u32) -> Result<(), ResError> {
-        self.write_talks(|mut t| t.remove(&tid).map(|_| ()).ok_or(ResError::NotFound))
-    }
-
-    fn remove_session_hm(&self, sid: u32) -> Result<(), ResError> {
-        self.write_sessions(|mut s| s.remove(&sid).map(|_| ()).ok_or(ResError::NotFound))
-    }
-
-    fn read_sessions<F, T>(&self, f: F) -> Result<T, ResError>
-    where
-        F: FnOnce(RwLockReadGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<T, ResError>,
-    {
-        self.sessions
-            .try_read()
-            .map_err(|_| ResError::InternalServerError)
-            .and_then(|t| f(t))
-    }
-
-    fn read_talks<F, T>(&self, f: F) -> Result<T, ResError>
-    where
-        F: FnOnce(RwLockReadGuard<HashMap<u32, Talk>>) -> Result<T, ResError>,
-    {
-        self.talks
-            .try_read()
-            .map_err(|_| ResError::InternalServerError)
-            .and_then(|t| f(t))
-    }
-
-    fn write_sessions<F>(&self, f: F) -> Result<(), ResError>
-    where
-        F: FnOnce(RwLockWriteGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<(), ResError>,
-    {
-        self.sessions
-            .try_write()
-            .map_err(|_| ResError::InternalServerError)
-            .and_then(|t| f(t))
-    }
-
-    fn write_talks<F>(&self, f: F) -> Result<(), ResError>
-    where
-        F: FnOnce(RwLockWriteGuard<HashMap<u32, Talk>>) -> Result<(), ResError>,
-    {
-        self.talks
-            .try_write()
-            .map_err(|_| ResError::InternalServerError)
-            .and_then(|t| f(t))
-    }
-}
-
-impl Query for TalkService {}
-
-impl SimpleQuery for TalkService {}
-
-impl crate::handler::db::GetDbClient for TalkService {
-    fn get_client(&self) -> RefMut<tokio_postgres::Client> {
-        self.db.borrow_mut()
+        Ok((db, sts))
     }
 }
 
@@ -275,21 +127,6 @@ impl crate::handler::db::GetDbClient for TalkService {
 pub struct AuthRequest {
     pub token: String,
     pub online_status: u32,
-}
-
-#[derive(Message)]
-pub struct ConnectRequest {
-    pub session_id: u32,
-    pub online_status: u32,
-    pub addr: Addr<WsChatSession>,
-}
-
-#[derive(Deserialize, Message, Clone)]
-pub struct CreateTalkRequest {
-    pub session_id: Option<u32>,
-    pub name: String,
-    pub description: String,
-    pub owner: u32,
 }
 
 #[derive(Deserialize, Message)]
@@ -316,6 +153,258 @@ pub struct UserRelationRequest {
     pub session_id: Option<u32>,
 }
 
+pub struct ReadWriteSessions(GlobalSessions);
+
+impl From<GlobalSessions> for ReadWriteSessions {
+    fn from(s: GlobalSessions) -> ReadWriteSessions {
+        ReadWriteSessions(s)
+    }
+}
+
+impl ReadWriteSessions {
+    fn send_message(&self, sid: u32, msg: &str) {
+        match self.get_session_hm(sid) {
+            Ok(addr) => addr.do_send(SessionMessage(msg.to_owned())),
+            Err(e) => self.send_error(sid, &e),
+        };
+    }
+
+    fn send_error(&self, sid: u32, e: &ResError) {
+        if let Ok(addr) = self.get_session_hm(sid) {
+            addr.do_send(SessionMessage(
+                SendMessage::Error(e.stringify()).stringify(),
+            ));
+        }
+    }
+
+    fn get_session_hm(&self, sid: u32) -> Result<Addr<WsChatSession>, ResError> {
+        self.read_sessions(|s| s.get(&sid).cloned().ok_or(ResError::NotFound))
+    }
+
+    fn insert_session_hm(&self, sid: u32, addr: Addr<WsChatSession>) -> Result<(), ResError> {
+        self.write_sessions(|mut s| s.insert(sid, addr).map(|_| ()).ok_or(ResError::NotFound))
+    }
+
+    fn remove_session_hm(&self, sid: u32) -> Result<(), ResError> {
+        self.write_sessions(|mut s| s.remove(&sid).map(|_| ()).ok_or(ResError::NotFound))
+    }
+
+    fn read_sessions<F, T>(&self, f: F) -> Result<T, ResError>
+    where
+        F: FnOnce(RwLockReadGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<T, ResError>,
+    {
+        self.0
+            .try_read()
+            .map_err(|_| ResError::InternalServerError)
+            .and_then(|t| f(t))
+    }
+
+    fn write_sessions<F>(&self, f: F) -> Result<(), ResError>
+    where
+        F: FnOnce(RwLockWriteGuard<HashMap<u32, Addr<WsChatSession>>>) -> Result<(), ResError>,
+    {
+        self.0
+            .try_write()
+            .map_err(|_| ResError::InternalServerError)
+            .and_then(|t| f(t))
+    }
+}
+
+/// wrapper for GlobalTalks
+pub struct ReadWriteTalks(GlobalTalks);
+
+impl From<GlobalTalks> for ReadWriteTalks {
+    fn from(t: GlobalTalks) -> ReadWriteTalks {
+        ReadWriteTalks(t)
+    }
+}
+
+impl ReadWriteTalks {
+    fn get_talk_hm(&self, talk_id: u32) -> Result<Talk, ResError> {
+        self.read_talks(|t| t.get(&talk_id).cloned().ok_or(ResError::NotFound))
+    }
+
+    fn get_talks_hm(&self) -> Result<HashMap<u32, Talk>, ResError> {
+        self.read_talks(|t| Ok(t.clone()))
+    }
+
+    fn insert_talk_hm(&self, talk: Talk) -> Result<(), ResError> {
+        self.write_talks(|mut t| {
+            t.insert(talk.id, talk)
+                .map(|_| ())
+                .ok_or(ResError::NotFound)
+        })
+    }
+
+    fn remove_talk_hm(&self, tid: u32) -> Result<(), ResError> {
+        self.write_talks(|mut t| t.remove(&tid).map(|_| ()).ok_or(ResError::NotFound))
+    }
+
+    fn read_talks<F, T>(&self, f: F) -> Result<T, ResError>
+    where
+        F: FnOnce(RwLockReadGuard<HashMap<u32, Talk>>) -> Result<T, ResError>,
+    {
+        self.0
+            .try_read()
+            .map_err(|_| ResError::InternalServerError)
+            .and_then(|t| f(t))
+    }
+
+    fn write_talks<F>(&self, f: F) -> Result<(), ResError>
+    where
+        F: FnOnce(RwLockWriteGuard<HashMap<u32, Talk>>) -> Result<(), ResError>,
+    {
+        self.0
+            .try_write()
+            .map_err(|_| ResError::InternalServerError)
+            .and_then(|t| f(t))
+    }
+}
+
+// helper functions to send message to multiple sessions.
+fn send_message_many(
+    talks: &ReadWriteTalks,
+    sessions: &ReadWriteSessions,
+    tid: u32,
+    msg: &str,
+) -> Result<(), ResError> {
+    let t = talks.get_talk_hm(tid)?;
+
+    for u in t.users.iter() {
+        sessions.send_message(*u, msg);
+    }
+    Ok(())
+}
+
+pub struct ReadWriteDb(Rc<RefCell<Client>>);
+
+impl From<Rc<RefCell<Client>>> for ReadWriteDb {
+    fn from(rc: Rc<RefCell<Client>>) -> ReadWriteDb {
+        ReadWriteDb(rc)
+    }
+}
+
+impl Query for ReadWriteDb {}
+
+impl crate::handler::db::GetDbClient for ReadWriteDb {
+    fn get_client(&self) -> RefMut<Client> {
+        self.0.borrow_mut()
+    }
+}
+
+pub struct ReadWriteCache(Rc<RefCell<SharedConnection>>);
+
+impl From<Rc<RefCell<SharedConnection>>> for ReadWriteCache {
+    fn from(rc: Rc<RefCell<SharedConnection>>) -> ReadWriteCache {
+        ReadWriteCache(rc)
+    }
+}
+
+impl GetSharedConn for ReadWriteCache {
+    fn get_conn(&self) -> SharedConnection {
+        (&*self.0).borrow().clone()
+    }
+}
+
+impl FromCache for ReadWriteCache {}
+
+impl UsersFromCache for ReadWriteCache {}
+
+impl ReadWriteCache {
+    fn set_online_status(
+        &self,
+        uid: u32,
+        status: u32,
+        set_last_online_time: bool,
+    ) -> impl Future<Output = Result<(), ResError>> {
+        let conn = (*self.0).borrow().clone();
+
+        let mut arg = Vec::with_capacity(2);
+        arg.push(("online_status", status.to_string()));
+
+        if set_last_online_time {
+            arg.push(("last_online", Utc::now().naive_utc().to_string()))
+        }
+
+        cmd("HMSET")
+            .arg(&format!("user:{}:set_perm", uid))
+            .arg(arg)
+            .query_async(conn)
+            .map_err(ResError::from)
+            .map(|(_, ())| ())
+            .compat()
+    }
+}
+
+pub struct CheckDbConn;
+
+impl Message for CheckDbConn {
+    type Result = Result<(), ResError>;
+}
+
+// actor future have to be used as we want to access actor's context to replace the Rc<RefCell<_>>s
+impl Handler<CheckDbConn> for TalkService {
+    type Result = ResponseActFuture<Self, (), ResError>;
+
+    fn handle(&mut self, _msg: CheckDbConn, _: &mut Self::Context) -> Self::Result {
+        let url = self.db_url.to_owned();
+        if self.db.borrow().is_closed() {
+            Box::new(
+                Box::pin(async move { TalkService::connect(&url).await })
+                    .compat()
+                    .into_actor(self)
+                    .and_then(|(c, mut sts), act, _| {
+                        let insert_pub_msg = sts.pop().unwrap();
+                        let insert_prv_msg = sts.pop().unwrap();
+                        let get_pub_msg = sts.pop().unwrap();
+                        let get_prv_msg = sts.pop().unwrap();
+                        let get_relations = sts.pop().unwrap();
+                        let join_talk = sts.pop().unwrap();
+
+                        act.db.replace(c);
+                        act.insert_pub_msg.replace(insert_pub_msg);
+                        act.insert_prv_msg.replace(insert_prv_msg);
+                        act.get_pub_msg.replace(get_pub_msg);
+                        act.get_prv_msg.replace(get_prv_msg);
+                        act.get_relations.replace(get_relations);
+                        act.join_talk.replace(join_talk);
+                        actix::fut::ok(())
+                    }),
+            )
+        } else {
+            Box::new(actix::fut::ok(()))
+        }
+    }
+}
+
+#[derive(Message)]
+pub struct DisconnectRequest {
+    pub session_id: u32,
+}
+
+impl Handler<DisconnectRequest> for TalkService {
+    type Result = ResponseStdFuture<()>;
+
+    fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
+        let cache = ReadWriteCache::from(self.cache.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
+
+        let f = async move {
+            let sid = msg.session_id;
+            async {
+                let sid = msg.session_id;
+                sessions.remove_session_hm(sid)?;
+                cache.set_online_status(sid, 0, true).await?;
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e))
+        };
+
+        ResponseStdFuture::from(f)
+    }
+}
+
 // pass Some(talk_id) in json for public message, pass None for private message
 #[derive(Deserialize, Message)]
 pub struct TextMessageRequest {
@@ -325,252 +414,197 @@ pub struct TextMessageRequest {
     pub session_id: Option<u32>,
 }
 
-// pass talk id for talk public messages. pass none for private history message.
-#[derive(Deserialize, Message)]
-pub struct GetHistory {
-    pub time: String,
-    pub talk_id: Option<u32>,
-    pub session_id: Option<u32>,
-}
-
-#[derive(Deserialize, Message)]
-pub struct Admin {
-    pub add: Option<u32>,
-    pub remove: Option<u32>,
-    pub talk_id: u32,
-    pub session_id: Option<u32>,
-}
-
-#[derive(Message)]
-pub struct DisconnectRequest {
-    pub session_id: u32,
-}
-
-impl TalkService {
-    fn get_by_time<T>(
-        &self,
-        st: &Statement,
-        p: &[&dyn tokio_postgres::types::ToSql],
-    ) -> impl Future<Output = Result<Vec<T>, ResError>>
-    where
-        T: std::convert::TryFrom<tokio_postgres::Row, Error = ResError> + 'static,
-    {
-        self.query_multi(st, p, Vec::with_capacity(20))
-    }
-
-    fn join_talk_db(&self, req: JoinTalkRequest) -> impl Future<Output = Result<Talk, ResError>> {
-        let sid = req.session_id.as_ref().unwrap();
-        let tid = req.talk_id;
-
-        let t = match self.get_talk_hm(tid) {
-            Ok(t) => t,
-            Err(e) => return futures::future::Either::Right(futures::future::err(e)),
-        };
-
-        if t.users.contains(sid) {
-            return futures::future::Either::Right(futures::future::err(ResError::BadRequest));
-        };
-        futures::future::Either::Left(self.query_one::<Talk>(&self.join_talk, &[&sid, &tid]))
-    }
-
-    fn get_relation(&self, uid: u32) -> impl Future<Output = Result<Relation, ResError>> {
-        self.query_one(&self.get_relations, &[&uid])
-    }
-
-    fn prepare_insert_talk_st(&self) -> impl Future<Output = Result<Statement, ResError>> {
-        self.get_client()
-            .prepare(
-                "INSERT INTO talks
-            (id, name, description, owner, admin, users)
-            VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING *",
-            )
-            .map_err(ResError::from)
-    }
-
-    fn insert_talk_db(
-        &self,
-        st: &Statement,
-        last_tid: u32,
-        msg: &CreateTalkRequest,
-    ) -> impl Future<Output = Result<Talk, ResError>> {
-        let vec = vec![msg.owner];
-
-        self.query_one(
-            st,
-            &[
-                &(last_tid + 1),
-                &msg.name,
-                &msg.description,
-                &msg.owner,
-                &vec,
-                &vec,
-            ],
-        )
-    }
-
-    fn get_last_tid_db(&self) -> impl Future<Output = Result<u32, ResError>> {
-        self.simple_query_column::<u32>("SELECT Max(id) FROM talks", 0)
-    }
-}
-
-impl Handler<DisconnectRequest> for TalkService {
-    type Result = ();
-
-    fn handle(&mut self, msg: DisconnectRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id;
-
-        let _ = self
-            .remove_session_hm(sid)
-            .map_err(|e| self.parse_send_res_error(sid, &e))
-            .map(|_| {
-                ctx.spawn(
-                    self.set_online_status_01(sid, 0, true)
-                        .into_actor(self)
-                        .map_err(move |e, act, _| act.parse_send_res_error(sid, &e)),
-                )
-            });
-    }
-}
-
 impl Handler<TextMessageRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: TextMessageRequest, ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: TextMessageRequest, _: &mut Context<Self>) -> Self::Result {
         // ToDo: batch insert messages to database.
-        let sid = msg.session_id.unwrap();
-        let now = Utc::now().naive_utc();
 
-        if let Some(tid) = msg.talk_id {
-            ctx.spawn(
-                self.query_one::<PublicMessage>(&self.insert_pub_msg, &[&tid, &msg.text, &now])
-                    .boxed_local()
-                    .compat()
-                    .into_actor(self)
-                    .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                    .map(move |_, act, _| {
-                        let s = SendMessage::PublicMessage(&vec![PublicMessage {
-                            text: msg.text,
-                            time: now,
-                            talk_id: msg.talk_id.unwrap(),
-                        }])
-                        .stringify();
+        let db = ReadWriteDb::from(self.db.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let talks = ReadWriteTalks::from(self.talks.clone());
 
-                        act.send_message_many(sid, tid, s.as_str());
-                    }),
-            );
-            return;
-        }
+        let st_public_msg = self.insert_pub_msg.clone();
+        let st_private_msg = self.insert_prv_msg.clone();
 
-        if let Some(uid) = msg.user_id {
-            ctx.spawn(
-                self.query_one::<PrivateMessage>(
-                    &self.insert_prv_msg,
-                    &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
-                )
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |_, act, _| {
-                    let s = SendMessage::PrivateMessage(&vec![PrivateMessage {
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+
+            async {
+                let sid = msg.session_id.unwrap();
+                let now = Utc::now().naive_utc();
+
+                if let Some(tid) = msg.talk_id {
+                    db.query_one::<PublicMessage>(
+                        &(*st_public_msg).borrow(),
+                        &[&tid, &msg.text, &now],
+                    )
+                    .await?;
+
+                    let s = SendMessage::PublicMessage(&[PublicMessage {
+                        text: msg.text,
+                        time: now,
+                        talk_id: msg.talk_id.unwrap(),
+                    }])
+                    .stringify();
+
+                    send_message_many(&talks, &sessions, tid, s.as_str())
+                } else {
+                    let uid = msg.user_id.ok_or(ResError::BadRequest)?;
+                    db.query_one::<PrivateMessage>(
+                        &(*st_private_msg).borrow(),
+                        &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
+                    )
+                    .await?;
+
+                    let s = SendMessage::PrivateMessage(&[PrivateMessage {
                         user_id: msg.user_id.unwrap(),
                         text: msg.text,
                         time: now,
                     }])
                     .stringify();
 
-                    act.send_message(uid, s.as_str());
-                }),
-            );
-        }
+                    sessions.send_message(sid, s.as_str());
+                    Ok(())
+                }
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e))
+        };
+
+        ResponseStdFuture::from(f)
     }
+}
+
+#[derive(Message)]
+pub struct ConnectRequest {
+    pub session_id: u32,
+    pub online_status: u32,
+    pub addr: Addr<WsChatSession>,
 }
 
 impl Handler<ConnectRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: ConnectRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id;
+    fn handle(&mut self, msg: ConnectRequest, _: &mut Context<Self>) -> Self::Result {
+        let cache = ReadWriteCache::from(self.cache.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        ctx.spawn(
-            self.set_online_status_01(sid, msg.online_status, true)
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |_, act, _| {
-                    let _ = act
-                        .insert_session_hm(sid, msg.addr.clone())
-                        .map_err(|e| act.parse_send_res_error(sid, &e))
-                        .map(|_| {
-                            msg.addr.do_send(SessionMessage(
-                                SendMessage::Success("Connection Success").stringify(),
-                            ));
-                        });
-                }),
-        );
+        let f = async move {
+            let sid = msg.session_id;
+
+            async {
+                let sid = msg.session_id;
+                let status = msg.online_status;
+                let addr = msg.addr;
+
+                cache.set_online_status(sid, status, true).await?;
+
+                sessions.insert_session_hm(sid, addr.clone())?;
+
+                addr.do_send(SessionMessage(
+                    SendMessage::Success("Connection Success").stringify(),
+                ));
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e))
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
+#[derive(Deserialize, Message, Clone)]
+pub struct CreateTalkRequest {
+    pub session_id: Option<u32>,
+    pub name: String,
+    pub description: String,
+    pub owner: u32,
+}
+
 impl Handler<CreateTalkRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: CreateTalkRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
+    fn handle(&mut self, msg: CreateTalkRequest, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        ctx.spawn(
-            self.get_last_tid_db()
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .and_then(move |tid, act, _| {
-                    act.prepare_insert_talk_st()
-                        .boxed_local()
-                        .compat()
-                        .into_actor(act)
-                        .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                        .and_then(move |st, act, _| {
-                            act.insert_talk_db(&st, tid, &msg)
-                                .boxed_local()
-                                .compat()
-                                .into_actor(act)
-                                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                                .map(move |t, act, _| {
-                                    let s = SendMessage::Talks(vec![&t]).stringify();
-                                    let _ = act
-                                        .insert_talk_hm(t)
-                                        .map_err(|e| act.parse_send_res_error(sid, &e))
-                                        .map(|_| {
-                                            act.send_message(msg.owner, s.as_str());
-                                        });
-                                })
-                        })
-                }),
-        );
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+
+            async {
+                let admins = vec![msg.owner];
+
+                let st = db.get_client().prepare("SELECT Max(id) FROM talks").await?;
+                let t: Talk = db.query_one::<Talk>(&st, &[]).await?;
+                let last_tid = t.id;
+
+                let st = db.get_client().prepare(INSERT_TALK).await?;
+                let t = db
+                    .query_one(
+                        &st,
+                        &[
+                            &(last_tid + 1),
+                            &msg.name,
+                            &msg.description,
+                            &msg.owner,
+                            &admins,
+                            &admins,
+                        ],
+                    )
+                    .await?;
+
+                let s = SendMessage::Talks(vec![&t]).stringify();
+                talks.insert_talk_hm(t)?;
+                sessions.send_message(msg.owner, s.as_str());
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e))
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
 impl Handler<JoinTalkRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: JoinTalkRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
-        let tid = msg.talk_id;
+    fn handle(&mut self, msg: JoinTalkRequest, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        ctx.spawn(
-            self.join_talk_db(msg)
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |t, act, _| {
-                    let s = SendMessage::Talks(vec![&t]).stringify();
-                    let _ = act
-                        .insert_user_hm(sid, tid)
-                        .map_err(|e| act.parse_send_res_error(sid, &e))
-                        .map(|_| act.send_message(sid, s.as_str()));
-                }),
-        );
+        let st_join_talk = self.join_talk.clone();
+
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+            async {
+                let sid = msg.session_id.unwrap();
+                let tid = msg.talk_id;
+
+                let t = talks.get_talk_hm(tid)?;
+                if t.users.contains(&sid) {
+                    return Err(ResError::BadRequest);
+                }
+
+                let t = db
+                    .query_one::<Talk>(&(*st_join_talk).borrow(), &[&sid, &tid])
+                    .await?;
+                let s = SendMessage::Talks(vec![&t]).stringify();
+
+                talks.insert_talk_hm(t)?;
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e))
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
@@ -581,23 +615,35 @@ pub struct TalkByIdRequest {
 }
 
 impl Handler<TalkByIdRequest> for TalkService {
-    type Result = ();
-    fn handle(&mut self, msg: TalkByIdRequest, _: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
+    type Result = ResponseStdFuture<()>;
+    fn handle(&mut self, msg: TalkByIdRequest, _: &mut Context<Self>) -> Self::Result {
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        let _ = self
-            .get_talks_hm()
-            .map_err(|e| self.parse_send_res_error(sid, &e))
-            .map(|t| {
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+            async {
+                let sid = msg.session_id.unwrap();
+                let talks = talks.get_talks_hm()?;
+
                 let t = match msg.talk_id {
-                    0 => t.iter().map(|(_, t)| t).collect(),
-                    _ => t
+                    0 => talks.iter().map(|(_, t)| t).collect(),
+                    _ => talks
                         .get(&msg.talk_id)
                         .map(|t| vec![t])
                         .unwrap_or_else(|| vec![]),
                 };
-                self.send_message(sid, SendMessage::Talks(t).stringify().as_str())
-            });
+
+                let s = SendMessage::Talks(t).stringify();
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
@@ -608,211 +654,253 @@ pub struct UsersByIdRequest {
 }
 
 impl Handler<UsersByIdRequest> for TalkService {
-    type Result = ();
-    fn handle(&mut self, msg: UsersByIdRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
+    type Result = ResponseStdFuture<()>;
+    fn handle(&mut self, msg: UsersByIdRequest, _: &mut Context<Self>) -> Self::Result {
+        let cache = ReadWriteCache::from(self.cache.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        ctx.spawn(
-            self.users_from_cache_01(msg.user_id)
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |u, act, _| {
-                    let s = SendMessage::Users(&u).stringify();
-                    act.send_message(sid, s.as_str())
-                }),
-        );
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+
+            async {
+                let sid = msg.session_id.unwrap();
+
+                // ToDo: remove compat layer
+                let u = cache.users_from_cache_01(msg.user_id).compat().await?;
+                let s = SendMessage::Users(&u).stringify();
+
+                sessions.send_message(sid, s.as_str());
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
 impl Handler<UserRelationRequest> for TalkService {
-    type Result = ();
-    fn handle(&mut self, msg: UserRelationRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
+    type Result = ResponseStdFuture<()>;
+    fn handle(&mut self, msg: UserRelationRequest, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let st_relation = self.get_relations.clone();
 
-        ctx.spawn(
-            self.get_relation(sid)
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |r, act, _| {
-                    act.send_message(sid, SendMessage::Friends(&r.friends).stringify().as_str());
-                }),
-        );
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+            async {
+                let sid = msg.session_id.unwrap();
+
+                let r: Relation = db.query_one(&(*st_relation).borrow(), &[&sid]).await?;
+                let s = SendMessage::Friends(&r.friends).stringify();
+
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
+// pass talk id for talk public messages. pass none for private history message.
+#[derive(Deserialize, Message)]
+pub struct GetHistory {
+    pub time: String,
+    pub talk_id: Option<u32>,
+    pub session_id: Option<u32>,
+}
+
 impl Handler<GetHistory> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: GetHistory, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
-        let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")
-            .unwrap_or_else(|_| Utc::now().naive_utc());
+    fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        match msg.talk_id {
-            Some(tid) => ctx.spawn(
-                self.get_by_time::<PublicMessage>(&self.get_pub_msg, &[&tid, &time])
-                    .boxed_local()
-                    .compat()
-                    .into_actor(self)
-                    .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                    .map(move |m, act, _| {
-                        let s = SendMessage::PublicMessage(&m).stringify();
-                        act.send_message(sid, s.as_str())
-                    }),
-            ),
-            None => ctx.spawn(
-                self.get_by_time::<PrivateMessage>(&self.get_prv_msg, &[&sid, &time])
-                    .boxed_local()
-                    .compat()
-                    .into_actor(self)
-                    .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                    .map(move |m, act, _| {
-                        let s = SendMessage::PrivateMessage(&m).stringify();
-                        act.send_message(sid, s.as_str())
-                    }),
-            ),
+        let st_public_msg = self.get_pub_msg.clone();
+        let st_private_msg = self.get_prv_msg.clone();
+
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+
+            async {
+                let sid = msg.session_id.unwrap();
+                let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
+
+                match msg.talk_id {
+                    Some(tid) => {
+                        let msg = db
+                            .query_multi::<PublicMessage>(
+                                &(*st_public_msg.borrow()),
+                                &[&tid, &time],
+                                Vec::with_capacity(20),
+                            )
+                            .await?;
+                        let s = SendMessage::PublicMessage(&msg).stringify();
+                        sessions.send_message(sid, s.as_str());
+                    }
+                    None => {
+                        let msg = db
+                            .query_multi::<PrivateMessage>(
+                                &(*st_private_msg.borrow()),
+                                &[&sid, &time],
+                                Vec::with_capacity(20),
+                            )
+                            .await?;
+                        let s = SendMessage::PrivateMessage(&msg).stringify();
+                        sessions.send_message(sid, s.as_str());
+                    }
+                }
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
         };
+
+        ResponseStdFuture::from(f)
     }
 }
 
 impl Handler<RemoveUserRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: RemoveUserRequest, ctx: &mut Context<Self>) {
-        let sid = msg.session_id.unwrap();
-        let tid = msg.talk_id;
-        let uid = msg.user_id;
+    fn handle(&mut self, msg: RemoveUserRequest, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        match self.get_session_hm(sid) {
-            Err(e) => self.parse_send_res_error(sid, &e),
-            Ok(addr) => match self.get_talk_hm(tid) {
-                Err(e) => self.parse_send_res_error(sid, &e),
-                Ok(talk) => {
-                    if !talk.users.contains(&uid) {
-                        addr.do_send(SessionMessage("!!! User not found in talk".to_owned()));
-                        return;
-                    }
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+            async {
+                let sid = msg.session_id.unwrap();
+                let tid = msg.talk_id;
+                let uid = msg.user_id;
 
-                    let other_is_admin = talk.admin.contains(&uid);
-                    let other_is_owner = talk.owner == uid;
-                    let self_is_admin = talk.admin.contains(&sid);
-                    let self_is_owner = talk.owner == sid;
+                let talk = talks.get_talk_hm(tid)?;
 
-                    let query = if self_is_owner && other_is_admin {
-                        format!("UPDATE talks SET admin=array_remove(admin, {}), users=array_remove(users, {})
-                        WHERE id={} AND owner={}", uid, uid, tid, sid)
-                    } else if (self_is_admin || self_is_owner) && !other_is_admin && !other_is_owner
-                    {
-                        format!(
-                            "UPDATE talks SET users=array_remove(users, {})
-                        WHERE id={}",
-                            uid, tid
-                        )
-                    } else {
-                        addr.do_send(SessionMessage("!!! Unauthorized".to_owned()));
-                        return;
-                    };
-
-                    ctx.spawn(
-                        self.simple_query_one::<Talk>(query.as_str())
-                            .boxed_local()
-                            .compat()
-                            .into_actor(self)
-                            .then(move |r, act, _| {
-                                match r {
-                                    Ok(t) => {
-                                        let s = serde_json::to_string(&t).unwrap_or_else(|_| {
-                                            "!!! Stringify Error.But user removal success"
-                                                .to_owned()
-                                        });
-
-                                        match act.insert_talk_hm(t) {
-                                            Ok(_) => act.send_message_many(sid, tid, &s),
-                                            Err(e) => act.parse_send_res_error(sid, &e),
-                                        };
-                                    }
-                                    Err(e) => {
-                                        addr.do_send(SessionMessage(e.stringify().to_owned()));
-                                    }
-                                }
-                                fut::ok(())
-                            }),
-                    );
+                if !talk.users.contains(&uid) {
+                    return Err(ResError::BadRequest);
                 }
-            },
-        }
+
+                let other_is_admin = talk.admin.contains(&uid);
+                let other_is_owner = talk.owner == uid;
+                let self_is_admin = talk.admin.contains(&sid);
+                let self_is_owner = talk.owner == sid;
+
+                let talk = if self_is_owner && other_is_admin {
+                    let st = db.get_client().prepare(REMOVE_ADMIN).await?;
+                    db.query_one::<Talk>(&st, &[&uid, &tid, &sid]).await?
+                } else if (self_is_admin || self_is_owner) && !other_is_admin && !other_is_owner {
+                    let st = db.get_client().prepare(REMOVE_USER).await?;
+                    db.query_one::<Talk>(&st, &[&uid, &tid]).await?
+                } else {
+                    return Err(ResError::Unauthorized);
+                };
+
+                let s = SendMessage::Talks(vec![&talk]).stringify();
+                talks.insert_talk_hm(talk)?;
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
+#[derive(Deserialize, Message)]
+pub struct Admin {
+    pub add: Option<u32>,
+    pub remove: Option<u32>,
+    pub talk_id: u32,
+    pub session_id: Option<u32>,
+}
+
 impl Handler<Admin> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: Admin, ctx: &mut Context<Self>) {
-        let tid = msg.talk_id;
-        let sid = msg.session_id.unwrap();
+    fn handle(&mut self, msg: Admin, _: &mut Context<Self>) -> Self::Result {
+        let db = ReadWriteDb::from(self.db.clone());
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
 
-        let mut query = "UPDATE talks SET admin=".to_owned();
+        let f = async move {
+            let sid = msg.session_id.unwrap();
+            async {
+                let tid = msg.talk_id;
+                let sid = msg.session_id.unwrap();
 
-        if let Some(uid) = msg.add {
-            let _ = write!(&mut query, "array_append(admin, {})", uid);
-        }
+                let (query, uid) = if let Some(uid) = msg.add {
+                    (
+                        "UPDATE talks SET admin=array_append(admin, $1) WHERE id=$2",
+                        uid,
+                    )
+                } else {
+                    let uid = msg.remove.ok_or(ResError::BadRequest)?;
+                    (
+                        "UPDATE talks SET admin=array_remove(admin, $1) WHERE id=$2",
+                        uid,
+                    )
+                };
 
-        if let Some(uid) = msg.remove {
-            let _ = write!(&mut query, "array_remove(admin, {})", uid);
-        }
+                let st = db.get_client().prepare(query).await?;
 
-        query.push_str(&format!(" WHERE id = {}", tid));
+                let t = db.query_one::<Talk>(&st, &[&uid, &tid]).await?;
 
-        ctx.spawn(
-            self.simple_query_one::<Talk>(query.as_str())
-                .boxed_local()
-                .compat()
-                .into_actor(self)
-                .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                .map(move |t, act, _| {
-                    let s = SendMessage::Talks(vec![&t]).stringify();
-                    let _ = act
-                        .insert_talk_hm(t)
-                        .map_err(|e| act.parse_send_res_error(sid, &e))
-                        .map(|_| act.send_message(sid, s.as_str()));
-                }),
-        );
+                let s = SendMessage::Talks(vec![&t]).stringify();
+                talks.insert_talk_hm(t)?;
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }
 
 impl Handler<DeleteTalkRequest> for TalkService {
-    type Result = ();
+    type Result = ResponseStdFuture<()>;
 
-    fn handle(&mut self, msg: DeleteTalkRequest, ctx: &mut Context<Self>) {
-        let tid = msg.talk_id;
+    fn handle(&mut self, msg: DeleteTalkRequest, _: &mut Context<Self>) -> Self::Result {
+        let talks = ReadWriteTalks::from(self.talks.clone());
+        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = ReadWriteDb::from(self.db.clone());
 
-        if self.get_talk_hm(tid).ok().is_some() {
+        let f = async move {
             let sid = msg.session_id.unwrap();
-            //ToDo: delete talk table and messages here.
-            let query = format!("DELETE FROM talks WHERE id = {}", tid);
+            async {
+                let sid = msg.session_id.unwrap();
+                let tid = msg.talk_id;
 
-            ctx.spawn(
-                self.simple_query_row(query.as_str())
-                    .boxed_local()
-                    .compat()
-                    .into_actor(self)
-                    .map_err(move |e, act, _| act.parse_send_res_error(sid, &e))
-                    .map(move |_, act, _| {
-                        let _ = act
-                            .remove_talk_hm(msg.talk_id)
-                            .map_err(|e| act.parse_send_res_error(sid, &e))
-                            .map(|_| {
-                                act.send_message(
-                                    sid,
-                                    SendMessage::Success("Delete Talk Success")
-                                        .stringify()
-                                        .as_str(),
-                                )
-                            });
-                    }),
-            );
-        }
+                let st = db
+                    .get_client()
+                    .prepare("DELETE FROM talks WHERE id=$1")
+                    .await?;
+                let _r = db.get_client().execute(&st, &[&tid]).await?;
+
+                talks.remove_talk_hm(tid)?;
+
+                let s = SendMessage::Success("Delete Talk Success").stringify();
+                sessions.send_message(sid, s.as_str());
+
+                Ok(())
+            }
+                .await
+                .unwrap_or_else(|e| sessions.send_error(sid, &e));
+        };
+
+        ResponseStdFuture::from(f)
     }
 }

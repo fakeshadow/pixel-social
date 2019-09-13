@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use actix_web::{
     web::{Data, Json, Query},
     Error, HttpResponse,
@@ -33,13 +31,13 @@ async fn query_handler_async(
 ) -> Result<HttpResponse, Error> {
     // send request to psn service actor no matter the local result.
     // psn service actor will handle if the request will add to psn queue by using time gate.
-    let req_temp = req.deref().clone();
+    let req_temp = req.clone();
     tokio::spawn(async move {
         addr.do_send((req_temp, false)).await;
     });
 
     // return local result if there is any.
-    match req.deref() {
+    match &*req {
         PSNRequest::Profile { online_id } => {
             if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
                 return Ok(HttpResponse::Ok().json(&p));
@@ -88,7 +86,7 @@ async fn query_handler_with_jwt_async(
     req: Query<PSNRequest>,
     addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
-    match req.deref() {
+    match *req {
         PSNRequest::Auth { .. } => {
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 

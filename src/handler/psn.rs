@@ -105,7 +105,7 @@ impl PSNService {
 
         // use an unbounded channel to inject request to queue from other threads.
         let (addr, receiver) = futures::channel::mpsc::unbounded::<(PSNRequest, bool)>();
-        
+
         // queue is passed to both PSNService and QueueInjector.
         let queue = Arc::new(Mutex::new(VecDeque::new()));
 
@@ -154,6 +154,7 @@ impl PSNService {
         let queue = self.check_token().await?.queue.lock().await.pop_front();
 
         if let Some(r) = queue {
+            println!("got request : {:#?}", r);
             match r {
                 PSNRequest::Profile { online_id } => self.handle_profile_request(online_id).await,
                 PSNRequest::TrophyTitles { online_id, .. } => {
@@ -285,7 +286,7 @@ impl QueueInjector {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "query_type")]
 pub enum PSNRequest {
     Profile {

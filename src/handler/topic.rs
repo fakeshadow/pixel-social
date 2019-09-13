@@ -107,8 +107,8 @@ impl DatabaseService {
         &self,
         ids: &[u32],
     ) -> Result<(Vec<Topic>, Vec<u32>), ResError> {
-        let st = &self.topics_by_id.borrow();
-        self.get_by_id_with_uid(st, ids).await
+        self.get_by_id_with_uid(&self.topics_by_id.borrow(), ids)
+            .await
     }
 }
 

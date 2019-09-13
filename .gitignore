@@ -1,5 +1,6 @@
 /target
 .env
+Cargo.lock
 .dump.rdb
 **/*.rs.bk
 /.idea

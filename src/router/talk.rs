@@ -1,6 +1,8 @@
 use std::time::Instant;
 
-use actix::prelude::{ActorContext, AsyncContext, Handler, Message, StreamHandler};
+use actix::prelude::{
+    ActorContext, ActorFuture, AsyncContext, Handler, Message, StreamHandler, WrapFuture,
+};
 use actix_web::{
     web::{Data, Payload},
     Error, HttpRequest, HttpResponse,
@@ -9,12 +11,21 @@ use actix_web_actors::ws;
 use serde::Deserialize;
 
 use crate::handler::talk::{
-    Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
-    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService, TextMessageRequest,
-    UserRelationRequest, UsersByIdRequest, TALK,
+    Admin, AuthRequest, CheckDbConn, ConnectRequest, CreateTalkRequest, DeleteTalkRequest,
+    GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService,
+    TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
 };
+use crate::model::talk::SendMessage;
 use crate::model::{actors::WsChatSession, talk::SessionMessage};
 use crate::util::jwt::JwtPayLoad;
+
+lazy_static! {
+    static ref PARSING_ERROR: String = SendMessage::Error("Query Parsing Error").stringify();
+    static ref DB_ERROR: String = SendMessage::Error("DataBase Error").stringify();
+    static ref COMMAND_ERROR: String = SendMessage::Error("Empty Command").stringify();
+    static ref AUTH_ERROR: String = SendMessage::Error("Unauthorized Command").stringify();
+    static ref MSG_RANGE_ERROR: String = SendMessage::Error("Message Out of Range").stringify();
+}
 
 pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpResponse, Error> {
     println!("connected");
@@ -50,24 +61,38 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 let t = t.trim();
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
-                    ctx.text("!!! Empty command");
+                    ctx.text(COMMAND_ERROR.as_str());
                     return;
                 }
                 if v[0].len() > 10 || v[1].len() > 2560 {
-                    ctx.text("!!! Message out of range");
+                    ctx.text(MSG_RANGE_ERROR.as_str());
                     return;
                 }
                 if self.id == 0 {
                     match v[0] {
                         "/auth" => auth(self, v[1], ctx),
-                        _ => ctx.text("!!! Unauthorized command"),
+                        _ => ctx.text(AUTH_ERROR.as_str()),
                     }
                 } else {
                     match v[0] {
                         "/msg" => general_msg_handler::<TextMessageRequest>(self, v[1], ctx),
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
                         "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
-                        "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
+                        "/admin" => {
+                            let text = v[1].to_owned();
+                            ctx.spawn(
+                                self.addr
+                                    .send(CheckDbConn)
+                                    .into_actor(self)
+                                    .map_err(|_, _, _| ())
+                                    .map(move |r, act, ctx| {
+                                        if let Err(_e) = r {
+                                            ctx.text(DB_ERROR.as_str());
+                                        };
+                                        general_msg_handler::<Admin>(act, text.as_str(), ctx)
+                                    }),
+                            );
+                        }
                         "/users" => general_msg_handler::<UsersByIdRequest>(self, v[1], ctx),
                         // request talk_id 0 to get all talks details.
                         "/talks" => general_msg_handler::<TalkByIdRequest>(self, v[1], ctx),
@@ -75,7 +100,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                         "/join" => general_msg_handler::<JoinTalkRequest>(self, v[1], ctx),
                         "/create" => general_msg_handler::<CreateTalkRequest>(self, v[1], ctx),
                         "/delete" => general_msg_handler::<DeleteTalkRequest>(self, v[1], ctx),
-                        _ => ctx.text("!!! Unknown command"),
+                        _ => ctx.text(COMMAND_ERROR.as_str()),
                     }
                 }
             }
@@ -164,7 +189,7 @@ fn general_msg_handler<'a, T>(
             msg.attach_session_id(session.id);
             session.addr.do_send(msg)
         }
-        Err(_) => ctx.text("!!! Query parsing error"),
+        Err(_) => ctx.text(PARSING_ERROR.as_str()),
     }
 }
 
@@ -180,8 +205,8 @@ fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<
                     addr: ctx.address(),
                 });
             }
-            Err(_) => ctx.text("!!! Authentication failed"),
+            Err(_) => ctx.text(PARSING_ERROR.as_str()),
         },
-        Err(_) => ctx.text("!!! Query parsing error"),
+        Err(_) => ctx.text(PARSING_ERROR.as_str()),
     }
 }
