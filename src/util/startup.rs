@@ -1,11 +1,15 @@
 use chrono::NaiveDateTime;
 use futures::{compat::Future01CompatExt, FutureExt, TryStreamExt};
 use futures01::Future as Future01;
-use tokio_postgres::{tls::NoTls, SimpleQueryMessage};
+use redis::aio::SharedConnection;
+use tokio_postgres::{tls::NoTls, Client, SimpleQueryMessage};
 
-use crate::handler::cache::{
-    build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01,
-    build_users_cache_01,
+use crate::handler::{
+    cache::{
+        build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01,
+        build_users_cache_01,
+    },
+    db::query_multi_fn,
 };
 use crate::model::{
     category::Category,
@@ -258,19 +262,7 @@ pub async fn build_cache(
         .await?;
 
     // Load all categories and make hash map sets.
-    let st = c.prepare("SELECT * FROM categories").await?;
-
-    let categories =
-        crate::handler::db::query_multi_fn::<Category>(&mut c, &st, &[], Vec::new()).await?;
-
-    build_hmsets_01(
-        c_cache.clone(),
-        &categories,
-        crate::handler::cache::CATEGORY_U8,
-        false,
-    )
-    .compat()
-    .await?;
+    let categories = build_categories_cache(&mut c, &c_cache).await?;
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -314,8 +306,7 @@ pub async fn build_cache(
             .prepare("SELECT * FROM topics WHERE category_id = $1 ORDER BY created_at DESC")
             .await?;
 
-        let t = crate::handler::db::query_multi_fn::<Topic>(&mut c, &st, &[&cat.id], Vec::new())
-            .await?;
+        let t = query_multi_fn::<Topic>(&mut c, &st, &[&cat.id], Vec::new()).await?;
 
         // load topics reply count
         let query = format!(
@@ -436,25 +427,10 @@ pub async fn build_cache(
             .await;
     }
 
-    let st = c.prepare("SELECT * FROM users").await?;
-
-    let users = crate::handler::db::query_multi_fn::<User>(&mut c, &st, &[], Vec::new()).await?;
-
-    // ToDo： collect all subscribe data from users and update category subscribe count.
-
-    let mut last_uid = 1;
-    for u in users.iter() {
-        if u.id > last_uid {
-            last_uid = u.id
-        };
-    }
-    build_users_cache_01(users, c_cache.clone())
-        .compat()
-        .await?;
+    let last_uid = build_users_cache(&mut c, &c_cache).await?;
 
     let st = c.prepare("SELECT * FROM talks").await?;
-
-    let talks = crate::handler::db::query_multi_fn::<Talk>(&mut c, &st, &[], Vec::new()).await?;
+    let talks = query_multi_fn::<Talk>(&mut c, &st, &[], Vec::new()).await?;
 
     let (talks, sessions) = new_global_talks_sessions(talks);
 
@@ -465,6 +441,46 @@ pub async fn build_cache(
         talks,
         sessions,
     ))
+}
+
+async fn build_categories_cache(
+    c: &mut Client,
+    c_cache: &SharedConnection,
+) -> Result<Vec<Category>, ResError> {
+    let st = c.prepare("SELECT * FROM categories").await?;
+    let categories = query_multi_fn::<Category>(c, &st, &[], Vec::new()).await?;
+
+    build_hmsets_01(
+        c_cache.clone(),
+        &categories,
+        crate::handler::cache::CATEGORY_U8,
+        false,
+    )
+    .compat()
+    .await?;
+
+    Ok(categories)
+}
+
+// return last user.id in result for building global vars.
+async fn build_users_cache(c: &mut Client, c_cache: &SharedConnection) -> Result<u32, ResError> {
+    let st = c.prepare("SELECT * FROM users").await?;
+    let users = query_multi_fn::<User>(c, &st, &[], Vec::new()).await?;
+
+    // ToDo： collect all subscribe data from users and update category subscribe count.
+
+    let mut last_uid = 1;
+    for u in users.iter() {
+        if u.id > last_uid {
+            last_uid = u.id
+        };
+    }
+
+    build_users_cache_01(users, c_cache.clone())
+        .compat()
+        .await?;
+
+    Ok(last_uid)
 }
 
 // return Ok(false) if tables already exist.

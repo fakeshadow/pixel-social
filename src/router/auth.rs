@@ -57,7 +57,7 @@ async fn register_async(
 
     cache.add_activation_mail(u.clone());
 
-    crate::router::user::update_user_with_fail_check(cache, u);
+    crate::router::user::update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }
@@ -87,7 +87,7 @@ async fn activate_by_mail_async(
 
     cache.remove_activation_uuid(uuid.as_str());
 
-    crate::router::user::update_user_with_fail_check(cache, u);
+    crate::router::user::update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }

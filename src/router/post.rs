@@ -2,7 +2,7 @@ use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse, ResponseError,
 };
-use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
 use crate::handler::{
@@ -50,24 +50,15 @@ pub async fn add_async(
 
     let res = HttpResponse::Ok().json(&p);
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .add_post_cache_01(&p)
-                        .compat()
-                        .map_err(move |_| cache.send_failed_post(p))
-                        .await;
-                }
-                Err(_) => cache.send_failed_post(p),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .add_post_cache_01(&p)
+                .map_err(move |_| cache.send_failed_post(p)),
+        ),
+        Err(_) => cache.send_failed_post(p),
+    };
 
     Ok(res)
 }
@@ -96,31 +87,23 @@ async fn update_async(
 
     let res = HttpResponse::Ok().json(&p);
 
-    update_post_with_fail_check(cache, p);
+    update_post_with_fail_check(cache, p).await;
 
     Ok(res)
 }
 
-pub fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
+pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
     let p = vec![p];
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .update_post_return_fail(p)
-                        .map_err(move |p| cache.send_failed_post_update(p))
-                        .await;
-                }
-                Err(_) => cache.send_failed_post_update(p),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .update_post_return_fail01(p)
+                .map_err(move |p| cache.send_failed_post_update(p)),
+        ),
+        Err(_) => cache.send_failed_post_update(p),
+    };
 }
 
 pub fn get(

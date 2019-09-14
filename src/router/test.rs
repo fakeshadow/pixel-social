@@ -34,9 +34,10 @@ pub fn add_topic(
         privilege: 9,
     };
 
-    crate::router::topic::add_async(jwt, db, cache, Json(req), global)
-        .boxed_local()
-        .compat()
+    Box::pin(
+        async move { crate::router::topic::add_async(jwt, db, cache, Json(req), global).await },
+    )
+    .compat()
 }
 
 pub fn add_post(
@@ -66,7 +67,7 @@ pub fn add_post(
 }
 
 pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item = HttpResponse, Error = Error> {
-    raw_async(db).boxed_local().compat()
+    Box::pin(async move { raw_async(db).await }).compat()
 }
 
 pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse, Error = Error> {

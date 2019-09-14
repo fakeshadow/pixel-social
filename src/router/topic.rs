@@ -3,7 +3,7 @@ use actix_web::{
     web::{Data, Json, Query},
     Error, HttpResponse, ResponseError,
 };
-use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
@@ -51,24 +51,15 @@ pub async fn add_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .add_topic_cache_01(&t)
-                        .compat()
-                        .map_err(move |_| cache.send_failed_topic(t))
-                        .await;
-                }
-                Err(_) => cache.send_failed_topic(t),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .add_topic_cache_01(&t)
+                .map_err(move |_| cache.send_failed_topic(t)),
+        ),
+        Err(_) => cache.send_failed_topic(t),
+    };
 
     Ok(res)
 }
@@ -97,31 +88,23 @@ async fn update_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    update_topic_with_fail_check(cache, t);
+    update_topic_with_fail_check(cache, t).await;
 
     Ok(res)
 }
 
-pub(crate) fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
+pub(crate) async fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
     let t = vec![t];
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .update_topic_return_fail(t)
-                        .map_err(move |t| cache.send_failed_topic_update(t))
-                        .await;
-                }
-                Err(_) => cache.send_failed_topic_update(t),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .update_topic_return_fail01(t)
+                .map_err(move |t| cache.send_failed_topic_update(t)),
+        ),
+        Err(_) => cache.send_failed_topic_update(t),
+    };
 }
 
 pub fn query_handler(

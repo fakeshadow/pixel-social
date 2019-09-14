@@ -2,7 +2,7 @@ use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
-use futures::{compat::Future01CompatExt, FutureExt, TryFutureExt};
+use futures::{FutureExt, TryFutureExt};
 use futures01::Future as Future01;
 
 use crate::handler::{
@@ -44,24 +44,15 @@ async fn add_category_async(
 
     let res = HttpResponse::Ok().json(&c);
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .add_category_cache_01(&c)
-                        .compat()
-                        .map_err(move |_| cache.send_failed_category(c))
-                        .await;
-                }
-                Err(_) => cache.send_failed_category(c),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .add_category_cache_01(&c)
+                .map_err(move |_| cache.send_failed_category(c)),
+        ),
+        Err(_) => cache.send_failed_category(c),
+    };
 
     Ok(res)
 }
@@ -143,7 +134,7 @@ async fn update_user_async(
 
     let res = HttpResponse::Ok().json(&u);
 
-    crate::router::user::update_user_with_fail_check(cache, u);
+    crate::router::user::update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }
@@ -175,7 +166,7 @@ async fn update_topic_async(
 
     let res = HttpResponse::Ok().json(&t);
 
-    crate::router::topic::update_topic_with_fail_check(cache, t);
+    crate::router::topic::update_topic_with_fail_check(cache, t).await;
 
     Ok(res)
 }
@@ -207,7 +198,7 @@ async fn update_post_async(
 
     let res = HttpResponse::Ok().json(&p);
 
-    crate::router::post::update_post_with_fail_check(cache, p);
+    crate::router::post::update_post_with_fail_check(cache, p).await;
 
     Ok(res)
 }

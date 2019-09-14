@@ -95,13 +95,11 @@ impl CacheService {
         actix::spawn(build_hmsets_01(self.get_conn(), u, USER_U8, false).map_err(|_| ()));
     }
 
-    pub fn update_user_return_fail(
+    pub fn update_user_return_fail01(
         &self,
         u: Vec<User>,
-    ) -> impl Future<Output = Result<(), Vec<User>>> {
-        build_hmsets_01(self.get_conn(), &u, USER_U8, true)
-            .map_err(|_| u)
-            .compat()
+    ) -> impl Future01<Item = (), Error = Vec<User>> {
+        build_hmsets_01(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
     }
 
     pub fn send_failed_user(&self, u: Vec<User>) {

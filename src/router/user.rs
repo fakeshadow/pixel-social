@@ -67,29 +67,21 @@ async fn update_async(
 
     let res = HttpResponse::Ok().json(&u);
 
-    update_user_with_fail_check(cache, u);
+    update_user_with_fail_check(cache, u).await;
 
     Ok(res)
 }
 
-pub(crate) fn update_user_with_fail_check(cache: Data<CacheService>, u: User) {
+pub(crate) async fn update_user_with_fail_check(cache: Data<CacheService>, u: User) {
     let u = vec![u];
 
-    actix::spawn(
-        async {
-            match cache.check_conn().await {
-                Ok(opt) => {
-                    let _ = cache
-                        .if_replace_cache(opt)
-                        .update_user_return_fail(u)
-                        .map_err(move |u| cache.send_failed_user(u))
-                        .await;
-                }
-                Err(_) => cache.send_failed_user(u),
-            };
-            Ok(())
-        }
-            .boxed_local()
-            .compat(),
-    );
+    match cache.check_conn().await {
+        Ok(opt) => actix::spawn(
+            cache
+                .if_replace_cache(opt)
+                .update_user_return_fail01(u)
+                .map_err(move |u| cache.send_failed_user(u)),
+        ),
+        Err(_) => cache.send_failed_user(u),
+    };
 }

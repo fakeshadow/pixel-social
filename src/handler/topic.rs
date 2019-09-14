@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use chrono::Utc;
-use futures::{compat::Future01CompatExt, FutureExt};
+use futures::FutureExt;
 use futures01::Future as Future01;
 use tokio_postgres::types::ToSql;
 
@@ -107,8 +107,8 @@ impl DatabaseService {
         &self,
         ids: &[u32],
     ) -> Result<(Vec<Topic>, Vec<u32>), ResError> {
-        self.get_by_id_with_uid(&self.topics_by_id.borrow(), ids)
-            .await
+        let st = &*self.topics_by_id.borrow();
+        self.get_by_id_with_uid(st, ids).await
     }
 }
 
@@ -161,13 +161,11 @@ impl CacheService {
 
     // Don't confused these with update_topics/posts/users methods. The latter methods run in spawned futures and the errors are ignored.
     // They are separate methods as we don't want to retry every failed update cache for most times the data are from expired cache query and not actual content update.
-    pub fn update_topic_return_fail(
+    pub fn update_topic_return_fail01(
         &self,
         t: Vec<Topic>,
-    ) -> impl Future<Output = Result<(), Vec<Topic>>> {
-        build_hmsets_01(self.get_conn(), &t, TOPIC_U8, true)
-            .map_err(|_| t)
-            .compat()
+    ) -> impl Future01<Item = (), Error = Vec<Topic>> {
+        build_hmsets_01(self.get_conn(), &t, TOPIC_U8, true).map_err(|_| t)
     }
 
     // send failed data to CacheUpdateService actor and retry from there.

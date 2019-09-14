@@ -1,6 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use actix::prelude::Addr;
+use async_std::sync::RwLock;
 use hashbrown::HashMap;
 
 use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
