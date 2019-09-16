@@ -1,9 +1,9 @@
 use actix_web::{dev, FromRequest, HttpRequest};
-use futures::{compat::Future01CompatExt, FutureExt};
+use futures::FutureExt;
 
 use crate::handler::{
     cache::CacheService,
-    db::{DatabaseService, GetDbClient, Query},
+    db::{AsCrateClient, DatabaseService},
 };
 use crate::model::{
     common::GlobalVars,
@@ -38,8 +38,10 @@ impl FromRequest for JwtPayLoad {
 impl DatabaseService {
     pub async fn register(&self, req: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
         let st = self
-            .get_client()
-            .prepare("SELECT * FROM users WHERE username=$1 OR email=$2")
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep("SELECT * FROM users WHERE username=$1 OR email=$2")
             .await?;
 
         let username = req.username.as_str();
@@ -47,6 +49,9 @@ impl DatabaseService {
         let email = req.email.as_ref().map(String::as_str).unwrap();
 
         let users: Vec<User> = self
+            .client
+            .borrow_mut()
+            .as_cli()
             .query_multi(&st, &[&username, &email], Vec::with_capacity(2))
             .await?;
 
@@ -65,27 +70,38 @@ impl DatabaseService {
 
         let u = req.make_user(id, hash.as_str())?;
 
-        self.query_one(
-            &self.insert_user.borrow(),
-            &[
-                &u.id,
-                &u.username,
-                &u.email,
-                &u.hashed_password,
-                &u.avatar_url,
-                &u.signature,
-            ],
-        )
-        .await
+        let st = &*self.insert_user.borrow();
+        self.client
+            .borrow_mut()
+            .as_cli()
+            .query_one(
+                st,
+                &[
+                    &u.id,
+                    &u.username,
+                    &u.email,
+                    &u.hashed_password,
+                    &u.avatar_url,
+                    &u.signature,
+                ],
+            )
+            .await
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
         let st = self
-            .get_client()
-            .prepare("SELECT * FROM users WHERE username=$1")
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep("SELECT * FROM users WHERE username=$1")
             .await?;
 
-        let user: User = self.query_one(&st, &[&req.username]).await?;
+        let user: User = self
+            .client
+            .borrow_mut()
+            .as_cli()
+            .query_one(&st, &[&req.username])
+            .await?;
 
         crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 
@@ -98,7 +114,7 @@ impl DatabaseService {
 impl CacheService {
     pub async fn get_uid_from_uuid(&self, uuid: &str) -> Result<u32, ResError> {
         use crate::handler::cache::HashMapBrownFromCache;
-        let hm = self.hash_map_brown_from_cache_01(uuid).compat().await?;
+        let hm = self.hash_map_brown_from_cache(uuid).await?;
         Ok(hm
             .0
             .get("user_id")

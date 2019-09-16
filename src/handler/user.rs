@@ -1,13 +1,13 @@
 use std::future::Future;
 
-use futures::compat::Future01CompatExt;
-use futures01::Future as Future01;
+use futures::{FutureExt, TryFutureExt};
 use tokio_postgres::types::ToSql;
 
+use crate::handler::db::CrateClientLike;
 use crate::handler::{
-    cache::{build_hmsets_01, CacheService, GetSharedConn, USER_U8},
+    cache::{build_hmsets, CacheService, GetSharedConn, USER_U8},
     cache_update::CacheFailedMessage,
-    db::{DatabaseService, GetDbClient, Query},
+    db::{AsCrateClient, DatabaseService},
 };
 use crate::model::{
     errors::ResError,
@@ -67,16 +67,20 @@ impl DatabaseService {
 
         query.push_str(" RETURNING *");
 
-        let st = self.get_client().prepare(query.as_str()).await?;
+        let st = self.cli_like().prepare(query.as_str()).await?;
 
-        self.query_one(&st, &params).await
+        self.cli_like().as_cli().query_one(&st, &params).await
     }
 
     pub fn get_users_by_id(
         &self,
         ids: &[u32],
     ) -> impl Future<Output = Result<Vec<User>, ResError>> {
-        self.query_multi(&self.users_by_id.borrow(), &[&ids], Vec::with_capacity(21))
+        let st = &*self.users_by_id.borrow();
+
+        self.cli_like()
+            .as_cli()
+            .query_multi(st, &[&ids], Vec::with_capacity(21))
     }
 }
 
@@ -88,21 +92,26 @@ impl CacheService {
         ids.sort();
         ids.dedup();
         use crate::handler::cache::UsersFromCache;
-        self.users_from_cache_01(ids).compat()
+        self.users_from_cache(ids)
     }
 
     pub fn update_users(&self, u: &[User]) {
-        actix::spawn(build_hmsets_01(self.get_conn(), u, USER_U8, false).map_err(|_| ()));
+        actix::spawn(
+            build_hmsets(self.get_conn(), u, USER_U8, false)
+                .map_err(|_| ())
+                .boxed_local()
+                .compat(),
+        );
     }
 
-    pub fn update_user_return_fail01(
+    pub fn update_user_return_fail(
         &self,
         u: Vec<User>,
-    ) -> impl Future01<Item = (), Error = Vec<User>> {
-        build_hmsets_01(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
+    ) -> impl Future<Output = Result<(), Vec<User>>> {
+        build_hmsets(self.get_conn(), &u, USER_U8, true).map_err(|_| u)
     }
 
     pub fn send_failed_user(&self, u: Vec<User>) {
-        let _ = self.recipient.do_send(CacheFailedMessage::FailedUser(u));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedUser(u));
     }
 }

@@ -11,7 +11,7 @@ use actix_web_actors::ws;
 use serde::Deserialize;
 
 use crate::handler::talk::{
-    Admin, AuthRequest, CheckDbConn, ConnectRequest, CreateTalkRequest, DeleteTalkRequest,
+    Admin, AuthRequest, CheckPostgresMessage, ConnectRequest, CreateTalkRequest, DeleteTalkRequest,
     GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService,
     TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
 };
@@ -82,7 +82,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                             let text = v[1].to_owned();
                             ctx.spawn(
                                 self.addr
-                                    .send(CheckDbConn)
+                                    .send(CheckPostgresMessage)
                                     .into_actor(self)
                                     .map_err(|_, _, _| ())
                                     .map(move |r, act, ctx| {

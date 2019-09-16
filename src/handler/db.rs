@@ -1,7 +1,7 @@
 use std::{
     cell::{RefCell, RefMut},
-    convert::TryFrom,
     future::Future,
+    sync::MutexGuard,
 };
 
 use futures::{future::join_all, FutureExt, TryFutureExt, TryStreamExt};
@@ -11,7 +11,8 @@ use tokio_postgres::{
 };
 
 use crate::model::{
-    common::{PinedBoxFutureResult, SelfId, SelfUserId},
+    common::{SelfId, SelfUserId},
+    db_schema::TryFromRef,
     errors::ResError,
 };
 
@@ -45,12 +46,18 @@ pub struct DatabaseService {
     pub insert_user: RefCell<Statement>,
 }
 
+impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for DatabaseService {
+    fn cli_like(&'a self) -> RefMut<'a, Client> {
+        self.client.borrow_mut()
+    }
+}
+
 impl DatabaseService {
     /// database connection is only checked on insert request.
     /// Connections are not shared between threads so the recovery will happen separately.
-    pub(crate) async fn check_conn(&self) -> Result<&Self, ResError> {
+    pub(crate) async fn check_postgres(&self) -> Result<&Self, ResError> {
         if self.client.borrow().is_closed() {
-            let (c, mut sts) = DatabaseService::connect(self.url.as_str()).await?;
+            let (c, mut sts) = DatabaseService::connect_postgres(self.url.as_str()).await?;
             let topics_by_id = sts.pop().unwrap();
             let posts_by_id = sts.pop().unwrap();
             let users_by_id = sts.pop().unwrap();
@@ -74,7 +81,7 @@ impl DatabaseService {
     pub(crate) async fn init(postgres_url: &str) -> Result<DatabaseService, ResError> {
         let url = postgres_url.to_owned();
 
-        let (c, mut sts) = DatabaseService::connect(postgres_url).await?;
+        let (c, mut sts) = DatabaseService::connect_postgres(postgres_url).await?;
 
         let topics_by_id = sts.pop().unwrap();
         let posts_by_id = sts.pop().unwrap();
@@ -95,12 +102,11 @@ impl DatabaseService {
         })
     }
 
-    async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
+    async fn connect_postgres(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
         let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
-        //ToDo: remove compat layer when actix convert to use std::future;
         let conn = conn.map(|_| ());
-        actix::spawn(conn.unit_error().boxed().compat());
+        tokio::spawn(conn);
 
         let p1 = c.prepare_typed(SELECT_TOPIC, &[Type::OID_ARRAY]);
         let p2 = c.prepare_typed(SELECT_POST, &[Type::OID_ARRAY]);
@@ -161,15 +167,15 @@ impl DatabaseService {
         ids: &[u32],
     ) -> Result<(Vec<T>, Vec<u32>), ResError>
     where
-        T: SelfUserId + SelfId + TryFrom<Row, Error = ResError>,
+        T: SelfUserId + SelfId + TryFromRef<Row, Error = ResError>,
     {
         let (mut v, uids) = self
-            .get_client()
+            .cli_like()
             .query(st, &[&ids])
             .try_fold(
                 (Vec::with_capacity(20), Vec::with_capacity(20)),
                 move |(mut v, mut uids), r| {
-                    if let Ok(r) = T::try_from(r) {
+                    if let Ok(r) = T::try_from_ref(&r) {
                         uids.push(r.get_user_id());
                         v.push(r)
                     }
@@ -189,55 +195,6 @@ impl DatabaseService {
         }
 
         Ok((result, uids))
-    }
-}
-
-impl GetDbClient for DatabaseService {
-    fn get_client(&self) -> RefMut<Client> {
-        self.client.borrow_mut()
-    }
-}
-
-impl Query for DatabaseService {}
-
-pub trait GetDbClient {
-    fn get_client(&self) -> RefMut<Client>;
-}
-
-pub trait Query: GetDbClient {
-    fn query_one<T>(&self, st: &Statement, p: &[&dyn ToSql]) -> PinedBoxFutureResult<T>
-    where
-        T: TryFrom<Row, Error = ResError>,
-    {
-        Box::pin(
-            self.get_client()
-                .query(st, p)
-                .try_collect::<Vec<Row>>()
-                .map(|r| T::try_from(r?.pop().ok_or(ResError::BadRequest)?)),
-        )
-    }
-
-    fn query_multi<T>(
-        &self,
-        st: &Statement,
-        p: &[&dyn ToSql],
-        vec: Vec<T>,
-    ) -> PinedBoxFutureResult<Vec<T>>
-    where
-        T: TryFrom<Row, Error = ResError> + 'static,
-    {
-        Box::pin(query_multi_fn(&mut self.get_client(), st, p, vec))
-    }
-}
-
-pub trait SimpleQuery: GetDbClient {
-    fn simple_query_row(&self, q: &str) -> PinedBoxFutureResult<SimpleQueryRow> {
-        Box::pin(
-            self.get_client()
-                .simple_query(q)
-                .try_collect::<Vec<SimpleQueryMessage>>()
-                .map(|r| pop_simple_query_row(r?)),
-        )
     }
 }
 
@@ -273,13 +230,13 @@ pub fn query_multi_fn<T>(
     vec: Vec<T>,
 ) -> impl Future<Output = Result<Vec<T>, ResError>>
 where
-    T: TryFrom<Row, Error = ResError> + 'static,
+    T: TryFromRef<Row, Error = ResError> + 'static,
 {
     client
         .query(st, params)
-        .map_err(ResError::from)
+        .err_into()
         .try_fold(vec, move |mut vec, r| {
-            if let Ok(r) = T::try_from(r) {
+            if let Ok(r) = T::try_from_ref(&r) {
                 vec.push(r);
             }
             futures::future::ok(vec)
@@ -298,4 +255,94 @@ where
         .try_collect::<Vec<SimpleQueryMessage>>()
         .map(|r| pop_simple_query_row(r?))
         .map(move |r| parse_column_by_index(r, index))
+}
+
+/// construct `CrateClient` from wrappers.
+pub trait AsCrateClient {
+    fn as_cli(&mut self) -> CrateClient;
+}
+
+impl AsCrateClient for RefMut<'_, Client> {
+    fn as_cli(&mut self) -> CrateClient {
+        CrateClient(self)
+    }
+}
+
+impl AsCrateClient for MutexGuard<'_, Client> {
+    fn as_cli(&mut self) -> CrateClient {
+        CrateClient(&mut **self)
+    }
+}
+
+impl AsCrateClient for &'_ mut Client {
+    fn as_cli(&mut self) -> CrateClient {
+        CrateClient(self)
+    }
+}
+
+/// we can't get `&mut Client` directly from wrapper types like `RefCell` or `Mutex`
+/// this trait acts as a middle man for `AsCrateClient` trait
+pub trait CrateClientLike<'a, T: AsCrateClient + 'a> {
+    fn cli_like(&'a self) -> T;
+}
+
+/// take `&mut self`
+pub trait CrateClientMutLike<'a, T: AsCrateClient + 'a> {
+    fn cli_like_mut(&'a mut self) -> T;
+}
+
+/// a wrapper type for `&mut Client`
+pub struct CrateClient<'a>(&'a mut Client);
+
+impl<'a> CrateClient<'a> {
+    pub(crate) fn query_one<T>(
+        &mut self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+    ) -> impl Future<Output = Result<T, ResError>> + Send
+    where
+        T: TryFromRef<Row, Error = ResError> + Send,
+    {
+        self.0
+            .query(st, p)
+            .try_collect::<Vec<Row>>()
+            .map(|r| T::try_from_ref(&r?.pop().ok_or(ResError::BadRequest)?))
+    }
+
+    pub(crate) fn query_multi<T>(
+        &mut self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+        vec: Vec<T>,
+    ) -> impl Future<Output = Result<Vec<T>, ResError>> + Send
+    where
+        T: TryFromRef<Row, Error = ResError> + Send + 'static,
+    {
+        query_multi_fn(self.0, st, p, vec)
+    }
+
+    pub(crate) fn simple_query_row(
+        &mut self,
+        q: &str,
+    ) -> impl Future<Output = Result<SimpleQueryRow, ResError>> + Send {
+        self.0
+            .simple_query(q)
+            .try_collect::<Vec<SimpleQueryMessage>>()
+            .map(|r| pop_simple_query_row(r?))
+    }
+
+    pub(crate) fn prep(
+        &mut self,
+        query: &str,
+    ) -> impl Future<Output = Result<Statement, ResError>> + Send {
+        self.0.prepare(query).err_into()
+    }
+
+    pub(crate) fn exec(
+        &mut self,
+        st: &Statement,
+        p: &[&dyn ToSql],
+    ) -> impl Future<Output = Result<u64, ResError>> + Send {
+        self.0.execute(st, p).err_into()
+    }
 }

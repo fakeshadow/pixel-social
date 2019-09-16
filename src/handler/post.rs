@@ -1,14 +1,13 @@
 use std::future::Future;
 
 use chrono::Utc;
-use futures::FutureExt;
-use futures01::Future as Future01;
+use futures::{FutureExt, TryFutureExt};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
-    cache::{build_hmsets_01, CacheService, GetSharedConn, POST_U8},
+    cache::{build_hmsets, CacheService, GetSharedConn, POST_U8},
     cache_update::CacheFailedMessage,
-    db::{DatabaseService, GetDbClient, Query},
+    db::{AsCrateClient, DatabaseService},
 };
 use crate::model::{
     common::GlobalVars,
@@ -22,20 +21,23 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_local();
 
-        self.query_one(
-            &self.insert_post.borrow(),
-            &[
-                &id,
-                p.user_id.as_ref().unwrap(),
-                &p.topic_id.as_ref().unwrap(),
-                &p.category_id,
-                &p.post_id,
-                p.post_content.as_ref().unwrap(),
-                now,
-                now,
-            ],
-        )
-        .await
+        self.client
+            .borrow_mut()
+            .as_cli()
+            .query_one(
+                &self.insert_post.borrow(),
+                &[
+                    &id,
+                    p.user_id.as_ref().unwrap(),
+                    &p.topic_id.as_ref().unwrap(),
+                    &p.category_id,
+                    &p.post_id,
+                    p.post_content.as_ref().unwrap(),
+                    now,
+                    now,
+                ],
+            )
+            .await
     }
 
     pub async fn update_post(&self, p: PostRequest) -> Result<Post, ResError> {
@@ -88,13 +90,16 @@ impl DatabaseService {
         }
         query.push_str(" RETURNING *");
 
-        let st = self.get_client().prepare(query.as_str()).await?;
-        self.query_one(&st, &params).await
+        let mut r = self.client.borrow_mut();
+        let mut c = r.as_cli();
+
+        let st = c.prep(query.as_str()).await?;
+        c.query_one(&st, &params).await
     }
 
     pub async fn get_posts_with_uid(&self, ids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {
-        let st = self.posts_by_id.borrow();
-        self.get_by_id_with_uid(&st, ids).await
+        let st = &*self.posts_by_id.borrow();
+        self.get_by_id_with_uid(st, ids).await
     }
 }
 
@@ -102,52 +107,52 @@ impl CacheService {
     pub fn get_posts_from_ids(
         &self,
         ids: Vec<u32>,
-    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> + '_ {
         self.get_cache_with_uids_from_ids(ids, crate::handler::cache::POST_U8)
     }
 
-    pub fn get_posts_old(
+    pub async fn get_posts_old(
         &self,
         tid: u32,
         page: usize,
-    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
-        self.get_cache_with_uids_from_zrange(
-            &format!("topic:{}:posts_time_created", tid),
-            page,
-            crate::handler::cache::POST_U8,
-        )
+    ) -> Result<(Vec<Post>, Vec<u32>), ResError> {
+        let key = format!("topic:{}:posts_time_created", tid);
+        self.get_cache_with_uids_from_zrange(key.as_str(), page, crate::handler::cache::POST_U8)
+            .await
     }
 
-    pub fn get_posts_pop(
+    pub async fn get_posts_pop(
         &self,
         tid: u32,
         page: usize,
-    ) -> impl Future<Output = Result<(Vec<Post>, Vec<u32>), ResError>> {
+    ) -> Result<(Vec<Post>, Vec<u32>), ResError> {
+        let key = format!("topic:{}:posts_reply", tid);
         self.get_cache_with_uids_from_zrevrange_reverse_lex(
-            &format!("topic:{}:posts_reply", tid),
+            key.as_str(),
             page,
             crate::handler::cache::POST_U8,
         )
+        .await
     }
 
     pub fn update_posts(&self, t: &[Post]) {
-        actix::spawn(build_hmsets_01(self.get_conn(), t, POST_U8, true).map_err(|_| ()));
+        let conn = self.get_conn();
+        tokio::spawn(build_hmsets(conn, t, POST_U8, true).map(|_| ()));
     }
 
-    pub fn update_post_return_fail01(
+    pub fn update_post_return_fail(
         &self,
         p: Vec<Post>,
-    ) -> impl Future01<Item = (), Error = Vec<Post>> {
-        build_hmsets_01(self.get_conn(), &p, POST_U8, true).map_err(|_| p)
+    ) -> impl Future<Output = Result<(), Vec<Post>>> {
+        let conn = self.get_conn();
+        build_hmsets(conn, &p, POST_U8, true).map_err(|_| p)
     }
 
     pub fn send_failed_post(&self, p: Post) {
-        let _ = self.recipient.do_send(CacheFailedMessage::FailedPost(p));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedPost(p));
     }
 
     pub fn send_failed_post_update(&self, p: Vec<Post>) {
-        let _ = self
-            .recipient
-            .do_send(CacheFailedMessage::FailedPostUpdate(p));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedPostUpdate(p));
     }
 }

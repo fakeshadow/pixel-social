@@ -1,15 +1,13 @@
 use std::future::Future;
 
 use chrono::Utc;
-use futures::FutureExt;
-use futures01::Future as Future01;
+use futures::{FutureExt, TryFutureExt};
 use tokio_postgres::types::ToSql;
 
-use crate::handler::db::{GetDbClient, Query};
 use crate::handler::{
-    cache::{build_hmsets_01, CacheService, GetSharedConn, TOPIC_U8},
+    cache::{build_hmsets, CacheService, GetSharedConn, TOPIC_U8},
     cache_update::CacheFailedMessage,
-    db::DatabaseService,
+    db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
 use crate::model::{
     common::GlobalVars,
@@ -23,20 +21,24 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_utc();
 
-        self.query_one(
-            &self.insert_topic.borrow(),
-            &[
-                &id,
-                t.user_id.as_ref().unwrap(),
-                &t.category_id,
-                t.thumbnail.as_ref().unwrap(),
-                t.title.as_ref().unwrap(),
-                t.body.as_ref().unwrap(),
-                now,
-                now,
-            ],
-        )
-        .await
+        let st = &*self.insert_topic.borrow();
+
+        self.cli_like()
+            .as_cli()
+            .query_one(
+                st,
+                &[
+                    &id,
+                    t.user_id.as_ref().unwrap(),
+                    &t.category_id,
+                    t.thumbnail.as_ref().unwrap(),
+                    t.title.as_ref().unwrap(),
+                    t.body.as_ref().unwrap(),
+                    now,
+                    now,
+                ],
+            )
+            .await
     }
 
     //ToDo: add query for moving topic to other table.
@@ -98,9 +100,8 @@ impl DatabaseService {
         }
         query.push_str(" RETURNING *");
 
-        let st = self.get_client().prepare(query.as_str()).await?;
-
-        self.query_one(&st, &params).await
+        let st = self.cli_like().prepare(query.as_str()).await?;
+        self.cli_like().as_cli().query_one(&st, &params).await
     }
 
     pub async fn get_topics_with_uid(
@@ -113,22 +114,20 @@ impl DatabaseService {
 }
 
 impl CacheService {
-    pub fn get_topics_pop(
+    pub async fn get_topics_pop(
         &self,
         cid: u32,
         page: usize,
-    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> {
-        self.get_cache_with_uids_from_list(
-            &format!("category:{}:list_pop", cid),
-            page,
-            crate::handler::cache::TOPIC_U8,
-        )
+    ) -> Result<(Vec<Topic>, Vec<u32>), ResError> {
+        let key = format!("category:{}:list_pop", cid);
+        self.get_cache_with_uids_from_list(key.as_str(), page, crate::handler::cache::TOPIC_U8)
+            .await
     }
 
     pub fn get_topics_pop_all(
         &self,
         page: usize,
-    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> + '_ {
         self.get_cache_with_uids_from_list(
             "category:all:list_pop",
             page,
@@ -136,46 +135,49 @@ impl CacheService {
         )
     }
 
-    pub fn get_topics_late(
+    pub async fn get_topics_late(
         &self,
         cid: u32,
         page: usize,
-    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> {
-        self.get_cache_with_uids_from_zrevrange(
-            &format!("category:{}:topics_time", cid),
-            page,
-            crate::handler::cache::TOPIC_U8,
-        )
+    ) -> Result<(Vec<Topic>, Vec<u32>), ResError> {
+        let key = format!("category:{}:topics_time", cid);
+        self.get_cache_with_uids_from_zrevrange(key.as_str(), page, crate::handler::cache::TOPIC_U8)
+            .await
     }
 
     pub fn get_topics_from_ids(
         &self,
         ids: Vec<u32>,
-    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> {
+    ) -> impl Future<Output = Result<(Vec<Topic>, Vec<u32>), ResError>> + '_ {
         self.get_cache_with_uids_from_ids(ids, crate::handler::cache::TOPIC_U8)
     }
 
     pub fn update_topics(&self, t: &[Topic]) {
-        actix::spawn(build_hmsets_01(self.get_conn(), t, TOPIC_U8, true).map_err(|_| ()));
+        let conn = self.get_conn();
+        actix::spawn(
+            build_hmsets(conn, t, TOPIC_U8, true)
+                .map_err(|_| ())
+                .boxed_local()
+                .compat(),
+        );
     }
 
     // Don't confused these with update_topics/posts/users methods. The latter methods run in spawned futures and the errors are ignored.
     // They are separate methods as we don't want to retry every failed update cache for most times the data are from expired cache query and not actual content update.
-    pub fn update_topic_return_fail01(
+    pub fn update_topic_return_fail(
         &self,
         t: Vec<Topic>,
-    ) -> impl Future01<Item = (), Error = Vec<Topic>> {
-        build_hmsets_01(self.get_conn(), &t, TOPIC_U8, true).map_err(|_| t)
+    ) -> impl Future<Output = Result<(), Vec<Topic>>> {
+        let conn = self.get_conn();
+        build_hmsets(conn, &t, TOPIC_U8, true).map_err(|_| t)
     }
 
     // send failed data to CacheUpdateService actor and retry from there.
     pub fn send_failed_topic(&self, t: Topic) {
-        let _ = self.recipient.do_send(CacheFailedMessage::FailedTopic(t));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedTopic(t));
     }
 
     pub fn send_failed_topic_update(&self, t: Vec<Topic>) {
-        let _ = self
-            .recipient
-            .do_send(CacheFailedMessage::FailedTopicUpdate(t));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedTopicUpdate(t));
     }
 }

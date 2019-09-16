@@ -7,7 +7,7 @@ use futures::{FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{AddToCache, CacheService, CheckCacheConn},
+    cache::{AddToCache, CacheService, CheckRedisConn},
     db::DatabaseService,
 };
 use crate::model::{
@@ -44,20 +44,25 @@ pub async fn add_async(
         .check_new()?;
 
     let t = db
-        .check_conn()
+        .check_postgres()
         .await?
         .add_topic(&req, global.get_ref())
         .await?;
 
     let res = HttpResponse::Ok().json(&t);
 
-    match cache.check_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .add_topic_cache_01(&t)
-                .map_err(move |_| cache.send_failed_topic(t)),
-        ),
+    match cache.check_redis().await {
+        Ok(opt) => {
+            actix::spawn(
+                cache
+                    .if_replace_redis(opt)
+                    .add_topic_cache(&t)
+                    .map_err(move |_| cache.send_failed_topic(t))
+                    .map_ok(|_| ())
+                    .boxed_local()
+                    .compat(),
+            );
+        }
         Err(_) => cache.send_failed_topic(t),
     };
 
@@ -84,7 +89,7 @@ async fn update_async(
         .add_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let t = db.check_conn().await?.update_topic(&req).await?;
+    let t = db.check_postgres().await?.update_topic(&req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
@@ -96,12 +101,14 @@ async fn update_async(
 pub(crate) async fn update_topic_with_fail_check(cache: Data<CacheService>, t: Topic) {
     let t = vec![t];
 
-    match cache.check_conn().await {
+    match cache.check_redis().await {
         Ok(opt) => actix::spawn(
             cache
-                .if_replace_cache(opt)
-                .update_topic_return_fail01(t)
-                .map_err(move |t| cache.send_failed_topic_update(t)),
+                .if_replace_redis(opt)
+                .update_topic_return_fail(t)
+                .map_err(move |t| cache.send_failed_topic_update(t))
+                .boxed_local()
+                .compat(),
         ),
         Err(_) => cache.send_failed_topic_update(t),
     };

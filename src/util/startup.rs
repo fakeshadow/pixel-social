@@ -1,13 +1,12 @@
 use chrono::NaiveDateTime;
-use futures::{compat::Future01CompatExt, FutureExt, TryStreamExt};
-use futures01::Future as Future01;
+use futures::{FutureExt, TryFutureExt, TryStreamExt};
 use redis::aio::SharedConnection;
 use tokio_postgres::{tls::NoTls, Client, SimpleQueryMessage};
 
 use crate::handler::{
     cache::{
-        build_hmsets_01, build_list, build_posts_cache_list_01, build_topics_cache_list_01,
-        build_users_cache_01,
+        build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list,
+        build_users_cache,
     },
     db::query_multi_fn,
 };
@@ -258,7 +257,6 @@ pub async fn build_cache(
     let c_cache = redis::Client::open(redis_url)
         .unwrap_or_else(|e| panic!("{}", e))
         .get_shared_async_connection()
-        .compat()
         .await?;
 
     // Load all categories and make hash map sets.
@@ -296,8 +294,7 @@ pub async fn build_cache(
                 ("post_count", p_count.to_string()),
             ])
             .query_async(c_cache.clone())
-            .map(|(_, ())| ())
-            .compat()
+            .map_ok(|(_, ())| ())
             .await?;
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
@@ -354,14 +351,10 @@ pub async fn build_cache(
             };
         }
 
-        build_topics_cache_list_01(is_init, sets, c_cache.clone())
-            .compat()
-            .await?;
+        build_topics_cache_list(is_init, sets, c_cache.clone()).await?;
     }
 
-    build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned())
-        .compat()
-        .await?;
+    build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned()).await?;
 
     // load all posts with tid id and created_at
     let posts = c
@@ -422,12 +415,10 @@ pub async fn build_cache(
         .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
     if !posts.is_empty() {
-        let _ = build_posts_cache_list_01(is_init, posts, c_cache.clone())
-            .compat()
-            .await;
+        let _ = build_posts_cache_list(is_init, posts, c_cache.clone()).await;
     }
 
-    let last_uid = build_users_cache(&mut c, &c_cache).await?;
+    let last_uid = build_users_cache_local(&mut c, &c_cache).await?;
 
     let st = c.prepare("SELECT * FROM talks").await?;
     let talks = query_multi_fn::<Talk>(&mut c, &st, &[], Vec::new()).await?;
@@ -450,20 +441,22 @@ async fn build_categories_cache(
     let st = c.prepare("SELECT * FROM categories").await?;
     let categories = query_multi_fn::<Category>(c, &st, &[], Vec::new()).await?;
 
-    build_hmsets_01(
+    build_hmsets(
         c_cache.clone(),
         &categories,
         crate::handler::cache::CATEGORY_U8,
         false,
     )
-    .compat()
     .await?;
 
     Ok(categories)
 }
 
 // return last user.id in result for building global vars.
-async fn build_users_cache(c: &mut Client, c_cache: &SharedConnection) -> Result<u32, ResError> {
+async fn build_users_cache_local(
+    c: &mut Client,
+    c_cache: &SharedConnection,
+) -> Result<u32, ResError> {
     let st = c.prepare("SELECT * FROM users").await?;
     let users = query_multi_fn::<User>(c, &st, &[], Vec::new()).await?;
 
@@ -476,9 +469,7 @@ async fn build_users_cache(c: &mut Client, c_cache: &SharedConnection) -> Result
         };
     }
 
-    build_users_cache_01(users, c_cache.clone())
-        .compat()
-        .await?;
+    build_users_cache(users, c_cache.clone()).await?;
 
     Ok(last_uid)
 }

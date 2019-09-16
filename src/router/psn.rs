@@ -1,16 +1,14 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Query},
     Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 
-use crate::handler::{
-    auth::UserJwt,
-    cache::CacheService,
-    db::DatabaseService,
-    psn::{PSNRequest, PSNServiceAddr},
-};
+use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService, psn::PSNRequest};
+use crate::model::channel::ChannelAddress;
+
+type PSNServiceAddr = ChannelAddress<(PSNRequest, bool)>;
 
 pub fn query_handler(
     req: Query<PSNRequest>,
@@ -31,10 +29,7 @@ async fn query_handler_async(
 ) -> Result<HttpResponse, Error> {
     // send request to psn service actor no matter the local result.
     // psn service actor will handle if the request will add to psn queue by using time gate.
-    let req_temp = req.clone();
-    tokio::spawn(async move {
-        addr.do_send((req_temp, false)).await;
-    });
+    addr.do_send((req.clone(), false));
 
     // return local result if there is any.
     match &*req {
@@ -91,15 +86,10 @@ async fn query_handler_with_jwt_async(
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 
             // auth request is add to the front of queue.
-            tokio::spawn(async move {
-                addr.do_send((req, true)).await;
-            });
+            addr.do_send((req, true));
         }
         PSNRequest::Activation { .. } => {
-            tokio::spawn(async move {
-                addr.do_send((req.into_inner().attach_user_id(jwt.user_id), false))
-                    .await;
-            });
+            addr.do_send((req.into_inner().attach_user_id(jwt.user_id), false));
         }
         _ => (),
     };

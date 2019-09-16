@@ -1,7 +1,7 @@
+use actix::prelude::{Future as Future01, Stream as Stream01};
 use actix_multipart::Multipart;
 use actix_web::{error, Error, HttpResponse};
 use futures::{FutureExt, TryFutureExt};
-use futures01::{stream::Stream, Future as Future01};
 
 use crate::handler::{auth::UserJwt, stream::save_file};
 

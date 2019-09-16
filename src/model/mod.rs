@@ -2,6 +2,7 @@ pub mod actors;
 pub mod cache_schema;
 pub mod cache_update;
 pub mod category;
+pub mod channel;
 pub mod common;
 pub mod db_schema;
 pub mod errors;

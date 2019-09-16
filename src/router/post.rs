@@ -1,13 +1,13 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse, ResponseError,
 };
 use futures::{FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{AddToCache, CacheService, CheckCacheConn},
+    cache::{AddToCache, CacheService, CheckRedisConn},
     db::DatabaseService,
 };
 use crate::model::{
@@ -43,20 +43,25 @@ pub async fn add_async(
         .check_new()?;
 
     let p = db
-        .check_conn()
+        .check_postgres()
         .await?
         .add_post(req, global.get_ref())
         .await?;
 
     let res = HttpResponse::Ok().json(&p);
 
-    match cache.check_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .add_post_cache_01(&p)
-                .map_err(move |_| cache.send_failed_post(p)),
-        ),
+    match cache.check_redis().await {
+        Ok(opt) => {
+            actix::spawn(
+                cache
+                    .if_replace_redis(opt)
+                    .add_post_cache(&p)
+                    .map_err(move |_| cache.send_failed_post(p))
+                    .map_ok(|_| ())
+                    .boxed_local()
+                    .compat(),
+            );
+        }
         Err(_) => cache.send_failed_post(p),
     };
 
@@ -83,7 +88,7 @@ async fn update_async(
         .attach_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let p = db.check_conn().await?.update_post(req).await?;
+    let p = db.check_postgres().await?.update_post(req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
@@ -95,13 +100,18 @@ async fn update_async(
 pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
     let p = vec![p];
 
-    match cache.check_conn().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_cache(opt)
-                .update_post_return_fail01(p)
-                .map_err(move |p| cache.send_failed_post_update(p)),
-        ),
+    match cache.check_redis().await {
+        Ok(opt) => {
+            actix::spawn(
+                cache
+                    .if_replace_redis(opt)
+                    .update_post_return_fail(p)
+                    .map_err(move |p| cache.send_failed_post_update(p))
+                    .map_ok(|_| ())
+                    .boxed_local()
+                    .compat(),
+            );
+        }
         Err(_) => cache.send_failed_post_update(p),
     };
 }

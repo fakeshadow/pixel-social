@@ -81,7 +81,6 @@ async fn main() -> std::io::Result<()> {
                 .compat(),
         )
         .expect("Failed to create Cache Update Service");
-    let recipient = addr.recipient();
 
     // MessageService is an async actor runs in main thread. Be ware a panic from this actor and cache update service will stop the whole server
     // (no unwrap is used in these actors and all errors are mapped to ())
@@ -123,7 +122,7 @@ async fn main() -> std::io::Result<()> {
             .unwrap_or_else(|_| panic!("Failed to create Database Service for worker : {}", i));
         let cache = sys
             .block_on(
-                crate::handler::cache::CacheService::init(redis_url.as_str(), recipient.clone())
+                crate::handler::cache::CacheService::init(redis_url.as_str(), addr.clone())
                     .boxed_local()
                     .compat(),
             )

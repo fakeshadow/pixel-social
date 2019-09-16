@@ -1,13 +1,13 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 
 use crate::handler::{
     auth::UserJwt,
-    cache::{CacheService, CheckCacheConn},
+    cache::{CacheService, CheckRedisConn},
     db::DatabaseService,
 };
 use crate::model::{
@@ -63,7 +63,7 @@ async fn update_async(
         .attach_id(Some(jwt.user_id))
         .check_update()?;
 
-    let u = db.check_conn().await?.update_user(req).await?;
+    let u = db.check_postgres().await?.update_user(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
@@ -75,12 +75,14 @@ async fn update_async(
 pub(crate) async fn update_user_with_fail_check(cache: Data<CacheService>, u: User) {
     let u = vec![u];
 
-    match cache.check_conn().await {
+    match cache.check_redis().await {
         Ok(opt) => actix::spawn(
             cache
-                .if_replace_cache(opt)
-                .update_user_return_fail01(u)
-                .map_err(move |u| cache.send_failed_user(u)),
+                .if_replace_redis(opt)
+                .update_user_return_fail(u)
+                .map_err(move |u| cache.send_failed_user(u))
+                .boxed_local()
+                .compat(),
         ),
         Err(_) => cache.send_failed_user(u),
     };

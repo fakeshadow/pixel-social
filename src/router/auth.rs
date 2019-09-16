@@ -1,9 +1,9 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{
@@ -48,7 +48,7 @@ async fn register_async(
     let req = req.into_inner().check_register()?;
 
     let u = db
-        .check_conn()
+        .check_postgres()
         .await?
         .register(req, global.get_ref())
         .await?;

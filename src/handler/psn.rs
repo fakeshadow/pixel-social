@@ -1,31 +1,21 @@
 use std::{
-    cell::{RefCell, RefMut},
-    collections::VecDeque,
-    convert::TryInto,
-    fmt::Write,
-    future::Future,
-    sync::Arc,
+    collections::VecDeque, convert::TryInto, fmt::Write, future::Future, pin::Pin, sync::Arc,
     time::Duration,
 };
 
 use chrono::Utc;
-use futures::{
-    channel::mpsc::{UnboundedReceiver, UnboundedSender},
-    compat::Future01CompatExt,
-    lock::Mutex,
-    FutureExt, SinkExt, StreamExt, TryFutureExt,
-};
-use futures01::Future as Future01;
+use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
 use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
 use redis::aio::SharedConnection;
 use tokio::timer::Interval;
-use tokio_postgres::Statement;
+use tokio_postgres::{Client, Statement};
 
 use crate::handler::{
-    cache::{CacheService, CheckCacheConn, GetSharedConn},
-    db::{DatabaseService, GetDbClient, Query, SimpleQuery},
+    cache::{CacheService, CheckRedisMut, GetSharedConn},
+    db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
 use crate::model::{
+    channel::{ChannelAddress, ChannelGenerator, InjectQueue},
     errors::ResError,
     psn::{
         PSNTrophyArgumentRequest, PSNUserLib, TrophySetLib, TrophyTitlesLib, UserPSNProfile,
@@ -78,75 +68,111 @@ pub struct PSNService {
     pub db_url: String,
     pub cache_url: String,
     pub psn: PSN,
-    pub db: RefCell<tokio_postgres::Client>,
-    pub insert_trophy_title: RefCell<Statement>,
-    pub cache: RefCell<SharedConnection>,
-    pub queue: Arc<Mutex<VecDeque<PSNRequest>>>,
+    //ToDo: change back to futures::lock::Mutex when get_mut() method released
+    pub db: tokio_postgres::Client,
+    pub insert_trophy_title: Statement,
+    pub cache: SharedConnection,
+    pub queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
+}
+
+impl ChannelGenerator for PSNService {
+    type Message = (PSNRequest, bool);
+}
+
+impl GetSharedConn for PSNService {
+    fn get_conn(&self) -> SharedConnection {
+        self.cache.clone()
+    }
+}
+
+impl CheckRedisMut for PSNService {
+    fn self_url(&self) -> &str {
+        self.cache_url.as_str()
+    }
+
+    fn replace_redis_mut(&mut self, c: SharedConnection) {
+        self.cache = c;
+    }
 }
 
 impl PSNService {
+    async fn check_conn_db(&mut self) -> Result<&mut Self, ResError> {
+        if self.db.is_closed() {
+            let (c, mut sts) = PSNService::connect(self.db_url.as_str()).await?;
+            let insert_trophy_title = sts.pop().unwrap();
+            self.db = c;
+            self.insert_trophy_title = insert_trophy_title;
+            Ok(self)
+        } else {
+            Ok(self)
+        }
+    }
+
+    async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
+        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
+
+        //ToDo: remove compat layer when actix convert to use std::future;
+        let conn = conn.map(|_| ());
+        tokio::spawn(conn);
+
+        let insert_trophy_title = db.prepare(INSERT_TITLES).await?;
+
+        Ok((db, vec![insert_trophy_title]))
+    }
+
     pub(crate) async fn init(
         postgres_url: &str,
         redis_url: &str,
-    ) -> Result<PSNServiceAddr, ResError> {
+    ) -> Result<ChannelAddress<(PSNRequest, bool)>, ResError> {
         let db_url = postgres_url.to_owned();
         let cache_url = redis_url.to_owned();
 
         let cache = crate::handler::cache::connect_cache(redis_url)
             .await?
             .ok_or(ResError::RedisConnection)?;
-        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
 
-        //ToDo: remove compat layer when actix convert to use std::future;
-        let conn = conn.map(|_| ());
-        actix::spawn(conn.unit_error().boxed().compat());
-
-        let p1 = db.prepare(INSERT_TITLES).await?;
+        let (db, mut sts) = PSNService::connect(postgres_url).await?;
+        let insert_trophy_title = sts.pop().unwrap();
 
         // use an unbounded channel to inject request to queue from other threads.
-        let (addr, receiver) = futures::channel::mpsc::unbounded::<(PSNRequest, bool)>();
+        let (addr, receiver) = PSNService::create_channel();
 
         // queue is passed to both PSNService and QueueInjector.
-        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let queue = Arc::new(FutMutex::new(VecDeque::new()));
 
         // run queue injector in a separate future.
-        QueueInjector::new(queue.clone(), receiver).handle_inject();
+        PSNQueue::new(queue.clone(), receiver).handle_inject();
 
-        let mut psn = PSNService {
+        // use double Arc<Mutex<_>> as the queue is passed to both PSNQueue and PSNService
+        let psn = Arc::new(FutMutex::new(PSNService {
             db_url,
             cache_url,
             psn: PSN::new(),
-            db: RefCell::new(db),
-            insert_trophy_title: RefCell::new(p1),
-            cache: RefCell::new(cache),
+            db,
+            insert_trophy_title,
+            cache,
             queue: queue.clone(),
-        };
+        }));
 
         // run interval futures which handle PSNService in a separate future.
-        // ToDo: currently tokio 0.2 interval futures can't gracefully shut down when running tokio runtime along with actix runtime. So a compat layer is needed.
-        actix::spawn(
-            async move {
-                let mut interval = Interval::new_interval(PSN_TIME_GAP);
-                use tokio::future::FutureExt as TokioFutureExt;
-                loop {
-                    interval.next().await;
-                    // set a timeout for the looped future
-                    // ToDo: handle errors.
-                    if let Ok(result) = psn.handle_queue().timeout(PSN_REQUEST_TIME_OUT).await {
-                        if let Err(e) = result {
-                            println!("{:?}", e.to_string());
-                        }
-                    };
-                }
+        tokio::spawn(async move {
+            let mut interval = Interval::new_interval(PSN_TIME_GAP);
+            use tokio::future::FutureExt as TokioFutureExt;
+            loop {
+                interval.next().await;
+                // set a timeout for the looped future
+                // ToDo: handle errors.
+                let mut session = psn.lock().await;
+                if let Ok(result) = session.handle_queue().timeout(PSN_REQUEST_TIME_OUT).await {
+                    if let Err(e) = result {
+                        println!("psn error {:?}", e.to_string());
+                    }
+                };
             }
-                .boxed_local()
-                .compat(),
-        );
+        });
 
         // wrap the channel sender in a mutex as it has to be passed to other threads.
-        Ok(PSNServiceAddr {
-            inner: Mutex::new(addr),
-        })
+        Ok(addr)
     }
 
     // pattern match PSNRequest and handle the PSN network along with postgres and redis requests.
@@ -159,7 +185,11 @@ impl PSNService {
                 PSNRequest::Profile { online_id } => self.handle_profile_request(online_id).await,
                 PSNRequest::TrophyTitles { online_id, .. } => {
                     let r = self.handle_trophy_titles_request(online_id).await?;
-                    self.update_user_trophy_titles(&r).await
+                    // only check db connection when update user trophy titles.
+                    self.check_conn_db()
+                        .await?
+                        .update_user_trophy_titles(&r)
+                        .await
                 }
                 PSNRequest::TrophySet {
                     online_id,
@@ -193,22 +223,8 @@ impl PSNService {
     }
 }
 
-/// pass channel sender to app.data so
-pub struct PSNServiceAddr {
-    inner: Mutex<UnboundedSender<(PSNRequest, bool)>>,
-}
-
-impl PSNServiceAddr {
-    pub async fn do_send(&self, req: (PSNRequest, bool)) {
-        let mut sender = self.inner.lock().await;
-        let _ = sender.send(req).await;
-    }
-}
-
-// QueueInjector take in a channel receiver and iter through the message received.
-// push new PSNRequest to VecDeque according to the hash map of time_gate(to throw away spam requests by using time gate)
-struct QueueInjector {
-    queue: Arc<Mutex<VecDeque<PSNRequest>>>,
+struct PSNQueue {
+    queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
     receiver: UnboundedReceiver<(PSNRequest, bool)>,
     // stores all reqs' timestamp goes to PSN.
     // profile request use <online_id> as key,
@@ -218,36 +234,39 @@ struct QueueInjector {
     time_gate: hashbrown::HashMap<Vec<u8>, i64>,
 }
 
-impl QueueInjector {
+impl InjectQueue<(PSNRequest, bool)> for PSNQueue {
+    type Error = ResError;
+
+    fn receiver(&mut self) -> &mut UnboundedReceiver<(PSNRequest, bool)> {
+        &mut self.receiver
+    }
+
+    fn handle_message<'a>(
+        &'a mut self,
+        msg: (PSNRequest, bool),
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+        let (req, is_front) = msg;
+        Box::pin(async move {
+            // push new PSNRequest to VecDeque according to the hash map of time_gate(to throw away spam requests by using time gate)
+            if self.should_add_queue(&req) {
+                self.update_time_stamp(&req);
+                self.add_to_queue(req, is_front).await;
+            }
+            Ok(())
+        })
+    }
+}
+
+impl PSNQueue {
     fn new(
-        queue: Arc<Mutex<VecDeque<PSNRequest>>>,
+        queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
         receiver: UnboundedReceiver<(PSNRequest, bool)>,
     ) -> Self {
-        QueueInjector {
+        PSNQueue {
             queue,
             receiver,
             time_gate: hashbrown::HashMap::new(),
         }
-    }
-
-    fn handle_inject(mut self) {
-        tokio::spawn(
-            async move {
-                loop {
-                    let (req, is_front) = self
-                        .receiver
-                        .next()
-                        .await
-                        .ok_or(ResError::InternalServerError)?;
-                    if self.should_add_queue(&req) {
-                        self.update_time_stamp(&req);
-                        self.add_to_queue(req, is_front).await;
-                    }
-                }
-                // ToDo: add error handler
-            }
-                .map(|_r: Result<(), ResError>| ()),
-        );
     }
 
     async fn add_to_queue(&mut self, req: PSNRequest, is_front: bool) {
@@ -361,32 +380,6 @@ impl PSNRequest {
         }
     }
 }
-
-impl CheckCacheConn for PSNService {
-    fn self_url(&self) -> String {
-        self.cache_url.to_owned()
-    }
-
-    fn replace_cache(&self, c: SharedConnection) {
-        self.cache.replace(c);
-    }
-}
-
-impl GetSharedConn for PSNService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.borrow().clone()
-    }
-}
-
-impl GetDbClient for PSNService {
-    fn get_client(&self) -> RefMut<tokio_postgres::Client> {
-        self.db.borrow_mut()
-    }
-}
-
-impl Query for PSNService {}
-
-impl SimpleQuery for PSNService {}
 
 impl PSNService {
     // handle_xxx_request are mostly the network request to PSN.
@@ -530,27 +523,29 @@ impl PSNService {
     }
 
     fn update_profile_cache(&self, p: UserPSNProfile) {
-        actix::spawn(
-            crate::handler::cache::build_hmsets_01(
-                self.get_conn(),
+        let conn = self.get_conn();
+        tokio::spawn(
+            crate::handler::cache::build_hmsets(
+                conn,
                 &[p],
                 crate::handler::cache::USER_PSN_U8,
                 false,
             )
-            .map_err(|_| ()),
+            .map(|_| ()),
         );
     }
 
     // a costly update for updating existing trophy set.
     // The purpose is to flag people who have a changed trophy timestamp on the trophy already earned
     // by comparing the The first_earned_date with the earned_date
-    async fn query_update_user_trophy_set(&self, mut t: UserTrophySet) -> Result<(), ResError> {
+    async fn query_update_user_trophy_set(&mut self, mut t: UserTrophySet) -> Result<(), ResError> {
         let st = self
-            .get_client()
+            .db
             .prepare("SELECT * FROM psn_user_trophy_sets WHERE np_id=$1 and np_communication_id=$2")
             .await?;
 
-        let r: Result<UserTrophySet, ResError> = self
+        let r: Result<UserTrophySet, ResError> = (&mut self.db)
+            .as_cli()
             .query_one(&st, &[&t.np_id.as_str(), &t.np_communication_id.as_str()])
             .await;
 
@@ -605,7 +600,7 @@ impl PSNService {
         self.update_user_trophy_set(&t).await
     }
 
-    async fn update_user_trophy_set(&self, t: &UserTrophySet) -> Result<(), ResError> {
+    async fn update_user_trophy_set(&mut self, t: &UserTrophySet) -> Result<(), ResError> {
         let mut query = String::new();
 
         let _ = write!(
@@ -642,18 +637,24 @@ impl PSNService {
                             RETURNING NULL;",
         );
 
-        self.simple_query_row(query.as_str()).map_ok(|_| ()).await
+        (&mut self.db)
+            .as_cli()
+            .simple_query_row(query.as_str())
+            .map_ok(|_| ())
+            .await
     }
 
     fn update_user_trophy_titles(
         &mut self,
         t: &[UserTrophyTitle],
-    ) -> impl Future<Output = Result<(), ResError>> {
+    ) -> impl Future<Output = Result<(), ResError>> + Send {
         let mut v = Vec::with_capacity(t.len());
+        let st = &self.insert_trophy_title;
+        let c = &mut self.db;
 
         for t in t.iter() {
-            let f = self.get_client().execute(
-                &self.insert_trophy_title.borrow(),
+            let f = c.execute(
+                &st,
                 &[
                     &t.np_id,
                     &t.np_communication_id,
@@ -708,9 +709,11 @@ impl DatabaseService {
             (page - 1) * 20
         );
 
-        let st = self.get_client().prepare(query.as_str()).await?;
+        let st = self.cli_like().prepare(query.as_str()).await?;
 
-        self.query_multi(&st, &[&np_id], Vec::with_capacity(20))
+        self.cli_like()
+            .as_cli()
+            .query_multi(&st, &[&np_id], Vec::with_capacity(20))
             .await
     }
 
@@ -720,11 +723,14 @@ impl DatabaseService {
         np_communication_id: &str,
     ) -> Result<UserTrophySet, ResError> {
         let st = self
-            .get_client()
+            .cli_like()
             .prepare("SELECT * FROM psn_user_trophy_sets WHERE np_id=$1 and np_communication_id=$2")
             .await?;
 
-        self.query_one(&st, &[&np_id, &np_communication_id]).await
+        self.cli_like()
+            .as_cli()
+            .query_one(&st, &[&np_id, &np_communication_id])
+            .await
         //        let query = format!(
         //            "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}'",
         //            np_id, np_communication_id
@@ -747,8 +753,8 @@ impl CacheService {
     pub(crate) fn get_psn_profile(
         &self,
         online_id: &str,
-    ) -> impl Future<Output = Result<UserPSNProfile, ResError>> {
+    ) -> impl Future<Output = Result<UserPSNProfile, ResError>> + Send {
         use crate::handler::cache::FromCacheSingle;
-        self.from_cache_single_01(online_id, "user_psn").compat()
+        self.from_cache_single(online_id, "user_psn")
     }
 }

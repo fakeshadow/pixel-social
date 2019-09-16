@@ -7,16 +7,15 @@ use actix::{ActorFuture, ResponseActFuture, WrapFuture};
 use actix_async_await::ResponseStdFuture;
 use async_std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use chrono::{NaiveDateTime, Utc};
-use futures::compat::Future01CompatExt;
 use futures::{future::join_all, FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 use hashbrown::HashMap;
 use redis::{aio::SharedConnection, cmd};
 use tokio_postgres::{Client, Statement};
 
+use crate::handler::db::CrateClientLike;
 use crate::handler::{
     cache::{FromCache, GetSharedConn, UsersFromCache},
-    db::{GetDbClient, Query},
+    db::AsCrateClient,
 };
 use crate::model::{
     actors::WsChatSession,
@@ -80,7 +79,7 @@ impl TalkService {
         let cache = crate::handler::cache::connect_cache(redis_url)
             .await?
             .ok_or(ResError::RedisConnection)?;
-        let (db, mut sts) = Self::connect(postgres_url).await?;
+        let (db, mut sts) = TalkService::connect_postgres(postgres_url).await?;
 
         let db_url = postgres_url.to_owned();
         let cache_url = redis_url.to_owned();
@@ -110,9 +109,9 @@ impl TalkService {
         }))
     }
 
-    async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
+    async fn connect_postgres(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
         let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
-        actix::spawn(conn.map(|_| ()).unit_error().boxed().compat());
+        tokio::spawn(conn.map(|_| ()));
 
         let p1 = db.prepare(INSERT_PUB_MSG);
         let p2 = db.prepare(INSERT_PRV_MSG);
@@ -267,11 +266,9 @@ impl From<Rc<RefCell<Client>>> for ReadWriteDb {
     }
 }
 
-impl Query for ReadWriteDb {}
-
-impl GetDbClient for ReadWriteDb {
-    fn get_client(&self) -> RefMut<Client> {
-        self.0.borrow_mut()
+impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for ReadWriteDb {
+    fn cli_like(&'a self) -> RefMut<'a, Client> {
+        (&*self.0).borrow_mut()
     }
 }
 
@@ -313,27 +310,26 @@ impl ReadWriteCache {
             .arg(&format!("user:{}:set_perm", uid))
             .arg(arg)
             .query_async(conn)
-            .map_err(ResError::from)
-            .map(|(_, ())| ())
-            .compat()
+            .err_into()
+            .map_ok(|(_, ())| ())
     }
 }
 
-pub struct CheckDbConn;
+pub struct CheckPostgresMessage;
 
-impl Message for CheckDbConn {
+impl Message for CheckPostgresMessage {
     type Result = Result<(), ResError>;
 }
 
 // actor future have to be used as we want to access actor's context to replace the Rc<RefCell<_>>s
-impl Handler<CheckDbConn> for TalkService {
+impl Handler<CheckPostgresMessage> for TalkService {
     type Result = ResponseActFuture<Self, (), ResError>;
 
-    fn handle(&mut self, _msg: CheckDbConn, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: CheckPostgresMessage, _: &mut Self::Context) -> Self::Result {
         let url = self.db_url.to_owned();
         if self.db.borrow().is_closed() {
             Box::new(
-                Box::pin(async move { TalkService::connect(&url).await })
+                Box::pin(async move { TalkService::connect_postgres(&url).await })
                     .compat()
                     .into_actor(self)
                     .and_then(|(c, mut sts), act, _| {
@@ -420,11 +416,13 @@ impl Handler<TextMessageRequest> for TalkService {
                 let now = Utc::now().naive_utc();
 
                 if let Some(tid) = msg.talk_id {
-                    db.query_one::<PublicMessage>(
-                        &(*st_public_msg).borrow(),
-                        &[&tid, &msg.text, &now],
-                    )
-                    .await?;
+                    db.cli_like()
+                        .as_cli()
+                        .query_one::<PublicMessage>(
+                            &(*st_public_msg).borrow(),
+                            &[&tid, &msg.text, &now],
+                        )
+                        .await?;
 
                     let s = SendMessage::PublicMessage(&[PublicMessage {
                         text: msg.text,
@@ -436,11 +434,13 @@ impl Handler<TextMessageRequest> for TalkService {
                     send_message_many(&talks, &sessions, tid, s.as_str()).await
                 } else {
                     let uid = msg.user_id.ok_or(ResError::BadRequest)?;
-                    db.query_one::<PrivateMessage>(
-                        &(*st_private_msg).borrow(),
-                        &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
-                    )
-                    .await?;
+                    db.cli_like()
+                        .as_cli()
+                        .query_one::<PrivateMessage>(
+                            &(*st_private_msg).borrow(),
+                            &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
+                        )
+                        .await?;
 
                     let s = SendMessage::PrivateMessage(&[PrivateMessage {
                         user_id: msg.user_id.unwrap(),
@@ -527,12 +527,14 @@ impl Handler<CreateTalkRequest> for TalkService {
             let r = async {
                 let admins = vec![msg.owner];
 
-                let st = db.get_client().prepare("SELECT Max(id) FROM talks").await?;
-                let t: Talk = db.query_one::<Talk>(&st, &[]).await?;
+                let st = db.cli_like().prepare("SELECT Max(id) FROM talks").await?;
+                let t: Talk = db.cli_like().as_cli().query_one::<Talk>(&st, &[]).await?;
                 let last_tid = t.id;
 
-                let st = db.get_client().prepare(INSERT_TALK).await?;
+                let st = db.cli_like().prepare(INSERT_TALK).await?;
                 let t = db
+                    .cli_like()
+                    .as_cli()
                     .query_one(
                         &st,
                         &[
@@ -589,6 +591,8 @@ impl Handler<JoinTalkRequest> for TalkService {
                 }
 
                 let t = db
+                    .cli_like()
+                    .as_cli()
                     .query_one::<Talk>(&(*st_join_talk).borrow(), &[&sid, &tid])
                     .await?;
                 let s = SendMessage::Talks(vec![&t]).stringify();
@@ -668,7 +672,7 @@ impl Handler<UsersByIdRequest> for TalkService {
 
             let r = async {
                 // ToDo: remove compat layer
-                let u = cache.users_from_cache_01(msg.user_id).compat().await?;
+                let u = cache.users_from_cache(msg.user_id).await?;
                 let s = SendMessage::Users(&u).stringify();
 
                 sessions.send_message(sid, s.as_str()).await;
@@ -700,7 +704,11 @@ impl Handler<UserRelationRequest> for TalkService {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                let r: Relation = db.query_one(&(*st_relation).borrow(), &[&sid]).await?;
+                let r: Relation = db
+                    .cli_like()
+                    .as_cli()
+                    .query_one(&(*st_relation).borrow(), &[&sid])
+                    .await?;
                 let s = SendMessage::Friends(&r.friends).stringify();
 
                 sessions.send_message(sid, s.as_str()).await;
@@ -745,6 +753,8 @@ impl Handler<GetHistory> for TalkService {
                 let s = match msg.talk_id {
                     Some(tid) => {
                         let msg = db
+                            .cli_like()
+                            .as_cli()
                             .query_multi::<PublicMessage>(
                                 &(*st_public_msg.borrow()),
                                 &[&tid, &time],
@@ -755,6 +765,8 @@ impl Handler<GetHistory> for TalkService {
                     }
                     None => {
                         let msg = db
+                            .cli_like()
+                            .as_cli()
                             .query_multi::<PrivateMessage>(
                                 &(*st_private_msg.borrow()),
                                 &[&sid, &time],
@@ -816,8 +828,12 @@ impl Handler<RemoveUserRequest> for TalkService {
                     return Err(ResError::Unauthorized);
                 };
 
-                let st = db.get_client().prepare(REMOVE_USER).await?;
-                let talk = db.query_one::<Talk>(&st, &[&uid, &tid]).await?;
+                let st = db.cli_like().prepare(REMOVE_USER).await?;
+                let talk = db
+                    .cli_like()
+                    .as_cli()
+                    .query_one::<Talk>(&st, &[&uid, &tid])
+                    .await?;
 
                 let s = SendMessage::Talks(vec![&talk]).stringify();
                 talks.insert_talk_hm(talk).await?;
@@ -865,8 +881,12 @@ impl Handler<Admin> for TalkService {
                     (REMOVE_ADMIN, uid)
                 };
 
-                let st = db.get_client().prepare(query).await?;
-                let t = db.query_one::<Talk>(&st, &[&uid, &tid, &sid]).await?;
+                let st = db.cli_like().prepare(query).await?;
+                let t = db
+                    .cli_like()
+                    .as_cli()
+                    .query_one::<Talk>(&st, &[&uid, &tid, &sid])
+                    .await?;
 
                 let s = SendMessage::Talks(vec![&t]).stringify();
                 talks.insert_talk_hm(t).await?;
@@ -905,8 +925,8 @@ impl Handler<DeleteTalkRequest> for TalkService {
             let r = async {
                 let tid = msg.talk_id;
 
-                let st = db.get_client().prepare(REMOVE_TALK).await?;
-                let _r = db.get_client().execute(&st, &[&tid]).await?;
+                let st = db.cli_like().prepare(REMOVE_TALK).await?;
+                let _r = db.cli_like().as_cli().exec(&st, &[&tid]).await?;
 
                 talks.remove_talk_hm(tid).await?;
 

@@ -7,7 +7,6 @@ use hashbrown::HashMap;
 use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
 use crate::util::validation as validate;
 
-pub type BoxedFuture01Result<T> = Box<dyn futures01::Future<Item = T, Error = ResError>>;
 pub type PinedBoxFutureResult<T> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ResError>>>>;
 

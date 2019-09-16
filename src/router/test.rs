@@ -1,9 +1,9 @@
+use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json},
     Error, HttpResponse,
 };
 use futures::future::{FutureExt, TryFutureExt};
-use futures01::Future as Future01;
 
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
 use crate::model::{

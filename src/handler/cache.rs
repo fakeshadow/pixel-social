@@ -1,18 +1,18 @@
 use std::cell::RefCell;
 use std::future::Future;
+use std::pin::Pin;
 
-use actix::Recipient;
 use chrono::NaiveDateTime;
-use futures::compat::Future01CompatExt;
-use futures01::{Future as Future01, IntoFuture as IntoFuture01};
+use futures::{FutureExt, TryFutureExt};
 use redis::aio::SharedConnection;
 use redis::{cmd, pipe, Client};
 
 use crate::handler::cache_update::CacheFailedMessage;
+use crate::model::channel::ChannelAddress;
 use crate::model::{
     cache_schema::{HashMapBrown, RefTo},
     category::Category,
-    common::{BoxedFuture01Result, PinedBoxFutureResult, SelfId, SelfIdString, SelfUserId},
+    common::{PinedBoxFutureResult, SelfId, SelfIdString, SelfUserId},
     errors::ResError,
     post::Post,
     topic::Topic,
@@ -40,17 +40,12 @@ const PERM_U8: &[u8] = b"_perm";
 pub struct CacheService {
     pub url: String,
     pub cache: RefCell<SharedConnection>,
-    pub recipient: Recipient<CacheFailedMessage>,
+    pub addr: ChannelAddress<CacheFailedMessage>,
 }
 
 pub async fn connect_cache(redis_url: &str) -> Result<Option<SharedConnection>, ResError> {
-    let executor = crate::util::executor_compat::Executor03As01::new(
-        tokio_executor::DefaultExecutor::current(),
-    );
-
     let conn = redis::Client::open(redis_url)?
-        .get_shared_async_connection_with_executor(executor)
-        .compat()
+        .get_shared_async_connection()
         .await?;
 
     Ok(Some(conn))
@@ -59,7 +54,7 @@ pub async fn connect_cache(redis_url: &str) -> Result<Option<SharedConnection>, 
 impl CacheService {
     pub async fn init(
         redis_url: &str,
-        recipient: Recipient<CacheFailedMessage>,
+        recipient: ChannelAddress<CacheFailedMessage>,
     ) -> Result<CacheService, ResError> {
         let url = redis_url.to_owned();
         let cache = connect_cache(redis_url)
@@ -69,153 +64,152 @@ impl CacheService {
         Ok(CacheService {
             url,
             cache: RefCell::new(cache),
-            recipient,
+            addr: recipient,
         })
     }
 
-    pub fn add_activation_mail_01(
-        &self,
+    pub async fn add_activation_mail_cache(
+        conn: SharedConnection,
         uid: u32,
         uuid: String,
         mail: String,
-    ) -> impl Future01<Item = (), Error = ResError> {
-        cmd("ZCOUNT")
+    ) -> Result<(), ResError> {
+        let (conn, count): (SharedConnection, usize) = cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
             .arg(uid)
-            .query_async(self.get_conn())
-            .map_err(ResError::from)
-            .and_then(move |(conn, count): (_, usize)| {
-                if count > 0 {
-                    return futures01::future::Either::A(futures01::future::ok(()));
-                }
-                let mut pip = pipe();
-                pip.atomic();
-                pip.cmd("ZADD")
-                    .arg("mail_queue")
-                    .arg(uid)
-                    .arg(mail.as_str())
-                    .ignore()
-                    .cmd("HSET")
-                    .arg(uuid.as_str())
-                    .arg("user_id")
-                    .arg(uid)
-                    .ignore()
-                    .cmd("EXPIRE")
-                    .arg(uuid.as_str())
-                    .arg(MAIL_LIFE)
-                    .ignore();
+            .query_async(conn)
+            .await?;
 
-                futures01::future::Either::B(
-                    pip.query_async(conn)
-                        .map_err(ResError::from)
-                        .map(|(_, ())| ()),
-                )
-            })
+        if count > 0 {
+            return Ok(());
+        }
+        let mut pip = pipe();
+        pip.atomic();
+        pip.cmd("ZADD")
+            .arg("mail_queue")
+            .arg(uid)
+            .arg(mail.as_str())
+            .ignore()
+            .cmd("HSET")
+            .arg(uuid.as_str())
+            .arg("user_id")
+            .arg(uid)
+            .ignore()
+            .cmd("EXPIRE")
+            .arg(uuid.as_str())
+            .arg(MAIL_LIFE)
+            .ignore();
+
+        let (_, ()) = pip.query_async(conn).await?;
+
+        Ok(())
     }
 
-    pub fn get_cache_with_uids_from_list<T>(
+    pub(crate) async fn get_cache_with_uids_from_list<T>(
         &self,
         list_key: &str,
         page: usize,
-        set_key: &'static [u8],
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+        set_key: &[u8],
+    ) -> Result<(Vec<T>, Vec<u32>), ResError>
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
-        self.ids_from_cache_list_01(list_key, start, end)
-            .and_then(move |(conn, ids)| {
-                Self::from_cache_with_perm_with_uids_01(conn, ids, set_key)
-            })
-            .compat()
+        let (conn, ids) = self.ids_from_cache_list(list_key, start, end).await?;
+
+        let r = CacheService::from_cache_with_perm_with_uids(conn, ids, set_key).await?;
+
+        Ok(r)
     }
 
-    pub fn get_cache_with_uids_from_zrevrange_reverse_lex<T>(
-        &self,
-        zrange_key: &str,
+    pub fn get_cache_with_uids_from_zrevrange_reverse_lex<'a, 'b: 'a, T>(
+        &'a self,
+        zrange_key: &'b str,
         page: usize,
-        set_key: &'static [u8],
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+        set_key: &'a [u8],
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>> + 'a
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, true)
     }
 
-    pub fn get_cache_with_uids_from_zrevrange<T>(
-        &self,
-        zrange_key: &str,
+    pub fn get_cache_with_uids_from_zrevrange<'a, T>(
+        &'a self,
+        zrange_key: &'a str,
         page: usize,
-        set_key: &'static [u8],
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+        set_key: &'a [u8],
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>> + 'a
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, true, false)
     }
 
-    pub fn get_cache_with_uids_from_zrange<T>(
-        &self,
-        zrange_key: &str,
+    pub fn get_cache_with_uids_from_zrange<'a, T>(
+        &'a self,
+        zrange_key: &'a str,
         page: usize,
-        set_key: &'static [u8],
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+        set_key: &'a [u8],
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>> + 'a
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
         self.cache_with_uids_from_zrange(zrange_key, page, set_key, false, false)
     }
 
-    fn cache_with_uids_from_zrange<T>(
+    async fn cache_with_uids_from_zrange<T>(
         &self,
         zrange_key: &str,
         page: usize,
-        set_key: &'static [u8],
+        set_key: &[u8],
         is_rev: bool,
         is_reverse_lex: bool,
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+    ) -> Result<(Vec<T>, Vec<u32>), ResError>
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        self.ids_from_cache_zrange_01(is_rev, zrange_key, (page - 1) * 20)
-            .and_then(move |(conn, mut ids)| {
-                if is_reverse_lex {
-                    ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
-                }
-                Self::from_cache_with_perm_with_uids_01(conn, ids, set_key)
-            })
-            .compat()
+        let (conn, mut ids) = self
+            .ids_from_cache_zrange(is_rev, zrange_key, (page - 1) * 20)
+            .await?;
+
+        if is_reverse_lex {
+            ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
+        }
+
+        Self::from_cache_with_perm_with_uids(conn, ids, set_key).await
     }
 
-    pub fn get_cache_with_uids_from_ids<T>(
-        &self,
+    pub fn get_cache_with_uids_from_ids<'a, T>(
+        &'a self,
         ids: Vec<u32>,
-        set_key: &'static [u8],
-    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
+        set_key: &'a [u8],
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>> + 'a
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        Self::from_cache_with_perm_with_uids_01(self.get_conn(), ids, set_key).compat()
+        Self::from_cache_with_perm_with_uids(self.get_conn(), ids, set_key)
     }
 
-    fn from_cache_with_perm_with_uids_01<T>(
+    async fn from_cache_with_perm_with_uids<T>(
         conn: SharedConnection,
         ids: Vec<u32>,
-        set_key: &'static [u8],
-    ) -> impl Future01<Item = (Vec<T>, Vec<u32>), Error = ResError>
+        set_key: &[u8],
+    ) -> Result<(Vec<T>, Vec<u32>), ResError>
     where
         T: std::marker::Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        Self::from_cache_01(conn, ids, set_key, true).map(|t: Vec<T>| {
-            let len = t.len();
-            let mut uids = Vec::with_capacity(len);
-            for t in t.iter() {
-                uids.push(t.get_user_id());
-            }
-            (t, uids)
-        })
+        let t: Vec<T> = CacheService::from_cache(conn, ids, set_key, true).await?;
+
+        let len = t.len();
+        let mut uids = Vec::with_capacity(len);
+        for t in t.iter() {
+            uids.push(t.get_user_id());
+        }
+
+        Ok((t, uids))
     }
 }
 
@@ -303,8 +297,6 @@ impl FromCache for CacheService {}
 
 impl UsersFromCache for CacheService {}
 
-impl CategoriesFromCache for CacheService {}
-
 impl AddToQueue for CacheService {}
 
 impl AddToCache for CacheService {}
@@ -318,47 +310,40 @@ pub trait GetSharedConn {
 /// ids from list and sorted set will return an error if the result is empty.
 /// we assume no data can be found on database if we don't have according id in cache.
 pub trait IdsFromList: GetSharedConn {
-    fn ids_from_cache_list(
-        &self,
-        list_key: &str,
+    fn ids_from_cache_list<'a>(
+        &'a self,
+        list_key: &'a str,
         start: usize,
         end: usize,
-    ) -> PinedBoxFutureResult<(SharedConnection, Vec<u32>)> {
-        Box::pin(self.ids_from_cache_list_01(list_key, start, end).compat())
-    }
-
-    fn ids_from_cache_list_01(
-        &self,
-        list_key: &str,
-        start: usize,
-        end: usize,
-    ) -> BoxedFuture01Result<(SharedConnection, Vec<u32>)> {
-        Box::new(
+    ) -> Pin<Box<dyn Future<Output = Result<(SharedConnection, Vec<u32>), ResError>> + Send + 'a>>
+    {
+        let conn = self.get_conn();
+        Box::pin(
             cmd("lrange")
                 .arg(list_key)
                 .arg(start)
                 .arg(end)
-                .query_async(self.get_conn())
-                .map_err(ResError::from)
+                .query_async(conn)
+                .err_into()
                 .and_then(count_ids),
         )
     }
 }
 
 trait IdsFromSortedSet: GetSharedConn {
-    fn ids_from_cache_zrange_01(
+    fn ids_from_cache_zrange(
         &self,
         is_rev: bool,
         list_key: &str,
         offset: usize,
-    ) -> BoxedFuture01Result<(SharedConnection, Vec<u32>)> {
+    ) -> PinedBoxFutureResult<(SharedConnection, Vec<u32>)> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
             ("zrangebyscore", "-inf", "+inf")
         };
 
-        Box::new(
+        Box::pin(
             cmd(cmd_key)
                 .arg(list_key)
                 .arg(start)
@@ -367,7 +352,7 @@ trait IdsFromSortedSet: GetSharedConn {
                 .arg(offset)
                 .arg(20)
                 .query_async(self.get_conn())
-                .map_err(ResError::from)
+                .err_into()
                 .and_then(count_ids),
         )
     }
@@ -375,52 +360,56 @@ trait IdsFromSortedSet: GetSharedConn {
 
 fn count_ids(
     (conn, ids): (SharedConnection, Vec<u32>),
-) -> Result<(SharedConnection, Vec<u32>), ResError> {
+) -> futures::future::Ready<Result<(SharedConnection, Vec<u32>), ResError>> {
     if ids.is_empty() {
-        Err(ResError::NoContent)
+        futures::future::err(ResError::NoContent)
     } else {
-        Ok((conn, ids))
+        futures::future::ok((conn, ids))
     }
 }
 
 pub trait HashMapBrownFromCache: GetSharedConn {
-    fn hash_map_brown_from_cache_01(
+    fn hash_map_brown_from_cache(
         &self,
         key: &str,
-    ) -> BoxedFuture01Result<HashMapBrown<String, String>> {
-        Box::new(
+    ) -> PinedBoxFutureResult<HashMapBrown<String, String>> {
+        Box::pin(
             cmd("HGETALL")
                 .arg(key)
                 .query_async(self.get_conn())
-                .from_err()
-                .map(|(_, hm)| hm),
+                .err_into()
+                .map_ok(|(_, hm)| hm),
         )
     }
 }
 
 pub trait FromCacheSingle: GetSharedConn {
-    fn from_cache_single_01<T>(&self, key: &str, set_key: &str) -> BoxedFuture01Result<T>
+    fn from_cache_single<T>(
+        &self,
+        key: &str,
+        set_key: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<T, ResError>> + Send>>
     where
         T: std::marker::Send + redis::FromRedisValue + 'static,
     {
-        Box::new(
+        Box::pin(
             cmd("HGETALL")
                 .arg(&format!("{}:{}:set", set_key, key))
                 .query_async(self.get_conn())
-                .from_err()
-                .map(|(_, hm)| hm),
+                .err_into()
+                .map_ok(|(_, hm)| hm),
         )
     }
 }
 
 pub trait FromCache {
-    fn from_cache_01<T>(
+    fn from_cache<T>(
         conn: SharedConnection,
         ids: Vec<u32>,
-        set_key: &'static [u8],
+        set_key: &[u8],
         have_perm_fields: bool,
         // return input ids so the following function can also include the ids when mapping error to ResError::IdsFromCache.
-    ) -> BoxedFuture01Result<Vec<T>>
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<T>, ResError>> + Send>>
     where
         T: std::marker::Send + redis::FromRedisValue + 'static,
     {
@@ -442,25 +431,25 @@ pub trait FromCache {
             }
         }
 
-        Box::new(
+        Box::pin(
             pip.query_async(conn)
                 .then(|r: Result<(_, Vec<T>), redis::RedisError>| match r {
                     Ok((_, v)) => {
                         if v.len() != ids.len() {
-                            Err(ResError::IdsFromCache(ids))
+                            futures::future::err(ResError::IdsFromCache(ids))
                         } else {
-                            Ok(v)
+                            futures::future::ok(v)
                         }
                     }
-                    Err(_) => Err(ResError::IdsFromCache(ids)),
+                    Err(_) => futures::future::err(ResError::IdsFromCache(ids)),
                 }),
         )
     }
 }
 
 pub trait UsersFromCache: GetSharedConn + FromCache {
-    fn users_from_cache_01(&self, uids: Vec<u32>) -> BoxedFuture01Result<Vec<User>> {
-        Box::new(Self::from_cache_01::<User>(
+    fn users_from_cache(&self, uids: Vec<u32>) -> PinedBoxFutureResult<Vec<User>> {
+        Box::pin(Self::from_cache::<User>(
             self.get_conn(),
             uids,
             USER_U8,
@@ -469,19 +458,23 @@ pub trait UsersFromCache: GetSharedConn + FromCache {
     }
 }
 
-pub trait CategoriesFromCache: FromCache + GetSharedConn + IdsFromList {
-    fn categories_from_cache_01(&self) -> BoxedFuture01Result<Vec<Category>> {
-        Box::new(
-            self.ids_from_cache_list_01("category_id:meta", 0, 999)
-                .and_then(|(conn, vec): (_, Vec<u32>)| {
-                    Self::from_cache_01(conn, vec, CATEGORY_U8, false)
-                }),
-        )
+pub trait CategoriesFromCache: Send + Sync + FromCache + GetSharedConn + IdsFromList {
+    fn categories_from_cache<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Category>, ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let (conn, vec): (_, Vec<u32>) =
+                self.ids_from_cache_list("category_id:meta", 0, 999).await?;
+            Self::from_cache(conn, vec, CATEGORY_U8, false).await
+        })
     }
 }
 
 pub trait AddToCache: GetSharedConn {
-    fn add_topic_cache_01(&self, t: &Topic) -> BoxedFuture01Result<()> {
+    fn add_topic_cache(
+        &self,
+        t: &Topic,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
         let mut pip = pipe();
         pip.atomic();
 
@@ -530,14 +523,17 @@ pub trait AddToCache: GetSharedConn {
             .arg(tid)
             .ignore();
 
-        Box::new(
+        Box::pin(
             pip.query_async(self.get_conn())
-                .map_err(ResError::from)
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 
-    fn add_post_cache_01(&self, p: &Post) -> BoxedFuture01Result<()> {
+    fn add_post_cache(
+        &self,
+        p: &Post,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
         let cid = p.category_id;
         let tid = p.topic_id;
         let pid = p.id;
@@ -650,14 +646,17 @@ pub trait AddToCache: GetSharedConn {
                 .ignore();
         }
 
-        Box::new(
+        Box::pin(
             pip.query_async(self.get_conn())
-                .from_err()
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 
-    fn add_category_cache_01(&self, c: &Category) -> BoxedFuture01Result<()> {
+    fn add_category_cache(
+        &self,
+        c: &Category,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
         let id = c.id;
         let c: Vec<(&str, Vec<u8>)> = c.ref_to();
 
@@ -673,20 +672,20 @@ pub trait AddToCache: GetSharedConn {
             .arg(c)
             .ignore();
 
-        Box::new(
+        Box::pin(
             pip.query_async(self.get_conn())
-                .map_err(ResError::from)
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 
-    fn bulk_add_update_cache_01(
+    fn bulk_add_update_cache(
         &self,
         t: Vec<&Topic>,
         p: Vec<&Post>,
         u: Vec<&User>,
         c: Vec<&Category>,
-    ) -> BoxedFuture01Result<()> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
         let mut pip = pipe();
         pip.atomic();
 
@@ -756,16 +755,19 @@ pub trait AddToCache: GetSharedConn {
             pip.cmd("HMSET").arg(key.as_slice()).arg(c).ignore();
         }
 
-        Box::new(
+        Box::pin(
             pip.query_async(self.get_conn())
-                .map_err(ResError::from)
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 }
 
 pub trait GetQueue: GetSharedConn {
-    fn get_queue_01(&self, key: &str) -> BoxedFuture01Result<String> {
+    fn get_queue(
+        &self,
+        key: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ResError>> + Send>> {
         let mut pip = pipe();
         pip.atomic();
         pip.cmd("zrange")
@@ -776,92 +778,116 @@ pub trait GetQueue: GetSharedConn {
             .arg(key)
             .arg(0)
             .arg(0);
-        Box::new(
-            pip.query_async(self.get_conn())
-                .map_err(ResError::from)
-                .and_then(|(_, (mut s, ())): (_, (Vec<String>, _))| {
-                    s.pop().ok_or(ResError::NoCache)
-                }),
-        )
+
+        Box::pin(pip.query_async(self.get_conn()).err_into().and_then(
+            |(_, (mut s, ())): (_, (Vec<String>, _))| {
+                futures::future::ready(s.pop().ok_or(ResError::NoCache))
+            },
+        ))
     }
 }
 
 pub trait AddToQueue: GetSharedConn {
-    fn add_to_queue_01(&self, key: &str, score: i64) -> BoxedFuture01Result<()> {
-        Box::new(
+    fn add_to_queue(&self, key: &str, score: i64) -> PinedBoxFutureResult<()> {
+        Box::pin(
             cmd("ZADD")
                 .arg("psn_queue")
                 .arg(score)
                 .arg(key)
                 .query_async(self.get_conn())
-                .map_err(ResError::from)
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 }
 
 pub trait DeleteCache: GetSharedConn {
-    fn del_cache_01(&self, key: &str) -> BoxedFuture01Result<()> {
-        Box::new(
+    fn del_cache(&self, key: &str) -> PinedBoxFutureResult<()> {
+        Box::pin(
             cmd("del")
                 .arg(key)
                 .query_async(self.get_conn())
-                .map_err(ResError::from)
-                .map(|(_, ())| ()),
+                .err_into()
+                .map_ok(|(_, ())| ()),
         )
     }
 }
 
 /// redis connection is only checked on insert request.
 /// Connections are not shared between threads so the recovery will happen separately.
-pub trait CheckCacheConn: GetSharedConn {
-    fn check_conn(&self) -> PinedBoxFutureResult<Option<SharedConnection>> {
-        Box::pin(self.check_conn_01().compat())
+pub trait CheckRedisConn: GetSharedConn {
+    fn check_redis<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<SharedConnection>, ResError>> + 'a>> {
+        Box::pin(check_redis_fn(self.get_conn(), self.self_url()))
     }
 
-    fn check_conn_01(&self) -> BoxedFuture01Result<Option<SharedConnection>> {
-        let url = self.self_url();
-        Box::new(
-            redis::cmd("PING")
-                .query_async(self.get_conn())
-                .map(|(_, ())| None)
-                .or_else(move |_| {
-                    Client::open(url.as_str())
-                        .into_future()
-                        .and_then(|c| c.get_shared_async_connection().map(Some))
-                })
-                .map_err(ResError::from),
-        )
-    }
-
-    fn if_replace_cache(&self, opt: Option<SharedConnection>) -> &Self {
+    fn if_replace_redis(&self, opt: Option<SharedConnection>) -> &Self {
         if let Some(c) = opt {
-            self.replace_cache(c);
+            self.replace_redis(c);
         }
         self
     }
 
-    fn self_url(&self) -> String;
+    fn self_url(&self) -> &str;
 
-    fn replace_cache(&self, c: SharedConnection);
+    fn replace_redis(&self, c: SharedConnection);
 }
 
-impl CheckCacheConn for CacheService {
-    fn self_url(&self) -> String {
-        self.url.to_owned()
+pub trait CheckRedisMut: GetSharedConn + Send + Sync {
+    fn check_redis_mut<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<&Self, ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let opt = check_redis_fn(self.get_conn(), self.self_url()).await?;
+            Ok(self.if_replace_redis_mut(opt))
+        })
     }
 
-    fn replace_cache(&self, c: SharedConnection) {
+    fn if_replace_redis_mut(&mut self, opt: Option<SharedConnection>) -> &Self {
+        if let Some(c) = opt {
+            self.replace_redis_mut(c);
+        }
+        self
+    }
+
+    fn self_url(&self) -> &str;
+
+    fn replace_redis_mut(&mut self, c: SharedConnection);
+}
+
+async fn check_redis_fn(
+    conn: SharedConnection,
+    url: &str,
+) -> Result<Option<SharedConnection>, ResError> {
+    match redis::cmd("PING").query_async(conn).await {
+        Ok((_, ())) => Ok(None),
+        Err(_) => {
+            let c = Client::open(url)?;
+            c.get_shared_async_connection()
+                .err_into()
+                .map_ok(Some)
+                .await
+        }
+    }
+}
+
+impl CheckRedisConn for CacheService {
+    fn self_url(&self) -> &str {
+        &self.url
+    }
+
+    fn replace_redis(&self, c: SharedConnection) {
         self.cache.replace(c);
     }
 }
 
-pub fn build_hmsets_01<T>(
+pub fn build_hmsets<T>(
     conn: SharedConnection,
     vec: &[T],
     set_key: &'static [u8],
     should_expire: bool,
-) -> impl Future01<Item = (), Error = ResError>
+) -> impl Future<Output = Result<(), ResError>>
 where
     T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
 {
@@ -891,7 +917,7 @@ where
             println!("{:?}", e);
             ResError::from(e)
         })
-        .map(|(_, ())| println!("updating cache"))
+        .map_ok(|(_, ())| println!("updating cache"))
 }
 
 // helper functions for build cache when server start.
@@ -899,7 +925,7 @@ pub fn build_list(
     conn: SharedConnection,
     vec: Vec<u32>,
     key: String,
-) -> impl Future01<Item = (), Error = ResError> {
+) -> impl Future<Output = Result<(), ResError>> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -909,15 +935,13 @@ pub fn build_list(
         pip.cmd("rpush").arg(key.as_str()).arg(vec).ignore();
     }
 
-    pip.query_async(conn)
-        .map_err(ResError::from)
-        .map(|(_, ())| ())
+    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
 }
 
-pub fn build_users_cache_01(
+pub fn build_users_cache(
     vec: Vec<User>,
     conn: SharedConnection,
-) -> impl Future01<Item = (), Error = ResError> {
+) -> impl Future<Output = Result<(), ResError>> {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
@@ -934,16 +958,14 @@ pub fn build_users_cache_01(
             .arg(&[("online_status", 0)])
             .ignore();
     }
-    pip.query_async(conn)
-        .map_err(ResError::from)
-        .map(|(_, ())| ())
+    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
 }
 
-pub fn build_topics_cache_list_01(
+pub fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future01<Item = (), Error = ResError> {
+) -> impl Future<Output = Result<(), ResError>> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -982,16 +1004,14 @@ pub fn build_topics_cache_list_01(
         }
     }
 
-    pip.query_async(conn)
-        .map_err(ResError::from)
-        .map(|(_, ())| ())
+    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
 }
 
-pub fn build_posts_cache_list_01(
+pub fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
     conn: SharedConnection,
-) -> impl Future01<Item = (), Error = ResError> {
+) -> impl Future<Output = Result<(), ResError>> {
     let mut pipe = pipe();
     pipe.atomic();
 
@@ -1021,9 +1041,7 @@ pub fn build_posts_cache_list_01(
         }
     }
 
-    pipe.query_async(conn)
-        .map_err(ResError::from)
-        .map(|(_, ())| ())
+    pipe.query_async(conn).err_into().map_ok(|(_, ())| ())
 }
 
 pub fn clear_cache(redis_url: &str) -> Result<(), ResError> {

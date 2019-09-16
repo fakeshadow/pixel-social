@@ -1,13 +1,11 @@
-use std::future::Future;
-
-use futures::{compat::Future01CompatExt, FutureExt};
-use futures01::Future as Future01;
+use futures::{FutureExt, TryFutureExt};
 use tokio_postgres::types::ToSql;
 
+use crate::handler::cache::{FromCache, IdsFromList};
 use crate::handler::{
-    cache::{build_hmsets_01, CacheService, GetSharedConn, CATEGORY_U8},
+    cache::{build_hmsets, CacheService, GetSharedConn, CATEGORY_U8},
     cache_update::CacheFailedMessage,
-    db::{DatabaseService, GetDbClient, Query},
+    db::{AsCrateClient, DatabaseService},
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -18,10 +16,17 @@ use crate::model::{
 impl DatabaseService {
     pub async fn get_categories_all(&self) -> Result<Vec<Category>, ResError> {
         let st = self
-            .get_client()
-            .prepare("SELECT * FROM categories")
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep("SELECT * FROM categories")
             .await?;
-        self.query_multi(&st, &[], Vec::new()).await
+
+        self.client
+            .borrow_mut()
+            .as_cli()
+            .query_multi(&st, &[], Vec::new())
+            .await
     }
 
     pub async fn update_category(&self, c: CategoryRequest) -> Result<Category, ResError> {
@@ -55,18 +60,30 @@ impl DatabaseService {
 
         query.push_str(" RETURNING *");
 
-        let st = self.get_client().prepare(query.as_str()).await?;
+        let st = self
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep(query.as_str())
+            .await?;
 
-        self.query_one(&st, &params).await
+        self.client
+            .borrow_mut()
+            .as_cli()
+            .query_one(&st, &params)
+            .await
     }
 
     pub async fn remove_category(&self, cid: u32) -> Result<(), ResError> {
         let st = self
-            .get_client()
-            .prepare("DELETE FROM categories WHERE id=$1")
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep("DELETE FROM categories WHERE id=$1")
             .await?;
 
-        self.get_client().execute(&st, &[&cid]).await?;
+        self.client.borrow_mut().as_cli().exec(&st, &[&cid]).await?;
+
         Ok(())
     }
 
@@ -76,8 +93,10 @@ impl DatabaseService {
         g: &GlobalVars,
     ) -> Result<Category, ResError> {
         let st = self
-            .get_client()
-            .prepare(
+            .client
+            .borrow_mut()
+            .as_cli()
+            .prep(
                 "
                 INSERT INTO categories (id, name, thumbnail)
                 VALUES ($1, $2, $3)
@@ -87,31 +106,38 @@ impl DatabaseService {
 
         let cid = g.lock().map(|mut lock| lock.next_cid()).await;
 
-        self.query_one(
-            &st,
-            &[
-                &cid,
-                c.name.as_ref().unwrap(),
-                c.thumbnail.as_ref().unwrap(),
-            ],
-        )
-        .await
+        self.client
+            .borrow_mut()
+            .as_cli()
+            .query_one(
+                &st,
+                &[
+                    &cid,
+                    c.name.as_ref().unwrap(),
+                    c.thumbnail.as_ref().unwrap(),
+                ],
+            )
+            .await
     }
 }
 
 impl CacheService {
-    pub fn get_categories_all(&self) -> impl Future<Output = Result<Vec<Category>, ResError>> {
-        use crate::handler::cache::CategoriesFromCache;
-        self.categories_from_cache_01().compat()
+    pub async fn get_categories_all(&self) -> Result<Vec<Category>, ResError> {
+        let (conn, vec): (_, Vec<u32>) =
+            self.ids_from_cache_list("category_id:meta", 0, 999).await?;
+        CacheService::from_cache(conn, vec, CATEGORY_U8, false).await
     }
 
     pub fn update_categories(&self, c: &[Category]) {
-        actix::spawn(build_hmsets_01(self.get_conn(), c, CATEGORY_U8, false).map_err(|_| ()));
+        actix::spawn(
+            build_hmsets(self.get_conn(), c, CATEGORY_U8, false)
+                .map_err(|_| ())
+                .boxed_local()
+                .compat(),
+        );
     }
 
     pub fn send_failed_category(&self, c: Category) {
-        let _ = self
-            .recipient
-            .do_send(CacheFailedMessage::FailedCategory(c));
+        let _ = self.addr.do_send(CacheFailedMessage::FailedCategory(c));
     }
 }
