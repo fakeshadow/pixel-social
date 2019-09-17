@@ -18,16 +18,17 @@ use tokio::{future::FutureExt as TokioFutureExt, timer::Interval};
 
 use crate::handler::cache::{CacheService, CheckRedisMut, GetQueue, GetSharedConn};
 use crate::model::{
-    channel::{ChannelAddress, ChannelGenerator},
+    common::dur,
     errors::{ErrorReport, RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
+    runtime::{ChannelAddress, ChannelCreate},
     user::User,
 };
 
-const MAIL_TIME_GAP: Duration = Duration::from_millis(500);
-const SMS_TIME_GAP: Duration = Duration::from_millis(500);
-const ERROR_TIME_GAP: Duration = Duration::from_secs(60);
-const REPORT_TIME_GAP: Duration = Duration::from_secs(600);
+const MAIL_TIME_GAP: Duration = dur(500);
+const SMS_TIME_GAP: Duration = dur(500);
+const ERROR_TIME_GAP: Duration = dur(60_000);
+const REPORT_TIME_GAP: Duration = dur(600_000);
 
 // handles error report, sending email and sms messages.
 pub struct MessageService {
@@ -38,7 +39,7 @@ pub struct MessageService {
     pub error_report: ErrorReport,
 }
 
-impl ChannelGenerator for MessageService {
+impl ChannelCreate for MessageService {
     type Message = ErrorReport;
 }
 

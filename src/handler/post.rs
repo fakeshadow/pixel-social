@@ -7,7 +7,7 @@ use tokio_postgres::types::ToSql;
 use crate::handler::{
     cache::{build_hmsets, CacheService, GetSharedConn, POST_U8},
     cache_update::CacheFailedMessage,
-    db::{AsCrateClient, DatabaseService},
+    db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
 use crate::model::{
     common::GlobalVars,
@@ -21,8 +21,7 @@ impl DatabaseService {
 
         let now = &Utc::now().naive_local();
 
-        self.client
-            .borrow_mut()
+        self.cli_like()
             .as_cli()
             .query_one(
                 &self.insert_post.borrow(),
@@ -90,11 +89,8 @@ impl DatabaseService {
         }
         query.push_str(" RETURNING *");
 
-        let mut r = self.client.borrow_mut();
-        let mut c = r.as_cli();
-
-        let st = c.prep(query.as_str()).await?;
-        c.query_one(&st, &params).await
+        let st = self.cli_like().prepare(query.as_str()).await?;
+        self.cli_like().as_cli().query_one(&st, &params).await
     }
 
     pub async fn get_posts_with_uid(&self, ids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {
@@ -136,8 +132,12 @@ impl CacheService {
     }
 
     pub fn update_posts(&self, t: &[Post]) {
-        let conn = self.get_conn();
-        tokio::spawn(build_hmsets(conn, t, POST_U8, true).map(|_| ()));
+        actix::spawn(
+            build_hmsets(self.get_conn(), t, POST_U8, true)
+                .map_err(|_| ())
+                .boxed_local()
+                .compat(),
+        );
     }
 
     pub fn update_post_return_fail(
@@ -149,10 +149,10 @@ impl CacheService {
     }
 
     pub fn send_failed_post(&self, p: Post) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedPost(p));
+        self.addr.do_send(CacheFailedMessage::FailedPost(p));
     }
 
     pub fn send_failed_post_update(&self, p: Vec<Post>) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedPostUpdate(p));
+        self.addr.do_send(CacheFailedMessage::FailedPostUpdate(p));
     }
 }

@@ -3,7 +3,7 @@ use futures::FutureExt;
 
 use crate::handler::{
     cache::CacheService,
-    db::{AsCrateClient, DatabaseService},
+    db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
 use crate::model::{
     common::GlobalVars,
@@ -13,6 +13,9 @@ use crate::model::{
 use crate::util::jwt::JwtPayLoad;
 
 pub type UserJwt = JwtPayLoad;
+
+const USER_BY_NAME_EMAIL: &str = "SELECT * FROM users WHERE username=$1 OR email=$2";
+const USER_BY_NAME: &str = "SELECT * FROM users WHERE username=$1";
 
 // jwt token extractor from request
 impl FromRequest for JwtPayLoad {
@@ -37,20 +40,14 @@ impl FromRequest for JwtPayLoad {
 
 impl DatabaseService {
     pub async fn register(&self, req: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep("SELECT * FROM users WHERE username=$1 OR email=$2")
-            .await?;
+        let st = self.cli_like().prepare(USER_BY_NAME_EMAIL).await?;
 
         let username = req.username.as_str();
         // unwrap() is safe as we checked the field in AuthRequest and make it's not none in router.
         let email = req.email.as_ref().map(String::as_str).unwrap();
 
         let users: Vec<User> = self
-            .client
-            .borrow_mut()
+            .cli_like()
             .as_cli()
             .query_multi(&st, &[&username, &email], Vec::with_capacity(2))
             .await?;
@@ -71,8 +68,7 @@ impl DatabaseService {
         let u = req.make_user(id, hash.as_str())?;
 
         let st = &*self.insert_user.borrow();
-        self.client
-            .borrow_mut()
+        self.cli_like()
             .as_cli()
             .query_one(
                 st,
@@ -89,16 +85,10 @@ impl DatabaseService {
     }
 
     pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep("SELECT * FROM users WHERE username=$1")
-            .await?;
+        let st = self.cli_like().prepare(USER_BY_NAME).await?;
 
         let user: User = self
-            .client
-            .borrow_mut()
+            .cli_like()
             .as_cli()
             .query_one(&st, &[&req.username])
             .await?;

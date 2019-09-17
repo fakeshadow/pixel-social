@@ -12,10 +12,10 @@ use hashbrown::HashMap;
 use redis::{aio::SharedConnection, cmd};
 use tokio_postgres::{Client, Statement};
 
-use crate::handler::db::CrateClientLike;
+use crate::handler::cache::CheckRedisConn;
 use crate::handler::{
     cache::{FromCache, GetSharedConn, UsersFromCache},
-    db::AsCrateClient,
+    db::{AsCrateClient, CrateClientLike},
 };
 use crate::model::{
     actors::WsChatSession,
@@ -128,6 +128,26 @@ impl TalkService {
         }
 
         Ok((db, sts))
+    }
+
+    fn rw_sessions(&mut self) -> ReadWriteSessions {
+        ReadWriteSessions::from(self.sessions.clone())
+    }
+
+    fn rw_talks(&mut self) -> ReadWriteTalks {
+        ReadWriteTalks::from(self.talks.clone())
+    }
+
+    fn rw_db(&mut self) -> ReadWriteDb {
+        ReadWriteDb::from(self.db.clone())
+    }
+
+    fn rw_cache(&mut self) -> ReadWriteCache {
+        ReadWriteCache::from((self.cache.clone(), None))
+    }
+
+    fn rw_cache_with_url(&mut self) -> ReadWriteCache {
+        ReadWriteCache::from((self.cache.clone(), Some(self.cache_url.clone())))
     }
 }
 
@@ -272,17 +292,27 @@ impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for ReadWriteDb {
     }
 }
 
-pub struct ReadWriteCache(Rc<RefCell<SharedConnection>>);
+pub struct ReadWriteCache(Rc<RefCell<SharedConnection>>, Option<String>);
 
-impl From<Rc<RefCell<SharedConnection>>> for ReadWriteCache {
-    fn from(rc: Rc<RefCell<SharedConnection>>) -> ReadWriteCache {
-        ReadWriteCache(rc)
+impl From<(Rc<RefCell<SharedConnection>>, Option<String>)> for ReadWriteCache {
+    fn from((rc, url): (Rc<RefCell<SharedConnection>>, Option<String>)) -> ReadWriteCache {
+        ReadWriteCache(rc, url)
     }
 }
 
 impl GetSharedConn for ReadWriteCache {
     fn get_conn(&self) -> SharedConnection {
         (&*self.0).borrow().clone()
+    }
+}
+
+impl CheckRedisConn for ReadWriteCache {
+    fn self_url(&self) -> &str {
+        self.1.as_ref().map(String::as_str).unwrap()
+    }
+
+    fn replace_redis(&self, c: SharedConnection) {
+        self.0.replace(c);
     }
 }
 
@@ -297,7 +327,7 @@ impl ReadWriteCache {
         status: u32,
         set_last_online_time: bool,
     ) -> impl Future<Output = Result<(), ResError>> {
-        let conn = (*self.0).borrow().clone();
+        let conn = self.get_conn();
 
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
@@ -356,6 +386,28 @@ impl Handler<CheckPostgresMessage> for TalkService {
     }
 }
 
+pub struct CheckRedisMessage;
+
+impl Message for CheckRedisMessage {
+    type Result = Result<(), ResError>;
+}
+
+impl Handler<CheckRedisMessage> for TalkService {
+    type Result = ResponseStdFuture<Result<(), ResError>>;
+
+    fn handle(&mut self, _msg: CheckRedisMessage, _: &mut Self::Context) -> Self::Result {
+        let cache = self.rw_cache_with_url();
+
+        let f = async move {
+            let opt = cache.check_redis().await?;
+            cache.if_replace_redis(opt);
+            Ok(())
+        };
+
+        ResponseStdFuture::from(f)
+    }
+}
+
 #[derive(Message)]
 pub struct DisconnectRequest {
     pub session_id: u32,
@@ -365,8 +417,8 @@ impl Handler<DisconnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = ReadWriteCache::from(self.cache.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let cache = self.rw_cache();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id;
@@ -402,9 +454,9 @@ impl Handler<TextMessageRequest> for TalkService {
     fn handle(&mut self, msg: TextMessageRequest, _: &mut Context<Self>) -> Self::Result {
         // ToDo: batch insert messages to database.
 
-        let db = ReadWriteDb::from(self.db.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
-        let talks = ReadWriteTalks::from(self.talks.clone());
+        let db = self.rw_db();
+        let sessions = self.rw_sessions();
+        let talks = self.rw_talks();
 
         let st_public_msg = self.insert_pub_msg.clone();
         let st_private_msg = self.insert_prv_msg.clone();
@@ -475,8 +527,8 @@ impl Handler<ConnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: ConnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = ReadWriteCache::from(self.cache.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let cache = self.rw_cache();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id;
@@ -517,9 +569,9 @@ impl Handler<CreateTalkRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: CreateTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -574,9 +626,9 @@ impl Handler<JoinTalkRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: JoinTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
 
         let st_join_talk = self.join_talk.clone();
 
@@ -622,8 +674,8 @@ pub struct TalkByIdRequest {
 impl Handler<TalkByIdRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
     fn handle(&mut self, msg: TalkByIdRequest, _: &mut Context<Self>) -> Self::Result {
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -631,6 +683,7 @@ impl Handler<TalkByIdRequest> for TalkService {
             let r = async {
                 let talks = talks.get_talks_hm().await?;
 
+                // we return all talks if the query talk_id is 0
                 let t = match msg.talk_id {
                     0 => talks.iter().map(|(_, t)| t).collect(),
                     _ => talks
@@ -664,8 +717,8 @@ pub struct UsersByIdRequest {
 impl Handler<UsersByIdRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
     fn handle(&mut self, msg: UsersByIdRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = ReadWriteCache::from(self.cache.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let cache = self.rw_cache();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -696,8 +749,8 @@ pub struct UserRelationRequest {
 impl Handler<UserRelationRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
     fn handle(&mut self, msg: UserRelationRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let sessions = self.rw_sessions();
         let st_relation = self.get_relations.clone();
 
         let f = async move {
@@ -738,8 +791,8 @@ impl Handler<GetHistory> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let sessions = self.rw_sessions();
 
         let st_public_msg = self.get_pub_msg.clone();
         let st_private_msg = self.get_prv_msg.clone();
@@ -802,9 +855,9 @@ impl Handler<RemoveUserRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: RemoveUserRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -864,9 +917,9 @@ impl Handler<Admin> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: Admin, _: &mut Context<Self>) -> Self::Result {
-        let db = ReadWriteDb::from(self.db.clone());
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
+        let db = self.rw_db();
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -915,9 +968,9 @@ impl Handler<DeleteTalkRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: DeleteTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let talks = ReadWriteTalks::from(self.talks.clone());
-        let sessions = ReadWriteSessions::from(self.sessions.clone());
-        let db = ReadWriteDb::from(self.db.clone());
+        let talks = self.rw_talks();
+        let sessions = self.rw_sessions();
+        let db = self.rw_db();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -926,7 +979,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
                 let tid = msg.talk_id;
 
                 let st = db.cli_like().prepare(REMOVE_TALK).await?;
-                let _r = db.cli_like().as_cli().exec(&st, &[&tid]).await?;
+                let _r = db.cli_like().execute(&st, &[&tid]).await?;
 
                 talks.remove_talk_hm(tid).await?;
 

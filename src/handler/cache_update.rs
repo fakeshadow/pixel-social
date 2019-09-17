@@ -5,26 +5,26 @@ use futures::{
     channel::mpsc::UnboundedReceiver, future::Either, lock::Mutex as FutMutex, StreamExt,
 };
 use redis::{aio::SharedConnection, cmd, pipe};
-use tokio::{future::FutureExt as TokioFutureExt, timer::Interval};
 
 use crate::handler::cache::{
     AddToCache, CategoriesFromCache, CheckRedisMut, FromCache, GetSharedConn, IdsFromList,
 };
-use crate::model::channel::{ChannelAddress, ChannelGenerator, InjectQueue};
 use crate::model::{
     cache_schema::HashMapBrown,
     cache_update::{FailedCollection, FailedType},
     category::Category,
+    common::dur,
     errors::ResError,
     post::Post,
+    runtime::{ChannelAddress, ChannelCreate, SpawnIntervalHandler, SpawnQueueHandler},
     topic::Topic,
     user::User,
 };
 
 // list_pop update interval time gap in seconds
-const LIST_TIME_DUR: Duration = Duration::from_secs(5);
+const LIST_TIME_DUR: Duration = dur(5000);
 // time interval for retry adding failed cache to redis.
-const FAILED_TIME_DUR: Duration = Duration::from_secs(3);
+const FAILED_TIME_DUR: Duration = dur(3000);
 
 pub struct CacheUpdateService {
     pub url: String,
@@ -32,7 +32,7 @@ pub struct CacheUpdateService {
     pub failed_collection: Arc<FutMutex<FailedCollection>>,
 }
 
-impl ChannelGenerator for CacheUpdateService {
+impl ChannelCreate for CacheUpdateService {
     type Message = CacheFailedMessage;
 }
 
@@ -53,7 +53,7 @@ impl CacheUpdateService {
         let failed_collection = Arc::new(FutMutex::new(FailedCollection::default()));
 
         // run failed collection injector in a separate future.
-        FailedCacheQueue::new(failed_collection.clone(), receiver).handle_inject();
+        FailedCacheQueue::new(failed_collection.clone(), receiver).spawn_queue();
 
         // User double layer of Arc<Mutex<_>> as we share failed_collection in different spawned futures.
         let update = Arc::new(FutMutex::new(CacheUpdateService {
@@ -62,36 +62,9 @@ impl CacheUpdateService {
             failed_collection: failed_collection.clone(),
         }));
 
-        // run interval futures which handle cache list update in a separate future.
-        let upt_list = update.clone();
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(LIST_TIME_DUR);
-            loop {
-                interval.next().await;
-                // set a timeout for the looped future
-                // ToDo: relax the timeout if the duration is too tight.
-                let mut upt = upt_list.lock().await;
-                if let Err(e) = upt.handle_list_update().timeout(LIST_TIME_DUR).await {
-                    // ToDo: handler error.
-                    println!("{:?}", e.to_string());
-                }
-            }
-        });
-
-        // run interval futures which handle failed cache update in a separate future.
-        let upt_failed = update.clone();
-
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(FAILED_TIME_DUR);
-            loop {
-                interval.next().await;
-                let mut upt = upt_failed.lock().await;
-                if let Err(e) = upt.handle_failed_update().timeout(FAILED_TIME_DUR).await {
-                    // ToDo: handler error.
-                    println!("{:?}", e.to_string());
-                }
-            }
-        });
+        // construct interval future and run.
+        UpdateList::from(update.clone()).spawn_interval(LIST_TIME_DUR);
+        UpdateFailed::from(update.clone()).spawn_interval(FAILED_TIME_DUR);
 
         // wrap the channel sender in Arc<Mutex> as it has to be passed to CacheService.
         Ok(addr)
@@ -183,13 +156,9 @@ impl CacheUpdateService {
         }
 
         if !v.is_empty() {
-            // ToDo: don't use join all as we could have some good insertion while others are failed
-
-            while let Some(_) = v.next().await {
+            while let Some(r) = v.next().await {
                 // ToDo: collect all successful insertion and compare to input.
-                ()
             }
-
             collect.remove_by_pids(&pids);
             collect.remove_by_tids(&tids);
             collect.remove_by_uids(&uids);
@@ -200,7 +169,48 @@ impl CacheUpdateService {
     }
 }
 
-impl InjectQueue<CacheFailedMessage> for FailedCacheQueue {
+type SharedCacheUpdateService = Arc<FutMutex<CacheUpdateService>>;
+
+struct UpdateList(SharedCacheUpdateService);
+
+impl From<SharedCacheUpdateService> for UpdateList {
+    fn from(p: SharedCacheUpdateService) -> Self {
+        UpdateList(p)
+    }
+}
+
+impl SpawnIntervalHandler for UpdateList {
+    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut upt = self.0.lock().await;
+            upt.handle_list_update().await
+        })
+    }
+}
+
+struct UpdateFailed(SharedCacheUpdateService);
+
+impl From<SharedCacheUpdateService> for UpdateFailed {
+    fn from(c: SharedCacheUpdateService) -> Self {
+        UpdateFailed(c)
+    }
+}
+
+impl SpawnIntervalHandler for UpdateFailed {
+    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut upt = self.0.lock().await;
+            upt.handle_failed_update().await
+        })
+    }
+}
+
+//enum ErrorWithId {
+//    Category(u32),
+//
+//}
+
+impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueue {
     type Error = ResError;
 
     fn receiver(&mut self) -> &mut UnboundedReceiver<CacheFailedMessage> {

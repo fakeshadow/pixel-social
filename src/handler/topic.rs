@@ -153,9 +153,8 @@ impl CacheService {
     }
 
     pub fn update_topics(&self, t: &[Topic]) {
-        let conn = self.get_conn();
         actix::spawn(
-            build_hmsets(conn, t, TOPIC_U8, true)
+            build_hmsets(self.get_conn(), t, TOPIC_U8, true)
                 .map_err(|_| ())
                 .boxed_local()
                 .compat(),
@@ -174,10 +173,10 @@ impl CacheService {
 
     // send failed data to CacheUpdateService actor and retry from there.
     pub fn send_failed_topic(&self, t: Topic) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedTopic(t));
+        self.addr.do_send(CacheFailedMessage::FailedTopic(t));
     }
 
     pub fn send_failed_topic_update(&self, t: Vec<Topic>) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedTopicUpdate(t));
+        self.addr.do_send(CacheFailedMessage::FailedTopicUpdate(t));
     }
 }

@@ -7,30 +7,33 @@ use chrono::Utc;
 use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
 use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
 use redis::aio::SharedConnection;
-use tokio::timer::Interval;
 use tokio_postgres::{Client, Statement};
 
 use crate::handler::{
     cache::{CacheService, CheckRedisMut, GetSharedConn},
     db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
+use crate::model::runtime::SpawnIntervalHandler;
 use crate::model::{
-    channel::{ChannelAddress, ChannelGenerator, InjectQueue},
+    common::{dur, dur_as_sec},
     errors::ResError,
     psn::{
         PSNTrophyArgumentRequest, PSNUserLib, TrophySetLib, TrophyTitlesLib, UserPSNProfile,
         UserTrophySet, UserTrophyTitle,
     },
+    runtime::{ChannelAddress, ChannelCreate, SpawnQueueHandler},
 };
 
-const PSN_TIME_GAP: Duration = Duration::from_millis(3000);
-const PSN_REQUEST_TIME_OUT: Duration = Duration::from_millis(6000);
+const PSN_REQ_INTERVAL: Duration = dur(3000);
 
 // how often user can sync their data to psn in seconds.
-const PROFILE_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
-const TROPHY_TITLES_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
-const TROPHY_SET_TIME_GATE: i64 = Duration::from_secs(900).as_secs() as i64;
+const PROFILE_TIME_GATE: i64 = dur_as_sec(900_000);
+const TROPHY_TITLES_TIME_GATE: i64 = dur_as_sec(900_000);
+const TROPHY_SET_TIME_GATE: i64 = dur_as_sec(900_000);
 
+const PSN_TITLES_NY_TIME: &str = "SELECT * FROM psn_user_trophy_titles WHERE np_id=$1 ORDER BY last_update_date DESC OFFSET $2 LIMIT 20";
+const PSN_SET_BY_NPID: &str =
+    "SELECT * FROM psn_user_trophy_sets WHERE np_id=$1 and np_communication_id=$2";
 const INSERT_TITLES: &str =
     "INSERT INTO psn_user_trophy_titles (np_id, np_communication_id, progress, earned_platinum, earned_gold, earned_silver, earned_bronze, last_update_date)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -68,14 +71,13 @@ pub struct PSNService {
     pub db_url: String,
     pub cache_url: String,
     pub psn: PSN,
-    //ToDo: change back to futures::lock::Mutex when get_mut() method released
     pub db: tokio_postgres::Client,
     pub insert_trophy_title: Statement,
     pub cache: SharedConnection,
     pub queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
 }
 
-impl ChannelGenerator for PSNService {
+impl ChannelCreate for PSNService {
     type Message = (PSNRequest, bool);
 }
 
@@ -95,6 +97,67 @@ impl CheckRedisMut for PSNService {
     }
 }
 
+struct SharedPSNService(Arc<FutMutex<PSNService>>);
+
+impl From<Arc<FutMutex<PSNService>>> for SharedPSNService {
+    fn from(p: Arc<FutMutex<PSNService>>) -> SharedPSNService {
+        SharedPSNService(p)
+    }
+}
+
+impl SpawnIntervalHandler for SharedPSNService {
+    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut psn = self.0.lock().await;
+
+            // pattern match PSNRequest and handle the PSN network along with postgres and redis requests.
+
+            // check tokens and refresh access token. then pop the front entry from queue.
+            let queue = psn.check_token().await?.queue.lock().await.pop_front();
+
+            if let Some(r) = queue {
+                match r {
+                    PSNRequest::Profile { online_id } => {
+                        psn.handle_profile_request(online_id).await
+                    }
+                    PSNRequest::TrophyTitles { online_id, .. } => {
+                        let r = psn.handle_trophy_titles_request(online_id).await?;
+                        // only check db connection when update user trophy titles.
+                        psn.check_conn_db()
+                            .await?
+                            .update_user_trophy_titles(&r)
+                            .await
+                    }
+                    PSNRequest::TrophySet {
+                        online_id,
+                        np_communication_id,
+                    } => {
+                        let r = psn
+                            .handle_trophy_set_request(online_id, np_communication_id)
+                            .await?;
+                        psn.query_update_user_trophy_set(r).await
+                    }
+                    PSNRequest::Auth {
+                        uuid,
+                        two_step,
+                        refresh_token,
+                    } => psn.handle_auth_request(uuid, two_step, refresh_token).await,
+                    PSNRequest::Activation {
+                        user_id,
+                        online_id,
+                        code,
+                    } => {
+                        psn.handle_activation_request(user_id, online_id, code)
+                            .await
+                    }
+                }
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
 impl PSNService {
     async fn check_conn_db(&mut self) -> Result<&mut Self, ResError> {
         if self.db.is_closed() {
@@ -111,7 +174,6 @@ impl PSNService {
     async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
         let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
 
-        //ToDo: remove compat layer when actix convert to use std::future;
         let conn = conn.map(|_| ());
         tokio::spawn(conn);
 
@@ -141,7 +203,7 @@ impl PSNService {
         let queue = Arc::new(FutMutex::new(VecDeque::new()));
 
         // run queue injector in a separate future.
-        PSNQueue::new(queue.clone(), receiver).handle_inject();
+        PSNQueue::new(queue.clone(), receiver).spawn_queue();
 
         // use double Arc<Mutex<_>> as the queue is passed to both PSNQueue and PSNService
         let psn = Arc::new(FutMutex::new(PSNService {
@@ -154,72 +216,10 @@ impl PSNService {
             queue: queue.clone(),
         }));
 
-        // run interval futures which handle PSNService in a separate future.
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(PSN_TIME_GAP);
-            use tokio::future::FutureExt as TokioFutureExt;
-            loop {
-                interval.next().await;
-                // set a timeout for the looped future
-                // ToDo: handle errors.
-                let mut session = psn.lock().await;
-                if let Ok(result) = session.handle_queue().timeout(PSN_REQUEST_TIME_OUT).await {
-                    if let Err(e) = result {
-                        println!("psn error {:?}", e.to_string());
-                    }
-                };
-            }
-        });
+        // run interval functions handle PSNService in a spawned future.
+        SharedPSNService::from(psn).spawn_interval(PSN_REQ_INTERVAL);
 
-        // wrap the channel sender in a mutex as it has to be passed to other threads.
         Ok(addr)
-    }
-
-    // pattern match PSNRequest and handle the PSN network along with postgres and redis requests.
-    async fn handle_queue(&mut self) -> Result<(), ResError> {
-        let queue = self.check_token().await?.queue.lock().await.pop_front();
-
-        if let Some(r) = queue {
-            println!("got request : {:#?}", r);
-            match r {
-                PSNRequest::Profile { online_id } => self.handle_profile_request(online_id).await,
-                PSNRequest::TrophyTitles { online_id, .. } => {
-                    let r = self.handle_trophy_titles_request(online_id).await?;
-                    // only check db connection when update user trophy titles.
-                    self.check_conn_db()
-                        .await?
-                        .update_user_trophy_titles(&r)
-                        .await
-                }
-                PSNRequest::TrophySet {
-                    online_id,
-                    np_communication_id,
-                } => {
-                    let r = self
-                        .handle_trophy_set_request(online_id, np_communication_id)
-                        .await?;
-                    self.query_update_user_trophy_set(r).await
-                }
-                PSNRequest::Auth {
-                    uuid,
-                    two_step,
-                    refresh_token,
-                } => {
-                    self.handle_auth_request(uuid, two_step, refresh_token)
-                        .await
-                }
-                PSNRequest::Activation {
-                    user_id,
-                    online_id,
-                    code,
-                } => {
-                    self.handle_activation_request(user_id, online_id, code)
-                        .await
-                }
-            }
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -234,7 +234,7 @@ struct PSNQueue {
     time_gate: hashbrown::HashMap<Vec<u8>, i64>,
 }
 
-impl InjectQueue<(PSNRequest, bool)> for PSNQueue {
+impl SpawnQueueHandler<(PSNRequest, bool)> for PSNQueue {
     type Error = ResError;
 
     fn receiver(&mut self) -> &mut UnboundedReceiver<(PSNRequest, bool)> {
@@ -481,7 +481,6 @@ impl PSNService {
 
             Ok(v)
         } else {
-            // ToDo: handle potential attacker here as the np_id of user doesn't match.
             Err(ResError::Unauthorized)
         }
     }
@@ -509,7 +508,6 @@ impl PSNService {
                 trophies: set.trophies.iter().map(|t| t.into()).collect(),
             })
         } else {
-            // ToDo: handle potential attacker here as the np_id of user doesn't match.
             Err(ResError::Unauthorized)
         }
     }
@@ -539,22 +537,12 @@ impl PSNService {
     // The purpose is to flag people who have a changed trophy timestamp on the trophy already earned
     // by comparing the The first_earned_date with the earned_date
     async fn query_update_user_trophy_set(&mut self, mut t: UserTrophySet) -> Result<(), ResError> {
-        let st = self
-            .db
-            .prepare("SELECT * FROM psn_user_trophy_sets WHERE np_id=$1 and np_communication_id=$2")
-            .await?;
+        let st = self.db.prepare(PSN_SET_BY_NPID).await?;
 
-        let r: Result<UserTrophySet, ResError> = (&mut self.db)
+        let r = (&mut self.db)
             .as_cli()
-            .query_one(&st, &[&t.np_id.as_str(), &t.np_communication_id.as_str()])
+            .query_one::<UserTrophySet>(&st, &[&t.np_id.as_str(), &t.np_communication_id.as_str()])
             .await;
-
-        //        let query = format!(
-        //            "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}';",
-        //            t.np_id.as_str(),
-        //            t.np_communication_id.as_str()
-        //        );
-        //        let r: Result<UserTrophySet, ResError> = self.simple_query_one(query.as_str()).await;
 
         match r {
             Ok(t_old) => {
@@ -670,26 +658,12 @@ impl PSNService {
             v.push(f);
         }
 
-        futures::future::join_all(v).map(|r| {
-            for r in r {
-                let _ = r?;
-            }
-            Ok(())
-        })
+        futures::future::join_all(v).map(|_v| Ok(()))
     }
 
     async fn check_token(&mut self) -> Result<&mut Self, ResError> {
         if self.psn.should_refresh() {
-            let p: PSN = PSN::new()
-                .add_refresh_token(
-                    self.psn
-                        .get_refresh_token()
-                        .map(String::from)
-                        .unwrap_or_else(|| "".to_owned()),
-                )
-                .auth()
-                .await?;
-            self.psn = p;
+            self.psn.gen_access_from_refresh().await?;
             Ok(self)
         } else {
             Ok(self)
@@ -704,16 +678,12 @@ impl DatabaseService {
         np_id: &str,
         page: u32,
     ) -> Result<Vec<UserTrophyTitle>, ResError> {
-        let query = format!(
-            "SELECT * FROM psn_user_trophy_titles WHERE np_id=$1 ORDER BY last_update_date DESC OFFSET {} LIMIT 20",
-            (page - 1) * 20
-        );
-
-        let st = self.cli_like().prepare(query.as_str()).await?;
+        let st = self.cli_like().prepare(PSN_TITLES_NY_TIME).await?;
+        let offset = (page - 1) * 20;
 
         self.cli_like()
             .as_cli()
-            .query_multi(&st, &[&np_id], Vec::with_capacity(20))
+            .query_multi(&st, &[&np_id, &offset], Vec::with_capacity(20))
             .await
     }
 
@@ -722,20 +692,12 @@ impl DatabaseService {
         np_id: &str,
         np_communication_id: &str,
     ) -> Result<UserTrophySet, ResError> {
-        let st = self
-            .cli_like()
-            .prepare("SELECT * FROM psn_user_trophy_sets WHERE np_id=$1 and np_communication_id=$2")
-            .await?;
+        let st = self.cli_like().prepare(PSN_SET_BY_NPID).await?;
 
         self.cli_like()
             .as_cli()
             .query_one(&st, &[&np_id, &np_communication_id])
             .await
-        //        let query = format!(
-        //            "SELECT * FROM psn_user_trophy_sets WHERE np_id='{}' and np_communication_id='{}'",
-        //            np_id, np_communication_id
-        //        );
-        //        self.simple_query_one::<UserTrophySet>(query.as_str())
     }
 
     //    pub fn update_trophy_set_argument(

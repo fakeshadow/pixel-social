@@ -6,7 +6,7 @@ use actix_web::{
 use futures::{FutureExt, TryFutureExt};
 
 use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService, psn::PSNRequest};
-use crate::model::channel::ChannelAddress;
+use crate::model::runtime::ChannelAddress;
 
 type PSNServiceAddr = ChannelAddress<(PSNRequest, bool)>;
 

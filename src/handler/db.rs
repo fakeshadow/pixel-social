@@ -4,7 +4,7 @@ use std::{
     sync::MutexGuard,
 };
 
-use futures::{future::join_all, FutureExt, TryFutureExt, TryStreamExt};
+use futures::{future::join_all, FutureExt, TryStreamExt};
 use tokio_postgres::{
     types::{ToSql, Type},
     Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
@@ -16,20 +16,18 @@ use crate::model::{
     errors::ResError,
 };
 
+// frequent used statements.
 const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
 const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
 const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
-
 const INSERT_TOPIC: &str =
     "INSERT INTO topics (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *";
-
 const INSERT_POST: &str =
     "INSERT INTO posts (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *";
-
 const INSERT_USER: &str =
     "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
     VALUES ($1, $2, $3, $4, $5, $6)
@@ -257,7 +255,7 @@ where
         .map(move |r| parse_column_by_index(r, index))
 }
 
-/// construct `CrateClient` from wrappers.
+/// construct `CrateClient`.
 pub trait AsCrateClient {
     fn as_cli(&mut self) -> CrateClient;
 }
@@ -329,20 +327,5 @@ impl<'a> CrateClient<'a> {
             .simple_query(q)
             .try_collect::<Vec<SimpleQueryMessage>>()
             .map(|r| pop_simple_query_row(r?))
-    }
-
-    pub(crate) fn prep(
-        &mut self,
-        query: &str,
-    ) -> impl Future<Output = Result<Statement, ResError>> + Send {
-        self.0.prepare(query).err_into()
-    }
-
-    pub(crate) fn exec(
-        &mut self,
-        st: &Statement,
-        p: &[&dyn ToSql],
-    ) -> impl Future<Output = Result<u64, ResError>> + Send {
-        self.0.execute(st, p).err_into()
     }
 }

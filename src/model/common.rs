@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use actix::prelude::Addr;
 use async_std::sync::RwLock;
@@ -7,8 +7,13 @@ use hashbrown::HashMap;
 use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
 use crate::util::validation as validate;
 
-pub type PinedBoxFutureResult<T> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ResError>>>>;
+pub const fn dur(millis: u64) -> Duration {
+    Duration::from_millis(millis)
+}
+
+pub const fn dur_as_sec(millis: u64) -> i64 {
+    Duration::from_millis(millis).as_secs() as i64
+}
 
 pub trait GetSelfCategory {
     fn self_category(&self) -> u32;

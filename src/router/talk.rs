@@ -11,9 +11,9 @@ use actix_web_actors::ws;
 use serde::Deserialize;
 
 use crate::handler::talk::{
-    Admin, AuthRequest, CheckPostgresMessage, ConnectRequest, CreateTalkRequest, DeleteTalkRequest,
-    GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService,
-    TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
+    Admin, AuthRequest, CheckPostgresMessage, CheckRedisMessage, ConnectRequest, CreateTalkRequest,
+    DeleteTalkRequest, GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest,
+    TalkService, TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
 };
 use crate::model::talk::SendMessage;
 use crate::model::{actors::WsChatSession, talk::SessionMessage};
@@ -21,7 +21,8 @@ use crate::util::jwt::JwtPayLoad;
 
 lazy_static! {
     static ref PARSING_ERROR: String = SendMessage::Error("Query Parsing Error").stringify();
-    static ref DB_ERROR: String = SendMessage::Error("DataBase Error").stringify();
+    static ref DB_ERROR: String = SendMessage::Error("Postgres Error").stringify();
+    static ref CACHE_ERROR: String = SendMessage::Error("Redis Error").stringify();
     static ref COMMAND_ERROR: String = SendMessage::Error("Empty Command").stringify();
     static ref AUTH_ERROR: String = SendMessage::Error("Unauthorized Command").stringify();
     static ref MSG_RANGE_ERROR: String = SendMessage::Error("Message Out of Range").stringify();
@@ -70,15 +71,28 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 }
                 if self.id == 0 {
                     match v[0] {
-                        "/auth" => auth(self, v[1], ctx),
+                        // redis connection is checked when auth occur.
+                        "/auth" => {
+                            let text = v[1].to_owned();
+                            ctx.spawn(
+                                self.addr
+                                    .send(CheckRedisMessage)
+                                    .into_actor(self)
+                                    .map_err(|_, _, _| ())
+                                    .map(move |r, act, ctx| {
+                                        if let Err(_e) = r {
+                                            ctx.text(CACHE_ERROR.as_str());
+                                        };
+                                        auth(act, text.as_str(), ctx)
+                                    }),
+                            );
+                        }
                         _ => ctx.text(AUTH_ERROR.as_str()),
                     }
                 } else {
                     match v[0] {
-                        "/msg" => general_msg_handler::<TextMessageRequest>(self, v[1], ctx),
-                        "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
-                        "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
-                        "/admin" => {
+                        // db connection is checked when sending message.
+                        "/msg" => {
                             let text = v[1].to_owned();
                             ctx.spawn(
                                 self.addr
@@ -89,10 +103,17 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                                         if let Err(_e) = r {
                                             ctx.text(DB_ERROR.as_str());
                                         };
-                                        general_msg_handler::<Admin>(act, text.as_str(), ctx)
+                                        general_msg_handler::<TextMessageRequest>(
+                                            act,
+                                            text.as_str(),
+                                            ctx,
+                                        )
                                     }),
                             );
                         }
+                        "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
+                        "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
+                        "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),
                         "/users" => general_msg_handler::<UsersByIdRequest>(self, v[1], ctx),
                         // request talk_id 0 to get all talks details.
                         "/talks" => general_msg_handler::<TalkByIdRequest>(self, v[1], ctx),

@@ -1,11 +1,10 @@
 use futures::{FutureExt, TryFutureExt};
 use tokio_postgres::types::ToSql;
 
-use crate::handler::cache::{FromCache, IdsFromList};
 use crate::handler::{
-    cache::{build_hmsets, CacheService, GetSharedConn, CATEGORY_U8},
+    cache::{build_hmsets, CacheService, FromCache, GetSharedConn, IdsFromList, CATEGORY_U8},
     cache_update::CacheFailedMessage,
-    db::{AsCrateClient, DatabaseService},
+    db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -13,17 +12,15 @@ use crate::model::{
     errors::ResError,
 };
 
+const DEL_CATEGORY: &str = "DELETE FROM categories WHERE id=$1";
+const INSERT_CATEGORY: &str =
+    "INSERT INTO categories (id, name, thumbnail) VALUES ($1, $2, $3) RETURNING *";
+
 impl DatabaseService {
     pub async fn get_categories_all(&self) -> Result<Vec<Category>, ResError> {
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep("SELECT * FROM categories")
-            .await?;
+        let st = self.cli_like().prepare("SELECT * FROM categories").await?;
 
-        self.client
-            .borrow_mut()
+        self.cli_like()
             .as_cli()
             .query_multi(&st, &[], Vec::new())
             .await
@@ -60,29 +57,15 @@ impl DatabaseService {
 
         query.push_str(" RETURNING *");
 
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep(query.as_str())
-            .await?;
+        let st = self.cli_like().prepare(query.as_str()).await?;
 
-        self.client
-            .borrow_mut()
-            .as_cli()
-            .query_one(&st, &params)
-            .await
+        self.cli_like().as_cli().query_one(&st, &params).await
     }
 
     pub async fn remove_category(&self, cid: u32) -> Result<(), ResError> {
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep("DELETE FROM categories WHERE id=$1")
-            .await?;
+        let st = self.cli_like().prepare(DEL_CATEGORY).await?;
 
-        self.client.borrow_mut().as_cli().exec(&st, &[&cid]).await?;
+        self.cli_like().execute(&st, &[&cid]).await?;
 
         Ok(())
     }
@@ -92,22 +75,11 @@ impl DatabaseService {
         c: CategoryRequest,
         g: &GlobalVars,
     ) -> Result<Category, ResError> {
-        let st = self
-            .client
-            .borrow_mut()
-            .as_cli()
-            .prep(
-                "
-                INSERT INTO categories (id, name, thumbnail)
-                VALUES ($1, $2, $3)
-                RETURNING *",
-            )
-            .await?;
+        let st = self.cli_like().prepare(INSERT_CATEGORY).await?;
 
         let cid = g.lock().map(|mut lock| lock.next_cid()).await;
 
-        self.client
-            .borrow_mut()
+        self.cli_like()
             .as_cli()
             .query_one(
                 &st,
@@ -138,6 +110,6 @@ impl CacheService {
     }
 
     pub fn send_failed_category(&self, c: Category) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedCategory(c));
+        self.addr.do_send(CacheFailedMessage::FailedCategory(c));
     }
 }

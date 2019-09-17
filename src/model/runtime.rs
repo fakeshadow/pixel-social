@@ -1,22 +1,23 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use futures::{
     channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
     lock::Mutex,
     FutureExt, SinkExt, StreamExt,
 };
+use tokio::{future::FutureExt as TokioFutureExt, timer::Interval};
+
+use crate::model::errors::ResError;
 
 /// channel address wraps the channel sender and passed to other threads.
 pub struct ChannelAddress<T> {
-    inner: Arc<Mutex<UnboundedSender<T>>>,
+    address: Arc<Mutex<UnboundedSender<T>>>,
 }
 
 impl<T> Clone for ChannelAddress<T> {
     fn clone(&self) -> Self {
         ChannelAddress {
-            inner: self.inner.clone(),
+            address: self.address.clone(),
         }
     }
 }
@@ -27,7 +28,7 @@ where
 {
     /// spawn a future and send message to channel receiver.
     pub fn do_send(&self, req: T) {
-        let lock = self.inner.clone();
+        let lock = self.address.clone();
         tokio::spawn(async move {
             let mut sender = lock.lock().await;
             let _ = sender.send(req).await;
@@ -36,7 +37,7 @@ where
 }
 
 /// create and channel and return send in Arc<Mutex> and receiver.
-pub trait ChannelGenerator {
+pub trait ChannelCreate {
     type Message;
 
     fn create_channel() -> (
@@ -47,7 +48,7 @@ pub trait ChannelGenerator {
 
         (
             ChannelAddress {
-                inner: Arc::new(Mutex::new(tx)),
+                address: Arc::new(Mutex::new(tx)),
             },
             rx,
         )
@@ -55,10 +56,7 @@ pub trait ChannelGenerator {
 }
 
 /// spawn a future and iterate the channel receiver and inject message to queue.
-pub trait InjectQueue<T>: Send + Sized + 'static
-where
-    T: Send,
-{
+pub trait SpawnQueueHandler<T: Send>: Send + Sized + 'static {
     type Error;
 
     fn receiver(&mut self) -> &mut UnboundedReceiver<T>;
@@ -68,16 +66,37 @@ where
         msg: T,
     ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
 
-    fn handle_inject(mut self) {
+    fn spawn_queue(mut self) {
         tokio::spawn(
             async move {
                 while let Some(req) = self.receiver().next().await {
                     self.handle_message(req).await?;
                 }
                 Ok(())
-                // ToDo: add error handler
             }
-                .map(|r: Result<(), Self::Error>| ()),
+                // ToDo: add error handler
+                .map(|_r: Result<(), Self::Error>| ()),
         );
+    }
+}
+
+/// spawn handler for interval loop futures.
+pub trait SpawnIntervalHandler: Sized + Send + Sync + 'static {
+    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>>;
+
+    fn spawn_interval(self, dur: Duration) {
+        tokio::spawn(async move {
+            let mut interval = Interval::new_interval(dur);
+            loop {
+                interval.next().await;
+                let r = self.handle().timeout(dur).await;
+                if let Ok(r) = r {
+                    if let Err(e) = r {
+                        // ToDo: handler error.
+                        println!("{:?}", e.to_string());
+                    }
+                }
+            }
+        });
     }
 }

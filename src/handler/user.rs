@@ -112,6 +112,6 @@ impl CacheService {
     }
 
     pub fn send_failed_user(&self, u: Vec<User>) {
-        let _ = self.addr.do_send(CacheFailedMessage::FailedUser(u));
+        self.addr.do_send(CacheFailedMessage::FailedUser(u));
     }
 }
