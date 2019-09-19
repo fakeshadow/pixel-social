@@ -417,6 +417,7 @@ impl Handler<DisconnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
+
         let cache = self.rw_cache();
         let sessions = self.rw_sessions();
 

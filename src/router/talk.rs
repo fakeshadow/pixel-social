@@ -15,8 +15,10 @@ use crate::handler::talk::{
     DeleteTalkRequest, GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest,
     TalkService, TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
 };
-use crate::model::talk::SendMessage;
-use crate::model::{actors::WsChatSession, talk::SessionMessage};
+use crate::model::{
+    talk::{SendMessage, SessionMessage},
+    actors::WsChatSession,
+};
 use crate::util::jwt::JwtPayLoad;
 
 lazy_static! {

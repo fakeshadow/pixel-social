@@ -4,8 +4,8 @@ use std::{
 };
 
 use chrono::Utc;
-use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
-use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
+use futures::{channel::mpsc::UnboundedReceiver, FutureExt, lock::Mutex as FutMutex, TryFutureExt};
+use psn_api_rs::{PSN, PSNRequest as PSNRequestLib};
 use redis::aio::SharedConnection;
 use tokio_postgres::{Client, Statement};
 
@@ -13,7 +13,6 @@ use crate::handler::{
     cache::{CacheService, CheckRedisMut, GetSharedConn},
     db::{AsCrateClient, CrateClientLike, DatabaseService},
 };
-use crate::model::runtime::SpawnIntervalHandler;
 use crate::model::{
     common::{dur, dur_as_sec},
     errors::ResError,
@@ -23,8 +22,10 @@ use crate::model::{
     },
     runtime::{ChannelAddress, ChannelCreate, SpawnQueueHandler},
 };
+use crate::model::runtime::SpawnIntervalLocalHandler;
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
+const PSN_REQ_TIMEOUT: Duration = dur(15000);
 
 // how often user can sync their data to psn in seconds.
 const PROFILE_TIME_GATE: i64 = dur_as_sec(900_000);
@@ -67,6 +68,8 @@ const INSERT_TITLES: &str =
                 ELSE TRUE
                 END";
 
+type PSNQueue = Arc<FutMutex<VecDeque<PSNRequest>>>;
+
 pub struct PSNService {
     pub db_url: String,
     pub cache_url: String,
@@ -74,7 +77,7 @@ pub struct PSNService {
     pub db: tokio_postgres::Client,
     pub insert_trophy_title: Statement,
     pub cache: SharedConnection,
-    pub queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
+    pub queue: PSNQueue,
 }
 
 impl ChannelCreate for PSNService {
@@ -97,33 +100,23 @@ impl CheckRedisMut for PSNService {
     }
 }
 
-struct SharedPSNService(Arc<FutMutex<PSNService>>);
-
-impl From<Arc<FutMutex<PSNService>>> for SharedPSNService {
-    fn from(p: Arc<FutMutex<PSNService>>) -> SharedPSNService {
-        SharedPSNService(p)
-    }
-}
-
-impl SpawnIntervalHandler for SharedPSNService {
-    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+impl SpawnIntervalLocalHandler for PSNService {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(), ResError>> + 'a>> {
         Box::pin(async move {
-            let mut psn = self.0.lock().await;
-
             // pattern match PSNRequest and handle the PSN network along with postgres and redis requests.
 
             // check tokens and refresh access token. then pop the front entry from queue.
-            let queue = psn.check_token().await?.queue.lock().await.pop_front();
+            let queue = self.check_token().await?.queue.lock().await.pop_front();
 
             if let Some(r) = queue {
                 match r {
                     PSNRequest::Profile { online_id } => {
-                        psn.handle_profile_request(online_id).await
+                        self.handle_profile_request(online_id).await
                     }
                     PSNRequest::TrophyTitles { online_id, .. } => {
-                        let r = psn.handle_trophy_titles_request(online_id).await?;
+                        let r = self.handle_trophy_titles_request(online_id).await?;
                         // only check db connection when update user trophy titles.
-                        psn.check_conn_db()
+                        self.check_conn_db()
                             .await?
                             .update_user_trophy_titles(&r)
                             .await
@@ -132,22 +125,22 @@ impl SpawnIntervalHandler for SharedPSNService {
                         online_id,
                         np_communication_id,
                     } => {
-                        let r = psn
+                        let r = self
                             .handle_trophy_set_request(online_id, np_communication_id)
                             .await?;
-                        psn.query_update_user_trophy_set(r).await
+                        self.query_update_user_trophy_set(r).await
                     }
                     PSNRequest::Auth {
                         uuid,
                         two_step,
                         refresh_token,
-                    } => psn.handle_auth_request(uuid, two_step, refresh_token).await,
+                    } => self.handle_auth_request(uuid, two_step, refresh_token).await,
                     PSNRequest::Activation {
                         user_id,
                         online_id,
                         code,
                     } => {
-                        psn.handle_activation_request(user_id, online_id, code)
+                        self.handle_activation_request(user_id, online_id, code)
                             .await
                     }
                 }
@@ -199,32 +192,31 @@ impl PSNService {
         // use an unbounded channel to inject request to queue from other threads.
         let (addr, receiver) = PSNService::create_channel();
 
-        // queue is passed to both PSNService and QueueInjector.
-        let queue = Arc::new(FutMutex::new(VecDeque::new()));
+        // generate queue hand queue handle.
+        let (queue, handler) = PSNQueueHandler::new(receiver);
 
-        // run queue injector in a separate future.
-        PSNQueue::new(queue.clone(), receiver).spawn_queue();
+        // run handler in a separate future.
+        handler.spawn_handle();
 
-        // use double Arc<Mutex<_>> as the queue is passed to both PSNQueue and PSNService
-        let psn = Arc::new(FutMutex::new(PSNService {
+        let psn = PSNService {
             db_url,
             cache_url,
             psn: PSN::new(),
             db,
             insert_trophy_title,
             cache,
-            queue: queue.clone(),
-        }));
+            queue,
+        };
 
-        // run interval functions handle PSNService in a spawned future.
-        SharedPSNService::from(psn).spawn_interval(PSN_REQ_INTERVAL);
+        // run interval functions handle PSNService in a local thread spawned future.
+        psn.spawn_interval_local(PSN_REQ_INTERVAL, PSN_REQ_TIMEOUT);
 
         Ok(addr)
     }
 }
 
-struct PSNQueue {
-    queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
+struct PSNQueueHandler {
+    queue: PSNQueue,
     receiver: UnboundedReceiver<(PSNRequest, bool)>,
     // stores all reqs' timestamp goes to PSN.
     // profile request use <online_id> as key,
@@ -234,7 +226,7 @@ struct PSNQueue {
     time_gate: hashbrown::HashMap<Vec<u8>, i64>,
 }
 
-impl SpawnQueueHandler<(PSNRequest, bool)> for PSNQueue {
+impl SpawnQueueHandler<(PSNRequest, bool)> for PSNQueueHandler {
     type Error = ResError;
 
     fn receiver(&mut self) -> &mut UnboundedReceiver<(PSNRequest, bool)> {
@@ -244,7 +236,7 @@ impl SpawnQueueHandler<(PSNRequest, bool)> for PSNQueue {
     fn handle_message<'a>(
         &'a mut self,
         msg: (PSNRequest, bool),
-    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output=Result<(), Self::Error>> + Send + 'a>> {
         let (req, is_front) = msg;
         Box::pin(async move {
             // push new PSNRequest to VecDeque according to the hash map of time_gate(to throw away spam requests by using time gate)
@@ -257,17 +249,21 @@ impl SpawnQueueHandler<(PSNRequest, bool)> for PSNQueue {
     }
 }
 
-impl PSNQueue {
+impl PSNQueueHandler {
     fn new(
-        queue: Arc<FutMutex<VecDeque<PSNRequest>>>,
-        receiver: UnboundedReceiver<(PSNRequest, bool)>,
-    ) -> Self {
-        PSNQueue {
-            queue,
+        receiver: UnboundedReceiver<(PSNRequest, bool)>
+    ) -> (PSNQueue, Self) {
+        let queue = Arc::new(FutMutex::new(VecDeque::new()));
+
+        let handler = PSNQueueHandler {
+            queue: queue.clone(),
             receiver,
             time_gate: hashbrown::HashMap::new(),
-        }
+        };
+
+        (queue, handler)
     }
+
 
     async fn add_to_queue(&mut self, req: PSNRequest, is_front: bool) {
         let mut queue = self.queue.lock().await;
@@ -389,7 +385,7 @@ impl PSNService {
         uuid: Option<String>,
         two_step: Option<String>,
         refresh_token: Option<String>,
-    ) -> impl Future<Output = Result<(), ResError>> + 'a {
+    ) -> impl Future<Output=Result<(), ResError>> + 'a {
         let mut psn = PSN::new();
 
         if let Some(uuid) = uuid {
@@ -529,7 +525,7 @@ impl PSNService {
                 crate::handler::cache::USER_PSN_U8,
                 false,
             )
-            .map(|_| ()),
+                .map(|_| ()),
         );
     }
 
@@ -635,7 +631,7 @@ impl PSNService {
     fn update_user_trophy_titles(
         &mut self,
         t: &[UserTrophyTitle],
-    ) -> impl Future<Output = Result<(), ResError>> + Send {
+    ) -> impl Future<Output=Result<(), ResError>> + Send {
         let mut v = Vec::with_capacity(t.len());
         let st = &self.insert_trophy_title;
         let c = &mut self.db;
@@ -715,7 +711,7 @@ impl CacheService {
     pub(crate) fn get_psn_profile(
         &self,
         online_id: &str,
-    ) -> impl Future<Output = Result<UserPSNProfile, ResError>> + Send {
+    ) -> impl Future<Output=Result<UserPSNProfile, ResError>> + Send {
         use crate::handler::cache::FromCacheSingle;
         self.from_cache_single(online_id, "user_psn")
     }

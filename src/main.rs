@@ -5,11 +5,12 @@ extern crate serde_derive;
 
 use std::{
     env,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use actix_web::{http::header, middleware::Logger, web, App, HttpServer};
+use actix_web::{App, http::header, HttpServer, middleware::Logger, web};
 use futures::{FutureExt, TryFutureExt};
+use parking_lot::Mutex;
 
 use dotenv::dotenv;
 
@@ -139,14 +140,14 @@ async fn main() -> std::io::Result<()> {
                     global_talks.clone(),
                     global_sessions.clone(),
                 )
-                .boxed_local()
-                .compat(),
+                    .boxed_local()
+                    .compat(),
             )
             .unwrap_or_else(|_| panic!("Failed to create Talk Service for worker : {}", i));
 
-        dbs.lock().unwrap().push(db);
-        caches.lock().unwrap().push(cache);
-        talks.lock().unwrap().push(talk);
+        dbs.lock().push(db);
+        caches.lock().push(cache);
+        talks.lock().push(talk);
     }
 
     HttpServer::new(move || {
@@ -161,9 +162,9 @@ async fn main() -> std::io::Result<()> {
             Removing them will result in some ordering issue.
         */
 
-        let db = dbs.lock().unwrap().pop().unwrap();
-        let cache = caches.lock().unwrap().pop().unwrap();
-        let talk = talks.lock().unwrap().pop().unwrap();
+        let db = dbs.lock().pop().unwrap();
+        let cache = caches.lock().pop().unwrap();
+        let talk = talks.lock().pop().unwrap();
 
         App::new()
             // global and psn are both wrapped in Data<Mutex> so use register_data to avoid double Arc
@@ -295,10 +296,10 @@ async fn main() -> std::io::Result<()> {
             .service(web::resource("/talk").to_async(router::talk::talk))
             .service(actix_files::Files::new("/public", "./public"))
     })
-    .bind(format!("{}:{}", &server_ip, &server_port))
-    .unwrap()
-    .workers(workers)
-    .start();
+        .bind(format!("{}:{}", &server_ip, &server_port))
+        .unwrap()
+        .workers(workers)
+        .start();
 
     sys.run()
 }

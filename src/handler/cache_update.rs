@@ -11,7 +11,7 @@ use crate::handler::cache::{
 };
 use crate::model::{
     cache_schema::HashMapBrown,
-    cache_update::{FailedCollection, FailedType},
+    cache_update::{FailedQueueInner, FailedType},
     category::Category,
     common::dur,
     errors::ResError,
@@ -26,10 +26,12 @@ const LIST_TIME_DUR: Duration = dur(5000);
 // time interval for retry adding failed cache to redis.
 const FAILED_TIME_DUR: Duration = dur(3000);
 
+type FailedCacheQueue = Arc<FutMutex<FailedQueueInner>>;
+
 pub struct CacheUpdateService {
     pub url: String,
     pub cache: SharedConnection,
-    pub failed_collection: Arc<FutMutex<FailedCollection>>,
+    pub queue: FailedCacheQueue,
 }
 
 impl ChannelCreate for CacheUpdateService {
@@ -49,22 +51,20 @@ impl CacheUpdateService {
         // use an unbounded channel to inject msg to collection from other threads.
         let (addr, receiver) = CacheUpdateService::create_channel();
 
-        // collection is passed to both PSNService and QueueInjector.
-        let failed_collection = Arc::new(FutMutex::new(FailedCollection::default()));
+        let (queue, handler) = FailedCacheQueueHandler::new(receiver);
 
-        // run failed collection injector in a separate future.
-        FailedCacheQueue::new(failed_collection.clone(), receiver).spawn_queue();
+        handler.spawn_handle();
 
         // User double layer of Arc<Mutex<_>> as we share failed_collection in different spawned futures.
         let update = Arc::new(FutMutex::new(CacheUpdateService {
             url,
             cache,
-            failed_collection: failed_collection.clone(),
+            queue,
         }));
 
         // construct interval future and run.
-        UpdateList::from(update.clone()).spawn_interval(LIST_TIME_DUR);
-        UpdateFailed::from(update.clone()).spawn_interval(FAILED_TIME_DUR);
+        UpdateList::from(update.clone()).spawn_interval(LIST_TIME_DUR, LIST_TIME_DUR);
+        UpdateFailed::from(update.clone()).spawn_interval(FAILED_TIME_DUR, FAILED_TIME_DUR);
 
         // wrap the channel sender in Arc<Mutex> as it has to be passed to CacheService.
         Ok(addr)
@@ -119,8 +119,8 @@ impl CacheUpdateService {
         let mut tids = Vec::new();
         let mut cids = Vec::new();
 
-        let mut collect: futures::lock::MutexGuard<FailedCollection> =
-            self.failed_collection.lock().await;
+        let mut collect: futures::lock::MutexGuard<FailedQueueInner> =
+            self.queue.lock().await;
 
         for (c, typ) in collect.category.iter() {
             cids.push(c.id);
@@ -156,7 +156,7 @@ impl CacheUpdateService {
         }
 
         if !v.is_empty() {
-            while let Some(r) = v.next().await {
+            while let Some(_r) = v.next().await {
                 // ToDo: collect all successful insertion and compare to input.
             }
             collect.remove_by_pids(&pids);
@@ -180,7 +180,7 @@ impl From<SharedCacheUpdateService> for UpdateList {
 }
 
 impl SpawnIntervalHandler for UpdateList {
-    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let mut upt = self.0.lock().await;
             upt.handle_list_update().await
@@ -197,7 +197,7 @@ impl From<SharedCacheUpdateService> for UpdateFailed {
 }
 
 impl SpawnIntervalHandler for UpdateFailed {
-    fn handle<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let mut upt = self.0.lock().await;
             upt.handle_failed_update().await
@@ -210,7 +210,7 @@ impl SpawnIntervalHandler for UpdateFailed {
 //
 //}
 
-impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueue {
+impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueueHandler {
     type Error = ResError;
 
     fn receiver(&mut self) -> &mut UnboundedReceiver<CacheFailedMessage> {
@@ -220,9 +220,9 @@ impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueue {
     fn handle_message<'a>(
         &'a mut self,
         msg: CacheFailedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output=Result<(), Self::Error>> + Send + 'a>> {
         Box::pin(async move {
-            let mut collection = self.failed_collection.lock().await;
+            let mut collection = self.queue.lock().await;
             match msg {
                 CacheFailedMessage::FailedPost(p) => collection.add_post_new(p),
                 CacheFailedMessage::FailedTopic(t) => collection.add_topic_new(t),
@@ -236,20 +236,23 @@ impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueue {
     }
 }
 
-struct FailedCacheQueue {
-    failed_collection: Arc<FutMutex<FailedCollection>>,
+struct FailedCacheQueueHandler {
+    queue: FailedCacheQueue,
     receiver: UnboundedReceiver<CacheFailedMessage>,
 }
 
-impl FailedCacheQueue {
+impl FailedCacheQueueHandler {
     fn new(
-        failed_collection: Arc<FutMutex<FailedCollection>>,
         receiver: UnboundedReceiver<CacheFailedMessage>,
-    ) -> Self {
-        FailedCacheQueue {
-            failed_collection,
+    ) -> (FailedCacheQueue, Self) {
+        let failed_collection = Arc::new(FutMutex::new(FailedQueueInner::default()));
+
+        let handler = FailedCacheQueueHandler {
+            queue: failed_collection.clone(),
             receiver,
-        }
+        };
+
+        (failed_collection, handler)
     }
 }
 

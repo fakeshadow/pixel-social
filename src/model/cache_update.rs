@@ -5,14 +5,14 @@ pub enum FailedType {
     New,
 }
 
-pub struct FailedCollection {
+pub struct FailedQueueInner {
     pub topic: Vec<(Topic, FailedType)>,
     pub post: Vec<(Post, FailedType)>,
     pub user: Vec<(User, FailedType)>,
     pub category: Vec<(Category, FailedType)>,
 }
 
-impl FailedCollection {
+impl FailedQueueInner {
     pub fn add_topic_new(&mut self, t: Topic) {
         self.topic.push((t, FailedType::New));
     }
@@ -88,9 +88,9 @@ impl FailedCollection {
     }
 }
 
-impl Default for FailedCollection {
-    fn default() -> FailedCollection {
-        FailedCollection {
+impl Default for FailedQueueInner {
+    fn default() -> FailedQueueInner {
+        FailedQueueInner {
             topic: vec![],
             post: vec![],
             user: vec![],
