@@ -16,8 +16,8 @@ use crate::handler::talk::{
     TalkService, TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
 };
 use crate::model::{
-    talk::{SendMessage, SessionMessage},
     actors::WsChatSession,
+    talk::{SendMessage, SessionMessage},
 };
 use crate::util::jwt::JwtPayLoad;
 
@@ -30,6 +30,7 @@ lazy_static! {
     static ref MSG_RANGE_ERROR: String = SendMessage::Error("Message Out of Range").stringify();
 }
 
+/// start and WebSocket actor with each incoming connection.
 pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpResponse, Error> {
     println!("connected");
     ws::start(
@@ -43,6 +44,7 @@ pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpR
     )
 }
 
+// session message is just a wrapper for String which come from the TalkService actors. We just send the string to user.
 impl Handler<SessionMessage> for WsChatSession {
     type Result = ();
 
@@ -51,16 +53,20 @@ impl Handler<SessionMessage> for WsChatSession {
     }
 }
 
+// stream handler iter every incoming message from frontend.
 impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
         match msg {
+            // stop the actor
             ws::Message::Close(_) => ctx.stop(),
             ws::Message::Ping(msg) => {
+                // heart beat instant time
                 self.hb = Instant::now();
                 ctx.pong(&msg);
             }
             ws::Message::Pong(_) => self.hb = Instant::now(),
             ws::Message::Text(t) => {
+                // The format is  "/<message type> serialized_message"; we spilt the string and pattern match them and send message to actor to handle.
                 let t = t.trim();
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
@@ -210,6 +216,8 @@ fn general_msg_handler<'a, T>(
     match r {
         Ok(mut msg) => {
             msg.attach_session_id(session.id);
+            // we use do_send and ignore the return type as we already send the session actor's address to talk service actor.
+            // the return message will be send back later as SessionMessage
             session.addr.do_send(msg)
         }
         Err(_) => ctx.text(PARSING_ERROR.as_str()),
@@ -222,6 +230,7 @@ fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<
         Ok(auth) => match JwtPayLoad::from(&auth.token) {
             Ok(j) => {
                 session.id = j.user_id;
+                // when doing authentication we also send the session actor's address to talk service actor.
                 session.addr.do_send(ConnectRequest {
                     session_id: session.id,
                     online_status: auth.online_status,

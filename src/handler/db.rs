@@ -1,12 +1,14 @@
 use std::{
     cell::{RefCell, RefMut},
     future::Future,
+    pin::Pin,
+    task::{Context, Poll},
 };
 
 use futures::{future::join_all, FutureExt, TryStreamExt};
 use tokio_postgres::{
-    Client,
-    NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement, types::{ToSql, Type},
+    types::{ToSql, Type},
+    Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
 };
 
 use crate::model::{
@@ -15,7 +17,7 @@ use crate::model::{
     errors::ResError,
 };
 
-// frequent used statements.
+// frequent used statements that are construct on start.
 const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
 const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
 const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
@@ -51,7 +53,7 @@ impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for DatabaseService {
 
 impl DatabaseService {
     /// database connection is only checked on insert request.
-    /// Connections are not shared between threads so the recovery will happen separately.
+    /// Connections are not shared between workers so the recovery will happen separately.
     pub(crate) async fn check_postgres(&self) -> Result<&Self, ResError> {
         if self.client.borrow().is_closed() {
             let (c, mut sts) = DatabaseService::connect_postgres(self.url.as_str()).await?;
@@ -164,8 +166,8 @@ impl DatabaseService {
         st: &Statement,
         ids: &[u32],
     ) -> Result<(Vec<T>, Vec<u32>), ResError>
-        where
-            T: SelfUserId + SelfId + TryFromRef<Row, Error=ResError> + Unpin,
+    where
+        T: SelfUserId + SelfId + TryFromRef<Row, Error = ResError> + Unpin,
     {
         let (vec, uids): (Vec<T>, Vec<u32>) = self
             .cli_like()
@@ -189,25 +191,26 @@ impl DatabaseService {
 
 // could be unnecessary future.
 struct OutOfOrder<'a, T>
-    where T: SelfId {
+where
+    T: SelfId,
+{
     ids: &'a [u32],
     vec: Vec<T>,
 }
 
 impl<'a, T: SelfId> OutOfOrder<'a, T> {
     fn sort(ids: &'a [u32], vec: Vec<T>) -> Self {
-        OutOfOrder {
-            ids,
-            vec,
-        }
+        OutOfOrder { ids, vec }
     }
 }
 
 impl<T> Future for OutOfOrder<'_, T>
-    where T: SelfId + Unpin {
+where
+    T: SelfId + Unpin,
+{
     type Output = Vec<T>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
         let mut result = Vec::with_capacity(self.vec.len());
         let v = self.get_mut();
 
@@ -218,8 +221,8 @@ impl<T> Future for OutOfOrder<'_, T>
                     break;
                 }
             }
-        };
-        std::task::Poll::Ready(result)
+        }
+        Poll::Ready(result)
     }
 }
 
@@ -259,9 +262,9 @@ impl<'a> CrateClient<'a> {
         &mut self,
         st: &Statement,
         p: &[&dyn ToSql],
-    ) -> impl Future<Output=Result<T, ResError>> + Send
-        where
-            T: TryFromRef<Row, Error=ResError> + Send,
+    ) -> impl Future<Output = Result<T, ResError>> + Send
+    where
+        T: TryFromRef<Row, Error = ResError> + Send + 'static,
     {
         self.0
             .query(st, p)
@@ -274,9 +277,9 @@ impl<'a> CrateClient<'a> {
         st: &Statement,
         p: &[&dyn ToSql],
         vec: Vec<T>,
-    ) -> impl Future<Output=Result<Vec<T>, ResError>> + Send
-        where
-            T: TryFromRef<Row, Error=ResError> + Send + 'static,
+    ) -> impl Future<Output = Result<Vec<T>, ResError>> + Send
+    where
+        T: TryFromRef<Row, Error = ResError> + Send + 'static,
     {
         query_multi_fn(self.0, st, p, vec)
     }
@@ -284,7 +287,7 @@ impl<'a> CrateClient<'a> {
     pub(crate) fn simple_query_row(
         &mut self,
         q: &str,
-    ) -> impl Future<Output=Result<SimpleQueryRow, ResError>> + Send {
+    ) -> impl Future<Output = Result<SimpleQueryRow, ResError>> + Send {
         self.0
             .simple_query(q)
             .try_collect::<Vec<SimpleQueryMessage>>()
@@ -296,8 +299,8 @@ fn parse_column_by_index<T>(
     result: Result<SimpleQueryRow, ResError>,
     column_index: usize,
 ) -> Result<T, ResError>
-    where
-        T: std::str::FromStr,
+where
+    T: std::str::FromStr,
 {
     result?
         .get(column_index)
@@ -322,9 +325,9 @@ pub fn query_multi_fn<T>(
     st: &Statement,
     params: &[&dyn ToSql],
     vec: Vec<T>,
-) -> impl Future<Output=Result<Vec<T>, ResError>>
-    where
-        T: TryFromRef<Row, Error=ResError> + 'static,
+) -> impl Future<Output = Result<Vec<T>, ResError>>
+where
+    T: TryFromRef<Row, Error = ResError> + 'static,
 {
     client
         .query(st, params)
@@ -341,9 +344,9 @@ pub fn simple_query_one_column<T>(
     c: &mut Client,
     query: &str,
     index: usize,
-) -> impl Future<Output=Result<T, ResError>>
-    where
-        T: std::str::FromStr,
+) -> impl Future<Output = Result<T, ResError>>
+where
+    T: std::str::FromStr,
 {
     c.simple_query(query)
         .try_collect::<Vec<SimpleQueryMessage>>()

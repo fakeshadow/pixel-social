@@ -46,8 +46,10 @@ const GET_PRV_MSG: &str =
 const GET_FRIENDS: &str = "SELECT friends FROM relations WHERE id = $1";
 const INSERT_USER: &str = "UPDATE talks SET users=array_append(users, $1) WHERE id= $2";
 
-// actor handles communication between websocket sessions actors
-// with a database connection(each actor) for messages and talks query. a redis connection(each actor) for users' cache info query.
+/// talk service actor handle communication to websocket sessions actors
+/// most fields are wrapped in Rc<RefCell<_>> as the actor handler spawn futures in local thread. So we need the types be `Send` to be thread safe.
+/// talk service maintain a `HashMap` for all existing talks and a `HashMap` for all current connected `WebsocketSession Actor` addresses.
+/// They are used as cache to speed up the message handling and send response string message.
 pub struct TalkService {
     pub db_url: String,
     pub cache_url: String,
@@ -157,6 +159,7 @@ pub struct AuthRequest {
     pub online_status: u32,
 }
 
+// a wrapper type for GlobalSessions that are shared between all workers and all threads.
 pub struct ReadWriteSessions(GlobalSessions);
 
 impl From<GlobalSessions> for ReadWriteSessions {
@@ -165,6 +168,7 @@ impl From<GlobalSessions> for ReadWriteSessions {
     }
 }
 
+// lock global sessions and read write session id and/or associate session addr(WebSocket session actor's address) and send string messages.
 impl ReadWriteSessions {
     async fn send_message(&self, sid: u32, msg: &str) {
         match self.get_session_hm(sid).await {
@@ -176,7 +180,7 @@ impl ReadWriteSessions {
     async fn send_error(&self, sid: u32, e: &ResError) {
         if let Ok(addr) = self.get_session_hm(sid).await {
             addr.do_send(SessionMessage(
-                SendMessage::Error(e.stringify()).stringify(),
+                SendMessage::Error(e.to_string().as_str()).stringify(),
             ));
         }
     }
@@ -217,6 +221,7 @@ impl ReadWriteSessions {
     }
 }
 
+// a wrapper type for global talks
 pub struct ReadWriteTalks(GlobalTalks);
 
 impl From<GlobalTalks> for ReadWriteTalks {
@@ -225,6 +230,7 @@ impl From<GlobalTalks> for ReadWriteTalks {
     }
 }
 
+// lock the global talks and read/write the inner HashMap<talk_id, Talk_information>;
 impl ReadWriteTalks {
     fn get_talk_hm(&self, talk_id: u32) -> impl Future<Output = Result<Talk, ResError>> + '_ {
         self.read_talks(move |t| t.get(&talk_id).cloned().ok_or(ResError::NotFound))
@@ -278,6 +284,7 @@ async fn send_message_many(
     Ok(())
 }
 
+/// wrap `Client` in `Rc<RefCell<_>>` as actor handler will spawn futures on current thread and `Client` itself isn't thread safe.
 pub struct ReadWriteDb(Rc<RefCell<Client>>);
 
 impl From<Rc<RefCell<Client>>> for ReadWriteDb {
@@ -292,6 +299,7 @@ impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for ReadWriteDb {
     }
 }
 
+/// wrap `SharedConnection` in `Rc<RefCell<_>>` as actor handler will spawn futures on current thread and `SharedConnection` itself isn't thread safe.
 pub struct ReadWriteCache(Rc<RefCell<SharedConnection>>, Option<String>);
 
 impl From<(Rc<RefCell<SharedConnection>>, Option<String>)> for ReadWriteCache {
@@ -321,6 +329,7 @@ impl FromCache for ReadWriteCache {}
 impl UsersFromCache for ReadWriteCache {}
 
 impl ReadWriteCache {
+    /// we set user's online status in redis cache when user connect with websocket.
     fn set_online_status(
         &self,
         uid: u32,
@@ -417,7 +426,6 @@ impl Handler<DisconnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
-
         let cache = self.rw_cache();
         let sessions = self.rw_sessions();
 
@@ -426,6 +434,7 @@ impl Handler<DisconnectRequest> for TalkService {
 
             let r: Result<(), ResError> = async {
                 sessions.remove_session_hm(sid).await?;
+                // we set user's online status in redis to 0 when user's websocket session disconnecting
                 cache.set_online_status(sid, 0, true).await?;
                 Ok(())
             }
@@ -465,6 +474,7 @@ impl Handler<TextMessageRequest> for TalkService {
         let f = async move {
             let sid = msg.session_id.unwrap();
 
+            // the double layer async/await is to handle ResError more easily. We stringify the error and send them to websocket session actor.
             let r = async {
                 let now = Utc::now().naive_utc();
 

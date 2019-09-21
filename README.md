@@ -11,9 +11,9 @@
 1. Make change to `.env` file to match your environment.<br>
 *. make changes to cors setting if you encounter the issue.
 2. `cargo build --release`<br>
-3. run the compiled `pixel_rs` in target/release folder to start the server<br>
-*. run `pixel_rs build` to generate dummy tables.<br>
-*. run `pixel_rs drop` to drop all tables.
+3. run the compiled `pixel_social` in target/release folder to start the server<br>
+*. run `pixel_social build` to generate dummy tables.<br>
+*. run `pixel_social drop` to drop all dummy tables.
     
 `Web Frontend:`<br>
 1. `pub get` to get dependencies

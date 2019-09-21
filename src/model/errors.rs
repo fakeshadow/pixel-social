@@ -1,5 +1,6 @@
 use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::{Display, From};
+
 use psn_api_rs::PSNError;
 
 // res errors use from trait to convert error types and generate http response or added to error report.
@@ -47,6 +48,8 @@ pub enum ResError {
     IdsFromCache(Vec<u32>),
     #[display(fmt = "AWC Http Client Error")]
     HttpClient,
+    #[display(fmt = "Mail Service Error")]
+    MailingError,
 }
 
 impl ResponseError for ResError {
@@ -94,15 +97,6 @@ impl ResponseError for ResError {
                 HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked"))
             }
             _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
-        }
-    }
-}
-
-impl ResError {
-    pub fn stringify(&self) -> &'static str {
-        match self {
-            ResError::NotFound => "Not Found",
-            _ => "Internal Server Error",
         }
     }
 }
@@ -168,7 +162,7 @@ impl From<lettre_email::error::Error> for ResError {
 //ToDo: handle smtp error
 impl From<lettre::smtp::error::Error> for ResError {
     fn from(_e: lettre::smtp::error::Error) -> ResError {
-        ResError::InternalServerError
+        ResError::MailingError
     }
 }
 
@@ -206,9 +200,7 @@ pub enum RepError {
     Ignore,
     Database,
     Redis,
-    MailBuilder,
-    MailTransport,
-    SMS,
+    Mailer,
     HttpClient,
 }
 
@@ -217,14 +209,9 @@ impl From<ResError> for RepError {
         match e {
             ResError::DataBaseReadError => RepError::Database,
             ResError::RedisConnection => RepError::Redis,
+            ResError::HttpClient => RepError::HttpClient,
+            ResError::MailingError => RepError::Mailer,
             _ => RepError::Ignore,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct ErrorReport {
-    pub use_report: bool,
-    pub reports: hashbrown::HashMap<RepError, u32>,
-    pub last_report_time: std::time::Instant,
 }

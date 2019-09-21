@@ -67,9 +67,7 @@ pub fn add_post(
 }
 
 pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item = HttpResponse, Error = Error> {
-     Box::pin(async move {
-         raw_async(db).await
-     }).compat()
+    Box::pin(async move { raw_async(db).await }).compat()
 }
 
 pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse, Error = Error> {
@@ -78,7 +76,7 @@ pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse
 
 async fn raw_async(db: Data<DatabaseService>) -> Result<HttpResponse, Error> {
     let ids = vec![
-        1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4
+        1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4,
     ];
 
     let (t, uids) = db.get_topics_with_uid(&ids).await?;

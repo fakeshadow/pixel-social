@@ -1,8 +1,7 @@
-use std::future::Future;
-use std::sync::Arc;
-use std::{env, time::Duration};
+use std::{env, future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use futures::{lock::Mutex, FutureExt, TryFutureExt};
+use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
+use hashbrown::HashMap;
 use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
 use lettre::{
@@ -14,21 +13,30 @@ use lettre::{
 };
 use lettre_email::Email;
 use redis::aio::SharedConnection;
-use tokio::{future::FutureExt as TokioFutureExt, timer::Interval};
 
 use crate::handler::cache::{CacheService, CheckRedisMut, GetQueue, GetSharedConn};
+use crate::model::runtime::{SendRepError, SpawnIntervalHandler, SpawnQueueHandler};
 use crate::model::{
     common::dur,
-    errors::{ErrorReport, RepError, ResError},
+    errors::{RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
     runtime::{ChannelAddress, ChannelCreate},
     user::User,
 };
 
-const MAIL_TIME_GAP: Duration = dur(500);
-const SMS_TIME_GAP: Duration = dur(500);
-const ERROR_TIME_GAP: Duration = dur(60_000);
-const REPORT_TIME_GAP: Duration = dur(600_000);
+const REPORT_INTERVAL: Duration = dur(600_000);
+const REPORT_TIMEOUT: Duration = dur(30_000);
+
+const MAIL_INTERVAL: Duration = dur(500);
+const MAIL_TIMEOUT: Duration = dur(5_000);
+
+const SMS_INTERVAL: Duration = dur(500);
+const SMS_TIMEOUT: Duration = dur(5_000);
+
+pub type RepErrorAddr = ChannelAddress<RepError>;
+
+type ReportQueue = Arc<FutMutex<HashMap<RepError, u32>>>;
+type SharedMessageService = Arc<FutMutex<MessageService>>;
 
 // handles error report, sending email and sms messages.
 pub struct MessageService {
@@ -36,77 +44,56 @@ pub struct MessageService {
     pub cache: SharedConnection,
     pub mailer: Option<Mailer>,
     pub twilio: Option<Twilio>,
-    pub error_report: ErrorReport,
+    pub queue: ReportQueue,
+    pub rep_addr: RepErrorAddr,
 }
 
 impl ChannelCreate for MessageService {
-    type Message = ErrorReport;
+    type Message = RepError;
 }
 
 impl MessageService {
-    pub(crate) async fn init(redis_url: &str) -> Result<ChannelAddress<ErrorReport>, ResError> {
+    pub(crate) async fn init(
+        redis_url: &str,
+        use_sms: bool,
+        use_mail: bool,
+        use_rep: bool,
+    ) -> Result<RepErrorAddr, ResError> {
         let cache = crate::handler::cache::connect_cache(redis_url)
             .await?
             .ok_or(ResError::RedisConnection)?;
 
         let url = redis_url.to_owned();
 
-        let msgr = Arc::new(Mutex::new(MessageService {
+        let (addr, receiver) = MessageService::create_channel();
+
+        let (queue, handler) = ReportQueueHandler::new(receiver);
+
+        handler.spawn_handle();
+
+        let msg = Arc::new(FutMutex::new(MessageService {
             url,
             cache,
             mailer: Self::generate_mailer(),
             twilio: Self::generate_twilio(),
-            error_report: Self::generate_error_report(),
+            queue,
+            rep_addr: addr.clone(),
         }));
 
-        let (addr, receiver) = MessageService::create_channel();
-
-        // ToDo: impl InjectQueue for queue and pass receiver to it.
-
-        // spawn a future to handle mail queue.
-        let msgr_mail = msgr.clone();
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(MAIL_TIME_GAP);
-            loop {
-                interval.next().await;
-                let mut msgr = msgr_mail.lock().await;
-                let r = msgr.handle_mail().timeout(MAIL_TIME_GAP * 2).await;
-                if let Err(e) = r {
-                    // ToDo: handler error.
-                    println!("mail error {:?}", e.to_string());
-                }
-            }
-        });
+        // spawn a future to handle mail queue(mail queue lives in redis so no addition channel is needed).
+        if use_mail {
+            MailerInterval::from(msg.clone()).spawn_interval(MAIL_INTERVAL, MAIL_TIMEOUT);
+        }
 
         // spawn a future to handle sms queue
-        let msgr_sms = msgr.clone();
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(SMS_TIME_GAP);
-            loop {
-                interval.next().await;
-                let mut msgr = msgr_sms.lock().await;
-                let r = msgr.handle_sms().timeout(SMS_TIME_GAP * 2).await;
-                if let Err(e) = r {
-                    // ToDo: handler error.
-                    println!("sms error {:?}", e.to_string());
-                }
-            }
-        });
+        if use_sms {
+            SMSInterval::from(msg.clone()).spawn_interval(SMS_INTERVAL, SMS_TIMEOUT);
+        }
 
         // spawn a future to handle error report
-        let msgr_rep = msgr.clone();
-        tokio::spawn(async move {
-            let mut interval = Interval::new_interval(SMS_TIME_GAP);
-            loop {
-                interval.next().await;
-                let mut msgr = msgr_rep.lock().await;
-                let r = msgr.handle_err_rep().timeout(SMS_TIME_GAP * 2).await;
-                if let Err(e) = r {
-                    // ToDo: handler error.
-                    println!("error rep error {:?}", e.to_string());
-                }
-            }
-        });
+        if use_rep {
+            ErrorReport::from(msg.clone()).spawn_interval(REPORT_INTERVAL, REPORT_TIMEOUT);
+        }
 
         Ok(addr)
     }
@@ -130,14 +117,133 @@ impl CheckRedisMut for MessageService {
     }
 }
 
+struct MailerInterval(SharedMessageService);
+
+impl From<SharedMessageService> for MailerInterval {
+    fn from(m: SharedMessageService) -> MailerInterval {
+        MailerInterval(m)
+    }
+}
+
+impl SpawnIntervalHandler for MailerInterval {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut msg = self.0.lock().await;
+            msg.handle_mail().await
+        })
+    }
+}
+
+impl SendRepError for MailerInterval {
+    fn send_err_rep<'a>(
+        &'a mut self,
+        e: ResError,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mail = self.0.lock().await;
+            mail.rep_addr.do_send(e.into());
+            Ok(())
+        })
+    }
+}
+
+struct SMSInterval(SharedMessageService);
+
+impl From<SharedMessageService> for SMSInterval {
+    fn from(m: SharedMessageService) -> SMSInterval {
+        SMSInterval(m)
+    }
+}
+
+impl SpawnIntervalHandler for SMSInterval {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut msg = self.0.lock().await;
+            msg.handle_sms().await
+        })
+    }
+}
+
+impl SendRepError for SMSInterval {
+    fn send_err_rep<'a>(
+        &'a mut self,
+        e: ResError,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let sms = self.0.lock().await;
+            sms.rep_addr.do_send(e.into());
+            Ok(())
+        })
+    }
+}
+
+struct ErrorReport(SharedMessageService);
+
+impl From<SharedMessageService> for ErrorReport {
+    fn from(m: SharedMessageService) -> ErrorReport {
+        ErrorReport(m)
+    }
+}
+
+impl SpawnIntervalHandler for ErrorReport {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut msg = self.0.lock().await;
+            msg.handle_err_rep().await
+        })
+    }
+}
+
+impl SendRepError for ErrorReport {}
+
 impl MessageService {
     // rep errors are sent right away with sms and mail. instead of using queue.
     async fn handle_err_rep(&mut self) -> Result<(), ResError> {
-        if let Ok(s) = self.error_report.stringify_report() {
+        if let Ok(s) = self.stringify_report().await {
             self.send_mail_admin(s.as_str())?;
             self.send_sms_admin(s.as_str()).await?;
         };
         Ok(())
+    }
+
+    async fn stringify_report(&mut self) -> Result<String, ()> {
+        let now = chrono::Utc::now().naive_utc();
+        let mut message = format!("Time: {}%0aGot erros:", now);
+
+        let mut queue = self.queue.lock().await;
+
+        if let Some(v) = queue.get_mut(&RepError::Redis) {
+            if *v > 2 {
+                message.push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
+            }
+            *v = 0;
+        }
+        if let Some(v) = queue.get_mut(&RepError::Database) {
+            if *v > 2 {
+                message.push_str(
+                    "%0aDatabase Service Error(Could be database server offline/IO error)",
+                );
+            }
+            *v = 0;
+        }
+        if let Some(v) = queue.get_mut(&RepError::Mailer) {
+            if *v > 3 {
+                message.push_str("%0aMail Service Error(Can not build or send email)");
+            }
+            *v = 0;
+        }
+        if let Some(v) = queue.get_mut(&RepError::HttpClient) {
+            if *v > 3 {
+                message
+                    .push_str("%0aHttp Client Error(Could be network issue with target API entry)");
+            }
+            *v = 0;
+        }
+        if !message.ends_with(':') {
+            Ok(message)
+        } else {
+            Err(())
+        }
     }
 
     // use handle_mail interval to handle reconnection to redis after connection is lost.
@@ -211,19 +317,6 @@ impl MessageService {
         }
 
         None
-    }
-
-    pub fn generate_error_report() -> ErrorReport {
-        let use_report = env::var("USE_ERROR_SMS_REPORT")
-            .unwrap_or_else(|_| "false".to_owned())
-            .parse::<bool>()
-            .unwrap_or(false);
-
-        ErrorReport {
-            use_report,
-            reports: hashbrown::HashMap::new(),
-            last_report_time: std::time::Instant::now(),
-        }
     }
 
     fn send_sms_admin(&mut self, msg: &str) -> impl Future<Output = Result<(), ResError>> + '_ {
@@ -347,79 +440,45 @@ impl CacheService {
     }
 }
 
-impl MessageService {
-    fn add_err_to_rep(&mut self, e: RepError) {
-        match self.error_report.reports.get_mut(&e) {
-            Some(v) => {
-                *v += 1;
-            }
-            None => {
-                self.error_report.reports.insert(e, 1);
-            }
-        }
-    }
+#[derive(Debug)]
+struct ReportQueueHandler {
+    queue: ReportQueue,
+    receiver: UnboundedReceiver<RepError>,
 }
 
-impl ErrorReport {
-    pub fn stringify_report(&mut self) -> Result<String, ()> {
-        if self.use_report {
-            let now = chrono::Utc::now().naive_utc();
-            let mut message = format!("Time: {}%0aGot erros:", now);
+impl SpawnQueueHandler<RepError> for ReportQueueHandler {
+    type Queue = ReportQueue;
+    type Error = ();
 
-            let rep = &mut self.reports;
+    fn new(receiver: UnboundedReceiver<RepError>) -> (Self::Queue, Self) {
+        let queue = Arc::new(FutMutex::new(HashMap::new()));
+        let handler = ReportQueueHandler {
+            queue: queue.clone(),
+            receiver,
+        };
 
-            if let Some(v) = rep.get_mut(&RepError::Redis) {
-                if *v > 2 {
-                    message
-                        .push_str("%0aRedis Service Error(Could be redis server offline/IO error)");
-                }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::Database) {
-                if *v > 2 {
-                    message.push_str(
-                        "%0aDatabase Service Error(Could be database server offline/IO error)",
-                    );
-                }
-                *v = 0;
-            }
+        (queue, handler)
+    }
 
-            if let Some(v) = rep.get_mut(&RepError::SMS) {
-                if *v > 2 {
-                    message
-                        .push_str("%0aSMS Service Error(Could be lost connection to twilio API)");
+    fn receiver(&mut self) -> &mut UnboundedReceiver<RepError> {
+        &mut self.receiver
+    }
+
+    fn handle_message<'a>(
+        &'a mut self,
+        msg: RepError,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut queue = self.queue.lock().await;
+            match queue.get_mut(&msg) {
+                Some(v) => {
+                    *v += 1;
                 }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::MailBuilder) {
-                if *v > 3 {
-                    message.push_str("%0aMail Service Error(Can not build email)");
+                None => {
+                    queue.insert(msg, 1);
                 }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::MailTransport) {
-                if *v > 2 {
-                    message.push_str("%0aMail Service Error(Can not transport email. Could be email server offline)");
-                }
-                *v = 0;
-            }
-            if let Some(v) = rep.get_mut(&RepError::HttpClient) {
-                if *v > 3 {
-                    message.push_str(
-                        "%0aHttp Client Error(Could be network issue with target API entry)",
-                    );
-                }
-                *v = 0;
-            }
-            if !message.ends_with(':')
-                && std::time::Instant::now().duration_since(self.last_report_time) > REPORT_TIME_GAP
-            {
-                Ok(message)
-            } else {
-                Err(())
-            }
-        } else {
-            Err(())
-        }
+            };
+            Ok(())
+        })
     }
 }

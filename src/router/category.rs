@@ -1,7 +1,7 @@
 use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Query},
-    Error, HttpResponse, ResponseError,
+    Error, HttpResponse,
 };
 use futures::future::{FutureExt, TryFutureExt};
 
@@ -73,7 +73,7 @@ async fn if_query_db(
                 should_update_t = true;
                 db.get_topics_with_uid(&tids).await?
             } else {
-                return Ok(e.render_response());
+                return Err(e.into());
             }
         }
     };

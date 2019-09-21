@@ -56,6 +56,9 @@ pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
         .try_collect::<Vec<Bytes>>()
         .await
         .map_err(|_| ResError::InternalServerError)?;
+
+    // ToDo: currently only one file can be handled at one time. Need to find a way to handle multiple and nested file upload.
+
     let bytes = bytes.first().ok_or(ResError::InternalServerError)?;
 
     file.write_all(bytes.as_ref())

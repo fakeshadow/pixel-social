@@ -32,7 +32,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     HttpServer::new(move || {
-        // Use clone if you want to share data between thread. This example use data for local thread only. So that each thread have a postgres connection
+        // Use clone if you want to share data between workers. This example use data for local worker only. So that each worker have a postgres connection
         let db = dbs.lock().unwrap().pop().unwrap();
         App::new()
             .data(db)

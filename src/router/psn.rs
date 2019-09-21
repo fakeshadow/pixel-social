@@ -27,8 +27,8 @@ async fn query_handler_async(
     cache: Data<CacheService>,
     addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
-    // send request to psn service actor no matter the local result.
-    // psn service actor will handle if the request will add to psn queue by using time gate.
+    // send request to psn service no matter the local result.
+    // psn service will handle if the request will add to psn queue by using time gate.
     addr.do_send((req.clone(), false));
 
     // return local result if there is any.

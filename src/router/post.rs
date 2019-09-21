@@ -1,7 +1,7 @@
 use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Path},
-    Error, HttpResponse, ResponseError,
+    Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 
@@ -141,7 +141,7 @@ async fn get_async(
                 should_update_p = true;
                 db.get_posts_with_uid(&pids).await?
             } else {
-                return Ok(e.render_response());
+                return Err(e.into());
             }
         }
     };
