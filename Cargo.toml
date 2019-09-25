@@ -4,9 +4,6 @@ version = "0.4.0"
 authors = ["fakeshadow <24548779@qq.com>"]
 edition = "2018"
 
-[dependencies]
-futures01 = { package = "futures", version = "0.1.29" }
-
 [dependencies.actix-cors]
 version = "0.1.0"
 
@@ -23,7 +20,7 @@ version = "0.1.4"
 version = "1.0.2"
 
 [dependencies.actix-web]
-version = "1.0.7"
+version = "1.0.8"
 default-features = false
 
 [dependencies.async-std]
@@ -60,10 +57,10 @@ features = [ "nightly", "compat", "async-await" ]
 version = "0.6.0"
 
 [dependencies.hyper]
-version = "0.13.0-alpha.1"
+version = "0.13.0-alpha.2"
 
 [dependencies.hyper-tls]
-git = "https://github.com/hyperium/hyper-tls"
+version = "0.4.0-alpha.2"
 
 [dependencies.jsonwebtoken]
 version = "6.0.1"
@@ -104,20 +101,17 @@ version = "1.0.40"
 version = "0.6.1"
 
 [dependencies.tokio]
-version = "=0.2.0-alpha.4"
+version = "0.2.0-alpha.5"
 default-features = false
 features = [ "io", "codec", "fs" ]
 
 [dependencies.tokio-postgres]
 git = "https://github.com/sfackler/rust-postgres"
-#branch = "std-futures"
-rev = "5283ad4"
 features = [ "with-chrono-0_4" ]
 
 [dependencies.psn_api_rs]
 git = "https://github.com/fakeshadow/psn_api_rs.git"
 branch = "std-future"
-features= [ "client" ]
 
 [dependencies.uuid]
 version = "0.7.4"

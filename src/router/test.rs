@@ -67,7 +67,7 @@ pub fn add_post(
 }
 
 pub fn raw(db: Data<DatabaseService>) -> impl Future01<Item = HttpResponse, Error = Error> {
-    Box::pin(async move { raw_async(db).await }).compat()
+    raw_async(db).boxed_local().compat()
 }
 
 pub fn raw_cache(cache: Data<CacheService>) -> impl Future01<Item = HttpResponse, Error = Error> {
@@ -92,5 +92,6 @@ async fn raw_cache_async(cache: Data<CacheService>) -> Result<HttpResponse, Erro
 
     let (t, uids) = cache.get_topics_from_ids(ids).await?;
     let u = cache.get_users_from_ids(uids).await?;
+
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }

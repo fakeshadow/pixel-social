@@ -291,7 +291,7 @@ impl IdsFromSortedSet for CacheService {}
 
 impl HashMapBrownFromCache for CacheService {}
 
-impl FromCacheSingle for CacheService {}
+impl ToCacheSingle for CacheService {}
 
 impl FromCache for CacheService {}
 
@@ -383,8 +383,8 @@ pub trait HashMapBrownFromCache: GetSharedConn {
     }
 }
 
-pub trait FromCacheSingle: GetSharedConn {
-    fn from_cache_single<T>(
+pub trait ToCacheSingle: GetSharedConn {
+    fn to_cache_single<T>(
         &self,
         key: &str,
         set_key: &str,

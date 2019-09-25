@@ -79,7 +79,7 @@ pub struct PSNService {
     pub insert_trophy_title: Statement,
     pub cache: SharedConnection,
     pub queue: PSNQueue,
-    pub rep_addr: RepErrorAddr,
+    pub rep_addr: Option<RepErrorAddr>,
 }
 
 impl ChannelCreate for PSNService {
@@ -107,7 +107,9 @@ impl SendRepError for PSNService {
         e: ResError,
     ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
-            self.rep_addr.do_send(e.into());
+            if let Some(rep_addr) = self.rep_addr.as_ref() {
+                rep_addr.do_send(e.into());
+            }
             Ok(())
         })
     }
@@ -194,7 +196,7 @@ impl PSNService {
     pub(crate) async fn init(
         postgres_url: &str,
         redis_url: &str,
-        rep_addr: RepErrorAddr,
+        rep_addr: Option<RepErrorAddr>,
     ) -> Result<ChannelAddress<(PSNRequest, bool)>, ResError> {
         let db_url = postgres_url.to_owned();
         let cache_url = redis_url.to_owned();
@@ -728,7 +730,7 @@ impl CacheService {
         &self,
         online_id: &str,
     ) -> impl Future<Output = Result<UserPSNProfile, ResError>> + Send {
-        use crate::handler::cache::FromCacheSingle;
-        self.from_cache_single(online_id, "user_psn")
+        use crate::handler::cache::ToCacheSingle;
+        self.to_cache_single(online_id, "user_psn")
     }
 }

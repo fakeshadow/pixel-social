@@ -30,10 +30,10 @@ const FAILED_INTERVAL: Duration = dur(3000);
 type FailedCacheQueue = Arc<FutMutex<FailedQueueInner>>;
 
 pub struct CacheUpdateService {
-    pub url: String,
-    pub cache: SharedConnection,
-    pub queue: FailedCacheQueue,
-    pub rep_addr: RepErrorAddr,
+    url: String,
+    cache: SharedConnection,
+    queue: FailedCacheQueue,
+    rep_addr: Option<RepErrorAddr>,
 }
 
 impl ChannelCreate for CacheUpdateService {
@@ -43,7 +43,7 @@ impl ChannelCreate for CacheUpdateService {
 impl CacheUpdateService {
     pub(crate) async fn init(
         redis_url: &str,
-        rep_addr: RepErrorAddr,
+        rep_addr: Option<RepErrorAddr>,
     ) -> Result<ChannelAddress<CacheFailedMessage>, ResError> {
         let url = redis_url.to_owned();
 
@@ -198,7 +198,9 @@ impl SendRepError for UpdateList {
     ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let upt = self.0.lock().await;
-            upt.rep_addr.do_send(e.into());
+            if let Some(rep_addr) = upt.rep_addr.as_ref() {
+                rep_addr.do_send(e.into())
+            }
             Ok(())
         })
     }
@@ -228,7 +230,9 @@ impl SendRepError for UpdateFailed {
     ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let upt = self.0.lock().await;
-            upt.rep_addr.do_send(e.into());
+            if let Some(rep_addr) = upt.rep_addr.as_ref() {
+                rep_addr.do_send(e.into())
+            }
             Ok(())
         })
     }

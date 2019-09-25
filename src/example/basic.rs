@@ -42,7 +42,8 @@ async fn main() -> std::io::Result<()> {
                     .service(web::resource("/future01").route(web::get().to_async(test_01)))
             )
     })
-        .bind(server_url).unwrap()
+        .bind(server_url)
+        .unwrap()
         .workers(workers)
         .start();
     sys.run()
@@ -71,7 +72,7 @@ async fn test_async_await(db: web::Data<DatabaseService>) -> Result<HttpResponse
 
     let t = db.0.borrow_mut()
         .query(&st, &[&ids])
-        .map_err(ResError::from)
+        .error_into()
         .try_fold(Vec::new(), |mut v, row| {
             if let Ok(t) = Topic::try_from(row) {
                 v.push(t);

@@ -11,9 +11,10 @@ use actix_web::{
     web::{self, ServiceConfig},
     App, HttpServer,
 };
-use dotenv::dotenv;
 use futures::{FutureExt, TryFutureExt};
 use parking_lot::Mutex;
+
+use dotenv::dotenv;
 
 mod handler;
 mod model;
@@ -23,8 +24,8 @@ mod util;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
-    //    std::env::set_var("RUST_LOG", "actix_server=info,actix_web=trace");
-    //    env_logger::init();
+    //        std::env::set_var("RUST_LOG", "actix_server=info,actix_web=trace");
+    //        env_logger::init();
 
     let postgres_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set in .env");
@@ -36,18 +37,24 @@ async fn main() -> std::io::Result<()> {
         .parse::<bool>()
         .unwrap_or(true);
     let use_sms = env::var("USE_SMS")
-        .unwrap_or_else(|_| "true".to_owned())
+        .unwrap_or_else(|_| "false".to_owned())
         .parse::<bool>()
-        .unwrap_or(true);
+        .unwrap_or(false);
     let use_rep = env::var("USE_REPORT")
-        .unwrap_or_else(|_| "true".to_owned())
+        .unwrap_or_else(|_| "false".to_owned())
         .parse::<bool>()
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     let mut sys = actix::System::new("pixelshare_async_await");
 
     // create or clear database tables as well as redis cache
-    let is_init = init_table_cache(&mut sys, postgres_url.as_str(), redis_url.as_str());
+    let args = env::args().collect::<Vec<String>>();
+    let is_init = crate::util::startup::init_table_cache(
+        &mut sys,
+        &args,
+        postgres_url.as_str(),
+        redis_url.as_str(),
+    );
 
     /*
         actix runtime only run on future0.1 so all async functions must be converted before running.
@@ -68,7 +75,8 @@ async fn main() -> std::io::Result<()> {
     let global = web::Data::new(global);
 
     // MessageService runs in tokio thread pool and handle email, sms and error reports.
-    // the returned rep_addr is an unbounded channel sender to send messages to MessageService
+    // pass use_xxx env arg to determine if we want to spawn according handlers.
+    // the returned rep_addr is an unbounded channel sender to send messages to MessageService to handle error reports(through email and sms service)
     let rep_addr = sys
         .block_on(
             crate::handler::messenger::MessageService::init(
@@ -82,6 +90,10 @@ async fn main() -> std::io::Result<()> {
         )
         .expect("Failed to create Message Service");
 
+    // we pass the rep_addr as Option<_> to other services.
+    // as if we set USE_REPORT = false then we don't want to send message for error report.
+    let rep_addr = if use_rep { Some(rep_addr) } else { None };
+
     // CacheUpdateService runs in tokio thread pool and handle cache info update and failed insertion cache retry.
     // the returned addr is an unbounded channel sender to send messages to CacheUpdateService
     let addr = sys
@@ -92,7 +104,7 @@ async fn main() -> std::io::Result<()> {
         )
         .expect("Failed to create Cache Update Service");
 
-    // PSNService contain two spawned futures runs in tokio thread pool.
+    // PSNService spawned two futures that run in main thread.(So don't make it panic or it will bring down the whole application).
     // the returned psn is an unbounded channel sender to send messages to PSNService
     // Request to PSN data will hit local cache and db with a delayed schedule request.
     let psn = sys
@@ -298,38 +310,4 @@ fn conf_comm(cfg: &mut ServiceConfig) {
             .service(web::resource("/update").route(web::post().to_async(router::user::update)))
             .service(web::resource("/{id}").route(web::get().to_async(router::user::get))),
     );
-}
-
-fn init_table_cache(sys: &mut actix::SystemRunner, postgres_url: &str, redis_url: &str) -> bool {
-    let args: Vec<String> = env::args().collect();
-    let mut is_init = false;
-    for arg in args.iter() {
-        if arg == "drop" {
-            sys.block_on(
-                crate::util::startup::drop_table(&postgres_url)
-                    .boxed_local()
-                    .compat(),
-            )
-            .unwrap_or_else(|e| panic!("{}", e));
-
-            let _ = crate::handler::cache::clear_cache(&redis_url);
-
-            std::process::exit(1);
-        }
-        if arg == "build" {
-            let success = sys
-                .block_on(
-                    crate::util::startup::create_table(&postgres_url)
-                        .boxed_local()
-                        .compat(),
-                )
-                .unwrap_or_else(|e| panic!("{}", e));
-            if success {
-                is_init = true;
-            } else {
-                println!("tables already exists. building cache with is_init = false");
-            }
-        }
-    }
-    is_init
 }

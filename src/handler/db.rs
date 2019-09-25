@@ -184,6 +184,7 @@ impl DatabaseService {
             )
             .await?;
 
+        // postgres return vec could be out of order and we sort it to the order of input ids.
         let vec = OutOfOrder::sort(ids, vec).await;
         Ok((vec, uids))
     }
@@ -258,6 +259,22 @@ impl AsCrateClient for &'_ mut Client {
 pub struct CrateClient<'a>(&'a mut Client);
 
 impl<'a> CrateClient<'a> {
+    // ToDo: currently only compile on latest nightly
+    //    pub(crate) async fn query_one<T>(
+    //        &mut self,
+    //        st: &Statement,
+    //        p: &[&dyn ToSql],
+    //    ) -> Result<T, ResError>
+    //        where
+    //            T: TryFromRef<Row, Error=ResError> + Send + 'static,
+    //    {
+    //        Box::pin(self.0
+    //            .query(st, p))
+    //            .try_next()
+    //            .map(|r| T::try_from_ref(&r?.ok_or(ResError::BadRequest)?))
+    //            .await
+    //    }
+
     pub(crate) fn query_one<T>(
         &mut self,
         st: &Statement,

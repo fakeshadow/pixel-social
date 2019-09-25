@@ -92,6 +92,10 @@ impl MessageService {
 
         // spawn a future to handle error report
         if use_rep {
+            if !use_sms && !use_mail {
+                panic!("Error report need at least Email or SMS service to function. Please check .env setting");
+            }
+
             ErrorReport::from(msg.clone()).spawn_interval(REPORT_INTERVAL, REPORT_TIMEOUT);
         }
 

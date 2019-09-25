@@ -475,7 +475,7 @@ async fn build_users_cache_local(
 }
 
 // return Ok(false) if tables already exist.
-pub async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
+async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
     let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     tokio::spawn(conn.map(|_| ()));
@@ -491,11 +491,41 @@ pub async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
     Ok(true)
 }
 
-pub async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
+async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
     let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     tokio::spawn(conn.map(|_| ()));
 
     c.simple_query(DROP_TABLES).try_collect::<Vec<_>>().await?;
     Ok(())
+}
+
+pub fn init_table_cache(
+    sys: &mut actix::SystemRunner,
+    args: &[String],
+    postgres_url: &str,
+    redis_url: &str,
+) -> bool {
+    let mut is_init = false;
+    for arg in args.iter() {
+        if arg == "drop" {
+            sys.block_on(drop_table(&postgres_url).boxed_local().compat())
+                .unwrap_or_else(|e| panic!("{}", e));
+
+            let _ = crate::handler::cache::clear_cache(&redis_url);
+
+            std::process::exit(1);
+        }
+        if arg == "build" {
+            let success = sys
+                .block_on(create_table(&postgres_url).boxed_local().compat())
+                .unwrap_or_else(|e| panic!("{}", e));
+            if success {
+                is_init = true;
+            } else {
+                println!("tables already exists. building cache with is_init = false");
+            }
+        }
+    }
+    is_init
 }

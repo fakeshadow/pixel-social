@@ -1,7 +1,7 @@
 ### **A Simple Community App backend**
 
 #### Requirement:
-`rustc 1.39.0-nightly (fba38ac27 2019-08-31) (later nightly version have issue in RefCell)`<br>
+`pin to rustc 1.39.0-nightly (0b36e9dea 2019-09-09)`<br>
 `PostgreSQL 10 and above`<br>
 `Redis 5.0.4 and above`<br>
 `Flutter 1.5 and above with flutter_web preview`<br>
