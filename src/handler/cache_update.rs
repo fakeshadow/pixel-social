@@ -1,91 +1,163 @@
+use std::collections::VecDeque;
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use async_std::sync::Mutex as FutMutex;
 use chrono::Utc;
-use futures::{channel::mpsc::UnboundedReceiver, future::Either, StreamExt};
+use futures::{
+    channel::mpsc::UnboundedSender, future::Either, lock::Mutex, FutureExt, SinkExt, StreamExt,
+    TryFutureExt,
+};
 use redis::{aio::SharedConnection, cmd, pipe};
 
-use crate::handler::{
-    cache::{
-        AddToCache, CategoriesFromCache, CheckRedisMut, FromCache, GetSharedConn, IdsFromList,
-    },
-    messenger::RepErrorAddr,
-};
-use crate::model::runtime::SendRepError;
-use crate::model::{
-    cache_schema::HashMapBrown,
-    cache_update::{FailedQueueInner, FailedType},
-    category::Category,
-    common::dur,
-    errors::ResError,
-    post::Post,
-    runtime::{ChannelAddress, ChannelCreate, SpawnIntervalHandler, SpawnQueueHandler},
-    topic::Topic,
-    user::User,
-};
+use crate::handler::db::MyPostgresPool;
+use crate::handler::{cache::MyRedisPool, messenger::RepErrorAddr};
+use crate::model::runtime::{SendRepError, SpawnIntervalHandlerActixRt};
+use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
 
 const LIST_INTERVAL: Duration = dur(5000);
 const FAILED_INTERVAL: Duration = dur(3000);
 
-type FailedCacheQueue = Arc<FutMutex<FailedQueueInner>>;
-
 pub struct CacheUpdateService {
-    url: String,
-    cache: SharedConnection,
-    queue: FailedCacheQueue,
+    pg_pool: MyPostgresPool,
+    rd_pool: MyRedisPool,
+    queue: Arc<Mutex<VecDeque<CacheFailedMessage>>>,
     rep_addr: Option<RepErrorAddr>,
 }
 
-impl ChannelCreate for CacheUpdateService {
-    type Message = CacheFailedMessage;
+impl SpawnIntervalHandlerActixRt for CacheUpdateService {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        // ToDo: bulk operation.
+        Box::pin(async move {
+            let mut queue = self.queue.lock().await;
+            while let Some(msg) = queue.pop_front() {
+                let r = match msg {
+                    CacheFailedMessage::FailedTopic(id) => {
+                        let (t, _) = self.pg_pool.get_topics(&[id]).await?;
+                        let tt = t.first().ok_or(ResError::DataBaseReadError)?;
+                        self.rd_pool.add_topic(tt).await
+                    }
+                    CacheFailedMessage::FailedPost(id) => {
+                        let (p, _) = self.pg_pool.get_posts(&[id]).await?;
+                        let pp = p.first().ok_or(ResError::DataBaseReadError)?;
+                        self.rd_pool.add_post(pp).await
+                    }
+                    CacheFailedMessage::FailedCategory(id) => {
+                        let c = self.pg_pool.get_categories(&[id]).await?;
+                        let cc = c.first().ok_or(ResError::DataBaseReadError)?;
+                        self.rd_pool.add_category(cc).await
+                    }
+                    CacheFailedMessage::FailedUser(id) => {
+                        let u = self.pg_pool.get_users(&[id]).await?;
+                        self.rd_pool.update_users(&u).await
+                    }
+                    CacheFailedMessage::FailedTopicUpdate(id) => {
+                        let (t, _) = self.pg_pool.get_topics(&[id]).await?;
+                        self.rd_pool.update_topics(&t).await
+                    }
+                    CacheFailedMessage::FailedPostUpdate(id) => {
+                        let (p, _) = self.pg_pool.get_posts(&[id]).await?;
+                        self.rd_pool.update_posts(&p).await
+                    }
+                };
+                if r.is_err() {
+                    queue.push_back(msg);
+                    return r;
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+impl SendRepError for CacheUpdateService {
+    fn send_err_rep<'a>(
+        &'a mut self,
+        e: ResError,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move {
+            if let Some(addr) = self.rep_addr.as_ref() {
+                addr.do_send(e.into());
+            }
+            Ok(())
+        })
+    }
+}
+
+// actix::web::Data().into_inner will return our CacheUpdateAddr in an Arc.
+pub type SharedCacheUpdateAddr = Arc<CacheUpdateAddr>;
+// we don't need Arc wrapper here as the actix::web::Data::new() will provide the Arc layer.
+/// cache update addr is used to collect failed insertion to redis. and retry them in CacheUpdateService.
+pub struct CacheUpdateAddr(Mutex<UnboundedSender<CacheFailedMessage>>);
+
+impl CacheUpdateAddr {
+    pub(crate) async fn do_send(&self, msg: CacheFailedMessage) {
+        let mut tx = self.0.lock().await;
+        // ToDo: we should store this failure as log.
+        let _ = tx.send(msg).await;
+    }
 }
 
 impl CacheUpdateService {
-    pub(crate) async fn init(
-        redis_url: &str,
+    pub(crate) fn init(
+        pg_pool: MyPostgresPool,
+        rd_pool: MyRedisPool,
         rep_addr: Option<RepErrorAddr>,
-    ) -> Result<ChannelAddress<CacheFailedMessage>, ResError> {
-        let url = redis_url.to_owned();
+    ) -> Result<CacheUpdateAddr, ResError> {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
 
-        let cache = crate::handler::cache::connect_cache(redis_url)
-            .await?
-            .ok_or(ResError::RedisConnection)?;
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<CacheFailedMessage>();
 
-        // use an unbounded channel to send msg to queue from other threads.
-        let (addr, receiver) = CacheUpdateService::create_channel();
+        let queue_rx = queue.clone();
+        actix::spawn(
+            Box::pin(async move {
+                while let Some(msg) = rx.next().await {
+                    let mut queue = queue_rx.lock().await;
+                    queue.push_back(msg);
+                }
+            })
+            .unit_error()
+            .compat(),
+        );
 
-        let (queue, handler) = FailedCacheQueueHandler::new(receiver);
-
-        handler.spawn_handle();
-
-        // User double layer of Arc<Mutex<_>> as we share queue in different spawned futures.
-        let update = Arc::new(FutMutex::new(CacheUpdateService {
-            url,
-            cache,
+        let this = CacheUpdateService {
+            pg_pool,
+            rd_pool: rd_pool.clone(),
             queue,
             rep_addr,
-        }));
+        };
 
-        // construct interval future and run.
-        UpdateList::from(update.clone()).spawn_interval(LIST_INTERVAL, LIST_INTERVAL);
-        UpdateFailed::from(update.clone()).spawn_interval(FAILED_INTERVAL, FAILED_INTERVAL);
+        this.spawn_interval(FAILED_INTERVAL, FAILED_INTERVAL);
+        // run scheduled redis lists updates. this interval is directly called onto MyRedisPool.
+        rd_pool.spawn_interval(LIST_INTERVAL, LIST_INTERVAL);
 
-        // wrap the channel sender in Arc<Mutex> as it has to be passed to CacheService.
+        let addr = CacheUpdateAddr(Mutex::new(tx));
         Ok(addr)
     }
+}
 
+impl SpawnIntervalHandlerActixRt for MyRedisPool {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move { self.handle_list_update().await })
+    }
+}
+
+impl SendRepError for MyRedisPool {
+    fn send_err_rep<'a>(
+        &'a mut self,
+        _e: ResError,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
+        Box::pin(async move { Ok(()) })
+    }
+}
+
+impl MyRedisPool {
     // iterate all categories cache and update list as well as the topic/post count for every category
-    async fn handle_list_update(&mut self) -> Result<(), ResError> {
-        let cat = self
-            .check_redis_mut()
-            .await?
-            .categories_from_cache()
-            .await?;
+    async fn handle_list_update(&self) -> Result<(), ResError> {
+        let cat = self.get_categories_all().await?;
 
-        let conn = self.get_conn();
         let yesterday = Utc::now().naive_utc().timestamp_millis() - 86_400_000;
-
         let mut vec = futures::stream::FuturesUnordered::new();
+
+        let conn = self.get_pool().await?.get_conn().clone();
 
         for c in cat.iter() {
             // update_list will also update topic count new.
@@ -108,182 +180,6 @@ impl CacheUpdateService {
 
         Ok(())
     }
-
-    // iterate queue for failed redis insertion and try to insert data to cache if there is any.
-    // ToDo: test async version performance.
-    async fn handle_failed_update(&mut self) -> Result<(), ResError> {
-        let mut v = futures::stream::FuturesUnordered::new();
-
-        let mut u_t = Vec::new();
-        let mut u_p = Vec::new();
-        let mut u_u = Vec::new();
-        let mut u_c = Vec::new();
-        let mut uids = Vec::new();
-        let mut pids = Vec::new();
-        let mut tids = Vec::new();
-        let mut cids = Vec::new();
-
-        let mut collect = self.queue.lock().await;
-
-        for (c, typ) in collect.category.iter() {
-            cids.push(c.id);
-            match *typ {
-                FailedType::New => v.push(self.add_category_cache(c)),
-                FailedType::Update => u_c.push(c), // ToDo: add update category cache.
-            };
-        }
-
-        for (t, typ) in collect.topic.iter() {
-            tids.push(t.id);
-            match *typ {
-                FailedType::New => v.push(self.add_topic_cache(t)),
-                FailedType::Update => u_t.push(t),
-            };
-        }
-
-        for (p, typ) in collect.post.iter() {
-            pids.push(p.id);
-            match *typ {
-                FailedType::New => v.push(self.add_post_cache(&p)),
-                FailedType::Update => u_p.push(p),
-            };
-        }
-
-        for (u, _) in collect.user.iter() {
-            uids.push(u.id);
-            u_u.push(u)
-        }
-
-        if !u_t.is_empty() || !u_p.is_empty() || !u_u.is_empty() || !u_c.is_empty() {
-            v.push(self.bulk_add_update_cache(u_t, u_p, u_u, u_c));
-        }
-
-        if !v.is_empty() {
-            while let Some(_r) = v.next().await {
-                // ToDo: collect all successful insertion and compare to input.
-            }
-            collect.remove_by_pids(&pids);
-            collect.remove_by_tids(&tids);
-            collect.remove_by_uids(&uids);
-            collect.remove_by_cids(&cids);
-        }
-
-        Ok(())
-    }
-}
-
-type SharedCacheUpdateService = Arc<FutMutex<CacheUpdateService>>;
-
-struct UpdateList(SharedCacheUpdateService);
-
-impl From<SharedCacheUpdateService> for UpdateList {
-    fn from(p: SharedCacheUpdateService) -> Self {
-        UpdateList(p)
-    }
-}
-
-impl SpawnIntervalHandler for UpdateList {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut upt = self.0.lock().await;
-            upt.handle_list_update().await
-        })
-    }
-}
-
-impl SendRepError for UpdateList {
-    fn send_err_rep<'a>(
-        &'a mut self,
-        e: ResError,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move {
-            let upt = self.0.lock().await;
-            if let Some(rep_addr) = upt.rep_addr.as_ref() {
-                rep_addr.do_send(e.into())
-            }
-            Ok(())
-        })
-    }
-}
-
-struct UpdateFailed(SharedCacheUpdateService);
-
-impl From<SharedCacheUpdateService> for UpdateFailed {
-    fn from(c: SharedCacheUpdateService) -> Self {
-        UpdateFailed(c)
-    }
-}
-
-impl SpawnIntervalHandler for UpdateFailed {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut upt = self.0.lock().await;
-            upt.handle_failed_update().await
-        })
-    }
-}
-
-impl SendRepError for UpdateFailed {
-    fn send_err_rep<'a>(
-        &'a mut self,
-        e: ResError,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move {
-            let upt = self.0.lock().await;
-            if let Some(rep_addr) = upt.rep_addr.as_ref() {
-                rep_addr.do_send(e.into())
-            }
-            Ok(())
-        })
-    }
-}
-
-//enum ErrorWithId {
-//    Category(u32),
-//
-//}
-
-impl SpawnQueueHandler<CacheFailedMessage> for FailedCacheQueueHandler {
-    type Queue = FailedCacheQueue;
-    type Error = ResError;
-
-    fn new(receiver: UnboundedReceiver<CacheFailedMessage>) -> (Self::Queue, Self) {
-        let failed_collection = Arc::new(FutMutex::new(FailedQueueInner::default()));
-
-        let handler = FailedCacheQueueHandler {
-            queue: failed_collection.clone(),
-            receiver,
-        };
-
-        (failed_collection, handler)
-    }
-
-    fn receiver(&mut self) -> &mut UnboundedReceiver<CacheFailedMessage> {
-        &mut self.receiver
-    }
-
-    fn handle_message<'a>(
-        &'a mut self,
-        msg: CacheFailedMessage,
-    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
-        Box::pin(async move {
-            let mut collection = self.queue.lock().await;
-            match msg {
-                CacheFailedMessage::FailedPost(p) => collection.add_post_new(p),
-                CacheFailedMessage::FailedTopic(t) => collection.add_topic_new(t),
-                CacheFailedMessage::FailedCategory(c) => collection.add_category_new(c),
-                CacheFailedMessage::FailedTopicUpdate(t) => collection.add_topic_update(t),
-                CacheFailedMessage::FailedPostUpdate(p) => collection.add_post_update(p),
-                CacheFailedMessage::FailedUser(t) => collection.add_user(t),
-            };
-            Ok(())
-        })
-    }
-}
-
-struct FailedCacheQueueHandler {
-    queue: FailedCacheQueue,
-    receiver: UnboundedReceiver<CacheFailedMessage>,
 }
 
 type ListWithSortedRange = (HashMapBrown<u32, i64>, Vec<(u32, u32)>);
@@ -409,37 +305,13 @@ async fn update_post_count(
     }
 }
 
-impl CheckRedisMut for CacheUpdateService {
-    fn self_url(&self) -> &str {
-        &self.url
-    }
-
-    fn replace_redis_mut(&mut self, c: SharedConnection) {
-        self.cache = c;
-    }
-}
-
-impl GetSharedConn for CacheUpdateService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.clone()
-    }
-}
-
-impl IdsFromList for CacheUpdateService {}
-
-impl FromCache for CacheUpdateService {}
-
-impl CategoriesFromCache for CacheUpdateService {}
-
-impl AddToCache for CacheUpdateService {}
-
 // CacheService will push data failed to insert into redis to CacheUpdateService actor.
 // we will just keep retrying to add them to redis.
 pub enum CacheFailedMessage {
-    FailedTopic(Topic),
-    FailedPost(Post),
-    FailedCategory(Category),
-    FailedUser(Vec<User>),
-    FailedTopicUpdate(Vec<Topic>),
-    FailedPostUpdate(Vec<Post>),
+    FailedTopic(u32),
+    FailedPost(u32),
+    FailedCategory(u32),
+    FailedUser(u32),
+    FailedTopicUpdate(u32),
+    FailedPostUpdate(u32),
 }

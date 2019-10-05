@@ -5,11 +5,8 @@ use actix_web::{
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::{
-    auth::UserJwt,
-    cache::{AddToCache, CacheService, CheckRedisConn},
-    db::DatabaseService,
-};
+use crate::handler::cache_update::CacheUpdateAddr;
+use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     category::CategoryRequest,
     common::{GlobalVars, Validator},
@@ -22,10 +19,11 @@ pub fn add_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
     global: Data<GlobalVars>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    add_category_async(jwt, req, global, cache, db)
+    add_category_async(jwt, req, global, cache, db, addr)
         .boxed_local()
         .compat()
 }
@@ -34,8 +32,9 @@ async fn add_category_async(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
     global: Data<GlobalVars>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_new()?;
     let c = db
@@ -44,17 +43,9 @@ async fn add_category_async(
 
     let res = HttpResponse::Ok().json(&c);
 
-    match cache.check_redis().await {
-        Ok(opt) => actix::spawn(
-            cache
-                .if_replace_redis(opt)
-                .add_category_cache(&c)
-                .map_err(move |_| cache.send_failed_category(c))
-                .boxed_local()
-                .compat(),
-        ),
-        Err(_) => cache.send_failed_category(c),
-    };
+    actix::spawn(
+        Box::pin(async move { cache.add_category_send_fail(c, addr.into_inner()).await }).compat(),
+    );
 
     Ok(res)
 }
@@ -62,8 +53,8 @@ async fn add_category_async(
 pub fn update_category(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     update_category_async(jwt, req, cache, db)
         .boxed_local()
@@ -73,14 +64,14 @@ pub fn update_category(
 async fn update_category_async(
     jwt: UserJwt,
     req: Json<CategoryRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_update()?;
     let c = db.admin_update_category(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&c);
-    cache.update_categories(&[c]);
+    let _ = cache.update_categories(&[c]).await;
 
     Ok(res)
 }
@@ -88,8 +79,8 @@ async fn update_category_async(
 pub fn remove_category(
     jwt: UserJwt,
     id: Path<(u32)>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     remove_category_async(jwt, id, cache, db)
         .boxed_local()
@@ -99,8 +90,8 @@ pub fn remove_category(
 async fn remove_category_async(
     jwt: UserJwt,
     id: Path<(u32)>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
 ) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
@@ -114,10 +105,11 @@ async fn remove_category_async(
 pub fn update_user(
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    update_user_async(jwt, req, cache, db)
+    update_user_async(jwt, req, cache, db, addr)
         .boxed_local()
         .compat()
 }
@@ -125,18 +117,18 @@ pub fn update_user(
 async fn update_user_async(
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    cache: Data<MyRedisPool>,
+    db: Data<MyPostgresPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().attach_id(None).check_update()?;
 
     let req = db.update_user_check(jwt.privilege, req).await?;
-
-    let u = db.check_postgres().await?.update_user(req).await?;
+    let u = db.update_user(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
-    crate::router::user::update_user_with_fail_check(cache, u).await;
+    crate::router::user::update_user_send_fail(cache, u, addr);
 
     Ok(res)
 }
@@ -144,10 +136,11 @@ async fn update_user_async(
 pub fn update_topic(
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    update_topic_async(jwt, req, cache, db)
+    update_topic_async(jwt, req, db, cache, addr)
         .boxed_local()
         .compat()
 }
@@ -155,20 +148,17 @@ pub fn update_topic(
 async fn update_topic_async(
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    cache: Data<CacheService>,
-    db: Data<DatabaseService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().add_user_id(None).check_update()?;
 
-    let t = db
-        .check_postgres()
-        .await?
-        .admin_update_topic(jwt.privilege, &req)
-        .await?;
+    let t = db.admin_update_topic(jwt.privilege, &req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
-    crate::router::topic::update_topic_with_fail_check(cache, t).await;
+    crate::router::topic::update_topic_send_fail(cache, t, addr);
 
     Ok(res)
 }
@@ -176,10 +166,11 @@ async fn update_topic_async(
 pub fn update_post(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    update_post_async(jwt, req, db, cache)
+    update_post_async(jwt, req, db, cache, addr)
         .boxed_local()
         .compat()
 }
@@ -187,20 +178,17 @@ pub fn update_post(
 async fn update_post_async(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().attach_user_id(None).check_update()?;
 
-    let p = db
-        .check_postgres()
-        .await?
-        .admin_update_post(jwt.privilege, req)
-        .await?;
+    let p = db.admin_update_post(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
-    crate::router::post::update_post_with_fail_check(cache, p).await;
+    crate::router::post::update_post_send_fail(cache, p, addr);
 
     Ok(res)
 }

@@ -12,10 +12,9 @@ use lettre::{
     SmtpClient, Transport,
 };
 use lettre_email::Email;
-use redis::aio::SharedConnection;
 
-use crate::handler::cache::{CacheService, CheckRedisMut, GetQueue, GetSharedConn};
-use crate::model::runtime::{SendRepError, SpawnIntervalHandler, SpawnQueueHandler};
+use crate::handler::cache::MyRedisPool;
+use crate::model::runtime::{SendRepError, SpawnIntervalHandlerActixRt, SpawnQueueHandler};
 use crate::model::{
     common::dur,
     errors::{RepError, ResError},
@@ -40,8 +39,7 @@ type SharedMessageService = Arc<FutMutex<MessageService>>;
 
 // handles error report, sending email and sms messages.
 pub struct MessageService {
-    pub url: String,
-    pub cache: SharedConnection,
+    pub pool: MyRedisPool,
     pub mailer: Option<Mailer>,
     pub twilio: Option<Twilio>,
     pub queue: ReportQueue,
@@ -53,18 +51,12 @@ impl ChannelCreate for MessageService {
 }
 
 impl MessageService {
-    pub(crate) async fn init(
-        redis_url: &str,
+    pub(crate) fn init(
+        pool: MyRedisPool,
         use_sms: bool,
         use_mail: bool,
         use_rep: bool,
     ) -> Result<RepErrorAddr, ResError> {
-        let cache = crate::handler::cache::connect_cache(redis_url)
-            .await?
-            .ok_or(ResError::RedisConnection)?;
-
-        let url = redis_url.to_owned();
-
         let (addr, receiver) = MessageService::create_channel();
 
         let (queue, handler) = ReportQueueHandler::new(receiver);
@@ -72,8 +64,7 @@ impl MessageService {
         handler.spawn_handle();
 
         let msg = Arc::new(FutMutex::new(MessageService {
-            url,
-            cache,
+            pool,
             mailer: Self::generate_mailer(),
             twilio: Self::generate_twilio(),
             queue,
@@ -103,24 +94,6 @@ impl MessageService {
     }
 }
 
-impl GetQueue for MessageService {}
-
-impl GetSharedConn for MessageService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.clone()
-    }
-}
-
-impl CheckRedisMut for MessageService {
-    fn self_url(&self) -> &str {
-        &self.url
-    }
-
-    fn replace_redis_mut(&mut self, c: SharedConnection) {
-        self.cache = c;
-    }
-}
-
 struct MailerInterval(SharedMessageService);
 
 impl From<SharedMessageService> for MailerInterval {
@@ -129,7 +102,7 @@ impl From<SharedMessageService> for MailerInterval {
     }
 }
 
-impl SpawnIntervalHandler for MailerInterval {
+impl SpawnIntervalHandlerActixRt for MailerInterval {
     fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let mut msg = self.0.lock().await;
@@ -159,7 +132,7 @@ impl From<SharedMessageService> for SMSInterval {
     }
 }
 
-impl SpawnIntervalHandler for SMSInterval {
+impl SpawnIntervalHandlerActixRt for SMSInterval {
     fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let mut msg = self.0.lock().await;
@@ -189,7 +162,7 @@ impl From<SharedMessageService> for ErrorReport {
     }
 }
 
-impl SpawnIntervalHandler for ErrorReport {
+impl SpawnIntervalHandlerActixRt for ErrorReport {
     fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             let mut msg = self.0.lock().await;
@@ -252,11 +225,7 @@ impl MessageService {
 
     // use handle_mail interval to handle reconnection to redis after connection is lost.
     async fn handle_mail(&mut self) -> Result<(), ResError> {
-        let s = self
-            .check_redis_mut()
-            .await?
-            .get_queue("mail_queue")
-            .await?;
+        let s = self.pool.get_queue("mail_queue").await?;
 
         self.send_mail_user(s.as_str())?;
 
@@ -264,7 +233,7 @@ impl MessageService {
     }
 
     async fn handle_sms(&mut self) -> Result<(), ResError> {
-        let s = self.get_queue("sms_queue").await?;
+        let s = self.pool.get_queue("sms_queue").await?;
         self.send_sms_user(s.as_str()).await
     }
 
@@ -422,25 +391,35 @@ impl MessageService {
     }
 }
 
-impl CacheService {
-    pub fn add_activation_mail(&self, u: User) {
+impl MyRedisPool {
+    pub(crate) async fn add_activation_mail(&self, u: User) {
         let uuid = uuid::Uuid::new_v4().to_string();
         let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
         if let Ok(m) = serde_json::to_string(&mail) {
-            let conn = self.get_conn();
+            if let Ok(mut pool_ref) = self.get_pool().await {
+                let conn = pool_ref.get_conn().clone();
+                actix::spawn(
+                    Self::add_activation_mail_cache(conn, u.id, uuid, m)
+                        .map_err(|_| ())
+                        .boxed_local()
+                        .compat(),
+                );
+            }
+        }
+    }
+
+    pub(crate) async fn remove_activation_uuid(&self, uuid: &str) {
+        if let Ok(mut pool_ref) = self.get_pool().await {
+            let conn = pool_ref.get_conn().clone();
+
             actix::spawn(
-                CacheService::add_activation_mail_cache(conn, u.id, uuid, m)
+                Self::del_cache(conn, uuid)
                     .map_err(|_| ())
                     .boxed_local()
                     .compat(),
             );
         }
-    }
-
-    pub fn remove_activation_uuid(&self, uuid: &str) {
-        use crate::handler::cache::DeleteCache;
-        actix::spawn(self.del_cache(uuid).map_err(|_| ()).boxed_local().compat())
     }
 }
 

@@ -1,19 +1,19 @@
 use actix::prelude::Future as Future01;
 use actix_web::{
-    web::{Data, Json, Query},
+    web::{Data, Query},
     Error, HttpResponse,
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService, psn::PSNRequest};
+use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool, psn::PSNRequest};
 use crate::model::runtime::ChannelAddress;
 
 type PSNServiceAddr = ChannelAddress<(PSNRequest, bool)>;
 
 pub fn query_handler(
     req: Query<PSNRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     addr: Data<PSNServiceAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     query_handler_async(req, db, cache, addr)
@@ -23,8 +23,8 @@ pub fn query_handler(
 
 async fn query_handler_async(
     req: Query<PSNRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     // send request to psn service no matter the local result.
@@ -99,17 +99,17 @@ async fn query_handler_with_jwt_async(
 pub fn community(
     jwt_opt: Option<UserJwt>,
     //    req: Json<>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    _cache: Data<MyRedisPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    community_async(jwt_opt, db, cache).boxed_local().compat()
+    community_async(jwt_opt, db, _cache).boxed_local().compat()
 }
 
 async fn community_async(
     jwt_opt: Option<UserJwt>,
     //    req: Json<>,
-    _db: Data<DatabaseService>,
-    _cache: Data<CacheService>,
+    _db: Data<MyPostgresPool>,
+    _cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
     println!("{}", jwt_opt.is_some());
     //    let _jwt_opt = jwt_opt.0;

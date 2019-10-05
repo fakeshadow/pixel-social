@@ -5,27 +5,25 @@ use actix_web::{
 };
 use futures::future::{FutureExt, TryFutureExt};
 
-use crate::{
-    handler::{cache::CacheService, db::DatabaseService},
-    model::{
-        category::{CategoryQuery, QueryType},
-        errors::ResError,
-        topic::Topic,
-    },
+use crate::handler::{cache::MyRedisPool, db::MyPostgresPool};
+use crate::model::{
+    category::{CategoryQuery, QueryType},
+    errors::ResError,
+    topic::Topic,
 };
 
 pub fn query_handler(
     req: Query<CategoryQuery>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     query_handler_async(req, db, cache).boxed_local().compat()
 }
 
 async fn query_handler_async(
     req: Query<CategoryQuery>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Popular => {
@@ -51,7 +49,7 @@ async fn query_handler_async(
             Ok(c) => Ok(HttpResponse::Ok().json(&c)),
             Err(_) => {
                 let c = db.get_categories_all().await?;
-                cache.update_categories(&c);
+                cache.update_categories(&c).await?;
                 Ok(HttpResponse::Ok().json(&c))
             }
         },
@@ -59,8 +57,8 @@ async fn query_handler_async(
 }
 
 async fn if_query_db(
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     result: Result<(Vec<Topic>, Vec<u32>), ResError>,
 ) -> Result<HttpResponse, Error> {
     let mut should_update_t = false;
@@ -71,19 +69,19 @@ async fn if_query_db(
         Err(e) => {
             if let ResError::IdsFromCache(tids) = e {
                 should_update_t = true;
-                db.get_topics_with_uid(&tids).await?
+                db.get_topics(&tids).await?
             } else {
                 return Err(e.into());
             }
         }
     };
 
-    let u = match cache.get_users_from_ids(uids).await {
+    let u = match cache.get_users(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {
                 should_update_u = true;
-                db.get_users_by_id(&uids).await?
+                db.get_users(&uids).await?
             } else {
                 vec![]
             }
@@ -91,10 +89,10 @@ async fn if_query_db(
     };
 
     if should_update_u {
-        cache.update_users(&u);
+        let _ = cache.update_users(&u).await;
     }
     if should_update_t {
-        cache.update_topics(&t);
+        let _ = cache.update_topics(&t).await;
     }
 
     let res = Topic::attach_users(&t, &u);

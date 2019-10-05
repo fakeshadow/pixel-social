@@ -1,22 +1,13 @@
-use std::cell::{RefCell, RefMut};
 use std::future::Future;
-use std::rc::Rc;
 
 use actix::prelude::{Actor, Addr, Context, Handler, Message};
-use actix::{ActorFuture, ResponseActFuture, WrapFuture};
 use actix_async_await::ResponseStdFuture;
 use async_std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use chrono::{NaiveDateTime, Utc};
-use futures::{future::join_all, FutureExt, TryFutureExt};
 use hashbrown::HashMap;
-use redis::{aio::SharedConnection, cmd};
-use tokio_postgres::{Client, Statement};
+use redis::cmd;
 
-use crate::handler::cache::CheckRedisConn;
-use crate::handler::{
-    cache::{FromCache, GetSharedConn, UsersFromCache},
-    db::{AsCrateClient, CrateClientLike},
-};
+use crate::handler::{cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     actors::WsChatSession,
     common::{GlobalSessions, GlobalTalks},
@@ -35,10 +26,6 @@ const REMOVE_ADMIN: &str =
 const REMOVE_USER: &str = "UPDATE talks SET users=array_remove(users, $1) WHERE id=$2";
 
 // Frequent used statements that are constructed on actor start.
-const INSERT_PUB_MSG: &str =
-    "INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)";
-const INSERT_PRV_MSG: &str =
-    "INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)";
 const GET_PUB_MSG: &str =
     "SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999";
 const GET_PRV_MSG: &str =
@@ -47,22 +34,13 @@ const GET_FRIENDS: &str = "SELECT friends FROM relations WHERE id = $1";
 const INSERT_USER: &str = "UPDATE talks SET users=array_append(users, $1) WHERE id= $2";
 
 /// talk service actor handle communication to websocket sessions actors
-/// most fields are wrapped in Rc<RefCell<_>> as the actor handler spawn futures in local thread. So we need the types be `Send` to be thread safe.
 /// talk service maintain a `HashMap` for all existing talks and a `HashMap` for all current connected `WebsocketSession Actor` addresses.
 /// They are used as cache to speed up the message handling and send response string message.
 pub struct TalkService {
-    pub db_url: String,
-    pub cache_url: String,
+    pub db_pool: MyPostgresPool,
+    pub redis_pool: MyRedisPool,
     pub talks: GlobalTalks,
     pub sessions: GlobalSessions,
-    pub db: Rc<RefCell<tokio_postgres::Client>>,
-    pub cache: Rc<RefCell<SharedConnection>>,
-    pub insert_pub_msg: Rc<RefCell<Statement>>,
-    pub insert_prv_msg: Rc<RefCell<Statement>>,
-    pub get_pub_msg: Rc<RefCell<Statement>>,
-    pub get_prv_msg: Rc<RefCell<Statement>>,
-    pub get_relations: Rc<RefCell<Statement>>,
-    pub join_talk: Rc<RefCell<Statement>>,
 }
 
 impl Actor for TalkService {
@@ -73,90 +51,26 @@ pub type TALK = Addr<TalkService>;
 
 impl TalkService {
     pub(crate) async fn init(
-        postgres_url: &str,
-        redis_url: &str,
+        db_pool: MyPostgresPool,
+        redis_pool: MyRedisPool,
         talks: GlobalTalks,
         sessions: GlobalSessions,
     ) -> Result<TALK, ResError> {
-        let cache = crate::handler::cache::connect_cache(redis_url)
-            .await?
-            .ok_or(ResError::RedisConnection)?;
-        let (db, mut sts) = TalkService::connect_postgres(postgres_url).await?;
-
-        let db_url = postgres_url.to_owned();
-        let cache_url = redis_url.to_owned();
-
-        Ok(TalkService::create(move |_| {
-            let insert_pub_msg = sts.pop().unwrap();
-            let insert_prv_msg = sts.pop().unwrap();
-            let get_pub_msg = sts.pop().unwrap();
-            let get_prv_msg = sts.pop().unwrap();
-            let get_relations = sts.pop().unwrap();
-            let join_talk = sts.pop().unwrap();
-
-            TalkService {
-                db_url,
-                cache_url,
-                talks,
-                sessions,
-                db: Rc::new(RefCell::new(db)),
-                cache: Rc::new(RefCell::new(cache)),
-                insert_pub_msg: Rc::new(RefCell::new(insert_pub_msg)),
-                insert_prv_msg: Rc::new(RefCell::new(insert_prv_msg)),
-                get_pub_msg: Rc::new(RefCell::new(get_pub_msg)),
-                get_prv_msg: Rc::new(RefCell::new(get_prv_msg)),
-                get_relations: Rc::new(RefCell::new(get_relations)),
-                join_talk: Rc::new(RefCell::new(join_talk)),
-            }
+        Ok(TalkService::create(move |_| TalkService {
+            db_pool,
+            redis_pool,
+            talks,
+            sessions,
         }))
     }
 
-    async fn connect_postgres(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
-        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
-        tokio::spawn(conn.map(|_| ()));
-
-        let p1 = db.prepare(INSERT_PUB_MSG);
-        let p2 = db.prepare(INSERT_PRV_MSG);
-        let p3 = db.prepare(GET_PUB_MSG);
-        let p4 = db.prepare(GET_PRV_MSG);
-        let p5 = db.prepare(GET_FRIENDS);
-        let p6 = db.prepare(INSERT_USER);
-
-        let v: Vec<Result<Statement, tokio_postgres::Error>> =
-            join_all(vec![p6, p5, p4, p3, p2, p1]).await;
-        let mut sts = Vec::new();
-        for v in v.into_iter() {
-            sts.push(v?);
-        }
-
-        Ok((db, sts))
-    }
-
     fn rw_sessions(&mut self) -> ReadWriteSessions {
-        ReadWriteSessions::from(self.sessions.clone())
+        self.sessions.clone().into()
     }
 
     fn rw_talks(&mut self) -> ReadWriteTalks {
-        ReadWriteTalks::from(self.talks.clone())
+        self.talks.clone().into()
     }
-
-    fn rw_db(&mut self) -> ReadWriteDb {
-        ReadWriteDb::from(self.db.clone())
-    }
-
-    fn rw_cache(&mut self) -> ReadWriteCache {
-        ReadWriteCache::from((self.cache.clone(), None))
-    }
-
-    fn rw_cache_with_url(&mut self) -> ReadWriteCache {
-        ReadWriteCache::from((self.cache.clone(), Some(self.cache_url.clone())))
-    }
-}
-
-#[derive(Deserialize)]
-pub struct AuthRequest {
-    pub token: String,
-    pub online_status: u32,
 }
 
 // a wrapper type for GlobalSessions that are shared between all workers and all threads.
@@ -284,59 +198,15 @@ async fn send_message_many(
     Ok(())
 }
 
-/// wrap `Client` in `Rc<RefCell<_>>` as actor handler will spawn futures on current thread and `Client` itself isn't thread safe.
-pub struct ReadWriteDb(Rc<RefCell<Client>>);
-
-impl From<Rc<RefCell<Client>>> for ReadWriteDb {
-    fn from(rc: Rc<RefCell<Client>>) -> ReadWriteDb {
-        ReadWriteDb(rc)
-    }
-}
-
-impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for ReadWriteDb {
-    fn cli_like(&'a self) -> RefMut<'a, Client> {
-        (&*self.0).borrow_mut()
-    }
-}
-
-/// wrap `SharedConnection` in `Rc<RefCell<_>>` as actor handler will spawn futures on current thread and `SharedConnection` itself isn't thread safe.
-pub struct ReadWriteCache(Rc<RefCell<SharedConnection>>, Option<String>);
-
-impl From<(Rc<RefCell<SharedConnection>>, Option<String>)> for ReadWriteCache {
-    fn from((rc, url): (Rc<RefCell<SharedConnection>>, Option<String>)) -> ReadWriteCache {
-        ReadWriteCache(rc, url)
-    }
-}
-
-impl GetSharedConn for ReadWriteCache {
-    fn get_conn(&self) -> SharedConnection {
-        (&*self.0).borrow().clone()
-    }
-}
-
-impl CheckRedisConn for ReadWriteCache {
-    fn self_url(&self) -> &str {
-        self.1.as_ref().map(String::as_str).unwrap()
-    }
-
-    fn replace_redis(&self, c: SharedConnection) {
-        self.0.replace(c);
-    }
-}
-
-impl FromCache for ReadWriteCache {}
-
-impl UsersFromCache for ReadWriteCache {}
-
-impl ReadWriteCache {
+impl MyRedisPool {
     /// we set user's online status in redis cache when user connect with websocket.
-    fn set_online_status(
+    async fn set_online_status(
         &self,
         uid: u32,
         status: u32,
         set_last_online_time: bool,
-    ) -> impl Future<Output = Result<(), ResError>> {
-        let conn = self.get_conn();
+    ) -> Result<(), ResError> {
+        let conn = self.get_pool().await?.get_conn().clone();
 
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
@@ -348,73 +218,16 @@ impl ReadWriteCache {
         cmd("HMSET")
             .arg(&format!("user:{}:set_perm", uid))
             .arg(arg)
-            .query_async(conn)
-            .err_into()
-            .map_ok(|(_, ())| ())
+            .query_async::<_, ()>(conn)
+            .await?;
+        Ok(())
     }
 }
 
-pub struct CheckPostgresMessage;
-
-impl Message for CheckPostgresMessage {
-    type Result = Result<(), ResError>;
-}
-
-// actor future have to be used as we want to access actor's context to replace the Rc<RefCell<_>>s
-impl Handler<CheckPostgresMessage> for TalkService {
-    type Result = ResponseActFuture<Self, (), ResError>;
-
-    fn handle(&mut self, _msg: CheckPostgresMessage, _: &mut Self::Context) -> Self::Result {
-        let url = self.db_url.to_owned();
-        if self.db.borrow().is_closed() {
-            Box::new(
-                Box::pin(async move { TalkService::connect_postgres(&url).await })
-                    .compat()
-                    .into_actor(self)
-                    .and_then(|(c, mut sts), act, _| {
-                        let insert_pub_msg = sts.pop().unwrap();
-                        let insert_prv_msg = sts.pop().unwrap();
-                        let get_pub_msg = sts.pop().unwrap();
-                        let get_prv_msg = sts.pop().unwrap();
-                        let get_relations = sts.pop().unwrap();
-                        let join_talk = sts.pop().unwrap();
-
-                        act.db.replace(c);
-                        act.insert_pub_msg.replace(insert_pub_msg);
-                        act.insert_prv_msg.replace(insert_prv_msg);
-                        act.get_pub_msg.replace(get_pub_msg);
-                        act.get_prv_msg.replace(get_prv_msg);
-                        act.get_relations.replace(get_relations);
-                        act.join_talk.replace(join_talk);
-                        actix::fut::ok(())
-                    }),
-            )
-        } else {
-            Box::new(actix::fut::ok(()))
-        }
-    }
-}
-
-pub struct CheckRedisMessage;
-
-impl Message for CheckRedisMessage {
-    type Result = Result<(), ResError>;
-}
-
-impl Handler<CheckRedisMessage> for TalkService {
-    type Result = ResponseStdFuture<Result<(), ResError>>;
-
-    fn handle(&mut self, _msg: CheckRedisMessage, _: &mut Self::Context) -> Self::Result {
-        let cache = self.rw_cache_with_url();
-
-        let f = async move {
-            let opt = cache.check_redis().await?;
-            cache.if_replace_redis(opt);
-            Ok(())
-        };
-
-        ResponseStdFuture::from(f)
-    }
+#[derive(Deserialize)]
+pub struct AuthRequest {
+    pub token: String,
+    pub online_status: u32,
 }
 
 #[derive(Message)]
@@ -426,8 +239,9 @@ impl Handler<DisconnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = self.rw_cache();
         let sessions = self.rw_sessions();
+
+        let pool = self.redis_pool.clone();
 
         let f = async move {
             let sid = msg.session_id;
@@ -435,7 +249,7 @@ impl Handler<DisconnectRequest> for TalkService {
             let r: Result<(), ResError> = async {
                 sessions.remove_session_hm(sid).await?;
                 // we set user's online status in redis to 0 when user's websocket session disconnecting
-                cache.set_online_status(sid, 0, true).await?;
+                pool.set_online_status(sid, 0, true).await?;
                 Ok(())
             }
                 .await;
@@ -464,12 +278,9 @@ impl Handler<TextMessageRequest> for TalkService {
     fn handle(&mut self, msg: TextMessageRequest, _: &mut Context<Self>) -> Self::Result {
         // ToDo: batch insert messages to database.
 
-        let db = self.rw_db();
         let sessions = self.rw_sessions();
         let talks = self.rw_talks();
-
-        let st_public_msg = self.insert_pub_msg.clone();
-        let st_private_msg = self.insert_prv_msg.clone();
+        let pool = self.db_pool.clone();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -478,14 +289,16 @@ impl Handler<TextMessageRequest> for TalkService {
             let r = async {
                 let now = Utc::now().naive_utc();
 
+                let mut pool_ref = pool.get_pool().await?;
+                let (mut cli, sts) = pool_ref.get_client_statements();
+
                 if let Some(tid) = msg.talk_id {
-                    db.cli_like()
-                        .as_cli()
-                        .query_one::<PublicMessage>(
-                            &(*st_public_msg).borrow(),
-                            &[&tid, &msg.text, &now],
-                        )
+                    let st = sts.get_statement(3)?;
+
+                    cli.query_one::<PublicMessage>(st, &[&tid, &msg.text, &now])
                         .await?;
+
+                    drop(pool_ref);
 
                     let s = SendMessage::PublicMessage(&[PublicMessage {
                         text: msg.text,
@@ -497,13 +310,16 @@ impl Handler<TextMessageRequest> for TalkService {
                     send_message_many(&talks, &sessions, tid, s.as_str()).await
                 } else {
                     let uid = msg.user_id.ok_or(ResError::BadRequest)?;
-                    db.cli_like()
-                        .as_cli()
-                        .query_one::<PrivateMessage>(
-                            &(*st_private_msg).borrow(),
-                            &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
-                        )
-                        .await?;
+
+                    let st = sts.get_statement(4)?;
+
+                    cli.query_one::<PrivateMessage>(
+                        st,
+                        &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
+                    )
+                    .await?;
+
+                    drop(pool_ref);
 
                     let s = SendMessage::PrivateMessage(&[PrivateMessage {
                         user_id: msg.user_id.unwrap(),
@@ -538,7 +354,7 @@ impl Handler<ConnectRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: ConnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = self.rw_cache();
+        let pool = self.redis_pool.clone();
         let sessions = self.rw_sessions();
 
         let f = async move {
@@ -548,7 +364,7 @@ impl Handler<ConnectRequest> for TalkService {
                 let status = msg.online_status;
                 let addr = msg.addr;
 
-                cache.set_online_status(sid, status, true).await?;
+                pool.set_online_status(sid, status, true).await?;
 
                 sessions.insert_session_hm(sid, addr.clone()).await?;
 
@@ -580,7 +396,7 @@ impl Handler<CreateTalkRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: CreateTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let talks = self.rw_talks();
         let sessions = self.rw_sessions();
 
@@ -590,14 +406,15 @@ impl Handler<CreateTalkRequest> for TalkService {
             let r = async {
                 let admins = vec![msg.owner];
 
-                let st = db.cli_like().prepare("SELECT Max(id) FROM talks").await?;
-                let t: Talk = db.cli_like().as_cli().query_one::<Talk>(&st, &[]).await?;
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
+                let st = cli.prepare("SELECT Max(id) FROM talks").await?;
+                let t = cli.query_one::<Talk>(&st, &[]).await?;
                 let last_tid = t.id;
 
-                let st = db.cli_like().prepare(INSERT_TALK).await?;
-                let t = db
-                    .cli_like()
-                    .as_cli()
+                let st = cli.prepare(INSERT_TALK).await?;
+                let t = cli
                     .query_one(
                         &st,
                         &[
@@ -610,6 +427,8 @@ impl Handler<CreateTalkRequest> for TalkService {
                         ],
                     )
                     .await?;
+
+                drop(pool_ref);
 
                 let s = SendMessage::Talks(vec![&t]).stringify();
                 talks.insert_talk_hm(t).await?;
@@ -637,11 +456,9 @@ impl Handler<JoinTalkRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: JoinTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let talks = self.rw_talks();
         let sessions = self.rw_sessions();
-
-        let st_join_talk = self.join_talk.clone();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -653,11 +470,13 @@ impl Handler<JoinTalkRequest> for TalkService {
                     return Err(ResError::BadRequest);
                 }
 
-                let t = db
-                    .cli_like()
-                    .as_cli()
-                    .query_one::<Talk>(&(*st_join_talk).borrow(), &[&sid, &tid])
-                    .await?;
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
+                let st = cli.prepare(INSERT_USER).await?;
+                let t = cli.query_one::<Talk>(&st, &[&sid, &tid]).await?;
+                drop(pool_ref);
+
                 let s = SendMessage::Talks(vec![&t]).stringify();
 
                 talks.insert_talk_hm(t).await?;
@@ -728,7 +547,7 @@ pub struct UsersByIdRequest {
 impl Handler<UsersByIdRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
     fn handle(&mut self, msg: UsersByIdRequest, _: &mut Context<Self>) -> Self::Result {
-        let cache = self.rw_cache();
+        let pool = self.redis_pool.clone();
         let sessions = self.rw_sessions();
 
         let f = async move {
@@ -736,7 +555,7 @@ impl Handler<UsersByIdRequest> for TalkService {
 
             let r = async {
                 // ToDo: remove compat layer
-                let u = cache.users_from_cache(msg.user_id).await?;
+                let u = pool.get_users(msg.user_id).await?;
                 let s = SendMessage::Users(&u).stringify();
 
                 sessions.send_message(sid, s.as_str()).await;
@@ -760,21 +579,22 @@ pub struct UserRelationRequest {
 impl Handler<UserRelationRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
     fn handle(&mut self, msg: UserRelationRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let sessions = self.rw_sessions();
-        let st_relation = self.get_relations.clone();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                let r: Relation = db
-                    .cli_like()
-                    .as_cli()
-                    .query_one(&(*st_relation).borrow(), &[&sid])
-                    .await?;
-                let s = SendMessage::Friends(&r.friends).stringify();
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
 
+                let st = cli.prepare(GET_FRIENDS).await?;
+
+                let r = cli.query_one::<Relation>(&st, &[&sid]).await?;
+                drop(pool_ref);
+
+                let s = SendMessage::Friends(&r.friends).stringify();
                 sessions.send_message(sid, s.as_str()).await;
 
                 Ok(())
@@ -802,11 +622,8 @@ impl Handler<GetHistory> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let sessions = self.rw_sessions();
-
-        let st_public_msg = self.get_pub_msg.clone();
-        let st_private_msg = self.get_prv_msg.clone();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -814,29 +631,38 @@ impl Handler<GetHistory> for TalkService {
             let r = async {
                 let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
 
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
                 let s = match msg.talk_id {
                     Some(tid) => {
-                        let msg = db
-                            .cli_like()
-                            .as_cli()
+                        let st = cli.prepare(GET_PUB_MSG).await?;
+
+                        let msg = cli
                             .query_multi::<PublicMessage>(
-                                &(*st_public_msg.borrow()),
+                                &st,
                                 &[&tid, &time],
                                 Vec::with_capacity(20),
                             )
                             .await?;
+
+                        drop(pool_ref);
+
                         SendMessage::PublicMessage(&msg).stringify()
                     }
                     None => {
-                        let msg = db
-                            .cli_like()
-                            .as_cli()
+                        let st = cli.prepare(GET_PRV_MSG).await?;
+
+                        let msg = cli
                             .query_multi::<PrivateMessage>(
-                                &(*st_private_msg.borrow()),
+                                &st,
                                 &[&sid, &time],
                                 Vec::with_capacity(20),
                             )
                             .await?;
+
+                        drop(pool_ref);
+
                         SendMessage::PrivateMessage(&msg).stringify()
                     }
                 };
@@ -866,7 +692,7 @@ impl Handler<RemoveUserRequest> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: RemoveUserRequest, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let talks = self.rw_talks();
         let sessions = self.rw_sessions();
 
@@ -892,12 +718,13 @@ impl Handler<RemoveUserRequest> for TalkService {
                     return Err(ResError::Unauthorized);
                 };
 
-                let st = db.cli_like().prepare(REMOVE_USER).await?;
-                let talk = db
-                    .cli_like()
-                    .as_cli()
-                    .query_one::<Talk>(&st, &[&uid, &tid])
-                    .await?;
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
+                let st = cli.prepare(REMOVE_USER).await?;
+                let talk = cli.query_one::<Talk>(&st, &[&uid, &tid]).await?;
+
+                drop(pool_ref);
 
                 let s = SendMessage::Talks(vec![&talk]).stringify();
                 talks.insert_talk_hm(talk).await?;
@@ -928,7 +755,7 @@ impl Handler<Admin> for TalkService {
     type Result = ResponseStdFuture<()>;
 
     fn handle(&mut self, msg: Admin, _: &mut Context<Self>) -> Self::Result {
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
         let talks = self.rw_talks();
         let sessions = self.rw_sessions();
 
@@ -945,12 +772,13 @@ impl Handler<Admin> for TalkService {
                     (REMOVE_ADMIN, uid)
                 };
 
-                let st = db.cli_like().prepare(query).await?;
-                let t = db
-                    .cli_like()
-                    .as_cli()
-                    .query_one::<Talk>(&st, &[&uid, &tid, &sid])
-                    .await?;
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
+                let st = cli.prepare(query).await?;
+                let t = cli.query_one::<Talk>(&st, &[&uid, &tid, &sid]).await?;
+
+                drop(pool_ref);
 
                 let s = SendMessage::Talks(vec![&t]).stringify();
                 talks.insert_talk_hm(t).await?;
@@ -981,7 +809,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
     fn handle(&mut self, msg: DeleteTalkRequest, _: &mut Context<Self>) -> Self::Result {
         let talks = self.rw_talks();
         let sessions = self.rw_sessions();
-        let db = self.rw_db();
+        let pool = self.db_pool.clone();
 
         let f = async move {
             let sid = msg.session_id.unwrap();
@@ -989,8 +817,13 @@ impl Handler<DeleteTalkRequest> for TalkService {
             let r = async {
                 let tid = msg.talk_id;
 
-                let st = db.cli_like().prepare(REMOVE_TALK).await?;
-                let _r = db.cli_like().execute(&st, &[&tid]).await?;
+                let mut pool_ref = pool.get_pool().await?;
+                let mut cli = pool_ref.get_client();
+
+                let st = cli.prepare(REMOVE_TALK).await?;
+                let _ = cli.execute(&st, &[&tid]).await?;
+
+                drop(pool_ref);
 
                 talks.remove_talk_hm(tid).await?;
 

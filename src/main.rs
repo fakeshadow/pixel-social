@@ -45,114 +45,85 @@ async fn main() -> std::io::Result<()> {
         .parse::<bool>()
         .unwrap_or(false);
 
-    let mut sys = actix::System::new("pixelshare_async_await");
-
     // create or clear database tables as well as redis cache
     let args = env::args().collect::<Vec<String>>();
-    let is_init = crate::util::startup::init_table_cache(
-        &mut sys,
-        &args,
-        postgres_url.as_str(),
-        redis_url.as_str(),
-    );
-
-    /*
-        actix runtime only run on future0.1 so all async functions must be converted before running.
-        so run async await directly in main function could result in a runtime freeze.
-    */
+    let is_init =
+        crate::util::startup::init_table_cache(&args, postgres_url.as_str(), redis_url.as_str())
+            .await;
 
     // build_cache function returns global variables.
     // global_talks and global_sessions are passed to every TalkService actor.
-    let (global, global_talks, global_sessions) = sys
-        .block_on(
-            crate::util::startup::build_cache(&postgres_url, &redis_url, is_init)
-                .boxed_local()
-                .compat(),
-        )
-        .unwrap();
+    let (global, global_talks, global_sessions) =
+        crate::util::startup::build_cache(&postgres_url, &redis_url, is_init)
+            .await
+            .expect("Failed to create Global Variables");
 
     // global is wrapped in web::Data
     let global = web::Data::new(global);
 
+    // create connection pool for postgres.
+    let pool = crate::handler::db::MyPostgresPool::new(postgres_url.as_str()).await;
+    // create connection pool for redis.
+    let pool_redis = crate::handler::cache::MyRedisPool::new(redis_url.as_str()).await;
+
+    let mut sys = actix::System::new("pixelshare_async_await");
+
+    /*
+        actix runtime only run on future0.1 so all async functions must be converted before running.
+        so run async await directly from this point in main function could result in a runtime freeze.
+    */
+
+    // ToDo: move back to tokio runtime when actix rt upgrade to std-futures
+    // ** temporary move MessageService to actix runtime.
     // MessageService runs in tokio thread pool and handle email, sms and error reports.
     // pass use_xxx env arg to determine if we want to spawn according handlers.
     // the returned rep_addr is an unbounded channel sender to send messages to MessageService to handle error reports(through email and sms service)
-    let rep_addr = sys
-        .block_on(
-            crate::handler::messenger::MessageService::init(
-                redis_url.as_str(),
-                use_mail,
-                use_sms,
-                use_rep,
-            )
-            .boxed_local()
-            .compat(),
-        )
-        .expect("Failed to create Message Service");
+    let rep_addr = crate::handler::messenger::MessageService::init(
+        pool_redis.clone(),
+        use_mail,
+        use_sms,
+        use_rep,
+    )
+    .expect("Failed to create Message Service");
 
     // we pass the rep_addr as Option<_> to other services.
     // as if we set USE_REPORT = false then we don't want to send message for error report.
     let rep_addr = if use_rep { Some(rep_addr) } else { None };
 
+    // ToDo: move back to tokio runtime when actix rt upgrade to std-futures
+    // ** temporary move CacheUpdateService to actix runtime.
     // CacheUpdateService runs in tokio thread pool and handle cache info update and failed insertion cache retry.
     // the returned addr is an unbounded channel sender to send messages to CacheUpdateService
-    let addr = sys
-        .block_on(
-            crate::handler::cache_update::CacheUpdateService::init(&redis_url, rep_addr.clone())
-                .boxed_local()
-                .compat(),
-        )
-        .expect("Failed to create Cache Update Service");
+    let addr = crate::handler::cache_update::CacheUpdateService::init(
+        pool.clone(),
+        pool_redis.clone(),
+        rep_addr.clone(),
+    )
+    .expect("Failed to create Cache Update Service");
+    let addr = web::Data::new(addr);
 
+    // ToDo: move back to tokio runtime when actix rt upgrade to std-futures
+    // ** temporary move PSNService to actix runtime.
     // PSNService spawned two futures that run in main thread.(So don't make it panic or it will bring down the whole application).
     // the returned psn is an unbounded channel sender to send messages to PSNService
     // Request to PSN data will hit local cache and db with a delayed schedule request.
-    let psn = sys
-        .block_on(
-            crate::handler::psn::PSNService::init(
-                postgres_url.as_str(),
-                redis_url.as_str(),
-                rep_addr.clone(),
-            )
-            .boxed_local()
-            .compat(),
-        )
-        .expect("Failed to create Test Service");
+    let psn =
+        crate::handler::psn::PSNService::init(pool.clone(), pool_redis.clone(), rep_addr.clone())
+            .expect("Failed to create Test Service");
     // we wrap it in web::Data just like global.
     let psn = web::Data::new(psn);
 
-    let dbs = Arc::new(Mutex::new(Vec::new()));
-    let caches = Arc::new(Mutex::new(Vec::new()));
     let talks = Arc::new(Mutex::new(Vec::new()));
-
-    // build data for individual work.
     let workers = 12;
     for i in 0..workers {
-        // db service and cache service are data struct contains postgres connection, prepared queries and redis connections.
-        // They are not shared between workers.
-        let db = sys
-            .block_on(
-                crate::handler::db::DatabaseService::init(postgres_url.as_str())
-                    .boxed_local()
-                    .compat(),
-            )
-            .unwrap_or_else(|_| panic!("Failed to create Database Service for worker : {}", i));
-        let cache = sys
-            .block_on(
-                crate::handler::cache::CacheService::init(redis_url.as_str(), addr.clone())
-                    .boxed_local()
-                    .compat(),
-            )
-            .unwrap_or_else(|_| panic!("Failed to create Cache Service for worker : {}", i));
-
         // TalkService is an actor handle websocket connections and communication between client websocket actors.
         // Every worker have a talk service actor with a postgres connection and a redis connection.
         // global_talks and sessions are shared between all workers and talk service actors.
         let talk = sys
             .block_on(
                 crate::handler::talk::TalkService::init(
-                    postgres_url.as_str(),
-                    redis_url.as_str(),
+                    pool.clone(),
+                    pool_redis.clone(),
                     global_talks.clone(),
                     global_sessions.clone(),
                 )
@@ -161,8 +132,6 @@ async fn main() -> std::io::Result<()> {
             )
             .unwrap_or_else(|_| panic!("Failed to create Talk Service for worker : {}", i));
 
-        dbs.lock().push(db);
-        caches.lock().push(cache);
         talks.lock().push(talk);
     }
 
@@ -179,8 +148,6 @@ async fn main() -> std::io::Result<()> {
         */
 
         // unlock mutex and use them as App.data
-        let db = dbs.lock().pop().unwrap();
-        let cache = caches.lock().pop().unwrap();
         let talk = talks.lock().pop().unwrap();
 
         let cors = actix_cors::Cors::new()
@@ -197,8 +164,9 @@ async fn main() -> std::io::Result<()> {
             // global and psn are both wrapped in Data<Mutex> so use register_data to avoid double Arc
             .register_data(global.clone())
             .register_data(psn.clone())
-            .data(db)
-            .data(cache)
+            .register_data(addr.clone())
+            .data(pool.clone())
+            .data(pool_redis.clone())
             .data(talk)
             .wrap(Logger::default())
             .wrap(cors)

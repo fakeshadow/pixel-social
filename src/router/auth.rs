@@ -5,7 +5,8 @@ use actix_web::{
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::{auth::UserJwt, cache::CacheService, db::DatabaseService};
+use crate::handler::cache_update::CacheUpdateAddr;
+use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     common::{GlobalVars, Validator},
     errors::ResError,
@@ -13,14 +14,14 @@ use crate::model::{
 };
 
 pub fn login(
-    db: Data<DatabaseService>,
+    db: Data<MyPostgresPool>,
     req: Json<AuthRequest>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     login_async(db, req).boxed_local().compat()
 }
 
 async fn login_async(
-    db: Data<DatabaseService>,
+    db: Data<MyPostgresPool>,
     req: Json<AuthRequest>,
 ) -> Result<HttpResponse, Error> {
     let r = req.into_inner().check_login()?;
@@ -29,53 +30,52 @@ async fn login_async(
 }
 
 pub fn register(
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     global: Data<GlobalVars>,
     req: Json<AuthRequest>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    register_async(db, cache, global, req)
+    register_async(db, cache, global, req, addr)
         .boxed_local()
         .compat()
 }
 
 async fn register_async(
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     global: Data<GlobalVars>,
     req: Json<AuthRequest>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_register()?;
 
-    let u = db
-        .check_postgres()
-        .await?
-        .register(req, global.get_ref())
-        .await?;
+    let u = db.register(req, global.get_ref()).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
-    cache.add_activation_mail(u.clone());
-
-    crate::router::user::update_user_with_fail_check(cache, u).await;
+    cache.add_activation_mail(u.clone()).await;
+    crate::router::user::update_user_send_fail(cache, u, addr);
 
     Ok(res)
 }
 
 pub fn activate_by_mail(
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     req: Path<(String)>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    activate_by_mail_async(db, cache, req)
+    activate_by_mail_async(db, cache, req, addr)
         .boxed_local()
         .compat()
 }
 
 async fn activate_by_mail_async(
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     req: Path<(String)>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let uuid = req.into_inner();
 
@@ -85,17 +85,17 @@ async fn activate_by_mail_async(
 
     let res = HttpResponse::Ok().json(&u);
 
-    cache.remove_activation_uuid(uuid.as_str());
+    cache.remove_activation_uuid(uuid.as_str()).await;
 
-    crate::router::user::update_user_with_fail_check(cache, u).await;
+    crate::router::user::update_user_send_fail(cache, u, addr);
 
     Ok(res)
 }
 
 pub fn add_activation_mail(
     jwt: UserJwt,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     add_activation_mail_async(jwt, db, cache)
         .boxed_local()
@@ -104,14 +104,14 @@ pub fn add_activation_mail(
 
 async fn add_activation_mail_async(
     jwt: UserJwt,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
-    let mut u = match cache.get_users_from_ids(vec![jwt.user_id]).await {
+    let mut u = match cache.get_users(vec![jwt.user_id]).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(ids) = e {
-                db.get_users_by_id(&ids).await?
+                db.get_users(&ids).await?
             } else {
                 return Err(e.into());
             }
@@ -120,7 +120,7 @@ async fn add_activation_mail_async(
 
     match u.pop() {
         Some(u) => {
-            cache.add_activation_mail(u);
+            let _ = cache.add_activation_mail(u);
             Ok(HttpResponse::Ok().finish())
         }
         None => Err(ResError::BadRequest.into()),

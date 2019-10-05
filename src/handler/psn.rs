@@ -6,15 +6,9 @@ use std::{
 use chrono::Utc;
 use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
 use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
-use redis::aio::SharedConnection;
-use tokio_postgres::{Client, Statement};
 
-use crate::handler::messenger::RepErrorAddr;
-use crate::handler::{
-    cache::{CacheService, CheckRedisMut, GetSharedConn},
-    db::{AsCrateClient, CrateClientLike, DatabaseService},
-};
-use crate::model::runtime::{SendRepError, SpawnIntervalLocalHandler};
+use crate::handler::{cache::MyRedisPool, db::MyPostgresPool, messenger::RepErrorAddr};
+use crate::model::runtime::SpawnIntervalHandlerActixRt;
 use crate::model::{
     common::{dur, dur_as_sec},
     errors::ResError,
@@ -22,7 +16,7 @@ use crate::model::{
         PSNTrophyArgumentRequest, PSNUserLib, TrophySetLib, TrophyTitlesLib, UserPSNProfile,
         UserTrophySet, UserTrophyTitle,
     },
-    runtime::{ChannelAddress, ChannelCreate, SpawnQueueHandler},
+    runtime::{ChannelAddress, ChannelCreate, SendRepError, SpawnQueueHandler},
 };
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
@@ -72,33 +66,15 @@ const INSERT_TITLES: &str =
 type PSNQueue = Arc<FutMutex<VecDeque<PSNRequest>>>;
 
 pub struct PSNService {
-    pub db_url: String,
-    pub cache_url: String,
+    pub pool: MyPostgresPool,
+    pub pool_redis: MyRedisPool,
     pub psn: PSN,
-    pub db: tokio_postgres::Client,
-    pub insert_trophy_title: Statement,
-    pub cache: SharedConnection,
     pub queue: PSNQueue,
     pub rep_addr: Option<RepErrorAddr>,
 }
 
 impl ChannelCreate for PSNService {
     type Message = (PSNRequest, bool);
-}
-
-impl GetSharedConn for PSNService {
-    fn get_conn(&self) -> SharedConnection {
-        self.cache.clone()
-    }
-}
-
-impl CheckRedisMut for PSNService {
-    fn self_url(&self) -> &str {
-        self.cache_url.as_str()
-    }
-    fn replace_redis_mut(&mut self, c: SharedConnection) {
-        self.cache = c;
-    }
 }
 
 impl SendRepError for PSNService {
@@ -115,8 +91,8 @@ impl SendRepError for PSNService {
     }
 }
 
-impl SpawnIntervalLocalHandler for PSNService {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + 'a>> {
+impl SpawnIntervalHandlerActixRt for PSNService {
+    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
         Box::pin(async move {
             // pattern match PSNRequest and handle the PSN network along with postgres and redis requests.
 
@@ -131,10 +107,7 @@ impl SpawnIntervalLocalHandler for PSNService {
                     PSNRequest::TrophyTitles { online_id, .. } => {
                         let r = self.handle_trophy_titles_request(online_id).await?;
                         // only check db connection when update user trophy titles.
-                        self.check_conn_db()
-                            .await?
-                            .update_user_trophy_titles(&r)
-                            .await
+                        self.update_user_trophy_titles(&r).await
                     }
                     PSNRequest::TrophySet {
                         online_id,
@@ -170,44 +143,11 @@ impl SpawnIntervalLocalHandler for PSNService {
 }
 
 impl PSNService {
-    async fn check_conn_db(&mut self) -> Result<&mut Self, ResError> {
-        if self.db.is_closed() {
-            let (c, mut sts) = PSNService::connect(self.db_url.as_str()).await?;
-            let insert_trophy_title = sts.pop().unwrap();
-            self.db = c;
-            self.insert_trophy_title = insert_trophy_title;
-            Ok(self)
-        } else {
-            Ok(self)
-        }
-    }
-
-    async fn connect(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
-        let (mut db, conn) = tokio_postgres::connect(postgres_url, tokio_postgres::NoTls).await?;
-
-        let conn = conn.map(|_| ());
-        tokio::spawn(conn);
-
-        let insert_trophy_title = db.prepare(INSERT_TITLES).await?;
-
-        Ok((db, vec![insert_trophy_title]))
-    }
-
-    pub(crate) async fn init(
-        postgres_url: &str,
-        redis_url: &str,
+    pub(crate) fn init(
+        pool: MyPostgresPool,
+        pool_redis: MyRedisPool,
         rep_addr: Option<RepErrorAddr>,
     ) -> Result<ChannelAddress<(PSNRequest, bool)>, ResError> {
-        let db_url = postgres_url.to_owned();
-        let cache_url = redis_url.to_owned();
-
-        let cache = crate::handler::cache::connect_cache(redis_url)
-            .await?
-            .ok_or(ResError::RedisConnection)?;
-
-        let (db, mut sts) = PSNService::connect(postgres_url).await?;
-        let insert_trophy_title = sts.pop().unwrap();
-
         // use an unbounded channel to inject request to queue from other threads.
         let (addr, receiver) = PSNService::create_channel();
 
@@ -218,18 +158,15 @@ impl PSNService {
         handler.spawn_handle();
 
         let psn = PSNService {
-            db_url,
-            cache_url,
+            pool,
+            pool_redis,
             psn: PSN::new(),
-            db,
-            insert_trophy_title,
-            cache,
             queue,
             rep_addr,
         };
 
         // run interval functions handle PSNService in a local thread spawned future.
-        psn.spawn_interval_local(PSN_REQ_INTERVAL, PSN_REQ_TIMEOUT);
+        psn.spawn_interval(PSN_REQ_INTERVAL, PSN_REQ_TIMEOUT);
 
         Ok(addr)
     }
@@ -433,8 +370,7 @@ impl PSNService {
         if u.about_me == code {
             let mut u = UserPSNProfile::from(u);
             u.id = user_id;
-            self.update_profile_cache(u);
-            Ok(())
+            self.update_profile_cache(u).await
         } else {
             // ToDo: add more error detail and send it through message to user.
             Err(ResError::Unauthorized)
@@ -529,34 +465,29 @@ impl PSNService {
     async fn handle_profile_request(&mut self, online_id: String) -> Result<(), ResError> {
         let u: PSNUserLib = self.psn.add_online_id(online_id).get_profile().await?;
 
-        self.update_profile_cache(u.into());
-
-        Ok(())
+        self.update_profile_cache(u.into()).await
     }
 
-    fn update_profile_cache(&self, p: UserPSNProfile) {
-        let conn = self.get_conn();
-        tokio::spawn(
-            crate::handler::cache::build_hmsets(
-                conn,
-                &[p],
-                crate::handler::cache::USER_PSN_U8,
-                false,
-            )
-            .map(|_| ()),
-        );
+    async fn update_profile_cache(&self, p: UserPSNProfile) -> Result<(), ResError> {
+        self.pool_redis
+            .build_sets(&[p], crate::handler::cache::USER_PSN_U8, false)
+            .await
     }
 
     // a costly update for updating existing trophy set.
     // The purpose is to flag people who have a changed trophy timestamp on the trophy already earned
     // by comparing the The first_earned_date with the earned_date
-    async fn query_update_user_trophy_set(&mut self, mut t: UserTrophySet) -> Result<(), ResError> {
-        let st = self.db.prepare(PSN_SET_BY_NPID).await?;
+    async fn query_update_user_trophy_set(&self, mut t: UserTrophySet) -> Result<(), ResError> {
+        let mut pool_ref = self.pool.get_pool().await?;
+        let mut cli = pool_ref.get_client();
 
-        let r = (&mut self.db)
-            .as_cli()
+        let st = cli.prepare(PSN_SET_BY_NPID).await?;
+
+        let r = cli
             .query_one::<UserTrophySet>(&st, &[&t.np_id.as_str(), &t.np_communication_id.as_str()])
             .await;
+
+        drop(pool_ref);
 
         match r {
             Ok(t_old) => {
@@ -602,7 +533,7 @@ impl PSNService {
         self.update_user_trophy_set(&t).await
     }
 
-    async fn update_user_trophy_set(&mut self, t: &UserTrophySet) -> Result<(), ResError> {
+    async fn update_user_trophy_set(&self, t: &UserTrophySet) -> Result<(), ResError> {
         let mut query = String::new();
 
         let _ = write!(
@@ -639,23 +570,22 @@ impl PSNService {
                             RETURNING NULL;",
         );
 
-        (&mut self.db)
-            .as_cli()
-            .simple_query_row(query.as_str())
-            .map_ok(|_| ())
-            .await
+        let mut pool_ref = self.pool.get_pool().await?;
+        let mut cli = pool_ref.get_client();
+
+        cli.simple_query_row(query.as_str()).map_ok(|_| ()).await
     }
 
-    fn update_user_trophy_titles(
-        &mut self,
-        t: &[UserTrophyTitle],
-    ) -> impl Future<Output = Result<(), ResError>> + Send {
+    async fn update_user_trophy_titles(&mut self, t: &[UserTrophyTitle]) -> Result<(), ResError> {
         let mut v = Vec::with_capacity(t.len());
-        let st = &self.insert_trophy_title;
-        let c = &mut self.db;
+
+        let mut pool_ref = self.pool.get_pool().await?;
+        let mut cli = pool_ref.get_client();
+
+        let st = cli.prepare(INSERT_TITLES).await?;
 
         for t in t.iter() {
-            let f = c.execute(
+            let f = cli.execute(
                 &st,
                 &[
                     &t.np_id,
@@ -672,7 +602,7 @@ impl PSNService {
             v.push(f);
         }
 
-        futures::future::join_all(v).map(|_v| Ok(()))
+        futures::future::join_all(v).map(|_v| Ok(())).await
     }
 
     async fn check_token(&mut self) -> Result<&mut Self, ResError> {
@@ -685,19 +615,18 @@ impl PSNService {
     }
 }
 
-// impl methods used in psn router.
-impl DatabaseService {
+impl MyPostgresPool {
     pub(crate) async fn get_trophy_titles(
         &self,
         np_id: &str,
         page: u32,
     ) -> Result<Vec<UserTrophyTitle>, ResError> {
-        let st = self.cli_like().prepare(PSN_TITLES_NY_TIME).await?;
-        let offset = (page - 1) * 20;
+        let mut pool_ref = self.get_pool().await?;
+        let mut cli = pool_ref.get_client();
 
-        self.cli_like()
-            .as_cli()
-            .query_multi(&st, &[&np_id, &offset], Vec::with_capacity(20))
+        let offset = (page - 1) * 20;
+        let st = cli.prepare(PSN_TITLES_NY_TIME).await?;
+        cli.query_multi(&st, &[&np_id, &offset], Vec::with_capacity(20))
             .await
     }
 
@@ -706,12 +635,12 @@ impl DatabaseService {
         np_id: &str,
         np_communication_id: &str,
     ) -> Result<UserTrophySet, ResError> {
-        let st = self.cli_like().prepare(PSN_SET_BY_NPID).await?;
+        let mut pool_ref = self.get_pool().await?;
+        let mut cli = pool_ref.get_client();
 
-        self.cli_like()
-            .as_cli()
-            .query_one(&st, &[&np_id, &np_communication_id])
-            .await
+        let st = cli.prepare(PSN_TITLES_NY_TIME).await?;
+
+        cli.query_one(&st, &[&np_id, &np_communication_id]).await
     }
 
     //    pub fn update_trophy_set_argument(
@@ -725,12 +654,11 @@ impl DatabaseService {
     //    }
 }
 
-impl CacheService {
-    pub(crate) fn get_psn_profile(
+impl MyRedisPool {
+    pub(crate) async fn get_psn_profile(
         &self,
         online_id: &str,
-    ) -> impl Future<Output = Result<UserPSNProfile, ResError>> + Send {
-        use crate::handler::cache::ToCacheSingle;
-        self.to_cache_single(online_id, "user_psn")
+    ) -> Result<UserPSNProfile, ResError> {
+        self.get_cache_single(online_id, "user_psn").await
     }
 }

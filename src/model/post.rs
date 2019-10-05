@@ -5,6 +5,7 @@ use crate::model::{
     errors::ResError,
     user::{AttachUser, User, UserRef},
 };
+use std::future::Future;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Post {
@@ -55,6 +56,10 @@ pub struct PostRequest {
 impl Post {
     pub fn attach_users<'a>(p: &'a [Post], u: &'a [User]) -> Vec<PostWithUser<'a>> {
         p.iter().map(|p| p.attach_user(u)).collect()
+    }
+
+    pub fn sort(p: Vec<Post>, pids: &[u32]) -> impl Future<Output = Vec<Post>> + '_ {
+        crate::model::common::OutOfOrder::sort(pids, p)
     }
 }
 

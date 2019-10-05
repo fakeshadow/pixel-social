@@ -5,11 +5,8 @@ use actix_web::{
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::{
-    auth::UserJwt,
-    cache::{AddToCache, CacheService, CheckRedisConn},
-    db::DatabaseService,
-};
+use crate::handler::cache_update::CacheUpdateAddr;
+use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -18,22 +15,24 @@ use crate::model::{
 
 pub fn add(
     jwt: UserJwt,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    add_async(jwt, db, cache, req, global)
+    add_async(jwt, db, cache, req, global, addr)
         .boxed_local()
         .compat()
 }
 
 pub async fn add_async(
     jwt: UserJwt,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
     req: Json<PostRequest>,
     global: Data<GlobalVars>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     jwt.check_privilege()?;
 
@@ -42,28 +41,15 @@ pub async fn add_async(
         .attach_user_id(Some(jwt.user_id))
         .check_new()?;
 
-    let p = db
-        .check_postgres()
-        .await?
-        .add_post(req, global.get_ref())
-        .await?;
+    let p = db.add_post(req, global.get_ref()).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
-    match cache.check_redis().await {
-        Ok(opt) => {
-            actix::spawn(
-                cache
-                    .if_replace_redis(opt)
-                    .add_post_cache(&p)
-                    .map_err(move |_| cache.send_failed_post(p))
-                    .map_ok(|_| ())
-                    .boxed_local()
-                    .compat(),
-            );
-        }
-        Err(_) => cache.send_failed_post(p),
-    };
+    actix::spawn(
+        Box::pin(async move { cache.add_post_send_fail(p, addr.into_inner()).await })
+            .boxed_local()
+            .compat(),
+    );
 
     Ok(res)
 }
@@ -71,87 +57,82 @@ pub async fn add_async(
 pub fn update(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    update_async(jwt, req, db, cache).boxed_local().compat()
+    update_async(jwt, req, db, cache, addr)
+        .boxed_local()
+        .compat()
 }
 
 async fn update_async(
     jwt: UserJwt,
     req: Json<PostRequest>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
+    addr: Data<CacheUpdateAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
         .attach_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let p = db.check_postgres().await?.update_post(req).await?;
+    let p = db.update_post(req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
-    update_post_with_fail_check(cache, p).await;
+    update_post_send_fail(cache, p, addr);
 
     Ok(res)
 }
 
-pub async fn update_post_with_fail_check(cache: Data<CacheService>, p: Post) {
-    let p = vec![p];
-
-    match cache.check_redis().await {
-        Ok(opt) => {
-            actix::spawn(
-                cache
-                    .if_replace_redis(opt)
-                    .update_post_return_fail(p)
-                    .map_err(move |p| cache.send_failed_post_update(p))
-                    .map_ok(|_| ())
-                    .boxed_local()
-                    .compat(),
-            );
-        }
-        Err(_) => cache.send_failed_post_update(p),
-    };
+pub(crate) fn update_post_send_fail(
+    cache: Data<MyRedisPool>,
+    p: Post,
+    addr: Data<CacheUpdateAddr>,
+) {
+    actix::spawn(
+        Box::pin(async move { cache.update_post_send_fail(p, addr.into_inner()).await }).compat(),
+    );
 }
 
 pub fn get(
     id: Path<u32>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     get_async(id, db, cache).boxed_local().compat()
 }
 
 async fn get_async(
     id: Path<u32>,
-    db: Data<DatabaseService>,
-    cache: Data<CacheService>,
+    db: Data<MyPostgresPool>,
+    cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
     let mut should_update_p = false;
     let mut should_update_u = false;
 
-    let (p, uids) = match cache.get_posts_from_ids(vec![id]).await {
+    let (p, uids) = match cache.get_posts(vec![id]).await {
         Ok((p, uids)) => (p, uids),
         Err(e) => {
             if let ResError::IdsFromCache(pids) = e {
                 should_update_p = true;
-                db.get_posts_with_uid(&pids).await?
+                db.get_posts(&pids).await?
             } else {
                 return Err(e.into());
             }
         }
     };
 
-    let u = match cache.get_users_from_ids(uids).await {
+    let u = match cache.get_users(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {
                 should_update_u = true;
-                db.get_users_by_id(&uids).await?
+                db.get_users(&uids).await?
             } else {
                 vec![]
             }
@@ -159,10 +140,10 @@ async fn get_async(
     };
 
     if should_update_u {
-        cache.update_users(&u);
+        let _ = cache.update_users(&u).await;
     }
     if should_update_p {
-        cache.update_posts(&p);
+        let _ = cache.update_posts(&p).await;
     }
 
     Ok(HttpResponse::Ok().json(Post::attach_users(&p, &u)))

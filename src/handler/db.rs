@@ -1,11 +1,7 @@
-use std::{
-    cell::{RefCell, RefMut},
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::future::Future;
 
-use futures::{future::join_all, FutureExt, TryStreamExt};
+use futures::{FutureExt, TryFutureExt, TryStreamExt};
+use tang_rs::{Builder, Pool, PoolRef, PostgresManager};
 use tokio_postgres::{
     types::{ToSql, Type},
     Client, NoTls, Row, SimpleQueryMessage, SimpleQueryRow, Statement,
@@ -21,330 +17,172 @@ use crate::model::{
 const SELECT_TOPIC: &str = "SELECT * FROM topics WHERE id=ANY($1)";
 const SELECT_POST: &str = "SELECT * FROM posts WHERE id=ANY($1)";
 const SELECT_USER: &str = "SELECT * FROM users WHERE id=ANY($1)";
-const INSERT_TOPIC: &str =
-    "INSERT INTO topics (id, user_id, category_id, thumbnail, title, body, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    RETURNING *";
-const INSERT_POST: &str =
-    "INSERT INTO posts (id, user_id, topic_id, category_id, post_id, post_content, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    RETURNING *";
-const INSERT_USER: &str =
-    "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING *";
 
-pub struct DatabaseService {
-    pub url: String,
-    pub client: RefCell<Client>,
-    pub topics_by_id: RefCell<Statement>,
-    pub posts_by_id: RefCell<Statement>,
-    pub users_by_id: RefCell<Statement>,
-    pub insert_topic: RefCell<Statement>,
-    pub insert_post: RefCell<Statement>,
-    pub insert_user: RefCell<Statement>,
-}
+const INSERT_PUB_MSG: &str =
+    "INSERT INTO public_messages1 (talk_id, text, time) VALUES ($1, $2, $3)";
+const INSERT_PRV_MSG: &str =
+    "INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)";
 
-impl<'a> CrateClientLike<'a, RefMut<'a, Client>> for DatabaseService {
-    fn cli_like(&'a self) -> RefMut<'a, Client> {
-        self.client.borrow_mut()
+#[derive(Clone)]
+pub struct MyPostgresPool(Pool<PostgresManager<NoTls>>);
+
+impl MyPostgresPool {
+    pub(crate) async fn new(postgres_url: &str) -> MyPostgresPool {
+        let statements = vec![
+            (SELECT_TOPIC, vec![Type::OID_ARRAY]),
+            (SELECT_POST, vec![Type::OID_ARRAY]),
+            (SELECT_USER, vec![Type::OID_ARRAY]),
+            (INSERT_PUB_MSG, vec![]),
+            (INSERT_PRV_MSG, vec![]),
+        ];
+
+        let mgr = PostgresManager::new_from_stringlike(postgres_url, statements, NoTls)
+            .expect("Failed to create postgres pool manager");
+
+        let pool = Builder::new()
+            .always_check(false)
+            .idle_timeout(None)
+            .max_lifetime(None)
+            .min_idle(36)
+            .max_size(36)
+            .build(mgr)
+            .await
+            .expect("Failed to build postgres pool");
+
+        MyPostgresPool(pool)
+    }
+
+    pub(crate) fn get_pool(&self) -> impl Future<Output = Result<MyPoolRef, ResError>> {
+        self.0.get().err_into().map_ok(MyPoolRef)
     }
 }
 
-impl DatabaseService {
-    /// database connection is only checked on insert request.
-    /// Connections are not shared between workers so the recovery will happen separately.
-    pub(crate) async fn check_postgres(&self) -> Result<&Self, ResError> {
-        if self.client.borrow().is_closed() {
-            let (c, mut sts) = DatabaseService::connect_postgres(self.url.as_str()).await?;
+pub struct MyPoolRef<'a>(PoolRef<'a, PostgresManager<NoTls>>);
 
-            let topics_by_id = sts.pop().unwrap();
-            let posts_by_id = sts.pop().unwrap();
-            let users_by_id = sts.pop().unwrap();
-            let insert_topic = sts.pop().unwrap();
-            let insert_post = sts.pop().unwrap();
-            let insert_user = sts.pop().unwrap();
-
-            self.client.replace(c);
-            self.topics_by_id.replace(topics_by_id);
-            self.posts_by_id.replace(posts_by_id);
-            self.users_by_id.replace(users_by_id);
-            self.insert_topic.replace(insert_topic);
-            self.insert_post.replace(insert_post);
-            self.insert_user.replace(insert_user);
-            Ok(self)
-        } else {
-            Ok(self)
-        }
+impl MyPoolRef<'_> {
+    pub fn get_client(&mut self) -> CratePostgresClient {
+        CratePostgresClient(&mut self.0.get_conn().0)
     }
 
-    pub(crate) async fn init(postgres_url: &str) -> Result<DatabaseService, ResError> {
-        let url = postgres_url.to_owned();
+    pub fn get_client_statements(&mut self) -> (CratePostgresClient, CratePostgresStatements) {
+        let (client, statements) = self.0.get_conn();
 
-        let (c, mut sts) = DatabaseService::connect_postgres(postgres_url).await?;
-
-        let topics_by_id = sts.pop().unwrap();
-        let posts_by_id = sts.pop().unwrap();
-        let users_by_id = sts.pop().unwrap();
-        let insert_topic = sts.pop().unwrap();
-        let insert_post = sts.pop().unwrap();
-        let insert_user = sts.pop().unwrap();
-
-        Ok(DatabaseService {
-            url,
-            client: RefCell::new(c),
-            topics_by_id: RefCell::new(topics_by_id),
-            posts_by_id: RefCell::new(posts_by_id),
-            users_by_id: RefCell::new(users_by_id),
-            insert_topic: RefCell::new(insert_topic),
-            insert_post: RefCell::new(insert_post),
-            insert_user: RefCell::new(insert_user),
-        })
-    }
-
-    async fn connect_postgres(postgres_url: &str) -> Result<(Client, Vec<Statement>), ResError> {
-        let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
-
-        let conn = conn.map(|_| ());
-        tokio::spawn(conn);
-
-        let p1 = c.prepare_typed(SELECT_TOPIC, &[Type::OID_ARRAY]);
-        let p2 = c.prepare_typed(SELECT_POST, &[Type::OID_ARRAY]);
-        let p3 = c.prepare_typed(SELECT_USER, &[Type::OID_ARRAY]);
-        let p4 = c.prepare_typed(
-            INSERT_TOPIC,
-            &[
-                Type::OID,
-                Type::OID,
-                Type::OID,
-                Type::VARCHAR,
-                Type::VARCHAR,
-                Type::VARCHAR,
-                Type::TIMESTAMP,
-                Type::TIMESTAMP,
-            ],
-        );
-        let p5 = c.prepare_typed(
-            INSERT_POST,
-            &[
-                Type::OID,
-                Type::OID,
-                Type::OID,
-                Type::OID,
-                Type::OID,
-                Type::VARCHAR,
-                Type::TIMESTAMP,
-                Type::TIMESTAMP,
-            ],
-        );
-        let p6 = c.prepare_typed(
-            INSERT_USER,
-            &[
-                Type::OID,
-                Type::VARCHAR,
-                Type::VARCHAR,
-                Type::VARCHAR,
-                Type::VARCHAR,
-                Type::VARCHAR,
-            ],
-        );
-
-        let vec: Vec<Result<Statement, tokio_postgres::Error>> =
-            join_all(vec![p6, p5, p4, p3, p2, p1]).await;
-        let mut sts = Vec::with_capacity(vec.len());
-        for v in vec.into_iter() {
-            sts.push(v?);
-        }
-
-        Ok((c, sts))
+        (
+            CratePostgresClient(client),
+            CratePostgresStatements(statements),
+        )
     }
 }
 
-impl DatabaseService {
-    pub(crate) async fn get_by_id_with_uid<T>(
-        &self,
+pub struct CratePostgresClient<'a>(&'a mut Client);
+
+pub struct CratePostgresStatements<'a>(&'a mut [Statement]);
+
+impl<'a> CratePostgresStatements<'a> {
+    pub(crate) fn get_statement(&self, index: usize) -> Result<&Statement, ResError> {
+        self.0.get(index).ok_or(ResError::BadRequest)
+    }
+}
+
+impl<'a> CratePostgresClient<'a> {
+    pub(crate) fn execute(
+        &mut self,
+        st: &Statement,
+        p: &[&(dyn ToSql + Sync)],
+    ) -> impl Future<Output = Result<u64, ResError>> {
+        self.0.execute(st, p).err_into()
+    }
+
+    pub(crate) fn prepare(
+        &mut self,
+        query: &str,
+    ) -> impl Future<Output = Result<Statement, ResError>> {
+        self.0.prepare(query).err_into()
+    }
+
+    pub(crate) fn prepare_typed(
+        &mut self,
+        query: &str,
+        types: &[Type],
+    ) -> impl Future<Output = Result<Statement, ResError>> {
+        self.0.prepare_typed(query, types).err_into()
+    }
+
+    pub(crate) fn query_multi_with_uid<T>(
+        &mut self,
         st: &Statement,
         ids: &[u32],
-    ) -> Result<(Vec<T>, Vec<u32>), ResError>
+    ) -> impl Future<Output = Result<(Vec<T>, Vec<u32>), ResError>>
     where
         T: SelfUserId + SelfId + TryFromRef<Row, Error = ResError> + Unpin,
     {
-        let (vec, uids): (Vec<T>, Vec<u32>) = self
-            .cli_like()
-            .query(st, &[&ids])
-            .try_fold(
-                (Vec::with_capacity(20), Vec::with_capacity(20)),
-                move |(mut v, mut uids), r| {
-                    if let Ok(r) = T::try_from_ref(&r) {
-                        uids.push(r.get_user_id());
-                        v.push(r)
-                    }
-                    futures::future::ok((v, uids))
-                },
-            )
-            .await?;
-
-        // postgres return vec could be out of order and we sort it to the order of input ids.
-        let vec = OutOfOrder::sort(ids, vec).await;
-        Ok((vec, uids))
-    }
-}
-
-// could be unnecessary future.
-struct OutOfOrder<'a, T>
-where
-    T: SelfId,
-{
-    ids: &'a [u32],
-    vec: Vec<T>,
-}
-
-impl<'a, T: SelfId> OutOfOrder<'a, T> {
-    fn sort(ids: &'a [u32], vec: Vec<T>) -> Self {
-        OutOfOrder { ids, vec }
-    }
-}
-
-impl<T> Future for OutOfOrder<'_, T>
-where
-    T: SelfId + Unpin,
-{
-    type Output = Vec<T>;
-
-    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut result = Vec::with_capacity(self.vec.len());
-        let v = self.get_mut();
-
-        for id in v.ids.iter() {
-            for (i, idv) in v.vec.iter().enumerate() {
-                if id == &idv.self_id() {
-                    result.push(v.vec.swap_remove(i));
-                    break;
+        self.0.query(st, &[&ids]).err_into().try_fold(
+            (Vec::with_capacity(20), Vec::with_capacity(20)),
+            move |(mut v, mut uids), r| {
+                if let Ok(r) = T::try_from_ref(&r) {
+                    uids.push(r.get_user_id());
+                    v.push(r)
                 }
-            }
-        }
-        Poll::Ready(result)
+                futures::future::ok((v, uids))
+            },
+        )
     }
-}
 
-/// we can't get `&mut Client` directly from wrapper types like `RefCell` or `Mutex`
-/// this trait acts as a middle man for `AsCrateClient` trait
-pub trait CrateClientLike<'a, T: AsCrateClient + 'a> {
-    fn cli_like(&'a self) -> T;
-}
-
-/// take `&mut self`
-pub trait CrateClientMutLike<'a, T: AsCrateClient + 'a> {
-    fn cli_like_mut(&'a mut self) -> T;
-}
-
-/// construct `CrateClient`.
-pub trait AsCrateClient {
-    fn as_cli(&mut self) -> CrateClient;
-}
-
-impl AsCrateClient for RefMut<'_, Client> {
-    fn as_cli(&mut self) -> CrateClient {
-        CrateClient(self)
-    }
-}
-
-impl AsCrateClient for &'_ mut Client {
-    fn as_cli(&mut self) -> CrateClient {
-        CrateClient(self)
-    }
-}
-
-/// a wrapper type for `&mut Client`
-pub struct CrateClient<'a>(&'a mut Client);
-
-impl<'a> CrateClient<'a> {
-    // ToDo: currently only compile on latest nightly
-    //    pub(crate) async fn query_one<T>(
-    //        &mut self,
-    //        st: &Statement,
-    //        p: &[&dyn ToSql],
-    //    ) -> Result<T, ResError>
-    //        where
-    //            T: TryFromRef<Row, Error=ResError> + Send + 'static,
-    //    {
-    //        Box::pin(self.0
-    //            .query(st, p))
-    //            .try_next()
-    //            .map(|r| T::try_from_ref(&r?.ok_or(ResError::BadRequest)?))
-    //            .await
-    //    }
-
-    pub(crate) fn query_one<T>(
+    pub(crate) async fn query_one<T>(
         &mut self,
         st: &Statement,
-        p: &[&dyn ToSql],
-    ) -> impl Future<Output = Result<T, ResError>> + Send
+        p: &[&(dyn ToSql + Sync)],
+    ) -> Result<T, ResError>
     where
-        T: TryFromRef<Row, Error = ResError> + Send + 'static,
+        T: TryFromRef<Row, Error = ResError> + Send,
     {
-        self.0
-            .query(st, p)
-            .try_collect::<Vec<Row>>()
-            .map(|r| T::try_from_ref(&r?.pop().ok_or(ResError::BadRequest)?))
+        Box::pin(self.0.query(st, p))
+            .try_next()
+            .map(|r| T::try_from_ref(&r?.ok_or(ResError::BadRequest)?))
+            .await
     }
 
     pub(crate) fn query_multi<T>(
         &mut self,
         st: &Statement,
-        p: &[&dyn ToSql],
+        p: &[&(dyn ToSql + Sync)],
         vec: Vec<T>,
     ) -> impl Future<Output = Result<Vec<T>, ResError>> + Send
     where
-        T: TryFromRef<Row, Error = ResError> + Send + 'static,
+        T: TryFromRef<Row, Error = ResError> + Send,
     {
         query_multi_fn(self.0, st, p, vec)
     }
 
     pub(crate) fn simple_query_row(
-        &mut self,
-        q: &str,
-    ) -> impl Future<Output = Result<SimpleQueryRow, ResError>> + Send {
-        self.0
-            .simple_query(q)
-            .try_collect::<Vec<SimpleQueryMessage>>()
-            .map(|r| pop_simple_query_row(r?))
+        &'a mut self,
+        query: &'a str,
+    ) -> impl Future<Output = Result<SimpleQueryRow, ResError>> + Send + 'a {
+        simple_query_row_fn(self.0, query)
     }
 }
 
-fn parse_column_by_index<T>(
-    result: Result<SimpleQueryRow, ResError>,
-    column_index: usize,
-) -> Result<T, ResError>
-where
-    T: std::str::FromStr,
-{
-    result?
-        .get(column_index)
-        .ok_or(ResError::DataBaseReadError)?
-        .parse::<T>()
-        .map_err(|_| ResError::ParseError)
-}
-
-fn pop_simple_query_row(mut vec: Vec<SimpleQueryMessage>) -> Result<SimpleQueryRow, ResError> {
-    vec.pop();
-    match vec.pop().ok_or(ResError::BadRequest)? {
-        SimpleQueryMessage::Row(r) => Ok(r),
-        _ => pop_simple_query_row(vec),
-    }
+async fn simple_query_row_fn(c: &mut Client, query: &str) -> Result<SimpleQueryRow, ResError> {
+    Box::pin(c.simple_query(query))
+        .try_next()
+        .map(|r| match r?.ok_or(ResError::BadRequest)? {
+            SimpleQueryMessage::Row(r) => Ok(r),
+            _ => Err(ResError::BadRequest),
+        })
+        .await
 }
 
 // helper functions for build cache on startup
 /// when folding stream into data struct the error from parsing column are ignored.
 /// We send all the good data to frontend.
-pub fn query_multi_fn<T>(
+pub(crate) fn query_multi_fn<T>(
     client: &mut Client,
     st: &Statement,
-    params: &[&dyn ToSql],
+    params: &[&(dyn ToSql + Sync)],
     vec: Vec<T>,
 ) -> impl Future<Output = Result<Vec<T>, ResError>>
 where
-    T: TryFromRef<Row, Error = ResError> + 'static,
+    T: TryFromRef<Row, Error = ResError>,
 {
     client
         .query(st, params)
@@ -357,16 +195,18 @@ where
         })
 }
 
-pub fn simple_query_one_column<T>(
+pub(crate) async fn simple_query_one_column<T>(
     c: &mut Client,
     query: &str,
-    index: usize,
-) -> impl Future<Output = Result<T, ResError>>
+    column_index: usize,
+) -> Result<T, ResError>
 where
     T: std::str::FromStr,
 {
-    c.simple_query(query)
-        .try_collect::<Vec<SimpleQueryMessage>>()
-        .map(|r| pop_simple_query_row(r?))
-        .map(move |r| parse_column_by_index(r, index))
+    simple_query_row_fn(c, query)
+        .await?
+        .get(column_index)
+        .ok_or(ResError::DataBaseReadError)?
+        .parse::<T>()
+        .map_err(|_| ResError::ParseError)
 }

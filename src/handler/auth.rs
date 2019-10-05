@@ -1,10 +1,8 @@
 use actix_web::{dev, FromRequest, HttpRequest};
 use futures::FutureExt;
+use tokio_postgres::types::Type;
 
-use crate::handler::{
-    cache::CacheService,
-    db::{AsCrateClient, CrateClientLike, DatabaseService},
-};
+use crate::handler::{cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -16,6 +14,19 @@ pub type UserJwt = JwtPayLoad;
 
 const USER_BY_NAME_EMAIL: &str = "SELECT * FROM users WHERE username=$1 OR email=$2";
 const USER_BY_NAME: &str = "SELECT * FROM users WHERE username=$1";
+const INSERT_USER: &str =
+    "INSERT INTO users (id, username, email, hashed_password, avatar_url, signature)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *";
+
+const INSERT_USER_TYPES: &[Type; 6] = &[
+    Type::OID,
+    Type::VARCHAR,
+    Type::VARCHAR,
+    Type::VARCHAR,
+    Type::VARCHAR,
+    Type::VARCHAR,
+];
 
 // jwt token extractor from request
 impl FromRequest for JwtPayLoad {
@@ -38,19 +49,27 @@ impl FromRequest for JwtPayLoad {
     }
 }
 
-impl DatabaseService {
-    pub async fn register(&self, req: AuthRequest, g: &GlobalVars) -> Result<User, ResError> {
-        let st = self.cli_like().prepare(USER_BY_NAME_EMAIL).await?;
-
+impl MyPostgresPool {
+    pub(crate) async fn register(
+        &self,
+        req: AuthRequest,
+        g: &GlobalVars,
+    ) -> Result<User, ResError> {
+        let email = req
+            .email
+            .as_ref()
+            .map(String::as_str)
+            .ok_or(ResError::BadRequest)?;
         let username = req.username.as_str();
-        // unwrap() is safe as we checked the field in AuthRequest and make it's not none in router.
-        let email = req.email.as_ref().map(String::as_str).unwrap();
 
-        let users: Vec<User> = self
-            .cli_like()
-            .as_cli()
+        let mut pool_ref = self.get_pool().await?;
+        let mut cli = pool_ref.get_client();
+
+        let st = cli.prepare(USER_BY_NAME_EMAIL).await?;
+        let users: Vec<User> = cli
             .query_multi(&st, &[&username, &email], Vec::with_capacity(2))
             .await?;
+        drop(pool_ref);
 
         for u in users.iter() {
             if u.username.as_str() == username {
@@ -60,38 +79,39 @@ impl DatabaseService {
                 return Err(ResError::EmailTaken);
             }
         }
-
         let hash = crate::util::hash::hash_password(req.password.as_str())?;
 
-        let id = g.lock().map(|mut lock| lock.next_uid()).await;
+        let mut pool_ref = self.get_pool().await?;
+        let mut cli = pool_ref.get_client();
 
+        let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
+
+        let id = g.lock().map(|mut lock| lock.next_uid()).await;
         let u = req.make_user(id, hash.as_str())?;
 
-        let st = &*self.insert_user.borrow();
-        self.cli_like()
-            .as_cli()
-            .query_one(
-                st,
-                &[
-                    &u.id,
-                    &u.username,
-                    &u.email,
-                    &u.hashed_password,
-                    &u.avatar_url,
-                    &u.signature,
-                ],
-            )
-            .await
+        cli.query_one(
+            &st,
+            &[
+                &u.id,
+                &u.username,
+                &u.email,
+                &u.hashed_password,
+                &u.avatar_url,
+                &u.signature,
+            ],
+        )
+        .await
     }
 
-    pub async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
-        let st = self.cli_like().prepare(USER_BY_NAME).await?;
+    pub(crate) async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
+        let mut pool_ref = self.get_pool().await?;
+        let mut cli = pool_ref.get_client();
 
-        let user: User = self
-            .cli_like()
-            .as_cli()
-            .query_one(&st, &[&req.username])
-            .await?;
+        let st = cli.prepare(USER_BY_NAME).await?;
+
+        let user: User = cli.query_one(&st, &[&req.username]).await?;
+
+        drop(pool_ref);
 
         crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 
@@ -101,10 +121,9 @@ impl DatabaseService {
     }
 }
 
-impl CacheService {
+impl MyRedisPool {
     pub async fn get_uid_from_uuid(&self, uuid: &str) -> Result<u32, ResError> {
-        use crate::handler::cache::HashMapBrownFromCache;
-        let hm = self.hash_map_brown_from_cache(uuid).await?;
+        let hm = self.get_hash_map_brown(uuid).await?;
         Ok(hm
             .0
             .get("user_id")

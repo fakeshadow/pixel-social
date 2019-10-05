@@ -24,7 +24,7 @@ version = "1.0.8"
 default-features = false
 
 [dependencies.async-std]
-version = "0.99.6"
+git = "https://github.com/async-rs/async-std"
 
 [dependencies.base64]
 version = "0.10.1"
@@ -50,17 +50,17 @@ version = "0.14.1"
 version = "0.6.1"
 
 [dependencies.futures-preview]
-version = "0.3.0-alpha.18"
-features = [ "nightly", "compat", "async-await" ]
+version = "0.3.0-alpha.19"
+features = [ "compat", "async-await" ]
 
 [dependencies.hashbrown]
-version = "0.6.0"
+version = "0.6.1"
 
 [dependencies.hyper]
-version = "0.13.0-alpha.2"
+version = "0.13.0-alpha.4"
 
 [dependencies.hyper-tls]
-version = "0.4.0-alpha.2"
+version = "0.4.0-alpha.4"
 
 [dependencies.jsonwebtoken]
 version = "6.0.1"
@@ -81,7 +81,7 @@ version = "0.9.0"
 version = "0.7.2"
 
 [dependencies.redis]
-git = "https://github.com/Marwes/redis-rs.git"
+git = "https://github.com/fakeshadow/redis-rs.git"
 branch = "std_future"
 
 [dependencies.regex]
@@ -95,19 +95,31 @@ default-features = false
 version = "1.0.101"
 
 [dependencies.serde_json]
-version = "1.0.40"
+version = "1.0.41"
 
 [dependencies.serde_urlencoded]
 version = "0.6.1"
 
+[dependencies.tang-rs]
+git = "https://github.com/fakeshadow/tang_rs"
+default-features = false
+features = [ "actix-web" ]
+
 [dependencies.tokio]
-version = "0.2.0-alpha.5"
+version = "0.2.0-alpha.6"
 default-features = false
 features = [ "io", "codec", "fs" ]
+
+[dependencies.tokio-executor]
+version = "0.2.0-alpha.6"
 
 [dependencies.tokio-postgres]
 git = "https://github.com/sfackler/rust-postgres"
 features = [ "with-chrono-0_4" ]
+
+[dependencies.tokio-timer01]
+package= "tokio-timer"
+version = "=0.2.11"
 
 [dependencies.psn_api_rs]
 git = "https://github.com/fakeshadow/psn_api_rs.git"

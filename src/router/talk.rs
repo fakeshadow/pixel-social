@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use actix::prelude::{
-    ActorContext, ActorFuture, AsyncContext, Handler, Message, StreamHandler, WrapFuture,
-};
+use actix::prelude::{ActorContext, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::{
     web::{Data, Payload},
     Error, HttpRequest, HttpResponse,
@@ -11,9 +9,9 @@ use actix_web_actors::ws;
 use serde::Deserialize;
 
 use crate::handler::talk::{
-    Admin, AuthRequest, CheckPostgresMessage, CheckRedisMessage, ConnectRequest, CreateTalkRequest,
-    DeleteTalkRequest, GetHistory, JoinTalkRequest, RemoveUserRequest, TalkByIdRequest,
-    TalkService, TextMessageRequest, UserRelationRequest, UsersByIdRequest, TALK,
+    Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
+    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService, TextMessageRequest,
+    UserRelationRequest, UsersByIdRequest, TALK,
 };
 use crate::model::{
     actors::WsChatSession,
@@ -80,45 +78,13 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 if self.id == 0 {
                     match v[0] {
                         // redis connection is checked when auth occur.
-                        "/auth" => {
-                            let text = v[1].to_owned();
-                            ctx.spawn(
-                                self.addr
-                                    .send(CheckRedisMessage)
-                                    .into_actor(self)
-                                    .map_err(|_, _, _| ())
-                                    .map(move |r, act, ctx| {
-                                        if let Err(_e) = r {
-                                            ctx.text(CACHE_ERROR.as_str());
-                                        };
-                                        auth(act, text.as_str(), ctx)
-                                    }),
-                            );
-                        }
+                        "/auth" => auth(self, v[1], ctx),
                         _ => ctx.text(AUTH_ERROR.as_str()),
                     }
                 } else {
                     match v[0] {
                         // db connection is checked when sending message.
-                        "/msg" => {
-                            let text = v[1].to_owned();
-                            ctx.spawn(
-                                self.addr
-                                    .send(CheckPostgresMessage)
-                                    .into_actor(self)
-                                    .map_err(|_, _, _| ())
-                                    .map(move |r, act, ctx| {
-                                        if let Err(_e) = r {
-                                            ctx.text(DB_ERROR.as_str());
-                                        };
-                                        general_msg_handler::<TextMessageRequest>(
-                                            act,
-                                            text.as_str(),
-                                            ctx,
-                                        )
-                                    }),
-                            );
-                        }
+                        "/msg" => general_msg_handler::<TextMessageRequest>(self, v[1], ctx),
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
                         "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
                         "/admin" => general_msg_handler::<Admin>(self, v[1], ctx),

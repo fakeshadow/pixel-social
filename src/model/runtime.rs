@@ -3,11 +3,10 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use futures::{
     channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
     lock::Mutex,
-    FutureExt, SinkExt, StreamExt,
+    FutureExt, SinkExt, StreamExt, TryFutureExt,
 };
 use tokio::{
     future::FutureExt as TokioFutureExt,
-    runtime::current_thread::Runtime,
     timer::{timeout::Elapsed, Interval},
 };
 
@@ -30,15 +29,33 @@ impl<T> ChannelAddress<T>
 where
     T: Send + 'static,
 {
-    /// spawn a future and send message to channel receiver.
+    /// temporary handle message in actix runtime.
     pub fn do_send(&self, req: T) {
         let lock = self.address.clone();
-        tokio::spawn(async move {
-            let mut sender = lock.lock().await;
-            let _ = sender.send(req).await;
-        });
+        actix::spawn(
+            Box::pin(async move {
+                let mut sender = lock.lock().await;
+                let _ = sender.send(req).await;
+            })
+            .unit_error()
+            .compat(),
+        );
     }
 }
+
+//impl<T> ChannelAddress<T>
+//where
+//    T: Send + 'static,
+//{
+//    /// spawn a future and send message to channel receiver.
+//    pub fn do_send(&self, req: T) {
+//        let lock = self.address.clone();
+//        tokio::spawn(async move {
+//            let mut sender = lock.lock().await;
+//            let _ = sender.send(req).await;
+//        });
+//    }
+//}
 
 /// create a channel and return sender in Arc<Mutex> and receiver.
 pub trait ChannelCreate {
@@ -73,27 +90,44 @@ pub trait SpawnQueueHandler<T: Send>: Send + Sized + 'static {
         msg: T,
     ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>>;
 
+    //    fn spawn_handle(mut self) {
+    //        tokio::spawn(
+    //            async move {
+    //                while let Some(req) = self.receiver().next().await {
+    //                    self.handle_message(req).await?;
+    //                }
+    //                Ok(())
+    //            }
+    //                // ToDo: add error handler
+    //                .map(|_r: Result<(), Self::Error>| ()),
+    //        );
+    //    }
+    /// temporary spawn on actix runtime
     fn spawn_handle(mut self) {
-        tokio::spawn(
-            async move {
-                while let Some(req) = self.receiver().next().await {
-                    self.handle_message(req).await?;
+        actix::spawn(
+            Box::pin(
+                async move {
+                    while let Some(req) = self.receiver().next().await {
+                        self.handle_message(req).await?;
+                    }
+                    Ok(())
                 }
-                Ok(())
-            }
-                // ToDo: add error handler
-                .map(|_r: Result<(), Self::Error>| ()),
+                    .map(|_r: Result<(), Self::Error>| ()),
+            )
+            .unit_error()
+            .compat(),
         );
     }
 }
 
+/// temporary spawn interval futures on actix runtime
 /// spawn handler for interval loop futures.
-pub trait SpawnIntervalHandler: Sized + Send + SendRepError + 'static {
+pub trait SpawnIntervalHandlerActixRt: Sized + Send + SendRepError + 'static {
     fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>>;
 
     /// spawn the interval into a tokio thread pool.
     fn spawn_interval(self, dur: Duration, timeout: Duration) {
-        tokio::spawn(self.spawn_inner(dur, timeout));
+        actix::spawn(self.spawn_inner(dur, timeout).unit_error().compat());
     }
 
     fn spawn_inner(
@@ -101,32 +135,6 @@ pub trait SpawnIntervalHandler: Sized + Send + SendRepError + 'static {
         dur: Duration,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move {
-            let mut interval = Interval::new_interval(dur);
-            loop {
-                interval.next().await;
-                let r = self.handle().timeout(timeout).await;
-                self.handle_res_err(r).await;
-            }
-        })
-    }
-}
-
-/// spawn handler for interval loop futures.
-pub trait SpawnIntervalLocalHandler: Sized + SendRepError + 'static {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + 'a>>;
-
-    /// spawn the interval in current thread.
-    fn spawn_interval_local(self, dur: Duration, timeout: Duration) {
-        let mut current = Runtime::new().expect("Failed to get current thread tokio runtime");
-        current.spawn(self.spawn_inner(dur, timeout));
-    }
-
-    fn spawn_inner(
-        mut self,
-        dur: Duration,
-        timeout: Duration,
-    ) -> Pin<Box<dyn Future<Output = ()>>> {
         Box::pin(async move {
             let mut interval = Interval::new_interval(dur);
             loop {

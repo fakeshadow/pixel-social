@@ -101,6 +101,26 @@ impl ResponseError for ResError {
     }
 }
 
+use tang_rs::PostgresPoolError;
+impl From<PostgresPoolError> for ResError {
+    fn from(e: PostgresPoolError) -> Self {
+        match e {
+            PostgresPoolError::Inner(e) => e.into(),
+            PostgresPoolError::TimeOut => ResError::DataBaseReadError,
+        }
+    }
+}
+
+use tang_rs::RedisPoolError;
+impl From<RedisPoolError> for ResError {
+    fn from(e: RedisPoolError) -> Self {
+        match e {
+            RedisPoolError::Inner(e) => e.into(),
+            RedisPoolError::TimeOut => ResError::RedisConnection,
+        }
+    }
+}
+
 impl From<tokio_postgres::Error> for ResError {
     fn from(e: tokio_postgres::Error) -> ResError {
         ResError::BadRequestDb(DatabaseErrorMessage {

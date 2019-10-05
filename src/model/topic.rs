@@ -6,6 +6,7 @@ use crate::model::{
     post::{Post, PostWithUser},
     user::{AttachUser, User, UserRef},
 };
+use std::future::Future;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Topic {
@@ -57,6 +58,9 @@ impl Topic {
     }
     pub fn attach_users<'a>(t: &'a [Topic], u: &'a [User]) -> Vec<TopicWithUser<'a>> {
         t.iter().map(|t| t.attach_user(&u)).collect()
+    }
+    pub fn sort(t: Vec<Topic>, tids: &[u32]) -> impl Future<Output = Vec<Topic>> + '_ {
+        crate::model::common::OutOfOrder::sort(tids, t)
     }
 }
 

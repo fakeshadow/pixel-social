@@ -1,4 +1,4 @@
-use crate::handler::db::DatabaseService;
+use crate::handler::db::MyPostgresPool;
 use crate::model::{
     category::{Category, CategoryRequest},
     common::GlobalVars,
@@ -8,26 +8,8 @@ use crate::model::{
     user::UpdateRequest,
 };
 
-impl DatabaseService {
-    pub async fn admin_update_topic(
-        &self,
-        self_level: u32,
-        t: &TopicRequest,
-    ) -> Result<Topic, ResError> {
-        update_topic_check(self_level, &t)?;
-        self.update_topic(t).await
-    }
-
-    pub async fn admin_update_post(
-        &self,
-        self_level: u32,
-        p: PostRequest,
-    ) -> Result<Post, ResError> {
-        update_post_check(self_level, &p)?;
-        self.update_post(p).await
-    }
-
-    pub async fn admin_add_category(
+impl MyPostgresPool {
+    pub(crate) async fn admin_add_category(
         &self,
         self_level: u32,
         req: CategoryRequest,
@@ -37,7 +19,7 @@ impl DatabaseService {
         self.add_category(req, g).await
     }
 
-    pub async fn admin_update_category(
+    pub(crate) async fn admin_update_category(
         &self,
         self_level: u32,
         req: CategoryRequest,
@@ -46,19 +28,41 @@ impl DatabaseService {
         self.update_category(req).await
     }
 
-    pub async fn admin_remove_category(&self, cid: u32, self_level: u32) -> Result<(), ResError> {
+    pub(crate) async fn admin_remove_category(
+        &self,
+        cid: u32,
+        self_level: u32,
+    ) -> Result<(), ResError> {
         check_admin_level(&Some(1), self_level, 9)?;
         self.remove_category(cid).await
     }
 
-    pub async fn update_user_check(
+    pub(crate) async fn admin_update_topic(
+        &self,
+        self_level: u32,
+        t: &TopicRequest,
+    ) -> Result<Topic, ResError> {
+        update_topic_check(self_level, &t)?;
+        self.update_topic(t).await
+    }
+
+    pub(crate) async fn admin_update_post(
+        &self,
+        self_level: u32,
+        p: PostRequest,
+    ) -> Result<Post, ResError> {
+        update_post_check(self_level, &p)?;
+        self.update_post(p).await
+    }
+
+    pub(crate) async fn update_user_check(
         &self,
         self_level: u32,
         u: UpdateRequest,
     ) -> Result<UpdateRequest, ResError> {
         let id = vec![u.id.as_ref().copied().unwrap_or(0)];
 
-        let user = self.get_users_by_id(&id).await?;
+        let user = self.get_users(&id).await?;
         let user = user.first().ok_or(ResError::BadRequest)?;
 
         if self_level <= user.privilege {

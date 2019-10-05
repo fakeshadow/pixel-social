@@ -5,7 +5,7 @@ use tokio_postgres::{tls::NoTls, Client, SimpleQueryMessage};
 
 use crate::handler::{
     cache::{
-        build_hmsets, build_list, build_posts_cache_list, build_topics_cache_list,
+        build_hmsets_fn, build_list, build_posts_cache_list, build_topics_cache_list,
         build_users_cache,
     },
     db::query_multi_fn,
@@ -441,7 +441,7 @@ async fn build_categories_cache(
     let st = c.prepare("SELECT * FROM categories").await?;
     let categories = query_multi_fn::<Category>(c, &st, &[], Vec::new()).await?;
 
-    build_hmsets(
+    build_hmsets_fn(
         c_cache.clone(),
         &categories,
         crate::handler::cache::CATEGORY_U8,
@@ -500,16 +500,12 @@ async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
     Ok(())
 }
 
-pub fn init_table_cache(
-    sys: &mut actix::SystemRunner,
-    args: &[String],
-    postgres_url: &str,
-    redis_url: &str,
-) -> bool {
+pub(crate) async fn init_table_cache(args: &[String], postgres_url: &str, redis_url: &str) -> bool {
     let mut is_init = false;
     for arg in args.iter() {
         if arg == "drop" {
-            sys.block_on(drop_table(&postgres_url).boxed_local().compat())
+            drop_table(&postgres_url)
+                .await
                 .unwrap_or_else(|e| panic!("{}", e));
 
             let _ = crate::handler::cache::clear_cache(&redis_url);
@@ -517,8 +513,8 @@ pub fn init_table_cache(
             std::process::exit(1);
         }
         if arg == "build" {
-            let success = sys
-                .block_on(create_table(&postgres_url).boxed_local().compat())
+            let success = create_table(&postgres_url)
+                .await
                 .unwrap_or_else(|e| panic!("{}", e));
             if success {
                 is_init = true;

@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use actix::prelude::Addr;
 use async_std::sync::RwLock;
@@ -144,5 +148,42 @@ impl GlobalVar {
     pub fn next_cid(&mut self) -> u32 {
         self.last_cid += 1;
         self.last_cid
+    }
+}
+
+// could be unnecessary future.
+pub struct OutOfOrder<'a, T>
+where
+    T: SelfId,
+{
+    ids: &'a [u32],
+    vec: Vec<T>,
+}
+
+impl<'a, T: SelfId> OutOfOrder<'a, T> {
+    pub(crate) fn sort(ids: &'a [u32], vec: Vec<T>) -> Self {
+        OutOfOrder { ids, vec }
+    }
+}
+
+impl<T> Future for OutOfOrder<'_, T>
+where
+    T: SelfId + Unpin,
+{
+    type Output = Vec<T>;
+
+    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut result = Vec::with_capacity(self.vec.len());
+        let v = self.get_mut();
+
+        for id in v.ids.iter() {
+            for (i, idv) in v.vec.iter().enumerate() {
+                if id == &idv.self_id() {
+                    result.push(v.vec.swap_remove(i));
+                    break;
+                }
+            }
+        }
+        Poll::Ready(result)
     }
 }
