@@ -3,8 +3,7 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use chrono::Utc;
 use futures::{
-    channel::mpsc::UnboundedSender, future::Either, lock::Mutex, FutureExt, SinkExt, StreamExt,
-    TryFutureExt,
+    channel::mpsc::UnboundedSender, lock::Mutex, FutureExt, SinkExt, StreamExt, TryFutureExt,
 };
 use redis::{aio::SharedConnection, cmd, pipe};
 
@@ -32,18 +31,15 @@ impl SpawnIntervalHandlerActixRt for CacheUpdateService {
                 let r = match msg {
                     CacheFailedMessage::FailedTopic(id) => {
                         let (t, _) = self.pg_pool.get_topics(&[id]).await?;
-                        let tt = t.first().ok_or(ResError::DataBaseReadError)?;
-                        self.rd_pool.add_topic(tt).await
+                        self.rd_pool.add_topic(&t).await
                     }
                     CacheFailedMessage::FailedPost(id) => {
                         let (p, _) = self.pg_pool.get_posts(&[id]).await?;
-                        let pp = p.first().ok_or(ResError::DataBaseReadError)?;
-                        self.rd_pool.add_post(pp).await
+                        self.rd_pool.add_post(&p).await
                     }
                     CacheFailedMessage::FailedCategory(id) => {
                         let c = self.pg_pool.get_categories(&[id]).await?;
-                        let cc = c.first().ok_or(ResError::DataBaseReadError)?;
-                        self.rd_pool.add_category(cc).await
+                        self.rd_pool.add_category(&c).await
                     }
                     CacheFailedMessage::FailedUser(id) => {
                         let u = self.pg_pool.get_users(&[id]).await?;
@@ -84,6 +80,7 @@ impl SendRepError for CacheUpdateService {
 
 // actix::web::Data().into_inner will return our CacheUpdateAddr in an Arc.
 pub type SharedCacheUpdateAddr = Arc<CacheUpdateAddr>;
+
 // we don't need Arc wrapper here as the actix::web::Data::new() will provide the Arc layer.
 /// cache update addr is used to collect failed insertion to redis. and retry them in CacheUpdateService.
 pub struct CacheUpdateAddr(Mutex<UnboundedSender<CacheFailedMessage>>);
@@ -155,28 +152,16 @@ impl MyRedisPool {
         let cat = self.get_categories_all().await?;
 
         let yesterday = Utc::now().naive_utc().timestamp_millis() - 86_400_000;
-        let mut vec = futures::stream::FuturesUnordered::new();
 
-        let conn = self.get_pool().await?.get_conn().clone();
+        let mut pool = self.get_pool().await?;
+        let conn = &mut *pool;
 
         for c in cat.iter() {
             // update_list will also update topic count new.
-            vec.push(Either::Right(update_list(
-                Some(c.id),
-                yesterday,
-                conn.clone(),
-            )));
-            vec.push(Either::Left(update_post_count(
-                c.id,
-                yesterday,
-                conn.clone(),
-            )));
+            let _ = update_list(Some(c.id), yesterday, conn).await;
+            let _ = update_post_count(c.id, yesterday, conn).await;
         }
-        vec.push(Either::Right(update_list(None, yesterday, conn)));
-
-        while let Some(_t) = vec.next().await {
-            // ToDo: handle error
-        }
+        let _ = update_list(None, yesterday, conn).await;
 
         Ok(())
     }
@@ -187,7 +172,7 @@ type ListWithSortedRange = (HashMapBrown<u32, i64>, Vec<(u32, u32)>);
 async fn update_list(
     cid: Option<u32>,
     yesterday: i64,
-    conn: SharedConnection,
+    conn: &mut SharedConnection,
 ) -> Result<(), ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
@@ -217,8 +202,7 @@ async fn update_list(
         .arg("-inf")
         .arg("WITHSCORES");
 
-    let (conn, (HashMapBrown(tids), counts)): (SharedConnection, ListWithSortedRange) =
-        pip.query_async(conn).await?;
+    let (HashMapBrown(tids), counts) = pip.query_async::<_, ListWithSortedRange>(conn).await?;
 
     use std::cmp::Ordering;
 
@@ -273,7 +257,7 @@ async fn update_list(
     }
 
     if should_update {
-        let (_, ()) = pip.query_async(conn).await?;
+        pip.query_async::<_, ()>(conn).await?;
     };
     Ok(())
 }
@@ -281,23 +265,23 @@ async fn update_list(
 async fn update_post_count(
     cid: u32,
     yesterday: i64,
-    conn: SharedConnection,
+    conn: &mut SharedConnection,
 ) -> Result<(), ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);
 
-    let (conn, count): (SharedConnection, u32) = cmd("ZCOUNT")
+    let count = cmd("ZCOUNT")
         .arg(time_key.as_str())
         .arg(yesterday)
         .arg("+inf")
-        .query_async(conn)
+        .query_async::<_, u32>(conn)
         .await?;
 
     if count > 0 {
-        let (_, ()) = cmd("HMSET")
+        cmd("HMSET")
             .arg(set_key.as_str())
             .arg(&[("post_count_new", count)])
-            .query_async(conn)
+            .query_async::<_, ()>(conn)
             .await?;
         Ok(())
     } else {

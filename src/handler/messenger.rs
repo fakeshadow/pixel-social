@@ -14,12 +14,13 @@ use lettre::{
 use lettre_email::Email;
 
 use crate::handler::cache::MyRedisPool;
-use crate::model::runtime::{SendRepError, SpawnIntervalHandlerActixRt, SpawnQueueHandler};
 use crate::model::{
     common::dur,
     errors::{RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
-    runtime::{ChannelAddress, ChannelCreate},
+    runtime::{
+        ChannelAddress, ChannelCreate, SendRepError, SpawnIntervalHandlerActixRt, SpawnQueueHandler,
+    },
     user::User,
 };
 
@@ -392,29 +393,30 @@ impl MessageService {
 }
 
 impl MyRedisPool {
-    pub(crate) async fn add_activation_mail(&self, u: User) {
-        let uuid = uuid::Uuid::new_v4().to_string();
-        let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
+    pub(crate) async fn add_activation_mail(&self, u: Vec<User>) {
+        if let Some(u) = u.first() {
+            let uuid = uuid::Uuid::new_v4().to_string();
+            let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
-        if let Ok(m) = serde_json::to_string(&mail) {
-            if let Ok(mut pool_ref) = self.get_pool().await {
-                let conn = pool_ref.get_conn().clone();
-                actix::spawn(
-                    Self::add_activation_mail_cache(conn, u.id, uuid, m)
-                        .map_err(|_| ())
-                        .boxed_local()
-                        .compat(),
-                );
+            if let Ok(m) = serde_json::to_string(&mail) {
+                if let Ok(pool_ref) = self.get_pool().await {
+                    let conn = (&*pool_ref).clone();
+                    actix::spawn(
+                        Self::add_activation_mail_cache(conn, u.id, uuid, m)
+                            .map_err(|_| ())
+                            .boxed_local()
+                            .compat(),
+                    );
+                }
             }
         }
     }
 
     pub(crate) async fn remove_activation_uuid(&self, uuid: &str) {
-        if let Ok(mut pool_ref) = self.get_pool().await {
-            let conn = pool_ref.get_conn().clone();
-
+        if let Ok(pool_ref) = self.get_pool().await {
+            let conn = (&*pool_ref).clone();
             actix::spawn(
-                Self::del_cache(conn, uuid)
+                Self::del_cache(conn, uuid.to_owned())
                     .map_err(|_| ())
                     .boxed_local()
                     .compat(),

@@ -107,7 +107,7 @@ async fn add_activation_mail_async(
     db: Data<MyPostgresPool>,
     cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
-    let mut u = match cache.get_users(vec![jwt.user_id]).await {
+    let u = match cache.get_users(vec![jwt.user_id]).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(ids) = e {
@@ -118,11 +118,6 @@ async fn add_activation_mail_async(
         }
     };
 
-    match u.pop() {
-        Some(u) => {
-            let _ = cache.add_activation_mail(u);
-            Ok(HttpResponse::Ok().finish())
-        }
-        None => Err(ResError::BadRequest.into()),
-    }
+    let _ = cache.add_activation_mail(u);
+    Ok(HttpResponse::Ok().finish())
 }

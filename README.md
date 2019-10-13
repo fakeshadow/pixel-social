@@ -1,7 +1,7 @@
 ### **A Simple Community App backend**
 
 #### Requirement:
-`pin to rustc 1.39.0-nightly (0b36e9dea 2019-09-09)`<br>
+`rust 1.39.0-beta.5 (fa5c2f3e5 2019-10-02)`<br>
 `PostgreSQL 10 and above`<br>
 `Redis 5.0.4 and above`<br>
 `Flutter 1.5 and above with flutter_web preview`<br>

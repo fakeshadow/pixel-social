@@ -1,8 +1,11 @@
 use actix_web::{dev, FromRequest, HttpRequest};
 use futures::FutureExt;
-use tokio_postgres::types::Type;
+use tokio_postgres::types::{ToSql, Type};
 
-use crate::handler::{cache::MyRedisPool, db::MyPostgresPool};
+use crate::handler::{
+    cache::MyRedisPool,
+    db::{MyPostgresPool, ParseRowStream},
+};
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -54,7 +57,7 @@ impl MyPostgresPool {
         &self,
         req: AuthRequest,
         g: &GlobalVars,
-    ) -> Result<User, ResError> {
+    ) -> Result<Vec<User>, ResError> {
         let email = req
             .email
             .as_ref()
@@ -62,14 +65,16 @@ impl MyPostgresPool {
             .ok_or(ResError::BadRequest)?;
         let username = req.username.as_str();
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool_ref = self.get().await?;
+        let (cli, _) = &*pool_ref;
 
         let st = cli.prepare(USER_BY_NAME_EMAIL).await?;
-        let users: Vec<User> = cli
-            .query_multi(&st, &[&username, &email], Vec::with_capacity(2))
+        let params: [&(dyn ToSql + Sync); 2] = [&username, &email];
+        let users = cli
+            .query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row::<User>()
             .await?;
-        drop(pool_ref);
 
         for u in users.iter() {
             if u.username.as_str() == username {
@@ -81,37 +86,42 @@ impl MyPostgresPool {
         }
         let hash = crate::util::hash::hash_password(req.password.as_str())?;
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool_ref = self.get().await?;
+        let (cli, _) = &*pool_ref;
 
         let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
 
         let id = g.lock().map(|mut lock| lock.next_uid()).await;
         let u = req.make_user(id, hash.as_str())?;
+        let params: [&(dyn ToSql + Sync); 6] = [
+            &u.id,
+            &u.username,
+            &u.email,
+            &u.hashed_password,
+            &u.avatar_url,
+            &u.signature,
+        ];
 
-        cli.query_one(
-            &st,
-            &[
-                &u.id,
-                &u.username,
-                &u.email,
-                &u.hashed_password,
-                &u.avatar_url,
-                &u.signature,
-            ],
-        )
-        .await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub(crate) async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool_ref = self.get().await?;
+        let (cli, _) = &*pool_ref;
 
-        let st = cli.prepare(USER_BY_NAME).await?;
+        let st = cli.prepare_typed(USER_BY_NAME, &[]).await?;
+        let params: [&(dyn ToSql + Sync); 1] = [&req.username];
 
-        let user: User = cli.query_one(&st, &[&req.username]).await?;
-
-        drop(pool_ref);
+        let user = cli
+            .query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row::<User>()
+            .await?
+            .pop()
+            .ok_or(ResError::DataBaseReadError)?;
 
         crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 

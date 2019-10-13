@@ -3,11 +3,10 @@ use std::future::Future;
 use futures::FutureExt;
 use tokio_postgres::types::ToSql;
 
-use crate::handler::cache_update::SharedCacheUpdateAddr;
 use crate::handler::{
     cache::{MyRedisPool, CATEGORY_U8},
-    cache_update::CacheFailedMessage,
-    db::MyPostgresPool,
+    cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
+    db::{MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
     category::{Category, CategoryRequest},
@@ -15,49 +14,65 @@ use crate::model::{
     errors::ResError,
 };
 
+const GET_CATEGORY_ALL: &str = "SELECT * FROM categories";
+const GET_CATEGORY: &str = "SELECT * FROM categories WHERE id=ANY($1)";
 const DEL_CATEGORY: &str = "DELETE FROM categories WHERE id=$1";
 const INSERT_CATEGORY: &str =
     "INSERT INTO categories (id, name, thumbnail) VALUES ($1, $2, $3) RETURNING *";
 
 impl MyPostgresPool {
     pub(crate) async fn get_categories_all(&self) -> Result<Vec<Category>, ResError> {
-        let mut pool_ref = self.get_pool().await?;
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let mut cli = pool_ref.get_client();
+        let st = cli.prepare_typed(GET_CATEGORY_ALL, &[]).await?;
+        let params: [&(dyn ToSql + Sync); 0] = [];
 
-        let st = cli.prepare("SELECT * FROM categories").await?;
-        cli.query_multi(&st, &[], Vec::new()).await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub(crate) async fn get_categories(&self, ids: &[u32]) -> Result<Vec<Category>, ResError> {
-        let mut pool_ref = self.get_pool().await?;
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let mut cli = pool_ref.get_client();
+        let st = cli.prepare_typed(GET_CATEGORY, &[]).await?;
+        let params: [&(dyn ToSql + Sync); 1] = [&ids];
 
-        let st = cli
-            .prepare("SELECT * FROM categories WHERE id=ANY($1)")
-            .await?;
-        cli.query_multi(&st, &[&ids], Vec::new()).await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub(crate) async fn add_category(
         &self,
         c: CategoryRequest,
         g: &GlobalVars,
-    ) -> Result<Category, ResError> {
+    ) -> Result<Vec<Category>, ResError> {
         let name = c.name.as_ref().ok_or(ResError::BadRequest)?;
         let thumb = c.thumbnail.as_ref().ok_or(ResError::BadRequest)?;
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let st = cli.prepare(INSERT_CATEGORY).await?;
+        let st = cli.prepare_typed(INSERT_CATEGORY, &[]).await?;
+
         let cid = g.lock().map(|mut lock| lock.next_cid()).await;
+        let params: [&(dyn ToSql + Sync); 3] = [&cid, &name, &thumb];
 
-        cli.query_one(&st, &[&cid, &name, &thumb]).await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
-    pub(crate) async fn update_category(&self, c: CategoryRequest) -> Result<Category, ResError> {
+    pub(crate) async fn update_category(
+        &self,
+        c: CategoryRequest,
+    ) -> Result<Vec<Category>, ResError> {
         let mut query = String::from("UPDATE categories SET");
         let mut params = Vec::new();
         let mut index = 1u8;
@@ -88,16 +103,20 @@ impl MyPostgresPool {
 
         query.push_str(" RETURNING *");
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let st = cli.prepare(query.as_str()).await?;
-        cli.query_one(&st, params.as_slice()).await
+        let st = cli.prepare_typed(query.as_str(), &[]).await?;
+
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub async fn remove_category(&self, cid: u32) -> Result<(), ResError> {
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare(DEL_CATEGORY).await?;
         cli.execute(&st, &[&cid]).await?;
@@ -119,11 +138,13 @@ impl MyRedisPool {
 
     pub(crate) async fn add_category_send_fail(
         &self,
-        c: Category,
+        c: Vec<Category>,
         addr: SharedCacheUpdateAddr,
     ) -> Result<(), ()> {
         if self.add_category(&c).await.is_err() {
-            addr.do_send(CacheFailedMessage::FailedCategory(c.id)).await;
+            if let Some(id) = c.first().map(|c| c.id) {
+                addr.do_send(CacheFailedMessage::FailedCategory(id)).await;
+            }
         }
         Ok(())
     }

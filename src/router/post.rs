@@ -89,7 +89,7 @@ async fn update_async(
 
 pub(crate) fn update_post_send_fail(
     cache: Data<MyRedisPool>,
-    p: Post,
+    p: Vec<Post>,
     addr: Data<CacheUpdateAddr>,
 ) {
     actix::spawn(

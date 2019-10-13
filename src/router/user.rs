@@ -75,7 +75,7 @@ async fn update_async(
 
 pub(crate) fn update_user_send_fail(
     cache: Data<MyRedisPool>,
-    u: User,
+    u: Vec<User>,
     addr: Data<CacheUpdateAddr>,
 ) {
     actix::spawn(

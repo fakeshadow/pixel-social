@@ -1,20 +1,19 @@
 use chrono::NaiveDateTime;
-use futures::{FutureExt, TryFutureExt, TryStreamExt};
+use futures::FutureExt;
 use redis::aio::SharedConnection;
-use tokio_postgres::{tls::NoTls, Client, SimpleQueryMessage};
+use tokio_postgres::{tls::NoTls, types::ToSql, Client, SimpleQueryMessage};
 
 use crate::handler::{
     cache::{
         build_hmsets_fn, build_list, build_posts_cache_list, build_topics_cache_list,
         build_users_cache,
     },
-    db::query_multi_fn,
+    db::ParseRowStream,
 };
 use crate::model::{
     category::Category,
     common::{new_global_talks_sessions, GlobalSessions, GlobalTalks, GlobalVar, GlobalVars},
     errors::ResError,
-    talk::Talk,
     topic::Topic,
     user::User,
 };
@@ -250,17 +249,17 @@ pub async fn build_cache(
     redis_url: &str,
     is_init: bool,
 ) -> Result<(GlobalVars, GlobalTalks, GlobalSessions), ResError> {
-    let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
+    let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     tokio::spawn(conn.map(|_| ()));
 
-    let c_cache = redis::Client::open(redis_url)
+    let c_cache = &mut redis::Client::open(redis_url)
         .unwrap_or_else(|e| panic!("{}", e))
         .get_shared_async_connection()
         .await?;
 
     // Load all categories and make hash map sets.
-    let categories = build_categories_cache(&mut c, &c_cache).await?;
+    let categories = build_categories_cache(&c, c_cache).await?;
 
     // build list by create_time desc order for each category. build category meta list with all category ids
 
@@ -278,12 +277,12 @@ pub async fn build_cache(
             "SELECT COUNT(id) FROM topics WHERE category_id = {}",
             cat.id
         );
-        let t_count = crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
+        let t_count = crate::handler::db::simple_query_one_column::<u32>(&c, query.as_str(), 0)
             .await
             .unwrap_or(0);
 
         let query = format!("SELECT COUNT(id) FROM posts WHERE category_id = {}", cat.id);
-        let p_count = crate::handler::db::simple_query_one_column::<u32>(&mut c, query.as_str(), 0)
+        let p_count = crate::handler::db::simple_query_one_column::<u32>(&c, query.as_str(), 0)
             .await
             .unwrap_or(0);
 
@@ -293,8 +292,7 @@ pub async fn build_cache(
                 ("topic_count", t_count.to_string()),
                 ("post_count", p_count.to_string()),
             ])
-            .query_async(c_cache.clone())
-            .map_ok(|(_, ())| ())
+            .query_async::<_, ()>(c_cache)
             .await?;
 
         // ToDo: don't update popular list for categories by created_at order. Use set_perm key and last_reply_time field instead.
@@ -303,27 +301,31 @@ pub async fn build_cache(
             .prepare("SELECT * FROM topics WHERE category_id = $1 ORDER BY created_at DESC")
             .await?;
 
-        let t = query_multi_fn::<Topic>(&mut c, &st, &[&cat.id], Vec::new()).await?;
+        let params: [&(dyn ToSql + Sync); 1] = [&cat.id];
+
+        let t = c
+            .query_raw(&st, params.iter().map(|s| *s as &dyn ToSql))
+            .await?
+            .parse_row::<Topic>()
+            .await?;
 
         // load topics reply count
         let query = format!(
             "SELECT COUNT(topic_id), topic_id FROM posts WHERE category_id = {} GROUP BY topic_id",
             cat.id
         );
-        let reply_count = Vec::new();
-        let mut reply_count: Vec<(u32, u32)> = c
-            .simple_query(&query)
-            .try_fold(reply_count, |mut reply_count, row| {
-                if let SimpleQueryMessage::Row(row) = row {
-                    if let Ok(count) = row.get(0).unwrap().parse::<u32>() {
-                        if let Ok(tid) = row.get(1).unwrap().parse::<u32>() {
-                            reply_count.push((tid, count));
-                        }
+        let rows = c.simple_query(query.as_str()).await?;
+
+        let mut reply_count = Vec::new();
+        for row in rows.into_iter() {
+            if let SimpleQueryMessage::Row(row) = row {
+                if let Ok(count) = row.get(0).unwrap().parse::<u32>() {
+                    if let Ok(tid) = row.get(1).unwrap().parse::<u32>() {
+                        reply_count.push((tid, count));
                     }
                 }
-                futures::future::ok(reply_count)
-            })
-            .await?;
+            }
+        }
 
         // attach reply count to topics
         let t = t
@@ -351,47 +353,46 @@ pub async fn build_cache(
             };
         }
 
-        build_topics_cache_list(is_init, sets, c_cache.clone()).await?;
+        build_topics_cache_list(is_init, sets, c_cache).await?;
     }
 
-    build_list(c_cache.clone(), category_ids, "category_id:meta".to_owned()).await?;
+    build_list(c_cache, category_ids, "category_id:meta".to_owned()).await?;
 
     // load all posts with tid id and created_at
-    let posts = c
+    let rows = c
         .simple_query("SELECT topic_id, id, created_at FROM posts")
-        .map_err(ResError::from)
-        .try_fold(Vec::new(), |mut posts, row| {
-            if let SimpleQueryMessage::Row(row) = row {
-                let tid = row.get(0).unwrap().parse::<u32>().unwrap();
-                let pid = row.get(1).unwrap().parse::<u32>().unwrap();
-                let time =
-                    NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f")
-                        .unwrap();
-                posts.push((tid, pid, None, time));
-            }
-            futures::future::ok(posts)
-        })
         .await?;
 
+    let mut posts = Vec::new();
+    for row in rows.into_iter() {
+        if let SimpleQueryMessage::Row(row) = row {
+            let tid = row.get(0).unwrap().parse::<u32>().unwrap();
+            let pid = row.get(1).unwrap().parse::<u32>().unwrap();
+            let time =
+                NaiveDateTime::parse_from_str(row.get(2).unwrap(), "%Y-%m-%d %H:%M:%S%.f").unwrap();
+            posts.push((tid, pid, None, time));
+        }
+    }
+
     // load topics reply count
-    let mut reply_count: Vec<(u32, u32)> = c
+    let rows = c
         .simple_query("SELECT COUNT(post_id), post_id FROM posts GROUP BY post_id")
-        .map_err(ResError::from)
-        .try_fold(Vec::new(), |mut reply_count, row| {
-            if let SimpleQueryMessage::Row(row) = row {
-                if let Some(str) = row.get(0) {
-                    if let Ok(count) = str.parse::<u32>() {
-                        if let Some(str) = row.get(1) {
-                            if let Ok(pid) = str.parse::<u32>() {
-                                reply_count.push((pid, count));
-                            }
+        .await?;
+
+    let mut reply_count = Vec::new();
+    for row in rows.into_iter() {
+        if let SimpleQueryMessage::Row(row) = row {
+            if let Some(str) = row.get(0) {
+                if let Ok(count) = str.parse::<u32>() {
+                    if let Some(str) = row.get(1) {
+                        if let Ok(pid) = str.parse::<u32>() {
+                            reply_count.push((pid, count));
                         }
                     }
                 }
             }
-            futures::future::ok(reply_count)
-        })
-        .await?;
+        }
+    }
 
     let mut last_pid = 1;
 
@@ -415,13 +416,18 @@ pub async fn build_cache(
         .collect::<Vec<(u32, u32, Option<u32>, NaiveDateTime)>>();
 
     if !posts.is_empty() {
-        let _ = build_posts_cache_list(is_init, posts, c_cache.clone()).await;
+        let _ = build_posts_cache_list(is_init, posts, c_cache).await;
     }
 
-    let last_uid = build_users_cache_local(&mut c, &c_cache).await?;
+    let last_uid = build_users_cache_local(&c, c_cache).await?;
 
     let st = c.prepare("SELECT * FROM talks").await?;
-    let talks = query_multi_fn::<Talk>(&mut c, &st, &[], Vec::new()).await?;
+    let params: [&(dyn ToSql + Sync); 0] = [];
+    let talks = c
+        .query_raw(&st, params.iter().map(|s| *s as &dyn ToSql))
+        .await?
+        .parse_row()
+        .await?;
 
     let (talks, sessions) = new_global_talks_sessions(talks);
 
@@ -435,14 +441,19 @@ pub async fn build_cache(
 }
 
 async fn build_categories_cache(
-    c: &mut Client,
-    c_cache: &SharedConnection,
+    c: &Client,
+    c_cache: &mut SharedConnection,
 ) -> Result<Vec<Category>, ResError> {
-    let st = c.prepare("SELECT * FROM categories").await?;
-    let categories = query_multi_fn::<Category>(c, &st, &[], Vec::new()).await?;
+    let st = c.prepare_typed("SELECT * FROM categories", &[]).await?;
+    let params: [&(dyn ToSql + Sync); 0] = [];
+    let categories = c
+        .query_raw(&st, params.iter().map(|s| *s as &dyn ToSql))
+        .await?
+        .parse_row::<Category>()
+        .await?;
 
     build_hmsets_fn(
-        c_cache.clone(),
+        c_cache,
         &categories,
         crate::handler::cache::CATEGORY_U8,
         false,
@@ -454,11 +465,17 @@ async fn build_categories_cache(
 
 // return last user.id in result for building global vars.
 async fn build_users_cache_local(
-    c: &mut Client,
-    c_cache: &SharedConnection,
+    c: &Client,
+    c_cache: &mut SharedConnection,
 ) -> Result<u32, ResError> {
     let st = c.prepare("SELECT * FROM users").await?;
-    let users = query_multi_fn::<User>(c, &st, &[], Vec::new()).await?;
+    let params: [&(dyn ToSql + Sync); 0] = [];
+
+    let users = c
+        .query_raw(&st, params.iter().map(|s| *s as &dyn ToSql))
+        .await?
+        .parse_row::<User>()
+        .await?;
 
     // ToDo： collect all subscribe data from users and update category subscribe count.
 
@@ -469,14 +486,14 @@ async fn build_users_cache_local(
         };
     }
 
-    build_users_cache(users, c_cache.clone()).await?;
+    build_users_cache(users, c_cache).await?;
 
     Ok(last_uid)
 }
 
 // return Ok(false) if tables already exist.
 async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
-    let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
+    let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     tokio::spawn(conn.map(|_| ()));
 
@@ -486,17 +503,17 @@ async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
         return Ok(false);
     }
 
-    c.simple_query(BUILD_TABLES).try_collect::<Vec<_>>().await?;
+    c.simple_query(BUILD_TABLES).await?;
 
     Ok(true)
 }
 
 async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
-    let (mut c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
+    let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     tokio::spawn(conn.map(|_| ()));
 
-    c.simple_query(DROP_TABLES).try_collect::<Vec<_>>().await?;
+    c.simple_query(DROP_TABLES).await?;
     Ok(())
 }
 

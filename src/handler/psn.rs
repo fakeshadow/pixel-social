@@ -4,11 +4,15 @@ use std::{
 };
 
 use chrono::Utc;
-use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, FutureExt, TryFutureExt};
+use futures::{channel::mpsc::UnboundedReceiver, lock::Mutex as FutMutex, TryFutureExt};
 use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
+use tokio_postgres::types::ToSql;
 
-use crate::handler::{cache::MyRedisPool, db::MyPostgresPool, messenger::RepErrorAddr};
-use crate::model::runtime::SpawnIntervalHandlerActixRt;
+use crate::handler::{
+    cache::MyRedisPool,
+    db::{MyPostgresPool, ParseRowStream},
+    messenger::RepErrorAddr,
+};
 use crate::model::{
     common::{dur, dur_as_sec},
     errors::ResError,
@@ -16,7 +20,9 @@ use crate::model::{
         PSNTrophyArgumentRequest, PSNUserLib, TrophySetLib, TrophyTitlesLib, UserPSNProfile,
         UserTrophySet, UserTrophyTitle,
     },
-    runtime::{ChannelAddress, ChannelCreate, SendRepError, SpawnQueueHandler},
+    runtime::{
+        ChannelAddress, ChannelCreate, SendRepError, SpawnIntervalHandlerActixRt, SpawnQueueHandler,
+    },
 };
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
@@ -478,19 +484,20 @@ impl PSNService {
     // The purpose is to flag people who have a changed trophy timestamp on the trophy already earned
     // by comparing the The first_earned_date with the earned_date
     async fn query_update_user_trophy_set(&self, mut t: UserTrophySet) -> Result<(), ResError> {
-        let mut pool_ref = self.pool.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.pool.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare(PSN_SET_BY_NPID).await?;
-
+        let params: [&(dyn ToSql + Sync); 2] = [&t.np_id.as_str(), &t.np_communication_id.as_str()];
         let r = cli
-            .query_one::<UserTrophySet>(&st, &[&t.np_id.as_str(), &t.np_communication_id.as_str()])
+            .query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row::<UserTrophySet>()
             .await;
 
-        drop(pool_ref);
-
         match r {
-            Ok(t_old) => {
+            Ok(mut t_old) => {
+                let t_old = t_old.pop().ok_or(ResError::DataBaseReadError)?;
                 // count earned_date from existing user trophy set.
                 // if the count is reduced then we mark this trophy set not visible.
                 let mut earned_count = 0;
@@ -570,39 +577,38 @@ impl PSNService {
                             RETURNING NULL;",
         );
 
-        let mut pool_ref = self.pool.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.pool.get().await?;
+        let (cli, _) = &*pool;
 
-        cli.simple_query_row(query.as_str()).map_ok(|_| ()).await
+        cli.simple_query(query.as_str())
+            .map_ok(|_| ())
+            .err_into()
+            .await
     }
 
     async fn update_user_trophy_titles(&mut self, t: &[UserTrophyTitle]) -> Result<(), ResError> {
-        let mut v = Vec::with_capacity(t.len());
-
-        let mut pool_ref = self.pool.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.pool.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare(INSERT_TITLES).await?;
-
         for t in t.iter() {
-            let f = cli.execute(
-                &st,
-                &[
-                    &t.np_id,
-                    &t.np_communication_id,
-                    &t.progress,
-                    &t.earned_platinum,
-                    &t.earned_gold,
-                    &t.earned_silver,
-                    &t.earned_bronze,
-                    &t.last_update_date,
-                ],
-            );
-
-            v.push(f);
+            let _f = cli
+                .execute(
+                    &st,
+                    &[
+                        &t.np_id,
+                        &t.np_communication_id,
+                        &t.progress,
+                        &t.earned_platinum,
+                        &t.earned_gold,
+                        &t.earned_silver,
+                        &t.earned_bronze,
+                        &t.last_update_date,
+                    ],
+                )
+                .await;
         }
-
-        futures::future::join_all(v).map(|_v| Ok(())).await
+        Ok(())
     }
 
     async fn check_token(&mut self) -> Result<&mut Self, ResError> {
@@ -621,12 +627,15 @@ impl MyPostgresPool {
         np_id: &str,
         page: u32,
     ) -> Result<Vec<UserTrophyTitle>, ResError> {
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let offset = (page - 1) * 20;
         let st = cli.prepare(PSN_TITLES_NY_TIME).await?;
-        cli.query_multi(&st, &[&np_id, &offset], Vec::with_capacity(20))
+        let params: [&(dyn ToSql + Sync); 2] = [&np_id, &offset];
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
             .await
     }
 
@@ -634,13 +643,17 @@ impl MyPostgresPool {
         &self,
         np_id: &str,
         np_communication_id: &str,
-    ) -> Result<UserTrophySet, ResError> {
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+    ) -> Result<Vec<UserTrophySet>, ResError> {
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare(PSN_TITLES_NY_TIME).await?;
+        let params: [&(dyn ToSql + Sync); 2] = [&np_id, &np_communication_id];
 
-        cli.query_one(&st, &[&np_id, &np_communication_id]).await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     //    pub fn update_trophy_set_argument(

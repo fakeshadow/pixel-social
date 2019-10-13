@@ -12,7 +12,7 @@ use actix_web::{
     App, HttpServer,
 };
 use futures::{FutureExt, TryFutureExt};
-use parking_lot::Mutex;
+use std::sync::Mutex;
 
 use dotenv::dotenv;
 
@@ -132,7 +132,7 @@ async fn main() -> std::io::Result<()> {
             )
             .unwrap_or_else(|_| panic!("Failed to create Talk Service for worker : {}", i));
 
-        talks.lock().push(talk);
+        talks.lock().unwrap().push(talk);
     }
 
     HttpServer::new(move || {
@@ -148,7 +148,7 @@ async fn main() -> std::io::Result<()> {
         */
 
         // unlock mutex and use them as App.data
-        let talk = talks.lock().pop().unwrap();
+        let talk = talks.lock().unwrap().pop().unwrap();
 
         let cors = actix_cors::Cors::new()
             .allowed_origin(&cors_origin)

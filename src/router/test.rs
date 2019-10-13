@@ -6,6 +6,7 @@ use actix_web::{
 use futures::future::{FutureExt, TryFutureExt};
 
 use crate::handler::cache_update::CacheUpdateAddr;
+use crate::handler::db::{GetStatement, ParseRowStream};
 use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
 use crate::model::{
     common::GlobalVars,
@@ -82,15 +83,43 @@ async fn raw_async(pool: Data<MyPostgresPool>) -> Result<HttpResponse, ResError>
     let ids = vec![
         1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4,
     ];
-    let (t, u) = pool.get_topics_with_users(&ids).await?;
+
+    let pool = pool.get().await?;
+    let (cli, sts) = &*pool;
+
+    let st = sts.get_statement("topics_by_id")?;
+
+    let (t, mut uids) = cli
+        .query_raw(
+            st,
+            [&ids as &(dyn tokio_postgres::types::ToSql + Sync)]
+                .iter()
+                .map(|s| *s as _),
+        )
+        .await?
+        .parse_row_with()
+        .await?;
+
+    uids.sort();
+    uids.dedup();
+
+    let st = sts.get_statement("users_by_id")?;
+    let u = cli
+        .query_raw(
+            st,
+            [&uids as &(dyn tokio_postgres::types::ToSql + Sync)]
+                .iter()
+                .map(|s| *s as _),
+        )
+        .await?
+        .parse_row()
+        .await?;
+
+    drop(pool);
+
+    let t = Topic::sort(t, &ids).await;
 
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
-}
-
-impl<T> From<tokio_timer01::timeout::Error<T>> for ResError {
-    fn from(_e: tokio_timer01::timeout::Error<T>) -> ResError {
-        ResError::DataBaseReadError
-    }
 }
 
 async fn raw_cache_async(cache: Data<MyRedisPool>) -> Result<HttpResponse, Error> {

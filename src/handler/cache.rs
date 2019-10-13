@@ -49,8 +49,8 @@ impl MyRedisPool {
             .always_check(false)
             .idle_timeout(None)
             .max_lifetime(None)
-            .min_idle(36)
-            .max_size(36)
+            .min_idle(24)
+            .max_size(24)
             .build(mgr)
             .await
             .expect("Failed to build postgres pool");
@@ -61,16 +61,16 @@ impl MyRedisPool {
 
 impl MyRedisPool {
     pub(crate) async fn add_activation_mail_cache(
-        conn: SharedConnection,
+        mut conn: SharedConnection,
         uid: u32,
         uuid: String,
         mail: String,
     ) -> Result<(), ResError> {
-        let (conn, count) = cmd("ZCOUNT")
+        let count = cmd("ZCOUNT")
             .arg("mail_queue")
             .arg(uid)
             .arg(uid)
-            .query_async::<_, usize>(conn)
+            .query_async::<_, usize>(&mut conn)
             .await?;
 
         if count > 0 {
@@ -94,19 +94,19 @@ impl MyRedisPool {
             .arg(MAIL_LIFE)
             .ignore();
 
-        pip.query_async::<_, ()>(conn).await?;
-
-        Ok(())
+        pip.query_async(&mut conn).err_into().await
     }
 
     pub(crate) async fn get_hash_map_brown(
         &self,
         key: &str,
     ) -> Result<HashMapBrown<String, String>, ResError> {
-        let conn = self.get_pool().await?.get_conn().clone();
-        let (_, hm) = cmd("HGETALL").arg(key).query_async(conn).await?;
-
-        Ok(hm)
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        cmd("HGETALL")
+            .arg(key)
+            .query_async(&mut conn)
+            .err_into()
+            .await
     }
 
     pub(crate) async fn get_queue(&self, key: &str) -> Result<String, ResError> {
@@ -121,23 +121,24 @@ impl MyRedisPool {
             .arg(0)
             .arg(0);
 
-        let conn = self.get_pool().await?.get_conn().clone();
-        let (_, (mut s, ())) = pip.query_async::<_, (Vec<String>, ())>(conn).await?;
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        let (mut s, ()) = pip.query_async::<_, (Vec<String>, ())>(&mut conn).await?;
 
         s.pop().ok_or(ResError::NoCache)
     }
 
     pub(crate) fn del_cache(
-        conn: SharedConnection,
-        key: &str,
+        mut conn: SharedConnection,
+        key: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
-        Box::pin(
+        Box::pin(async move {
+            let conn = &mut conn;
             cmd("del")
-                .arg(key)
+                .arg(key.as_str())
                 .query_async(conn)
                 .err_into()
-                .map_ok(|(_, ())| ()),
-        )
+                .await
+        })
     }
 }
 
@@ -155,8 +156,9 @@ impl MyRedisPool {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
 
-        let (conn, ids) = self.ids_from_list(list_key, start, end).await?;
-        Self::from_redis_with_perm_uids(conn, ids, set_key).await
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        let ids = Self::ids_from_list(&mut conn, list_key, start, end).await?;
+        Self::from_redis_with_perm_uids(&mut conn, ids, set_key).await
     }
 
     pub(crate) async fn get_cache_from_list<T>(
@@ -171,8 +173,9 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let (conn, ids) = self.ids_from_list(list_key, start, end).await?;
-        Self::from_redis(conn, ids, set_key, have_perm_fields).await
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        let ids = Self::ids_from_list(&mut conn, list_key, start, end).await?;
+        Self::from_redis(&mut conn, ids, set_key, have_perm_fields).await
     }
 
     pub(crate) fn get_cache_with_uids_from_zrevrange_reverse_lex<'a, 'b: 'a, T>(
@@ -219,9 +222,8 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        let conn = self.get_pool().await?.get_conn().clone();
-
-        let t = Self::from_redis::<T>(conn, ids, set_key, true).await?;
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        let t = Self::from_redis::<T>(&mut conn, ids, set_key, true).await?;
 
         let len = t.len();
         let mut uids = Vec::with_capacity(len);
@@ -242,22 +244,21 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let conn = self.get_pool().await?.get_conn().clone();
-        Self::from_redis(conn, ids, set_key, have_perm_fields).await
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        Self::from_redis(&mut conn, ids, set_key, have_perm_fields).await
     }
 
     pub(crate) async fn get_cache_single<T>(&self, key: &str, set_key: &str) -> Result<T, ResError>
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get_pool().await?.get_conn().clone();
 
-        let (_, t) = cmd("HGETALL")
+        cmd("HGETALL")
             .arg(&format!("{}:{}:set", set_key, key))
-            .query_async(conn)
-            .await?;
-
-        Ok(t)
+            .query_async(&mut conn)
+            .err_into()
+            .await
     }
 
     async fn cache_with_uids_from_zrange<T>(
@@ -271,19 +272,19 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        let (conn, mut ids) = self
-            .ids_from_zrange(zrange_key, is_rev, (page - 1) * 20)
-            .await?;
+        let mut conn = self.get_pool().await?.get_conn().clone();
+
+        let mut ids = Self::ids_from_zrange(&mut conn, zrange_key, is_rev, (page - 1) * 20).await?;
 
         if is_reverse_lex {
             ids = ids.into_iter().map(|i| LEX_BASE - i).collect();
         }
 
-        Self::from_redis_with_perm_uids(conn, ids, set_key).await
+        Self::from_redis_with_perm_uids(&mut conn, ids, set_key).await
     }
 
     async fn from_redis_with_perm_uids<T>(
-        conn: SharedConnection,
+        conn: &mut SharedConnection,
         ids: Vec<u32>,
         set_key: &[u8],
     ) -> Result<(Vec<T>, Vec<u32>), ResError>
@@ -303,7 +304,7 @@ impl MyRedisPool {
     }
 
     pub(crate) async fn from_redis<T>(
-        conn: SharedConnection,
+        conn: &mut SharedConnection,
         ids: Vec<u32>,
         set_key: &[u8],
         have_perm_fields: bool,
@@ -319,8 +320,7 @@ impl MyRedisPool {
         };
 
         match pip.await.query_async::<_, Vec<T>>(conn).await {
-            Ok((conn, v)) => {
-                drop(conn);
+            Ok(v) => {
                 if v.len() != ids.len() {
                     Err(ResError::IdsFromCache(ids))
                 } else {
@@ -338,27 +338,27 @@ impl MyRedisPool {
 
 // methods add cache to redis.
 impl MyRedisPool {
-    pub(crate) async fn add_topic(&self, topic: &Topic) -> Result<(), ResError> {
+    pub(crate) async fn add_topic(&self, topics: &[Topic]) -> Result<(), ResError> {
+        let topic = topics.first().ok_or(ResError::InternalServerError)?;
+
         let pip = AsyncPipelineTopic { topic };
-
         let pip = pip.await;
-        let conn = self.get_pool().await?.get_conn().clone();
 
-        pip.query_async::<_, ()>(conn).await?;
-        Ok(())
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        pip.query_async(&mut conn).err_into().await
     }
 
-    pub(crate) async fn add_post(&self, post: &Post) -> Result<(), ResError> {
+    pub(crate) async fn add_post(&self, posts: &[Post]) -> Result<(), ResError> {
+        let post = posts.first().ok_or(ResError::InternalServerError)?;
         let pip = AsyncPipelinePost { post };
-
         let pip = pip.await;
-        let conn = self.get_pool().await?.get_conn().clone();
 
-        pip.query_async::<_, ()>(conn).await?;
-        Ok(())
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        pip.query_async(&mut conn).err_into().await
     }
 
-    pub(crate) async fn add_category(&self, category: &Category) -> Result<(), ResError> {
+    pub(crate) async fn add_category(&self, category: &[Category]) -> Result<(), ResError> {
+        let category = category.first().ok_or(ResError::InternalServerError)?;
         let id = category.id;
         let category: Vec<(&str, Vec<u8>)> = category.ref_to();
 
@@ -374,10 +374,8 @@ impl MyRedisPool {
             .arg(category)
             .ignore();
 
-        let conn = self.get_pool().await?.get_conn().clone();
-
-        pip.query_async::<_, ()>(conn).await?;
-        Ok(())
+        let mut conn = self.get_pool().await?.get_conn().clone();
+        pip.query_async(&mut conn).err_into().await
     }
 
     //    pub(crate) async fn bulk_add_update_cache(
@@ -487,16 +485,15 @@ impl MyRedisPool {
         };
 
         let pipe = pip.await;
-        let conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get_pool().await?.get_conn().clone();
 
         actix::spawn(
-            pipe.query_async::<_, ()>(conn)
-                .map_ok(|_| {
-                    println!("updated cache");
-                })
-                .map_err(|_| ())
-                .boxed_local()
-                .compat(),
+            Box::pin(async move {
+                let _ = pipe.query_async::<_, ()>(&mut conn).await;
+                println!("updated cache");
+            })
+            .unit_error()
+            .compat(),
         );
         Ok(())
     }
@@ -507,14 +504,12 @@ impl MyRedisPool {
 /// we assume no data can be found on database if we don't have according id in cache.
 impl MyRedisPool {
     async fn ids_from_list(
-        &self,
+        conn: &mut SharedConnection,
         list_key: &str,
         start: usize,
         end: usize,
-    ) -> Result<(SharedConnection, Vec<u32>), ResError> {
-        let conn = self.get_pool().await?.get_conn().clone();
-
-        let (conn, ids) = cmd("lrange")
+    ) -> Result<Vec<u32>, ResError> {
+        let ids = cmd("lrange")
             .arg(list_key)
             .arg(start)
             .arg(end)
@@ -524,25 +519,23 @@ impl MyRedisPool {
         if ids.is_empty() {
             Err(ResError::NoContent)
         } else {
-            Ok((conn, ids))
+            Ok(ids)
         }
     }
 
     async fn ids_from_zrange(
-        &self,
+        conn: &mut SharedConnection,
         list_key: &str,
         is_rev: bool,
         offset: usize,
-    ) -> Result<(SharedConnection, Vec<u32>), ResError> {
+    ) -> Result<Vec<u32>, ResError> {
         let (cmd_key, start, end) = if is_rev {
             ("zrevrangebyscore", "+inf", "-inf")
         } else {
             ("zrangebyscore", "-inf", "+inf")
         };
 
-        let conn = self.get_pool().await?.get_conn().clone();
-
-        let (conn, ids) = cmd(cmd_key)
+        let ids = cmd(cmd_key)
             .arg(list_key)
             .arg(start)
             .arg(end)
@@ -555,7 +548,7 @@ impl MyRedisPool {
         if ids.is_empty() {
             Err(ResError::NoContent)
         } else {
-            Ok((conn, ids))
+            Ok(ids)
         }
     }
 }
@@ -889,14 +882,14 @@ impl<'a> Future for AsyncPipelineGet<'a> {
 //}
 
 // helper functions for startup.
-pub(crate) fn build_hmsets_fn<T>(
-    conn: SharedConnection,
-    vec: &[T],
-    set_key: &'static [u8],
+pub(crate) async fn build_hmsets_fn<'a, T>(
+    conn: &'a mut SharedConnection,
+    vec: &'a [T],
+    set_key: &'a [u8],
     should_expire: bool,
-) -> impl Future<Output = Result<(), ResError>> + Send
+) -> Result<(), ResError>
 where
-    T: SelfIdString + RefTo<Vec<(&'static str, Vec<u8>)>>,
+    T: SelfIdString + RefTo<Vec<(&'a str, Vec<u8>)>>,
 {
     let mut pip = pipe();
     pip.atomic();
@@ -921,14 +914,15 @@ where
     }
     pip.query_async(conn)
         .err_into()
-        .map_ok(|(_, ())| println!("updating cache"))
+        .map_ok(|()| println!("updating cache"))
+        .await
 }
 
-pub(crate) fn build_list(
-    conn: SharedConnection,
+pub(crate) async fn build_list(
+    conn: &mut SharedConnection,
     vec: Vec<u32>,
     key: String,
-) -> impl Future<Output = Result<(), ResError>> {
+) -> Result<(), ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -938,13 +932,13 @@ pub(crate) fn build_list(
         pip.cmd("rpush").arg(key.as_str()).arg(vec).ignore();
     }
 
-    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
+    pip.query_async(conn).err_into().await
 }
 
-pub(crate) fn build_users_cache(
+pub(crate) async fn build_users_cache(
     vec: Vec<User>,
-    conn: SharedConnection,
-) -> impl Future<Output = Result<(), ResError>> {
+    conn: &mut SharedConnection,
+) -> Result<(), ResError> {
     let mut pip = pipe();
     pip.atomic();
     for v in vec.into_iter() {
@@ -961,14 +955,14 @@ pub(crate) fn build_users_cache(
             .arg(&[("online_status", 0)])
             .ignore();
     }
-    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
+    pip.query_async(conn).err_into().await
 }
 
-pub(crate) fn build_topics_cache_list(
+pub(crate) async fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: SharedConnection,
-) -> impl Future<Output = Result<(), ResError>> {
+    conn: &mut SharedConnection,
+) -> Result<(), ResError> {
     let mut pip = pipe();
     pip.atomic();
 
@@ -1007,14 +1001,14 @@ pub(crate) fn build_topics_cache_list(
         }
     }
 
-    pip.query_async(conn).err_into().map_ok(|(_, ())| ())
+    pip.query_async(conn).err_into().await
 }
 
-pub(crate) fn build_posts_cache_list(
+pub(crate) async fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: SharedConnection,
-) -> impl Future<Output = Result<(), ResError>> {
+    conn: &mut SharedConnection,
+) -> Result<(), ResError> {
     let mut pipe = pipe();
     pipe.atomic();
 
@@ -1044,7 +1038,7 @@ pub(crate) fn build_posts_cache_list(
         }
     }
 
-    pipe.query_async(conn).err_into().map_ok(|(_, ())| ())
+    pipe.query_async(conn).err_into().await
 }
 
 pub(crate) fn clear_cache(redis_url: &str) -> Result<(), ResError> {

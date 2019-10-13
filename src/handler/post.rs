@@ -7,7 +7,7 @@ use tokio_postgres::types::{ToSql, Type};
 use crate::handler::{
     cache::{MyRedisPool, POST_U8},
     cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
-    db::MyPostgresPool,
+    db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
     common::GlobalVars,
@@ -32,28 +32,28 @@ const INSERT_POST_TYPES: &[Type; 8] = &[
 ];
 
 impl MyPostgresPool {
-    pub async fn add_post(&self, p: PostRequest, g: &GlobalVars) -> Result<Post, ResError> {
+    pub async fn add_post(&self, p: PostRequest, g: &GlobalVars) -> Result<Vec<Post>, ResError> {
         let uid = p.user_id.as_ref().ok_or(ResError::BadRequest)?;
         let tid = p.topic_id.as_ref().ok_or(ResError::BadRequest)?;
         let content = p.post_content.as_ref().ok_or(ResError::BadRequest)?;
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare_typed(INSERT_POST, INSERT_POST_TYPES).await?;
 
         let id = g.lock().map(|mut lock| lock.next_pid()).await;
-
         let now = &Utc::now().naive_local();
+        let params: [&(dyn ToSql + Sync); 8] =
+            [&id, uid, tid, &p.category_id, &p.post_id, content, now, now];
 
-        cli.query_one(
-            &st,
-            &[&id, uid, tid, &p.category_id, &p.post_id, content, now, now],
-        )
-        .await
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
-    pub async fn update_post(&self, p: PostRequest) -> Result<Post, ResError> {
+    pub async fn update_post(&self, p: PostRequest) -> Result<Vec<Post>, ResError> {
         let mut query = String::from("UPDATE posts SET");
         let mut params = Vec::new();
         let mut index = 1u8;
@@ -103,21 +103,28 @@ impl MyPostgresPool {
         }
         query.push_str(" RETURNING *");
 
-        let mut pool_ref = self.get_pool().await?;
-        let mut cli = pool_ref.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let st = cli.prepare(query.as_str()).await?;
-        cli.query_one(&st, params.as_slice()).await
+        let st = cli.prepare_typed(query.as_str(), &[]).await?;
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub(crate) async fn get_posts(&self, pids: &[u32]) -> Result<(Vec<Post>, Vec<u32>), ResError> {
-        let mut pool_ref = self.get_pool().await?;
-        let (mut cli, sts) = pool_ref.get_client_statements();
+        let pool = self.get().await?;
+        let (cli, sts) = &*pool;
 
-        let st = sts.get_statement(1)?;
-        let (p, uids) = cli.query_multi_with_uid(st, pids).await?;
+        let st = sts.get_statement("posts_by_id")?;
+        let params: [&(dyn ToSql + Sync); 1] = [&pids];
 
-        drop(pool_ref);
+        let (p, uids) = cli
+            .query_raw(st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row_with::<Post>()
+            .await?;
 
         let p = Post::sort(p, &pids).await;
 
@@ -163,24 +170,27 @@ impl MyRedisPool {
 
     pub(crate) async fn update_post_send_fail(
         &self,
-        p: Post,
+        p: Vec<Post>,
         addr: SharedCacheUpdateAddr,
     ) -> Result<(), ()> {
-        let id = p.id;
-        let r = self.build_sets(&[p], POST_U8, true).await;
+        let r = self.build_sets(&p, POST_U8, true).await;
         if r.is_err() {
-            addr.do_send(CacheFailedMessage::FailedPostUpdate(id)).await;
+            if let Some(id) = p.first().map(|p| p.id) {
+                addr.do_send(CacheFailedMessage::FailedPostUpdate(id)).await;
+            }
         };
         Ok(())
     }
 
     pub(crate) async fn add_post_send_fail(
         &self,
-        p: Post,
+        p: Vec<Post>,
         addr: SharedCacheUpdateAddr,
     ) -> Result<(), ()> {
         if self.add_post(&p).await.is_err() {
-            addr.do_send(CacheFailedMessage::FailedPost(p.id)).await;
+            if let Some(id) = p.first().map(|p| p.id) {
+                addr.do_send(CacheFailedMessage::FailedPost(id)).await;
+            }
         }
         Ok(())
     }

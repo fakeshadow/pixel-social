@@ -11,14 +11,14 @@ use crate::model::{
     user::User,
 };
 
-pub trait TryFromRef<T>: Sized {
+pub trait TryFromRow<T>: Sized {
     type Error;
-    fn try_from_ref(r: &T) -> Result<Self, Self::Error>;
+    fn try_from_row(r: &T) -> Result<Self, Self::Error>;
 }
 
-impl TryFromRef<Row> for Topic {
+impl TryFromRow<Row> for Topic {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(Topic {
             id: row.try_get(0)?,
             user_id: row.try_get(1)?,
@@ -36,9 +36,9 @@ impl TryFromRef<Row> for Topic {
     }
 }
 
-impl TryFromRef<Row> for User {
+impl TryFromRow<Row> for User {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(User {
             id: row.try_get(0)?,
             username: row.try_get(1)?,
@@ -55,9 +55,9 @@ impl TryFromRef<Row> for User {
     }
 }
 
-impl TryFromRef<Row> for Post {
+impl TryFromRow<Row> for Post {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(Post {
             id: row.try_get(0)?,
             user_id: row.try_get(1)?,
@@ -74,9 +74,9 @@ impl TryFromRef<Row> for Post {
     }
 }
 
-impl TryFromRef<Row> for Talk {
+impl TryFromRow<Row> for Talk {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(Talk {
             id: row.try_get(0)?,
             name: row.try_get(1)?,
@@ -90,9 +90,9 @@ impl TryFromRef<Row> for Talk {
     }
 }
 
-impl TryFromRef<Row> for Category {
+impl TryFromRow<Row> for Category {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(Category {
             id: row.try_get(0)?,
             name: row.try_get(1)?,
@@ -105,18 +105,18 @@ impl TryFromRef<Row> for Category {
     }
 }
 
-impl TryFromRef<Row> for Relation {
+impl TryFromRow<Row> for Relation {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(Relation {
             friends: row.try_get(0)?,
         })
     }
 }
 
-impl TryFromRef<Row> for PublicMessage {
+impl TryFromRow<Row> for PublicMessage {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(PublicMessage {
             talk_id: row.try_get(0)?,
             time: row.try_get(1)?,
@@ -125,9 +125,9 @@ impl TryFromRef<Row> for PublicMessage {
     }
 }
 
-impl TryFromRef<Row> for PrivateMessage {
+impl TryFromRow<Row> for PrivateMessage {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(PrivateMessage {
             user_id: row.try_get(0)?,
             time: row.try_get(2)?,
@@ -136,9 +136,9 @@ impl TryFromRef<Row> for PrivateMessage {
     }
 }
 
-impl TryFromRef<Row> for UserTrophyTitle {
+impl TryFromRow<Row> for UserTrophyTitle {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         Ok(UserTrophyTitle {
             np_id: row.try_get(0)?,
             np_communication_id: row.try_get(1)?,
@@ -153,9 +153,9 @@ impl TryFromRef<Row> for UserTrophyTitle {
     }
 }
 
-impl TryFromRef<Row> for UserTrophySet {
+impl TryFromRow<Row> for UserTrophySet {
     type Error = ResError;
-    fn try_from_ref(row: &Row) -> Result<Self, Self::Error> {
+    fn try_from_row(row: &Row) -> Result<Self, Self::Error> {
         let vec = row.try_get(3)?;
 
         Ok(UserTrophySet {
@@ -166,20 +166,6 @@ impl TryFromRef<Row> for UserTrophySet {
         })
     }
 }
-
-//impl TryFrom<SimpleQueryRow> for UserTrophySet {
-//    type Error = ResError;
-//    fn try_from(r: SimpleQueryRow) -> Result<Self, Self::Error> {
-//        let vec = r.get(3).ok_or(ResError::DataBaseReadError)?;
-//
-//        Ok(UserTrophySet {
-//            np_id: r.get(0).ok_or(ResError::DataBaseReadError)?.to_owned(),
-//            np_communication_id: r.get(1).ok_or(ResError::DataBaseReadError)?.to_owned(),
-//            is_visible: r.get(2).ok_or(ResError::DataBaseReadError)? == "t",
-//            trophies: generate_trophies(vec)?,
-//        })
-//    }
-//}
 
 fn generate_trophies(vec: &str) -> Result<Vec<UserTrophy>, ResError> {
     let len = vec.len();

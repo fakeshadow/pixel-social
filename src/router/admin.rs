@@ -71,7 +71,7 @@ async fn update_category_async(
     let c = db.admin_update_category(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&c);
-    let _ = cache.update_categories(&[c]).await;
+    let _ = cache.update_categories(&c).await;
 
     Ok(res)
 }

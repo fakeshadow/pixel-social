@@ -6,7 +6,7 @@ use crate::handler::{
     cache::MyRedisPool,
     cache::USER_U8,
     cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
-    db::MyPostgresPool,
+    db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
     errors::ResError,
@@ -14,7 +14,7 @@ use crate::model::{
 };
 
 impl MyPostgresPool {
-    pub(crate) async fn update_user(&self, u: UpdateRequest) -> Result<User, ResError> {
+    pub(crate) async fn update_user(&self, u: UpdateRequest) -> Result<Vec<User>, ResError> {
         let mut query = String::from("UPDATE users SET");
         let mut params = Vec::new();
         let mut index = 1u8;
@@ -66,19 +66,27 @@ impl MyPostgresPool {
 
         query.push_str(" RETURNING *");
 
-        let mut pool = self.get_pool().await?;
-        let mut cli = pool.get_client();
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
-        let st = cli.prepare(query.as_str()).await?;
-        cli.query_one(&st, params.as_slice()).await
+        let st = cli.prepare_typed(query.as_str(), &[]).await?;
+        cli.query_raw(&st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 
     pub(crate) async fn get_users(&self, ids: &[u32]) -> Result<Vec<User>, ResError> {
-        let mut pool = self.get_pool().await?;
-        let (mut cli, sts) = pool.get_client_statements();
+        let pool = self.get().await?;
+        let (cli, sts) = &*pool;
 
-        let st = sts.get_statement(2)?;
-        cli.query_multi(st, &[&ids], Vec::with_capacity(21)).await
+        let st = sts.get_statement("users_by_id")?;
+        let params: [&(dyn ToSql + Sync); 1] = [&ids];
+
+        cli.query_raw(st, params.iter().map(|s| *s as _))
+            .await?
+            .parse_row()
+            .await
     }
 }
 
@@ -98,13 +106,14 @@ impl MyRedisPool {
 
     pub(crate) async fn update_user_send_fail(
         &self,
-        u: User,
+        u: Vec<User>,
         addr: SharedCacheUpdateAddr,
     ) -> Result<(), ()> {
-        let id = u.id;
-        let r = self.build_sets(&[u], USER_U8, true).await;
+        let r = self.build_sets(&u, USER_U8, true).await;
         if r.is_err() {
-            addr.do_send(CacheFailedMessage::FailedUser(id)).await;
+            if let Some(id) = u.first().map(|u| u.id) {
+                addr.do_send(CacheFailedMessage::FailedUser(id)).await;
+            }
         };
         Ok(())
     }

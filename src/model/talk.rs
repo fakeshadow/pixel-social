@@ -22,7 +22,7 @@ pub enum SendMessage<'a> {
     PublicMessage(&'a [PublicMessage]),
     PrivateMessage(&'a [PrivateMessage]),
     Users(&'a [User]),
-    Talks(Vec<&'a Talk>),
+    Talks(&'a [Talk]),
     Friends(&'a [u32]),
     Success(&'a str),
     Error(&'a str),

@@ -14,7 +14,7 @@ impl MyPostgresPool {
         self_level: u32,
         req: CategoryRequest,
         g: &GlobalVars,
-    ) -> Result<Category, ResError> {
+    ) -> Result<Vec<Category>, ResError> {
         update_category_check(self_level, &req)?;
         self.add_category(req, g).await
     }
@@ -23,7 +23,7 @@ impl MyPostgresPool {
         &self,
         self_level: u32,
         req: CategoryRequest,
-    ) -> Result<Category, ResError> {
+    ) -> Result<Vec<Category>, ResError> {
         update_category_check(self_level, &req)?;
         self.update_category(req).await
     }
@@ -41,7 +41,7 @@ impl MyPostgresPool {
         &self,
         self_level: u32,
         t: &TopicRequest,
-    ) -> Result<Topic, ResError> {
+    ) -> Result<Vec<Topic>, ResError> {
         update_topic_check(self_level, &t)?;
         self.update_topic(t).await
     }
@@ -50,7 +50,7 @@ impl MyPostgresPool {
         &self,
         self_level: u32,
         p: PostRequest,
-    ) -> Result<Post, ResError> {
+    ) -> Result<Vec<Post>, ResError> {
         update_post_check(self_level, &p)?;
         self.update_post(p).await
     }

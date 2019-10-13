@@ -6,8 +6,12 @@ use async_std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use chrono::{NaiveDateTime, Utc};
 use hashbrown::HashMap;
 use redis::cmd;
+use tokio_postgres::types::ToSql;
 
-use crate::handler::{cache::MyRedisPool, db::MyPostgresPool};
+use crate::handler::{
+    cache::MyRedisPool,
+    db::{GetStatement, MyPostgresPool, ParseRowStream},
+};
 use crate::model::{
     actors::WsChatSession,
     common::{GlobalSessions, GlobalTalks},
@@ -15,7 +19,7 @@ use crate::model::{
     talk::{PrivateMessage, PublicMessage, Relation, SendMessage, SessionMessage, Talk},
 };
 
-// statements that are not constructed on actor start.
+// statements that are not constructed on pool start.
 const INSERT_TALK: &str =
     "INSERT INTO talks (id, name, description, owner, admin, users) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *";
 const REMOVE_TALK: &str = "DELETE FROM talks WHERE id=$1";
@@ -24,8 +28,6 @@ const INSERT_ADMIN: &str =
 const REMOVE_ADMIN: &str =
     "UPDATE talks SET admin=array_remove(admin, $1) WHERE id=$2 AND owner=$3";
 const REMOVE_USER: &str = "UPDATE talks SET users=array_remove(users, $1) WHERE id=$2";
-
-// Frequent used statements that are constructed on actor start.
 const GET_PUB_MSG: &str =
     "SELECT * FROM public_messages1 WHERE talk_id = $1 AND time <= $2 ORDER BY time DESC LIMIT 999";
 const GET_PRV_MSG: &str =
@@ -154,11 +156,14 @@ impl ReadWriteTalks {
         self.read_talks(move |t| Ok(t.clone()))
     }
 
-    fn insert_talk_hm(&self, talk: Talk) -> impl Future<Output = Result<(), ResError>> + '_ {
+    fn insert_talk_hm(&self, talks: Vec<Talk>) -> impl Future<Output = Result<(), ResError>> + '_ {
         self.write_talks(move |mut t| {
-            t.insert(talk.id, talk)
-                .map(|_| ())
-                .ok_or(ResError::NotFound)
+            for talk in talks.into_iter() {
+                t.insert(talk.id, talk)
+                    .map(|_| ())
+                    .ok_or(ResError::NotFound)?;
+            }
+            Ok(())
         })
     }
 
@@ -206,7 +211,8 @@ impl MyRedisPool {
         status: u32,
         set_last_online_time: bool,
     ) -> Result<(), ResError> {
-        let conn = self.get_pool().await?.get_conn().clone();
+        let mut pool = self.get_pool().await?;
+        let conn = &mut *pool;
 
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
@@ -289,16 +295,13 @@ impl Handler<TextMessageRequest> for TalkService {
             let r = async {
                 let now = Utc::now().naive_utc();
 
-                let mut pool_ref = pool.get_pool().await?;
-                let (mut cli, sts) = pool_ref.get_client_statements();
+                let pool = pool.get().await?;
+                let (cli, sts) = &*pool;
 
                 if let Some(tid) = msg.talk_id {
-                    let st = sts.get_statement(3)?;
-
-                    cli.query_one::<PublicMessage>(st, &[&tid, &msg.text, &now])
-                        .await?;
-
-                    drop(pool_ref);
+                    let st = sts.get_statement("insert_pub_msg")?;
+                    cli.execute(st, &[&tid, &msg.text, &now]).await?;
+                    drop(pool);
 
                     let s = SendMessage::PublicMessage(&[PublicMessage {
                         text: msg.text,
@@ -311,15 +314,10 @@ impl Handler<TextMessageRequest> for TalkService {
                 } else {
                     let uid = msg.user_id.ok_or(ResError::BadRequest)?;
 
-                    let st = sts.get_statement(4)?;
-
-                    cli.query_one::<PrivateMessage>(
-                        st,
-                        &[&msg.session_id.unwrap(), &uid, &msg.text, &now],
-                    )
-                    .await?;
-
-                    drop(pool_ref);
+                    let st = sts.get_statement("insert_prv_msg")?;
+                    cli.execute(st, &[&msg.session_id.unwrap(), &uid, &msg.text, &now])
+                        .await?;
+                    drop(pool);
 
                     let s = SendMessage::PrivateMessage(&[PrivateMessage {
                         user_id: msg.user_id.unwrap(),
@@ -406,31 +404,37 @@ impl Handler<CreateTalkRequest> for TalkService {
             let r = async {
                 let admins = vec![msg.owner];
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let st = cli.prepare("SELECT Max(id) FROM talks").await?;
-                let t = cli.query_one::<Talk>(&st, &[]).await?;
-                let last_tid = t.id;
+                let params: [&(dyn ToSql + Sync); 0] = [];
+                let last_tid = cli
+                    .query_raw(&st, params.iter().map(|s| *s as &dyn ToSql))
+                    .await?
+                    .parse_row::<Talk>()
+                    .await?
+                    .first()
+                    .map(|t| t.id)
+                    .ok_or(ResError::DataBaseReadError)?;
 
                 let st = cli.prepare(INSERT_TALK).await?;
+                let params: [&(dyn ToSql + Sync); 6] = [
+                    &(last_tid + 1),
+                    &msg.name,
+                    &msg.description,
+                    &msg.owner,
+                    &admins,
+                    &admins,
+                ];
+
                 let t = cli
-                    .query_one(
-                        &st,
-                        &[
-                            &(last_tid + 1),
-                            &msg.name,
-                            &msg.description,
-                            &msg.owner,
-                            &admins,
-                            &admins,
-                        ],
-                    )
+                    .query_raw(&st, params.iter().map(|s| *s as _))
+                    .await?
+                    .parse_row()
                     .await?;
 
-                drop(pool_ref);
-
-                let s = SendMessage::Talks(vec![&t]).stringify();
+                let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(msg.owner, s.as_str()).await;
                 Ok(())
@@ -470,15 +474,18 @@ impl Handler<JoinTalkRequest> for TalkService {
                     return Err(ResError::BadRequest);
                 }
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let st = cli.prepare(INSERT_USER).await?;
-                let t = cli.query_one::<Talk>(&st, &[&sid, &tid]).await?;
-                drop(pool_ref);
+                let params: [&(dyn ToSql + Sync); 2] = [&sid, &tid];
+                let t = cli
+                    .query_raw(&st, params.iter().map(|s| *s as _))
+                    .await?
+                    .parse_row()
+                    .await?;
 
-                let s = SendMessage::Talks(vec![&t]).stringify();
-
+                let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(sid, s.as_str()).await;
 
@@ -515,14 +522,14 @@ impl Handler<TalkByIdRequest> for TalkService {
 
                 // we return all talks if the query talk_id is 0
                 let t = match msg.talk_id {
-                    0 => talks.iter().map(|(_, t)| t).collect(),
+                    0 => talks.into_iter().map(|(_, t)| t).collect(),
                     _ => talks
                         .get(&msg.talk_id)
-                        .map(|t| vec![t])
+                        .map(|t| vec![t.clone()])
                         .unwrap_or_else(|| vec![]),
                 };
 
-                let s = SendMessage::Talks(t).stringify();
+                let s = SendMessage::Talks(&t).stringify();
                 sessions.send_message(sid, s.as_str()).await;
 
                 Ok(())
@@ -554,7 +561,6 @@ impl Handler<UsersByIdRequest> for TalkService {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                // ToDo: remove compat layer
                 let u = pool.get_users(msg.user_id).await?;
                 let s = SendMessage::Users(&u).stringify();
 
@@ -586,13 +592,18 @@ impl Handler<UserRelationRequest> for TalkService {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let st = cli.prepare(GET_FRIENDS).await?;
-
-                let r = cli.query_one::<Relation>(&st, &[&sid]).await?;
-                drop(pool_ref);
+                let params: [&(dyn ToSql + Sync); 1] = [&sid];
+                let r = cli
+                    .query_raw(&st, params.iter().map(|s| *s as _))
+                    .await?
+                    .parse_row::<Relation>()
+                    .await?
+                    .pop()
+                    .ok_or(ResError::DataBaseReadError)?;
 
                 let s = SendMessage::Friends(&r.friends).stringify();
                 sessions.send_message(sid, s.as_str()).await;
@@ -631,37 +642,29 @@ impl Handler<GetHistory> for TalkService {
             let r = async {
                 let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let s = match msg.talk_id {
                     Some(tid) => {
                         let st = cli.prepare(GET_PUB_MSG).await?;
-
+                        let params: [&(dyn ToSql + Sync); 2] = [&tid, &time];
                         let msg = cli
-                            .query_multi::<PublicMessage>(
-                                &st,
-                                &[&tid, &time],
-                                Vec::with_capacity(20),
-                            )
+                            .query_raw(&st, params.iter().map(|s| *s as _))
+                            .await?
+                            .parse_row()
                             .await?;
-
-                        drop(pool_ref);
 
                         SendMessage::PublicMessage(&msg).stringify()
                     }
                     None => {
                         let st = cli.prepare(GET_PRV_MSG).await?;
-
+                        let params: [&(dyn ToSql + Sync); 2] = [&sid, &time];
                         let msg = cli
-                            .query_multi::<PrivateMessage>(
-                                &st,
-                                &[&sid, &time],
-                                Vec::with_capacity(20),
-                            )
+                            .query_raw(&st, params.iter().map(|s| *s as _))
+                            .await?
+                            .parse_row()
                             .await?;
-
-                        drop(pool_ref);
 
                         SendMessage::PrivateMessage(&msg).stringify()
                     }
@@ -718,16 +721,19 @@ impl Handler<RemoveUserRequest> for TalkService {
                     return Err(ResError::Unauthorized);
                 };
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let st = cli.prepare(REMOVE_USER).await?;
-                let talk = cli.query_one::<Talk>(&st, &[&uid, &tid]).await?;
+                let params: [&(dyn ToSql + Sync); 2] = [&uid, &tid];
+                let t = cli
+                    .query_raw(&st, params.iter().map(|s| *s as _))
+                    .await?
+                    .parse_row()
+                    .await?;
 
-                drop(pool_ref);
-
-                let s = SendMessage::Talks(vec![&talk]).stringify();
-                talks.insert_talk_hm(talk).await?;
+                let s = SendMessage::Talks(&t).stringify();
+                talks.insert_talk_hm(t).await?;
                 sessions.send_message(sid, s.as_str()).await;
 
                 Ok(())
@@ -772,15 +778,19 @@ impl Handler<Admin> for TalkService {
                     (REMOVE_ADMIN, uid)
                 };
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
+
+                let params: [&(dyn ToSql + Sync); 3] = [&uid, &tid, &sid];
 
                 let st = cli.prepare(query).await?;
-                let t = cli.query_one::<Talk>(&st, &[&uid, &tid, &sid]).await?;
+                let t = cli
+                    .query_raw(&st, params.iter().map(|s| *s as _))
+                    .await?
+                    .parse_row::<Talk>()
+                    .await?;
 
-                drop(pool_ref);
-
-                let s = SendMessage::Talks(vec![&t]).stringify();
+                let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(sid, s.as_str()).await;
 
@@ -817,13 +827,12 @@ impl Handler<DeleteTalkRequest> for TalkService {
             let r = async {
                 let tid = msg.talk_id;
 
-                let mut pool_ref = pool.get_pool().await?;
-                let mut cli = pool_ref.get_client();
+                let pool = pool.get().await?;
+                let (cli, _) = &*pool;
 
                 let st = cli.prepare(REMOVE_TALK).await?;
-                let _ = cli.execute(&st, &[&tid]).await?;
-
-                drop(pool_ref);
+                cli.execute(&st, &[&tid]).await?;
+                drop(pool);
 
                 talks.remove_talk_hm(tid).await?;
 
