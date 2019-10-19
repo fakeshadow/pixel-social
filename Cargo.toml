@@ -85,8 +85,10 @@ version = "0.9.0"
 version = "0.7.2"
 
 [dependencies.redis]
-git = "https://github.com/fakeshadow/redis-rs"
+git = "https://github.com/Marwes/redis-rs"
 branch = "async_await_api"
+default-features = false
+features = ["executor"]
 
 [dependencies.regex]
 version = "1.3.1"
@@ -115,7 +117,7 @@ default-features = false
 features = [ "io", "codec", "fs" ]
 
 [dependencies.tokio-postgres]
-git = "https://github.com/sfackler/rust-postgres"
+version = "0.5.0-alpha.1"
 features = [ "with-chrono-0_4" ]
 
 [dependencies.psn_api_rs]
