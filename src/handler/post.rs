@@ -126,6 +126,8 @@ impl MyPostgresPool {
             .parse_row_with::<Post>()
             .await?;
 
+        drop(pool);
+
         let p = Post::sort(p, &pids).await;
 
         Ok((p, uids))

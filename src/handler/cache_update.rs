@@ -153,7 +153,7 @@ impl MyRedisPool {
 
         let yesterday = Utc::now().naive_utc().timestamp_millis() - 86_400_000;
 
-        let mut pool = self.get_pool().await?;
+        let mut pool = self.get().await?;
         let conn = &mut *pool;
 
         for c in cat.iter() {

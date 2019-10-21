@@ -146,7 +146,7 @@ impl From<GlobalTalks> for ReadWriteTalks {
     }
 }
 
-// lock the global talks and read/write the inner HashMap<talk_id, Talk_information>;
+// lock the global talks and read/write the inner HashMap<talk_id, Talk>;
 impl ReadWriteTalks {
     fn get_talk_hm(&self, talk_id: u32) -> impl Future<Output = Result<Talk, ResError>> + '_ {
         self.read_talks(move |t| t.get(&talk_id).cloned().ok_or(ResError::NotFound))
@@ -211,8 +211,7 @@ impl MyRedisPool {
         status: u32,
         set_last_online_time: bool,
     ) -> Result<(), ResError> {
-        let mut pool = self.get_pool().await?;
-        let conn = &mut *pool;
+        let mut conn = self.get().await?.get_conn().clone();
 
         let mut arg = Vec::with_capacity(2);
         arg.push(("online_status", status.to_string()));
@@ -224,7 +223,7 @@ impl MyRedisPool {
         cmd("HMSET")
             .arg(&format!("user:{}:set_perm", uid))
             .arg(arg)
-            .query_async::<_, ()>(conn)
+            .query_async::<_, ()>(&mut conn)
             .await?;
         Ok(())
     }
@@ -301,6 +300,7 @@ impl Handler<TextMessageRequest> for TalkService {
                 if let Some(tid) = msg.talk_id {
                     let st = sts.get_statement("insert_pub_msg")?;
                     cli.execute(st, &[&tid, &msg.text, &now]).await?;
+
                     drop(pool);
 
                     let s = SendMessage::PublicMessage(&[PublicMessage {
@@ -317,6 +317,7 @@ impl Handler<TextMessageRequest> for TalkService {
                     let st = sts.get_statement("insert_prv_msg")?;
                     cli.execute(st, &[&msg.session_id.unwrap(), &uid, &msg.text, &now])
                         .await?;
+
                     drop(pool);
 
                     let s = SendMessage::PrivateMessage(&[PrivateMessage {
@@ -434,6 +435,8 @@ impl Handler<CreateTalkRequest> for TalkService {
                     .parse_row()
                     .await?;
 
+                drop(pool);
+
                 let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(msg.owner, s.as_str()).await;
@@ -484,6 +487,8 @@ impl Handler<JoinTalkRequest> for TalkService {
                     .await?
                     .parse_row()
                     .await?;
+
+                drop(pool);
 
                 let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
@@ -605,6 +610,8 @@ impl Handler<UserRelationRequest> for TalkService {
                     .pop()
                     .ok_or(ResError::DataBaseReadError)?;
 
+                drop(pool);
+
                 let s = SendMessage::Friends(&r.friends).stringify();
                 sessions.send_message(sid, s.as_str()).await;
 
@@ -655,6 +662,8 @@ impl Handler<GetHistory> for TalkService {
                             .parse_row()
                             .await?;
 
+                        drop(pool);
+
                         SendMessage::PublicMessage(&msg).stringify()
                     }
                     None => {
@@ -665,6 +674,8 @@ impl Handler<GetHistory> for TalkService {
                             .await?
                             .parse_row()
                             .await?;
+
+                        drop(pool);
 
                         SendMessage::PrivateMessage(&msg).stringify()
                     }
@@ -732,6 +743,8 @@ impl Handler<RemoveUserRequest> for TalkService {
                     .parse_row()
                     .await?;
 
+                drop(pool);
+
                 let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(sid, s.as_str()).await;
@@ -790,6 +803,8 @@ impl Handler<Admin> for TalkService {
                     .parse_row::<Talk>()
                     .await?;
 
+                drop(pool);
+
                 let s = SendMessage::Talks(&t).stringify();
                 talks.insert_talk_hm(t).await?;
                 sessions.send_message(sid, s.as_str()).await;
@@ -832,10 +847,10 @@ impl Handler<DeleteTalkRequest> for TalkService {
 
                 let st = cli.prepare(REMOVE_TALK).await?;
                 cli.execute(&st, &[&tid]).await?;
+
                 drop(pool);
 
                 talks.remove_talk_hm(tid).await?;
-
                 let s = SendMessage::Success("Delete Talk Success").stringify();
                 sessions.send_message(sid, s.as_str()).await;
 

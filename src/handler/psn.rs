@@ -495,6 +495,8 @@ impl PSNService {
             .parse_row::<UserTrophySet>()
             .await;
 
+        drop(pool);
+
         match r {
             Ok(mut t_old) => {
                 let t_old = t_old.pop().ok_or(ResError::DataBaseReadError)?;
@@ -633,6 +635,7 @@ impl MyPostgresPool {
         let offset = (page - 1) * 20;
         let st = cli.prepare(PSN_TITLES_NY_TIME).await?;
         let params: [&(dyn ToSql + Sync); 2] = [&np_id, &offset];
+
         cli.query_raw(&st, params.iter().map(|s| *s as _))
             .await?
             .parse_row()

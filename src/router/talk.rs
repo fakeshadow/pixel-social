@@ -28,7 +28,7 @@ lazy_static! {
     static ref MSG_RANGE_ERROR: String = SendMessage::Error("Message Out of Range").stringify();
 }
 
-/// start and WebSocket actor with each incoming connection.
+// start a WebSocket actor with each incoming connection.
 pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpResponse, Error> {
     println!("connected");
     ws::start(
@@ -64,7 +64,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
             }
             ws::Message::Pong(_) => self.hb = Instant::now(),
             ws::Message::Text(t) => {
-                // The format is  "/<message type> serialized_message"; we spilt the string and pattern match them and send message to actor to handle.
+                // The format is  "/<message type> serialized_message"; we spilt the string and pattern match them and send message to TalkService actor to handle.
                 let t = t.trim();
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
@@ -77,13 +77,11 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
                 }
                 if self.id == 0 {
                     match v[0] {
-                        // redis connection is checked when auth occur.
                         "/auth" => auth(self, v[1], ctx),
                         _ => ctx.text(AUTH_ERROR.as_str()),
                     }
                 } else {
                     match v[0] {
-                        // db connection is checked when sending message.
                         "/msg" => general_msg_handler::<TextMessageRequest>(self, v[1], ctx),
                         "/history" => general_msg_handler::<GetHistory>(self, v[1], ctx),
                         "/remove" => general_msg_handler::<RemoveUserRequest>(self, v[1], ctx),
@@ -104,6 +102,7 @@ impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
     }
 }
 
+// We reattach session_id using the server side record as the id from client can't be trust.
 trait SessionId {
     fn attach_session_id(&mut self, id: u32);
 }

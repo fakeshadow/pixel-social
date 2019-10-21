@@ -65,8 +65,8 @@ impl MyPostgresPool {
             .ok_or(ResError::BadRequest)?;
         let username = req.username.as_str();
 
-        let pool_ref = self.get().await?;
-        let (cli, _) = &*pool_ref;
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare(USER_BY_NAME_EMAIL).await?;
         let params: [&(dyn ToSql + Sync); 2] = [&username, &email];
@@ -75,6 +75,8 @@ impl MyPostgresPool {
             .await?
             .parse_row::<User>()
             .await?;
+
+        drop(pool);
 
         for u in users.iter() {
             if u.username.as_str() == username {
@@ -86,8 +88,8 @@ impl MyPostgresPool {
         }
         let hash = crate::util::hash::hash_password(req.password.as_str())?;
 
-        let pool_ref = self.get().await?;
-        let (cli, _) = &*pool_ref;
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
 
@@ -109,8 +111,8 @@ impl MyPostgresPool {
     }
 
     pub(crate) async fn login(&self, req: AuthRequest) -> Result<AuthResponse, ResError> {
-        let pool_ref = self.get().await?;
-        let (cli, _) = &*pool_ref;
+        let pool = self.get().await?;
+        let (cli, _) = &*pool;
 
         let st = cli.prepare_typed(USER_BY_NAME, &[]).await?;
         let params: [&(dyn ToSql + Sync); 1] = [&req.username];
@@ -122,6 +124,8 @@ impl MyPostgresPool {
             .await?
             .pop()
             .ok_or(ResError::DataBaseReadError)?;
+
+        drop(pool);
 
         crate::util::hash::verify_password(req.password.as_str(), user.hashed_password.as_str())?;
 

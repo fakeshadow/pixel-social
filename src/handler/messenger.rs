@@ -341,6 +341,7 @@ impl MessageService {
             .request(req)
             .await
             .map_err(|_| ResError::HttpClient)?;
+
         if res.status() == 200 {
             Ok(())
         } else {
@@ -399,7 +400,7 @@ impl MyRedisPool {
             let mail = Mail::new_activation(u.email.as_str(), uuid.as_str());
 
             if let Ok(m) = serde_json::to_string(&mail) {
-                if let Ok(pool_ref) = self.get_pool().await {
+                if let Ok(pool_ref) = self.get().await {
                     let conn = (&*pool_ref).clone();
                     actix::spawn(
                         Self::add_activation_mail_cache(conn, u.id, uuid, m)
@@ -413,7 +414,7 @@ impl MyRedisPool {
     }
 
     pub(crate) async fn remove_activation_uuid(&self, uuid: &str) {
-        if let Ok(pool_ref) = self.get_pool().await {
+        if let Ok(pool_ref) = self.get().await {
             let conn = (&*pool_ref).clone();
             actix::spawn(
                 Self::del_cache(conn, uuid.to_owned())

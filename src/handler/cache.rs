@@ -101,7 +101,7 @@ impl MyRedisPool {
         &self,
         key: &str,
     ) -> Result<HashMapBrown<String, String>, ResError> {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         cmd("HGETALL")
             .arg(key)
             .query_async(&mut conn)
@@ -121,7 +121,7 @@ impl MyRedisPool {
             .arg(0)
             .arg(0);
 
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         let (mut s, ()) = pip.query_async::<_, (Vec<String>, ())>(&mut conn).await?;
 
         s.pop().ok_or(ResError::NoCache)
@@ -156,7 +156,7 @@ impl MyRedisPool {
         let start = (page - 1) * 20;
         let end = start + LIMIT - 1;
 
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         let ids = Self::ids_from_list(&mut conn, list_key, start, end).await?;
         Self::from_redis_with_perm_uids(&mut conn, ids, set_key).await
     }
@@ -173,7 +173,7 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         let ids = Self::ids_from_list(&mut conn, list_key, start, end).await?;
         Self::from_redis(&mut conn, ids, set_key, have_perm_fields).await
     }
@@ -222,7 +222,7 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         let t = Self::from_redis::<T>(&mut conn, ids, set_key, true).await?;
 
         let len = t.len();
@@ -244,7 +244,7 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         Self::from_redis(&mut conn, ids, set_key, have_perm_fields).await
     }
 
@@ -252,7 +252,7 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + 'static,
     {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
 
         cmd("HGETALL")
             .arg(&format!("{}:{}:set", set_key, key))
@@ -272,7 +272,7 @@ impl MyRedisPool {
     where
         T: Send + redis::FromRedisValue + SelfUserId + 'static,
     {
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
 
         let mut ids = Self::ids_from_zrange(&mut conn, zrange_key, is_rev, (page - 1) * 20).await?;
 
@@ -331,7 +331,7 @@ impl MyRedisPool {
         }
     }
 
-    pub(crate) fn get_pool(&self) -> impl Future<Output = Result<MyRedisPoolRef, ResError>> {
+    pub(crate) fn get(&self) -> impl Future<Output = Result<MyRedisPoolRef, ResError>> {
         self.0.get().err_into()
     }
 }
@@ -344,7 +344,7 @@ impl MyRedisPool {
         let pip = AsyncPipelineTopic { topic };
         let pip = pip.await;
 
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         pip.query_async(&mut conn).err_into().await
     }
 
@@ -353,7 +353,7 @@ impl MyRedisPool {
         let pip = AsyncPipelinePost { post };
         let pip = pip.await;
 
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         pip.query_async(&mut conn).err_into().await
     }
 
@@ -374,7 +374,7 @@ impl MyRedisPool {
             .arg(category)
             .ignore();
 
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
         pip.query_async(&mut conn).err_into().await
     }
 
@@ -485,7 +485,7 @@ impl MyRedisPool {
         };
 
         let pipe = pip.await;
-        let mut conn = self.get_pool().await?.get_conn().clone();
+        let mut conn = self.get().await?.get_conn().clone();
 
         actix::spawn(
             Box::pin(async move {

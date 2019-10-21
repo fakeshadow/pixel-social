@@ -141,6 +141,8 @@ impl MyPostgresPool {
             .parse_row_with::<Topic>()
             .await?;
 
+        drop(pool);
+
         let t = Topic::sort(t, &tids).await;
 
         Ok((t, uids))
