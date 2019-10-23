@@ -5,9 +5,13 @@ use actix_web::{
 };
 use futures::future::{FutureExt, TryFutureExt};
 
-use crate::handler::cache_update::CacheUpdateAddr;
-use crate::handler::db::{GetStatement, ParseRowStream};
-use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
+use crate::handler::{
+    auth::UserJwt,
+    cache::MyRedisPool,
+    cache_update::CacheUpdateAddr,
+    db::{GetStatement, MyPostgresPool, ParseRowStream},
+};
+
 use crate::model::{
     common::GlobalVars,
     errors::ResError,
@@ -70,6 +74,67 @@ pub fn add_post(
         .boxed_local()
         .compat()
 }
+
+//pub fn test(req: actix_web::HttpRequest) -> impl Future01<Item=HttpResponse, Error=Error> {
+//    let token = req.headers()
+//        .get("Authorization")
+//        .unwrap()
+//        .to_str()
+//        .unwrap()
+//        .rsplitn(2, ' ')
+//        .take(0)
+//        .next()
+//        .unwrap();
+//
+//    actix_web::web::block(move || logout_query(token.as_str()))
+//        .map_err(|err| match err {
+//            actix_web::error::BlockingError::Error(service_error) => service_error.into(),
+//            actix_web::error::BlockingError::Canceled => {
+//                error!("logout: {:?}", err);
+//                ServiceError::InternalServerError.into()
+//            }
+//        })
+//        .map(|_| {
+//            HttpResponse::Ok().json(LogoutResponse {
+//                message: "logout successful".to_string(),
+//            })
+//        })
+
+//    req.headers()
+//        .get("Authorization")
+//        .cloned()
+//        .ok_or(ServiceError::InternalServerError)
+//        .into_future()
+//        .and_then(|header| {
+//            header
+//                .to_str()
+//                .map_err(|_| ServiceError::InternalServerError)
+//                .and_then(|header_str| {
+//                    header_str
+//                        .rsplitn(2, ' ')
+//                        .take(0)
+//                        .next()
+//                        .map(|token_str| token_str.to_string())
+//                        .ok_or(ServiceError::InternalServerError)
+//                })
+//        })
+//        .and_then(|token| {
+//            actix_web::web::block(move || logout_query(token.as_str()))
+//                .map_err(|err| match err {
+//                    actix_web::error::BlockingError::Error(service_error) => service_error,
+//                    actix_web::error::BlockingError::Canceled => {
+//                        error!("logout: {:?}", err);
+//                        ServiceError::InternalServerError
+//                    }
+//                })
+//                .map(|_| {
+//                    HttpResponse::Ok().json(LogoutResponse {
+//                        message: "logout successful".to_string(),
+//                    })
+//                })
+//        })
+//        .from_err()
+//}
 
 pub fn raw(db: Data<MyPostgresPool>) -> impl Future01<Item = HttpResponse, Error = Error> {
     raw_async(db).boxed_local().compat().from_err()

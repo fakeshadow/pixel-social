@@ -3,7 +3,7 @@ extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
 
-use std::{env, sync::Arc};
+use std::env;
 
 use actix_web::{
     http::header,
@@ -12,7 +12,6 @@ use actix_web::{
     App, HttpServer,
 };
 use futures::{FutureExt, TryFutureExt};
-use std::sync::Mutex;
 
 use dotenv::dotenv;
 
@@ -66,7 +65,7 @@ async fn main() -> std::io::Result<()> {
     // create connection pool for redis.
     let pool_redis = crate::handler::cache::MyRedisPool::new(redis_url.as_str()).await;
 
-    let mut sys = actix::System::new("pixelshare_async_await");
+    let sys = actix::System::new("pixel_share");
 
     /*
         actix runtime only run on future0.1 so all async functions must be converted before running.
@@ -113,28 +112,6 @@ async fn main() -> std::io::Result<()> {
     // we wrap it in web::Data just like global.
     let psn = web::Data::new(psn);
 
-    let talks = Arc::new(Mutex::new(Vec::new()));
-    let workers = 12;
-    for i in 0..workers {
-        // TalkService is an actor handle websocket connections and communication between client websocket actors.
-        // Every worker have a talk service actor with a postgres connection and a redis connection.
-        // global_talks and sessions are shared between all workers and talk service actors.
-        let talk = sys
-            .block_on(
-                crate::handler::talk::TalkService::init(
-                    pool.clone(),
-                    pool_redis.clone(),
-                    global_talks.clone(),
-                    global_sessions.clone(),
-                )
-                .boxed_local()
-                .compat(),
-            )
-            .unwrap_or_else(|_| panic!("Failed to create Talk Service for worker : {}", i));
-
-        talks.lock().unwrap().push(talk);
-    }
-
     HttpServer::new(move || {
         /*
             Use a cache pass through flow for data.
@@ -147,8 +124,8 @@ async fn main() -> std::io::Result<()> {
             Removing them will result in some ordering issue.
         */
 
-        // unlock mutex and use them as App.data
-        let talk = talks.lock().unwrap().pop().unwrap();
+        //        // unlock mutex and use them as App.data
+        //        let talk = talks.lock().unwrap().pop().unwrap();
 
         let cors = actix_cors::Cors::new()
             .allowed_origin(&cors_origin)
@@ -160,6 +137,11 @@ async fn main() -> std::io::Result<()> {
             ])
             .max_age(3600);
 
+        let pool_clone = pool.clone();
+        let pool_redis_clone = pool_redis.clone();
+        let global_talks_clone = global_talks.clone();
+        let global_sessions_clone = global_sessions.clone();
+
         App::new()
             // global and psn are both wrapped in Data<Mutex> so use register_data to avoid double Arc
             .register_data(global.clone())
@@ -167,7 +149,19 @@ async fn main() -> std::io::Result<()> {
             .register_data(addr.clone())
             .data(pool.clone())
             .data(pool_redis.clone())
-            .data(talk)
+            .data_factory(move || {
+                // TalkService is an actor handle websocket connections and communication between client websocket actors.
+                // Every worker have a talk service actor with a postgres connection and a redis connection.
+                // global_talks and sessions are shared between all workers and talk service actors.
+                crate::handler::talk::TalkService::init(
+                    pool_clone.clone(),
+                    pool_redis_clone.clone(),
+                    global_talks_clone.clone(),
+                    global_sessions_clone.clone(),
+                )
+                .boxed_local()
+                .compat()
+            })
             .wrap(Logger::default())
             .wrap(cors)
             .configure(conf_admin)
@@ -183,7 +177,6 @@ async fn main() -> std::io::Result<()> {
     })
     .bind(format!("{}:{}", &server_ip, &server_port))
     .unwrap()
-    .workers(workers)
     .start();
 
     sys.run()
