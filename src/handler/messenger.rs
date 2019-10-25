@@ -2,7 +2,7 @@ use std::{env, future::Future, pin::Pin, time::Duration};
 
 use futures::{FutureExt, TryFutureExt};
 use hashbrown::HashMap;
-use heng_rs::{Context, Scheduler, SharedSchedulerSender};
+use heng_rs::{Context, Scheduler, SchedulerSender};
 use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
 use lettre::{
@@ -194,8 +194,8 @@ impl SMSTask {
 // At the beginning of every interval we try to pop a message from the task's context and convert it to RepError which will be inserted to self.error HashMap.
 // Then we go through the HashMap and stringify the errors beyond threshold and send them to MailerTask and SMSTask in String form.
 struct ErrReportTask {
-    mailer_addr: Option<SharedSchedulerSender<String>>,
-    sms_addr: Option<SharedSchedulerSender<String>>,
+    mailer_addr: Option<SchedulerSender<String>>,
+    sms_addr: Option<SchedulerSender<String>>,
     error: HashMap<RepError, u32>,
 }
 
@@ -310,15 +310,15 @@ impl Scheduler for ErrReportTask {
     }
 }
 
-pub(crate) type ErrRepTaskAddr = SharedSchedulerSender<ResError>;
+pub(crate) type ErrRepTaskAddr = SchedulerSender<ResError>;
 
 pub(crate) fn init_message_services(
     use_sms: bool,
     use_mail: bool,
     use_rep: bool,
 ) -> (
-    Option<SharedSchedulerSender<String>>,
-    Option<SharedSchedulerSender<String>>,
+    Option<SchedulerSender<String>>,
+    Option<SchedulerSender<String>>,
     Option<ErrRepTaskAddr>,
 ) {
     let mailer_addr = if use_mail {

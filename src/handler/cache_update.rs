@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, time::Duration};
 
 use chrono::Utc;
-use heng_rs::{Context, Scheduler, SharedSchedulerSender};
+use heng_rs::{Context, Scheduler, SchedulerSender};
 use redis::{aio::SharedConnection, cmd, pipe};
 
 use crate::handler::{
@@ -91,13 +91,13 @@ impl Scheduler for RedisListTask {
     }
 }
 
-pub(crate) type RedisFailedTaskSender = SharedSchedulerSender<CacheFailedMessage>;
+pub(crate) type RedisFailedTaskSender = SchedulerSender<CacheFailedMessage>;
 
 // We have to return all the addresses.
 // Because if a address goes out of the scope the tasks's context will lose it's ability to access the Signal receiver and cause an error.
 pub(crate) fn init_cache_update_services(
     rep_addr: Option<ErrRepTaskAddr>,
-) -> (RedisFailedTaskSender, SharedSchedulerSender<()>) {
+) -> (RedisFailedTaskSender, SchedulerSender<()>) {
     let list_task = RedisListTask {
         rep_addr: rep_addr.clone(),
     };

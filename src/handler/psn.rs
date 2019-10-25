@@ -20,7 +20,7 @@ use crate::model::{
         UserTrophySet, UserTrophyTitle,
     },
 };
-use heng_rs::{Context, Scheduler, SharedSchedulerSender};
+use heng_rs::{Context, Scheduler, SchedulerSender};
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
 
@@ -303,7 +303,7 @@ impl PSNTask {
     }
 }
 
-pub(crate) type PSNTaskAddr = SharedSchedulerSender<(PSNRequest, bool)>;
+pub(crate) type PSNTaskAddr = SchedulerSender<(PSNRequest, bool)>;
 
 impl Scheduler for PSNTask {
     type Message = (PSNRequest, bool);
