@@ -320,8 +320,11 @@ impl Scheduler for PSNTask {
                 }
             };
             if let Some(msg) = self.queue.pop_front() {
-                // ToDo: use rep_addr handle error here.
-                let _ = self.handle_request(msg).await;
+                if let Err(e) = self.handle_request(msg).await {
+                    if let Some(addr) = self.rep_addr.as_ref() {
+                        let _ = addr.send(e).await;
+                    }
+                }
             };
         })
     }

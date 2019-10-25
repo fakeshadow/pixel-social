@@ -31,8 +31,6 @@ lazy_static! {
 #[derive(Clone)]
 pub struct MyPostgresPool(Pool<PostgresManager<NoTls>>);
 
-//trait Some: for<'a> From<&'a [u8]> {}
-
 impl MyPostgresPool {
     pub(crate) fn new(postgres_url: &str) -> MyPostgresPool {
         let mgr = PostgresManager::new_from_stringlike(postgres_url, NoTls)

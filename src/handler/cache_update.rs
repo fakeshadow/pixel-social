@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::{future::Future, pin::Pin, time::Duration};
 
 use chrono::Utc;
@@ -17,13 +16,11 @@ const FAILED_INTERVAL: Duration = dur(3000);
 
 struct RedisFailedTask {
     rep_addr: Option<ErrRepTaskAddr>,
-    // ToDo: expose Scheduler Context for pushing back message. And then we can remove this backup queue.
-    backup_queue: VecDeque<CacheFailedMessage>,
 }
 
 impl RedisFailedTask {
-    async fn update_failed(&mut self, msg: CacheFailedMessage) -> Result<(), ResError> {
-        let result = match msg {
+    async fn update_failed(&mut self, msg: &CacheFailedMessage) -> Result<(), ResError> {
+        match *msg {
             CacheFailedMessage::FailedTopic(id) => {
                 let (t, _) = POOL.get_topics(&[id]).await?;
                 POOL_REDIS.add_topic(&t).await
@@ -48,12 +45,7 @@ impl RedisFailedTask {
                 let (p, _) = POOL.get_posts(&[id]).await?;
                 POOL_REDIS.update_posts(&p).await
             }
-        };
-
-        if result.is_err() {
-            self.backup_queue.push_back(msg);
-        };
-        result
+        }
     }
 }
 
@@ -66,7 +58,13 @@ impl Scheduler for RedisFailedTask {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             while let Some(msg) = ctx.get_msg_front() {
-                let _ = self.update_failed(msg).await;
+                if let Err(e)  = self.update_failed(&msg).await {
+                    ctx.push_msg_front(msg);
+                    if let Some(addr) = self.rep_addr.as_ref() {
+                        let _ = addr.send(e).await;
+                    }
+                    return;
+                }
             }
         })
     }
@@ -84,8 +82,11 @@ impl Scheduler for RedisListTask {
         _ctx: &'a mut Context<Self>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            // ToDo: handler error report here with self.rep_addr.
-            let _r = POOL_REDIS.handle_list_update().await;
+            if let Err(e) = POOL_REDIS.handle_list_update().await {
+                if let Some(addr) = self.rep_addr.as_ref() {
+                    let _ = addr.send(e).await;
+                }
+            }
         })
     }
 }
@@ -103,8 +104,7 @@ pub(crate) fn init_cache_update_services(
     let addr_temp = list_task.start_with_handler(LIST_INTERVAL);
 
     let failed_task = RedisFailedTask {
-        rep_addr,
-        backup_queue: Default::default(),
+        rep_addr
     };
     let addr = failed_task.start_with_handler(FAILED_INTERVAL);
 
