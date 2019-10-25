@@ -1,7 +1,6 @@
 use crate::handler::db::MyPostgresPool;
 use crate::model::{
     category::{Category, CategoryRequest},
-    common::GlobalVars,
     errors::ResError,
     post::{Post, PostRequest},
     topic::{Topic, TopicRequest},
@@ -13,10 +12,9 @@ impl MyPostgresPool {
         &self,
         self_level: u32,
         req: CategoryRequest,
-        g: &GlobalVars,
     ) -> Result<Vec<Category>, ResError> {
         update_category_check(self_level, &req)?;
-        self.add_category(req, g).await
+        self.add_category(req).await
     }
 
     pub(crate) async fn admin_update_category(

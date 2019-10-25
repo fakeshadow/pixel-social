@@ -5,44 +5,47 @@ use actix_web::{
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool, psn::PSNRequest};
-use crate::model::runtime::ChannelAddress;
-
-type PSNServiceAddr = ChannelAddress<(PSNRequest, bool)>;
+use crate::handler::{
+    auth::UserJwt,
+    cache::POOL_REDIS,
+    db::POOL,
+    psn::{PSNRequest, PSNTaskAddr},
+};
 
 pub fn query_handler(
     req: Query<PSNRequest>,
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-    addr: Data<PSNServiceAddr>,
+    addr: Data<PSNTaskAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    query_handler_async(req, db, cache, addr)
-        .boxed_local()
-        .compat()
+    query_handler_async(req, addr).boxed_local().compat()
 }
 
 async fn query_handler_async(
     req: Query<PSNRequest>,
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-    addr: Data<PSNServiceAddr>,
+    addr: Data<PSNTaskAddr>,
 ) -> Result<HttpResponse, Error> {
     // send request to psn service no matter the local result.
     // psn service will handle if the request will add to psn queue by using time gate.
-    addr.do_send((req.clone(), false));
+    let req_clone = req.clone();
+    actix::spawn(
+        Box::pin(async move {
+            let _ = addr.send((req_clone, false)).await;
+        })
+        .unit_error()
+        .compat(),
+    );
 
     // return local result if there is any.
     match &*req {
         PSNRequest::Profile { online_id } => {
-            if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
+            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
                 return Ok(HttpResponse::Ok().json(&p));
             }
         }
         PSNRequest::TrophyTitles { online_id, page } => {
             let page = page.parse::<u32>().unwrap_or(1);
 
-            if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
-                if let Ok(t) = db.get_trophy_titles(p.np_id.as_str(), page).await {
+            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
+                if let Ok(t) = POOL.get_trophy_titles(p.np_id.as_str(), page).await {
                     return Ok(HttpResponse::Ok().json(&t));
                 }
             }
@@ -51,8 +54,8 @@ async fn query_handler_async(
             online_id,
             np_communication_id,
         } => {
-            if let Ok(p) = cache.get_psn_profile(online_id.as_str()).await {
-                if let Ok(s) = db
+            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
+                if let Ok(s) = POOL
                     .get_trophy_set(p.np_id.as_str(), np_communication_id.as_str())
                     .await
                 {
@@ -69,7 +72,7 @@ async fn query_handler_async(
 pub fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    addr: Data<PSNServiceAddr>,
+    addr: Data<PSNTaskAddr>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     query_handler_with_jwt_async(jwt, req, addr)
         .boxed_local()
@@ -79,17 +82,31 @@ pub fn query_handler_with_jwt(
 async fn query_handler_with_jwt_async(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    addr: Data<PSNServiceAddr>,
+    addr: Data<PSNTaskAddr>,
 ) -> Result<HttpResponse, Error> {
     match *req {
         PSNRequest::Auth { .. } => {
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 
             // auth request is add to the front of queue.
-            addr.do_send((req, true));
+            actix::spawn(
+                Box::pin(async move {
+                    let _ = addr.send((req, true)).await;
+                })
+                .unit_error()
+                .compat(),
+            );
         }
         PSNRequest::Activation { .. } => {
-            addr.do_send((req.into_inner().attach_user_id(jwt.user_id), false));
+            actix::spawn(
+                Box::pin(async move {
+                    let _ = addr
+                        .send((req.into_inner().attach_user_id(jwt.user_id), false))
+                        .await;
+                })
+                .unit_error()
+                .compat(),
+            );
         }
         _ => (),
     };
@@ -99,19 +116,14 @@ async fn query_handler_with_jwt_async(
 pub fn community(
     jwt_opt: Option<UserJwt>,
     //    req: Json<>,
-    db: Data<MyPostgresPool>,
-    _cache: Data<MyRedisPool>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    community_async(jwt_opt, db, _cache).boxed_local().compat()
+    community_async(jwt_opt).boxed_local().compat()
 }
 
 async fn community_async(
     jwt_opt: Option<UserJwt>,
     //    req: Json<>,
-    _db: Data<MyPostgresPool>,
-    _cache: Data<MyRedisPool>,
 ) -> Result<HttpResponse, Error> {
-    println!("{}", jwt_opt.is_some());
     //    let _jwt_opt = jwt_opt.0;
     Ok(HttpResponse::Ok().finish())
 }

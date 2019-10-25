@@ -19,11 +19,22 @@ const INSERT_PUB_MSG: &str =
 const INSERT_PRV_MSG: &str =
     "INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)";
 
+// construct static postgres pool so that it can be freely used through out the app without cloning.
+lazy_static! {
+    pub(crate) static ref POOL: MyPostgresPool = MyPostgresPool::new(
+        std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must be set in .env")
+            .as_str()
+    );
+}
+
 #[derive(Clone)]
 pub struct MyPostgresPool(Pool<PostgresManager<NoTls>>);
 
+//trait Some: for<'a> From<&'a [u8]> {}
+
 impl MyPostgresPool {
-    pub(crate) async fn new(postgres_url: &str) -> MyPostgresPool {
+    pub(crate) fn new(postgres_url: &str) -> MyPostgresPool {
         let mgr = PostgresManager::new_from_stringlike(postgres_url, NoTls)
             .expect("Failed to create postgres pool manager")
             .prepare_statement("topics_by_id", SELECT_TOPIC, &[Type::OID_ARRAY])
@@ -38,11 +49,17 @@ impl MyPostgresPool {
             .max_lifetime(None)
             .min_idle(24)
             .max_size(24)
-            .build(mgr)
-            .await
+            .build_uninitialized(mgr)
             .expect("Failed to build postgres pool");
 
         MyPostgresPool(pool)
+    }
+
+    pub(crate) async fn init(&self) {
+        self.0
+            .init()
+            .await
+            .expect("Failed to initialize postgres pool");
     }
 
     pub(crate) fn get(

@@ -1,149 +1,114 @@
 use std::collections::VecDeque;
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin, time::Duration};
 
 use chrono::Utc;
-use futures::{
-    channel::mpsc::UnboundedSender, lock::Mutex, FutureExt, SinkExt, StreamExt, TryFutureExt,
-};
+use heng_rs::{Context, Scheduler, SharedSchedulerSender};
 use redis::{aio::SharedConnection, cmd, pipe};
 
-use crate::handler::db::MyPostgresPool;
-use crate::handler::{cache::MyRedisPool, messenger::RepErrorAddr};
-use crate::model::runtime::{SendRepError, SpawnIntervalHandlerActixRt};
+use crate::handler::{
+    cache::{MyRedisPool, POOL_REDIS},
+    db::POOL,
+    messenger::ErrRepTaskAddr,
+};
 use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
 
 const LIST_INTERVAL: Duration = dur(5000);
 const FAILED_INTERVAL: Duration = dur(3000);
 
-pub struct CacheUpdateService {
-    pg_pool: MyPostgresPool,
-    rd_pool: MyRedisPool,
-    queue: Arc<Mutex<VecDeque<CacheFailedMessage>>>,
-    rep_addr: Option<RepErrorAddr>,
+struct RedisFailedTask {
+    rep_addr: Option<ErrRepTaskAddr>,
+    // ToDo: expose Scheduler Context for pushing back message. And then we can remove this backup queue.
+    backup_queue: VecDeque<CacheFailedMessage>,
 }
 
-impl SpawnIntervalHandlerActixRt for CacheUpdateService {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        // ToDo: bulk operation.
-        Box::pin(async move {
-            let mut queue = self.queue.lock().await;
-            while let Some(msg) = queue.pop_front() {
-                let r = match msg {
-                    CacheFailedMessage::FailedTopic(id) => {
-                        let (t, _) = self.pg_pool.get_topics(&[id]).await?;
-                        self.rd_pool.add_topic(&t).await
-                    }
-                    CacheFailedMessage::FailedPost(id) => {
-                        let (p, _) = self.pg_pool.get_posts(&[id]).await?;
-                        self.rd_pool.add_post(&p).await
-                    }
-                    CacheFailedMessage::FailedCategory(id) => {
-                        let c = self.pg_pool.get_categories(&[id]).await?;
-                        self.rd_pool.add_category(&c).await
-                    }
-                    CacheFailedMessage::FailedUser(id) => {
-                        let u = self.pg_pool.get_users(&[id]).await?;
-                        self.rd_pool.update_users(&u).await
-                    }
-                    CacheFailedMessage::FailedTopicUpdate(id) => {
-                        let (t, _) = self.pg_pool.get_topics(&[id]).await?;
-                        self.rd_pool.update_topics(&t).await
-                    }
-                    CacheFailedMessage::FailedPostUpdate(id) => {
-                        let (p, _) = self.pg_pool.get_posts(&[id]).await?;
-                        self.rd_pool.update_posts(&p).await
-                    }
-                };
-                if r.is_err() {
-                    queue.push_back(msg);
-                    return r;
-                }
+impl RedisFailedTask {
+    async fn update_failed(&mut self, msg: CacheFailedMessage) -> Result<(), ResError> {
+        let result = match msg {
+            CacheFailedMessage::FailedTopic(id) => {
+                let (t, _) = POOL.get_topics(&[id]).await?;
+                POOL_REDIS.add_topic(&t).await
             }
-            Ok(())
-        })
-    }
-}
-
-impl SendRepError for CacheUpdateService {
-    fn send_err_rep<'a>(
-        &'a mut self,
-        e: ResError,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some(addr) = self.rep_addr.as_ref() {
-                addr.do_send(e.into());
+            CacheFailedMessage::FailedPost(id) => {
+                let (p, _) = POOL.get_posts(&[id]).await?;
+                POOL_REDIS.add_post(&p).await
             }
-            Ok(())
-        })
-    }
-}
-
-// actix::web::Data().into_inner will return our CacheUpdateAddr in an Arc.
-pub type SharedCacheUpdateAddr = Arc<CacheUpdateAddr>;
-
-// we don't need Arc wrapper here as the actix::web::Data::new() will provide the Arc layer.
-/// cache update addr is used to collect failed insertion to redis. and retry them in CacheUpdateService.
-pub struct CacheUpdateAddr(Mutex<UnboundedSender<CacheFailedMessage>>);
-
-impl CacheUpdateAddr {
-    pub(crate) async fn do_send(&self, msg: CacheFailedMessage) {
-        let mut tx = self.0.lock().await;
-        // ToDo: we should store this failure as log.
-        let _ = tx.send(msg).await;
-    }
-}
-
-impl CacheUpdateService {
-    pub(crate) fn init(
-        pg_pool: MyPostgresPool,
-        rd_pool: MyRedisPool,
-        rep_addr: Option<RepErrorAddr>,
-    ) -> Result<CacheUpdateAddr, ResError> {
-        let queue = Arc::new(Mutex::new(VecDeque::new()));
-
-        let (tx, mut rx) = futures::channel::mpsc::unbounded::<CacheFailedMessage>();
-
-        let queue_rx = queue.clone();
-        actix::spawn(
-            Box::pin(async move {
-                while let Some(msg) = rx.next().await {
-                    let mut queue = queue_rx.lock().await;
-                    queue.push_back(msg);
-                }
-            })
-            .unit_error()
-            .compat(),
-        );
-
-        let this = CacheUpdateService {
-            pg_pool,
-            rd_pool: rd_pool.clone(),
-            queue,
-            rep_addr,
+            CacheFailedMessage::FailedCategory(id) => {
+                let c = POOL.get_categories(&[id]).await?;
+                POOL_REDIS.add_category(&c).await
+            }
+            CacheFailedMessage::FailedUser(id) => {
+                let u = POOL.get_users(&[id]).await?;
+                POOL_REDIS.update_users(&u).await
+            }
+            CacheFailedMessage::FailedTopicUpdate(id) => {
+                let (t, _) = POOL.get_topics(&[id]).await?;
+                POOL_REDIS.update_topics(&t).await
+            }
+            CacheFailedMessage::FailedPostUpdate(id) => {
+                let (p, _) = POOL.get_posts(&[id]).await?;
+                POOL_REDIS.update_posts(&p).await
+            }
         };
 
-        this.spawn_interval(FAILED_INTERVAL, FAILED_INTERVAL);
-        // run scheduled redis lists updates. this interval is directly called onto MyRedisPool.
-        rd_pool.spawn_interval(LIST_INTERVAL, LIST_INTERVAL);
-
-        let addr = CacheUpdateAddr(Mutex::new(tx));
-        Ok(addr)
+        if result.is_err() {
+            self.backup_queue.push_back(msg);
+        };
+        result
     }
 }
 
-impl SpawnIntervalHandlerActixRt for MyRedisPool {
-    fn handle<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move { self.handle_list_update().await })
-    }
-}
+impl Scheduler for RedisFailedTask {
+    type Message = CacheFailedMessage;
 
-impl SendRepError for MyRedisPool {
-    fn send_err_rep<'a>(
+    fn handler<'a>(
         &'a mut self,
-        _e: ResError,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send + 'a>> {
-        Box::pin(async move { Ok(()) })
+        ctx: &'a mut Context<Self>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            while let Some(msg) = ctx.get_msg_front() {
+                let _ = self.update_failed(msg).await;
+            }
+        })
     }
+}
+
+struct RedisListTask {
+    rep_addr: Option<ErrRepTaskAddr>,
+}
+
+impl Scheduler for RedisListTask {
+    type Message = ();
+
+    fn handler<'a>(
+        &'a mut self,
+        _ctx: &'a mut Context<Self>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            // ToDo: handler error report here with self.rep_addr.
+            let _r = POOL_REDIS.handle_list_update().await;
+        })
+    }
+}
+
+pub(crate) type RedisFailedTaskSender = SharedSchedulerSender<CacheFailedMessage>;
+
+// We have to return all the addresses.
+// Because if a address goes out of the scope the tasks's context will lose it's ability to access the Signal receiver and cause an error.
+pub(crate) fn init_cache_update_services(
+    rep_addr: Option<ErrRepTaskAddr>,
+) -> (RedisFailedTaskSender, SharedSchedulerSender<()>) {
+    let list_task = RedisListTask {
+        rep_addr: rep_addr.clone(),
+    };
+    let addr_temp = list_task.start_with_handler(LIST_INTERVAL);
+
+    let failed_task = RedisFailedTask {
+        rep_addr,
+        backup_queue: Default::default(),
+    };
+    let addr = failed_task.start_with_handler(FAILED_INTERVAL);
+
+    (addr, addr_temp)
 }
 
 impl MyRedisPool {

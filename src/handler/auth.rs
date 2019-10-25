@@ -7,7 +7,6 @@ use crate::handler::{
     db::{MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
-    common::GlobalVars,
     errors::ResError,
     user::{AuthRequest, AuthResponse, User},
 };
@@ -53,11 +52,7 @@ impl FromRequest for JwtPayLoad {
 }
 
 impl MyPostgresPool {
-    pub(crate) async fn register(
-        &self,
-        req: AuthRequest,
-        g: &GlobalVars,
-    ) -> Result<Vec<User>, ResError> {
+    pub(crate) async fn register(&self, req: AuthRequest) -> Result<Vec<User>, ResError> {
         let email = req
             .email
             .as_ref()
@@ -93,7 +88,10 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
 
-        let id = g.lock().map(|mut lock| lock.next_uid()).await;
+        let id = crate::model::common::GLOBALS
+            .lock()
+            .map(|mut lock| lock.next_uid())
+            .await;
         let u = req.make_user(id, hash.as_str())?;
         let params: [&(dyn ToSql + Sync); 6] = [
             &u.id,

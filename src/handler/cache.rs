@@ -36,13 +36,22 @@ pub const USER_PSN_U8: &[u8] = b"user_psn:";
 const SET_U8: &[u8] = b":set";
 const PERM_U8: &[u8] = b"_perm";
 
+// construct static redis pool so that it can be freely used through out the app without cloning.
+lazy_static! {
+    pub(crate) static ref POOL_REDIS: MyRedisPool = MyRedisPool::new(
+        std::env::var("REDIS_URL")
+            .expect("REDIS_URL must be set in .env")
+            .as_str()
+    );
+}
+
 #[derive(Clone)]
 pub struct MyRedisPool(Pool<RedisManager>);
 
 pub type MyRedisPoolRef<'a> = PoolRef<'a, RedisManager>;
 
 impl MyRedisPool {
-    pub(crate) async fn new(redis_url: &str) -> MyRedisPool {
+    pub(crate) fn new(redis_url: &str) -> MyRedisPool {
         let mgr = RedisManager::new(redis_url);
 
         let pool = Builder::new()
@@ -51,11 +60,21 @@ impl MyRedisPool {
             .max_lifetime(None)
             .min_idle(24)
             .max_size(24)
-            .build(mgr)
-            .await
+            .build_uninitialized(mgr)
             .expect("Failed to build postgres pool");
 
         MyRedisPool(pool)
+    }
+
+    pub(crate) async fn init(&self) {
+        self.0
+            .init()
+            .await
+            .expect("Failed to initialize redis pool");
+    }
+
+    pub(crate) fn get(&self) -> impl Future<Output = Result<MyRedisPoolRef, ResError>> {
+        self.0.get().err_into()
     }
 }
 
@@ -329,10 +348,6 @@ impl MyRedisPool {
             }
             Err(_) => Err(ResError::IdsFromCache(ids)),
         }
-    }
-
-    pub(crate) fn get(&self) -> impl Future<Output = Result<MyRedisPoolRef, ResError>> {
-        self.0.get().err_into()
     }
 }
 

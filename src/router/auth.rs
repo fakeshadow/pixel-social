@@ -5,119 +5,89 @@ use actix_web::{
 };
 use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::cache_update::CacheUpdateAddr;
-use crate::handler::{auth::UserJwt, cache::MyRedisPool, db::MyPostgresPool};
+use crate::handler::cache_update::RedisFailedTaskSender;
+use crate::handler::{auth::UserJwt, cache::POOL_REDIS, db::POOL};
 use crate::model::{
-    common::{GlobalVars, Validator},
+    common::Validator,
     errors::ResError,
     user::{AuthRequest, UpdateRequest},
 };
 
-pub fn login(
-    db: Data<MyPostgresPool>,
-    req: Json<AuthRequest>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    login_async(db, req).boxed_local().compat()
+pub fn login(req: Json<AuthRequest>) -> impl Future01<Item = HttpResponse, Error = Error> {
+    login_async(req).boxed_local().compat()
 }
 
-async fn login_async(
-    db: Data<MyPostgresPool>,
-    req: Json<AuthRequest>,
-) -> Result<HttpResponse, Error> {
+async fn login_async(req: Json<AuthRequest>) -> Result<HttpResponse, Error> {
     let r = req.into_inner().check_login()?;
-    let r = db.login(r).await?;
+    let r = POOL.login(r).await?;
     Ok(HttpResponse::Ok().json(&r))
 }
 
 pub fn register(
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-    global: Data<GlobalVars>,
     req: Json<AuthRequest>,
-    addr: Data<CacheUpdateAddr>,
+    addr: Data<RedisFailedTaskSender>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    register_async(db, cache, global, req, addr)
-        .boxed_local()
-        .compat()
+    register_async(req, addr).boxed_local().compat()
 }
 
 async fn register_async(
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-    global: Data<GlobalVars>,
     req: Json<AuthRequest>,
-    addr: Data<CacheUpdateAddr>,
+    addr: Data<RedisFailedTaskSender>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_register()?;
 
-    let u = db.register(req, global.get_ref()).await?;
+    let u = POOL.register(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
-    cache.add_activation_mail(u.clone()).await;
-    crate::router::user::update_user_send_fail(cache, u, addr);
+    POOL_REDIS.add_activation_mail(u.clone()).await;
+    crate::router::user::update_user_send_fail(u, addr);
 
     Ok(res)
 }
 
 pub fn activate_by_mail(
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
     req: Path<(String)>,
-    addr: Data<CacheUpdateAddr>,
+    addr: Data<RedisFailedTaskSender>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
-    activate_by_mail_async(db, cache, req, addr)
-        .boxed_local()
-        .compat()
+    activate_by_mail_async(req, addr).boxed_local().compat()
 }
 
 async fn activate_by_mail_async(
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
     req: Path<(String)>,
-    addr: Data<CacheUpdateAddr>,
+    addr: Data<RedisFailedTaskSender>,
 ) -> Result<HttpResponse, Error> {
     let uuid = req.into_inner();
 
-    let uid = cache.get_uid_from_uuid(uuid.as_str()).await?;
+    let uid = POOL_REDIS.get_uid_from_uuid(uuid.as_str()).await?;
 
-    let u = db.update_user(UpdateRequest::make_active(uid)).await?;
+    let u = POOL.update_user(UpdateRequest::make_active(uid)).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
-    cache.remove_activation_uuid(uuid.as_str()).await;
+    POOL_REDIS.remove_activation_uuid(uuid.as_str()).await;
 
-    crate::router::user::update_user_send_fail(cache, u, addr);
+    crate::router::user::update_user_send_fail(u, addr);
 
     Ok(res)
 }
 
-pub fn add_activation_mail(
-    jwt: UserJwt,
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    add_activation_mail_async(jwt, db, cache)
-        .boxed_local()
-        .compat()
+pub fn add_activation_mail(jwt: UserJwt) -> impl Future01<Item = HttpResponse, Error = Error> {
+    add_activation_mail_async(jwt).boxed_local().compat()
 }
 
-async fn add_activation_mail_async(
-    jwt: UserJwt,
-    db: Data<MyPostgresPool>,
-    cache: Data<MyRedisPool>,
-) -> Result<HttpResponse, Error> {
-    let u = match cache.get_users(vec![jwt.user_id]).await {
+async fn add_activation_mail_async(jwt: UserJwt) -> Result<HttpResponse, Error> {
+    let u = match POOL_REDIS.get_users(vec![jwt.user_id]).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(ids) = e {
-                db.get_users(&ids).await?
+                POOL.get_users(&ids).await?
             } else {
                 return Err(e.into());
             }
         }
     };
 
-    let _ = cache.add_activation_mail(u);
+    let _ = POOL_REDIS.add_activation_mail(u);
     Ok(HttpResponse::Ok().finish())
 }

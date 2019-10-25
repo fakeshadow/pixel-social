@@ -4,13 +4,13 @@ use chrono::Utc;
 use futures::FutureExt;
 use tokio_postgres::types::{ToSql, Type};
 
+use crate::handler::cache_update::RedisFailedTaskSender;
 use crate::handler::{
     cache::{MyRedisPool, POST_U8},
-    cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
+    cache_update::CacheFailedMessage,
     db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
-    common::GlobalVars,
     errors::ResError,
     post::{Post, PostRequest},
 };
@@ -32,7 +32,7 @@ const INSERT_POST_TYPES: &[Type; 8] = &[
 ];
 
 impl MyPostgresPool {
-    pub async fn add_post(&self, p: PostRequest, g: &GlobalVars) -> Result<Vec<Post>, ResError> {
+    pub async fn add_post(&self, p: PostRequest) -> Result<Vec<Post>, ResError> {
         let uid = p.user_id.as_ref().ok_or(ResError::BadRequest)?;
         let tid = p.topic_id.as_ref().ok_or(ResError::BadRequest)?;
         let content = p.post_content.as_ref().ok_or(ResError::BadRequest)?;
@@ -42,7 +42,10 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_POST, INSERT_POST_TYPES).await?;
 
-        let id = g.lock().map(|mut lock| lock.next_pid()).await;
+        let id = crate::model::common::GLOBALS
+            .lock()
+            .map(|mut lock| lock.next_pid())
+            .await;
         let now = &Utc::now().naive_local();
         let params: [&(dyn ToSql + Sync); 8] =
             [&id, uid, tid, &p.category_id, &p.post_id, content, now, now];
@@ -173,12 +176,12 @@ impl MyRedisPool {
     pub(crate) async fn update_post_send_fail(
         &self,
         p: Vec<Post>,
-        addr: SharedCacheUpdateAddr,
+        addr: RedisFailedTaskSender,
     ) -> Result<(), ()> {
         let r = self.build_sets(&p, POST_U8, true).await;
         if r.is_err() {
             if let Some(id) = p.first().map(|p| p.id) {
-                addr.do_send(CacheFailedMessage::FailedPostUpdate(id)).await;
+                let _ = addr.send(CacheFailedMessage::FailedPostUpdate(id)).await;
             }
         };
         Ok(())
@@ -187,11 +190,11 @@ impl MyRedisPool {
     pub(crate) async fn add_post_send_fail(
         &self,
         p: Vec<Post>,
-        addr: SharedCacheUpdateAddr,
+        addr: RedisFailedTaskSender,
     ) -> Result<(), ()> {
         if self.add_post(&p).await.is_err() {
             if let Some(id) = p.first().map(|p| p.id) {
-                addr.do_send(CacheFailedMessage::FailedPost(id)).await;
+                let _ = addr.send(CacheFailedMessage::FailedPost(id)).await;
             }
         }
         Ok(())

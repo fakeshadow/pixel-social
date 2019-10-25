@@ -1,11 +1,11 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use actix::prelude::Addr;
 use async_std::sync::RwLock;
+use futures::lock::Mutex;
 use hashbrown::HashMap;
 
 use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
@@ -97,54 +97,59 @@ where
     }
 }
 
-// type and struct for global vars
-// use future aware mutex for globals
-pub type GlobalVars = futures::lock::Mutex<GlobalVar>;
-pub type GlobalTalks = Arc<RwLock<HashMap<u32, Talk>>>;
-pub type GlobalSessions = Arc<RwLock<HashMap<u32, Addr<WsChatSession>>>>;
+// struct for global vars
+pub(crate) struct GlobalTalks(pub(crate) RwLock<HashMap<u32, Talk>>);
 
-pub fn new_global_talks_sessions(talks_vec: Vec<Talk>) -> (GlobalTalks, GlobalSessions) {
-    let mut talks = HashMap::new();
+pub(crate) struct GlobalSessions(pub(crate) RwLock<HashMap<u32, Addr<WsChatSession>>>);
 
-    for t in talks_vec.into_iter() {
-        talks.insert(t.id, t);
-    }
-
-    (
-        Arc::new(RwLock::new(talks)),
-        Arc::new(RwLock::new(HashMap::new())),
-    )
+lazy_static! {
+    pub(crate) static ref TALKS: GlobalTalks = GlobalTalks(RwLock::new(HashMap::new()));
+    pub(crate) static ref SESSIONS: GlobalSessions = GlobalSessions(RwLock::new(HashMap::new()));
+    pub(crate) static ref GLOBALS: Mutex<GlobalVars> = Mutex::new(Default::default());
 }
 
 #[derive(Debug)]
-pub struct GlobalVar {
+pub struct GlobalVars {
     pub last_uid: u32,
     pub last_pid: u32,
     pub last_tid: u32,
     pub last_cid: u32,
 }
 
-impl GlobalVar {
-    pub fn new(last_uid: u32, last_pid: u32, last_tid: u32, last_cid: u32) -> GlobalVars {
-        futures::lock::Mutex::new(GlobalVar {
-            last_uid,
-            last_pid,
-            last_tid,
-            last_cid,
-        })
+impl Default for GlobalVars {
+    fn default() -> Self {
+        GlobalVars {
+            last_uid: 0,
+            last_pid: 0,
+            last_tid: 0,
+            last_cid: 0,
+        }
     }
+}
+
+impl GlobalVars {
+    pub fn update(&mut self, last_uid: u32, last_pid: u32, last_tid: u32, last_cid: u32) {
+        self.last_uid = last_uid;
+        self.last_pid = last_pid;
+        self.last_tid = last_tid;
+        self.last_cid = last_cid;
+    }
+
     pub fn next_uid(&mut self) -> u32 {
         self.last_uid += 1;
         self.last_uid
     }
+
     pub fn next_pid(&mut self) -> u32 {
         self.last_pid += 1;
         self.last_pid
     }
+
     pub fn next_tid(&mut self) -> u32 {
         self.last_tid += 1;
         self.last_tid
     }
+
     pub fn next_cid(&mut self) -> u32 {
         self.last_cid += 1;
         self.last_cid

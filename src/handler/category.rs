@@ -3,14 +3,14 @@ use std::future::Future;
 use futures::FutureExt;
 use tokio_postgres::types::ToSql;
 
+use crate::handler::cache_update::RedisFailedTaskSender;
 use crate::handler::{
     cache::{MyRedisPool, CATEGORY_U8},
-    cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
+    cache_update::CacheFailedMessage,
     db::{MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
     category::{Category, CategoryRequest},
-    common::GlobalVars,
     errors::ResError,
 };
 
@@ -47,11 +47,7 @@ impl MyPostgresPool {
             .await
     }
 
-    pub(crate) async fn add_category(
-        &self,
-        c: CategoryRequest,
-        g: &GlobalVars,
-    ) -> Result<Vec<Category>, ResError> {
+    pub(crate) async fn add_category(&self, c: CategoryRequest) -> Result<Vec<Category>, ResError> {
         let name = c.name.as_ref().ok_or(ResError::BadRequest)?;
         let thumb = c.thumbnail.as_ref().ok_or(ResError::BadRequest)?;
 
@@ -60,7 +56,10 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_CATEGORY, &[]).await?;
 
-        let cid = g.lock().map(|mut lock| lock.next_cid()).await;
+        let cid = crate::model::common::GLOBALS
+            .lock()
+            .map(|mut lock| lock.next_cid())
+            .await;
         let params: [&(dyn ToSql + Sync); 3] = [&cid, &name, &thumb];
 
         cli.query_raw(&st, params.iter().map(|s| *s as _))
@@ -139,11 +138,11 @@ impl MyRedisPool {
     pub(crate) async fn add_category_send_fail(
         &self,
         c: Vec<Category>,
-        addr: SharedCacheUpdateAddr,
+        addr: RedisFailedTaskSender,
     ) -> Result<(), ()> {
         if self.add_category(&c).await.is_err() {
             if let Some(id) = c.first().map(|c| c.id) {
-                addr.do_send(CacheFailedMessage::FailedCategory(id)).await;
+                let _ = addr.send(CacheFailedMessage::FailedCategory(id)).await;
             }
         }
         Ok(())

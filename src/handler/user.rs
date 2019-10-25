@@ -5,7 +5,7 @@ use tokio_postgres::types::ToSql;
 use crate::handler::{
     cache::MyRedisPool,
     cache::USER_U8,
-    cache_update::{CacheFailedMessage, SharedCacheUpdateAddr},
+    cache_update::{CacheFailedMessage, RedisFailedTaskSender},
     db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
@@ -107,12 +107,12 @@ impl MyRedisPool {
     pub(crate) async fn update_user_send_fail(
         &self,
         u: Vec<User>,
-        addr: SharedCacheUpdateAddr,
+        addr: RedisFailedTaskSender,
     ) -> Result<(), ()> {
         let r = self.build_sets(&u, USER_U8, true).await;
         if r.is_err() {
             if let Some(id) = u.first().map(|u| u.id) {
-                addr.do_send(CacheFailedMessage::FailedUser(id)).await;
+                let _ = addr.send(CacheFailedMessage::FailedUser(id)).await;
             }
         };
         Ok(())

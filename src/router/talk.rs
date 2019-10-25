@@ -10,8 +10,8 @@ use serde::Deserialize;
 
 use crate::handler::talk::{
     Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
-    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService, TextMessageRequest,
-    UserRelationRequest, UsersByIdRequest, TALK,
+    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService, TalkServiceAddr,
+    TextMessageRequest, UserRelationRequest, UsersByIdRequest,
 };
 use crate::model::{
     actors::WsChatSession,
@@ -29,7 +29,11 @@ lazy_static! {
 }
 
 // start a WebSocket actor with each incoming connection.
-pub fn talk(req: HttpRequest, stream: Payload, talk: Data<TALK>) -> Result<HttpResponse, Error> {
+pub fn talk(
+    req: HttpRequest,
+    stream: Payload,
+    talk: Data<TalkServiceAddr>,
+) -> Result<HttpResponse, Error> {
     println!("connected");
     ws::start(
         WsChatSession {
