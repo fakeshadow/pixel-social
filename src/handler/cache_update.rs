@@ -58,8 +58,8 @@ impl Scheduler for RedisFailedTask {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             while let Some(msg) = ctx.get_msg_front() {
-                if let Err(e)  = self.update_failed(&msg).await {
-                    ctx.push_msg_front(msg);
+                if let Err(e) = self.update_failed(&msg).await {
+                    ctx.get_queue_mut(|queue| queue.push_back(msg));
                     if let Some(addr) = self.rep_addr.as_ref() {
                         let _ = addr.send(e).await;
                     }
@@ -103,9 +103,7 @@ pub(crate) fn init_cache_update_services(
     };
     let addr_temp = list_task.start_with_handler(LIST_INTERVAL);
 
-    let failed_task = RedisFailedTask {
-        rep_addr
-    };
+    let failed_task = RedisFailedTask { rep_addr };
     let addr = failed_task.start_with_handler(FAILED_INTERVAL);
 
     (addr, addr_temp)

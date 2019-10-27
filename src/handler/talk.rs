@@ -199,7 +199,7 @@ impl Handler<DisconnectRequest> for TalkService {
                 POOL_REDIS.set_online_status(sid, 0, true).await?;
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await
@@ -268,7 +268,7 @@ impl Handler<TextMessageRequest> for TalkService {
                     Ok(())
                 }
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -306,7 +306,7 @@ impl Handler<ConnectRequest> for TalkService {
                 ));
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -372,7 +372,7 @@ impl Handler<CreateTalkRequest> for TalkService {
                 SESSIONS.send_message(msg.owner, s.as_str()).await;
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -422,7 +422,7 @@ impl Handler<JoinTalkRequest> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -462,7 +462,7 @@ impl Handler<TalkByIdRequest> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -492,7 +492,7 @@ impl Handler<UsersByIdRequest> for TalkService {
                 SESSIONS.send_message(sid, s.as_str()).await;
                 Ok(())
             }
-                .await;
+            .await;
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
             }
@@ -534,7 +534,7 @@ impl Handler<UserRelationRequest> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -598,7 +598,7 @@ impl Handler<GetHistory> for TalkService {
                 SESSIONS.send_message(sid, s.as_str()).await;
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -661,7 +661,7 @@ impl Handler<RemoveUserRequest> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -717,7 +717,7 @@ impl Handler<Admin> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
@@ -758,7 +758,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
 
                 Ok(())
             }
-                .await;
+            .await;
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;

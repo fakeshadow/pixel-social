@@ -45,7 +45,7 @@ impl MailerTask {
         let self_name = env::var("SELF_MAIL_ALIAS").unwrap_or_else(|_| "PixelShare".to_owned());
 
         let mailer = SmtpClient::new_simple(&mail_server)
-            .unwrap_or_else(|e| panic!("{:?}", e))
+            .unwrap_or_else(|e| panic!("Failed to establish SmtpClient. Error is: {:?}", e))
             .timeout(Some(Duration::new(1, 0)))
             .credentials(Credentials::new(username, password))
             .smtp_utf8(false)
@@ -201,7 +201,7 @@ struct ErrReportTask {
 
 impl ErrReportTask {
     async fn handle_err_rep(&mut self) -> Result<(), ResError> {
-        if let Ok(s) = self.stringify_report().await {
+        if let Ok(s) = self.stringify_report() {
             if let Some(addr) = self.mailer_addr.as_ref() {
                 let _ = addr.send(s.to_owned()).await;
             };
@@ -212,7 +212,7 @@ impl ErrReportTask {
         Ok(())
     }
 
-    async fn stringify_report(&mut self) -> Result<String, ()> {
+    fn stringify_report(&mut self) -> Result<String, ()> {
         let now = chrono::Utc::now().naive_utc();
         let mut message = format!("Time: {}%0aGot erros:", now);
 
@@ -313,8 +313,8 @@ impl Scheduler for ErrReportTask {
 pub(crate) type ErrRepTaskAddr = SchedulerSender<ResError>;
 
 pub(crate) fn init_message_services(
-    use_sms: bool,
     use_mail: bool,
+    use_sms: bool,
     use_rep: bool,
 ) -> (
     Option<SchedulerSender<String>>,
