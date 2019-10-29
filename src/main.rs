@@ -104,7 +104,7 @@ async fn main() -> std::io::Result<()> {
             This HttpServer use a cache pass through flow for data.
             Anything can't be find in redis will hit postgres and trigger an redis update.
             A failed insertion to postgres will be ignored and returned as an error.
-            A failed insertion to redis after a successful postgres insertion will be passed to CacheUpdateService actor and retry from there.
+            A failed insertion to redis after a successful postgres insertion will be passed to RedisFailedTask and retry from there.
             Most data have a expire time in redis or can be removed manually.
             Only a small portion of data are stored permanently in redis
             (Mainly the reply_count and reply_timestamp of topics/categories/posts). The online status and last online time for user

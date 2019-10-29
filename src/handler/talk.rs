@@ -14,7 +14,7 @@ use crate::handler::{
 };
 use crate::model::{
     actors::WsChatSession,
-    common::{GlobalSessions, GlobalTalks, SESSIONS, TALKS},
+    common::{SESSIONS, TALKS},
     errors::ResError,
     talk::{PrivateMessage, PublicMessage, Relation, SendMessage, SessionMessage, Talk},
 };
@@ -35,7 +35,7 @@ const GET_PRV_MSG: &str =
 const GET_FRIENDS: &str = "SELECT friends FROM relations WHERE id = $1";
 const INSERT_USER: &str = "UPDATE talks SET users=array_append(users, $1) WHERE id= $2";
 
-/// talk service actor handle communication to websocket sessions actors
+// talk service actor handle communication to websocket sessions actors
 pub struct TalkService;
 
 impl Actor for TalkService {
@@ -45,7 +45,7 @@ impl Actor for TalkService {
 pub type TalkServiceAddr = Addr<TalkService>;
 
 // lock global sessions and read write session id and/or associate session addr(WebSocket session actor's address) and send string messages.
-impl GlobalSessions {
+impl crate::model::common::GlobalSessions {
     async fn send_message(&self, sid: u32, msg: &str) {
         match self.get_session_hm(sid).await {
             Ok(addr) => addr.do_send(SessionMessage(msg.to_owned())),
@@ -98,7 +98,7 @@ impl GlobalSessions {
 }
 
 // lock the global talks and read/write the inner HashMap<talk_id, Talk>;
-impl GlobalTalks {
+impl crate::model::common::GlobalTalks {
     fn get_talk_hm(&self, talk_id: u32) -> impl Future<Output = Result<Talk, ResError>> + '_ {
         self.read_talks(move |t| t.get(&talk_id).cloned().ok_or(ResError::NotFound))
     }

@@ -108,8 +108,7 @@ version = "0.6.1"
 
 [dependencies.tang-rs]
 git = "https://github.com/fakeshadow/tang_rs"
-default-features = false
-features = [ "actix-web" ]
+features = [ "actix-web", "tokio-postgres", "redis" ]
 
 [dependencies.tokio]
 version = "0.2.0-alpha.6"
