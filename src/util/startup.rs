@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use futures::FutureExt;
-use redis::aio::SharedConnection;
+use redis::aio::MultiplexedConnection;
 use tokio_postgres::{tls::NoTls, types::ToSql, Client, SimpleQueryMessage};
 
 use crate::handler::{
@@ -256,7 +256,7 @@ pub async fn build_cache(
 
     let c_cache = &mut redis::Client::open(redis_url)
         .unwrap_or_else(|e| panic!("{}", e))
-        .get_shared_async_connection()
+        .get_multiplexed_async_connection()
         .await?;
 
     // Load all categories and make hash map sets.
@@ -448,7 +448,7 @@ pub async fn build_cache(
 
 async fn build_categories_cache(
     c: &Client,
-    c_cache: &mut SharedConnection,
+    c_cache: &mut MultiplexedConnection,
 ) -> Result<Vec<Category>, ResError> {
     let st = c.prepare_typed("SELECT * FROM categories", &[]).await?;
     let params: [&(dyn ToSql + Sync); 0] = [];
@@ -472,7 +472,7 @@ async fn build_categories_cache(
 // return last user.id in result for building global vars.
 async fn build_users_cache_local(
     c: &Client,
-    c_cache: &mut SharedConnection,
+    c_cache: &mut MultiplexedConnection,
 ) -> Result<u32, ResError> {
     let st = c.prepare("SELECT * FROM users").await?;
     let params: [&(dyn ToSql + Sync); 0] = [];

@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use chrono::Utc;
 use heng_rs::{Context, Scheduler, SchedulerSender};
-use redis::{aio::SharedConnection, cmd, pipe};
+use redis::{aio::MultiplexedConnection, cmd, pipe};
 
 use crate::handler::{
     cache::{MyRedisPool, POOL_REDIS},
@@ -135,7 +135,7 @@ type ListWithSortedRange = (HashMapBrown<u32, i64>, Vec<(u32, u32)>);
 async fn update_list(
     cid: Option<u32>,
     yesterday: i64,
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
 ) -> Result<(), ResError> {
     let (list_key, time_key, reply_key, set_key) = match cid.as_ref() {
         Some(cid) => (
@@ -228,7 +228,7 @@ async fn update_list(
 async fn update_post_count(
     cid: u32,
     yesterday: i64,
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
 ) -> Result<(), ResError> {
     let time_key = format!("category:{}:posts_time", cid);
     let set_key = format!("category:{}:set", cid);

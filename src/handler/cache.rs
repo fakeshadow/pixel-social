@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 
 use chrono::NaiveDateTime;
 use futures::{FutureExt, TryFutureExt};
-use redis::aio::SharedConnection;
+use redis::aio::MultiplexedConnection;
 use redis::{cmd, pipe, Pipeline};
 use tang_rs::{Builder, Pool, PoolRef, RedisManager};
 
@@ -80,7 +80,7 @@ impl MyRedisPool {
 
 impl MyRedisPool {
     pub(crate) async fn add_activation_mail_cache(
-        mut conn: SharedConnection,
+        mut conn: MultiplexedConnection,
         uid: u32,
         uuid: String,
         mail: String,
@@ -147,7 +147,7 @@ impl MyRedisPool {
     }
 
     pub(crate) fn del_cache(
-        mut conn: SharedConnection,
+        mut conn: MultiplexedConnection,
         key: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), ResError>> + Send>> {
         Box::pin(async move {
@@ -303,7 +303,7 @@ impl MyRedisPool {
     }
 
     async fn from_redis_with_perm_uids<T>(
-        conn: &mut SharedConnection,
+        conn: &mut MultiplexedConnection,
         ids: Vec<u32>,
         set_key: &[u8],
     ) -> Result<(Vec<T>, Vec<u32>), ResError>
@@ -323,7 +323,7 @@ impl MyRedisPool {
     }
 
     pub(crate) async fn from_redis<T>(
-        conn: &mut SharedConnection,
+        conn: &mut MultiplexedConnection,
         ids: Vec<u32>,
         set_key: &[u8],
         have_perm_fields: bool,
@@ -519,7 +519,7 @@ impl MyRedisPool {
 /// we assume no data can be found on database if we don't have according id in cache.
 impl MyRedisPool {
     async fn ids_from_list(
-        conn: &mut SharedConnection,
+        conn: &mut MultiplexedConnection,
         list_key: &str,
         start: usize,
         end: usize,
@@ -539,7 +539,7 @@ impl MyRedisPool {
     }
 
     async fn ids_from_zrange(
-        conn: &mut SharedConnection,
+        conn: &mut MultiplexedConnection,
         list_key: &str,
         is_rev: bool,
         offset: usize,
@@ -852,7 +852,7 @@ impl<'a> Future for AsyncPipelineGet<'a> {
 //
 //        pip.query_async(self.get_conn())
 //            .map_err(ResError::from)
-//            .and_then(move |(conn, tids): (SharedConnection, Vec<u32>)| {
+//            .and_then(move |(conn, tids): (MultiplexedConnection, Vec<u32>)| {
 //                let mut pip = pipe();
 //                pip.atomic();
 //
@@ -875,7 +875,7 @@ impl<'a> Future for AsyncPipelineGet<'a> {
 //                        .ignore();
 //                }
 //                pip.query_async(conn).map_err(ResError::from).and_then(
-//                    |(conn, pids): (SharedConnection, Vec<u32>)| {
+//                    |(conn, pids): (MultiplexedConnection, Vec<u32>)| {
 //                        let mut pip = pipe();
 //                        pip.atomic();
 //
@@ -898,7 +898,7 @@ impl<'a> Future for AsyncPipelineGet<'a> {
 
 // helper functions for startup.
 pub(crate) async fn build_hmsets_fn<'a, T>(
-    conn: &'a mut SharedConnection,
+    conn: &'a mut MultiplexedConnection,
     vec: &'a [T],
     set_key: &'a [u8],
     should_expire: bool,
@@ -934,7 +934,7 @@ where
 }
 
 pub(crate) async fn build_list(
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
     vec: Vec<u32>,
     key: String,
 ) -> Result<(), ResError> {
@@ -952,7 +952,7 @@ pub(crate) async fn build_list(
 
 pub(crate) async fn build_users_cache(
     vec: Vec<User>,
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
 ) -> Result<(), ResError> {
     let mut pip = pipe();
     pip.atomic();
@@ -976,7 +976,7 @@ pub(crate) async fn build_users_cache(
 pub(crate) async fn build_topics_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
 ) -> Result<(), ResError> {
     let mut pip = pipe();
     pip.atomic();
@@ -1022,7 +1022,7 @@ pub(crate) async fn build_topics_cache_list(
 pub(crate) async fn build_posts_cache_list(
     is_init: bool,
     vec: Vec<(u32, u32, Option<u32>, NaiveDateTime)>,
-    conn: &mut SharedConnection,
+    conn: &mut MultiplexedConnection,
 ) -> Result<(), ResError> {
     let mut pipe = pipe();
     pipe.atomic();

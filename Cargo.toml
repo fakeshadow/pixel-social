@@ -88,7 +88,7 @@ version = "0.7.2"
 git = "https://github.com/Marwes/redis-rs"
 branch = "async_await_api"
 default-features = false
-features = ["executor"]
+features = ["tokio-executor"]
 
 [dependencies.regex]
 version = "1.3.1"
