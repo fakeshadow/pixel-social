@@ -125,7 +125,6 @@ async fn main() -> std::io::Result<()> {
             .data(psn_addr.clone())
             .data(redis_failed_addr.clone())
             // TalkService is an actor handle websocket connections and communication between client websocket actors.
-            // global_talks and sessions are shared between all workers and talk service actors.
             .data(crate::handler::talk::TalkService.start())
             .wrap(Logger::default())
             .wrap(cors)

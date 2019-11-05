@@ -256,7 +256,7 @@ pub async fn build_cache(
 
     let c_cache = &mut redis::Client::open(redis_url)
         .unwrap_or_else(|e| panic!("{}", e))
-        .get_multiplexed_async_connection()
+        .get_multiplexed_tokio_connection()
         .await?;
 
     // Load all categories and make hash map sets.

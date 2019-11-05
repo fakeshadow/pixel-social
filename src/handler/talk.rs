@@ -150,7 +150,7 @@ async fn send_message_many(tid: u32, msg: &str) -> Result<(), ResError> {
 }
 
 impl MyRedisPool {
-    /// we set user's online status in redis cache when user connect with websocket.
+    // we set user's online status in redis cache when user connect with websocket.
     async fn set_online_status(
         &self,
         uid: u32,
