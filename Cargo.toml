@@ -24,8 +24,7 @@ version = "1.0.8"
 default-features = false
 
 [dependencies.async-std]
-version = "0.99.9"
-default-features = false
+version = "0.99.12"
 
 [dependencies.base64]
 version = "0.10.1"
@@ -108,7 +107,8 @@ version = "0.6.1"
 
 [dependencies.tang-rs]
 git = "https://github.com/fakeshadow/tang_rs"
-features = [ "actix-web", "tokio-postgres", "redis" ]
+rev = "6e125ad"
+features = [ "tokio-postgres", "redis" ]
 
 [dependencies.tokio]
 version = "0.2.0-alpha.6"

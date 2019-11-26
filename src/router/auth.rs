@@ -47,14 +47,14 @@ async fn register_async(
 }
 
 pub fn activate_by_mail(
-    req: Path<(String)>,
+    req: Path<String>,
     addr: Data<RedisFailedTaskSender>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     activate_by_mail_async(req, addr).boxed_local().compat()
 }
 
 async fn activate_by_mail_async(
-    req: Path<(String)>,
+    req: Path<String>,
     addr: Data<RedisFailedTaskSender>,
 ) -> Result<HttpResponse, Error> {
     let uuid = req.into_inner();

@@ -12,11 +12,11 @@ use crate::model::{
     user::{UpdateRequest, User},
 };
 
-pub fn get(jwt: UserJwt, req: Path<(u32)>) -> impl Future01<Item = HttpResponse, Error = Error> {
+pub fn get(jwt: UserJwt, req: Path<u32>) -> impl Future01<Item = HttpResponse, Error = Error> {
     get_async(jwt, req).boxed_local().compat()
 }
 
-async fn get_async(jwt: UserJwt, req: Path<(u32)>) -> Result<HttpResponse, Error> {
+async fn get_async(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
     let id = req.into_inner();
     let u = match POOL_REDIS.get_users(vec![id]).await {
         Ok(u) => u,

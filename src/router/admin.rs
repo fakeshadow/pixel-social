@@ -64,12 +64,12 @@ async fn update_category_async(
 
 pub fn remove_category(
     jwt: UserJwt,
-    id: Path<(u32)>,
+    id: Path<u32>,
 ) -> impl Future01<Item = HttpResponse, Error = Error> {
     remove_category_async(jwt, id).boxed_local().compat()
 }
 
-async fn remove_category_async(jwt: UserJwt, id: Path<(u32)>) -> Result<HttpResponse, Error> {
+async fn remove_category_async(jwt: UserJwt, id: Path<u32>) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
     POOL.admin_remove_category(id, jwt.privilege).await?;
