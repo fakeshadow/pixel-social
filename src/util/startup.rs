@@ -252,7 +252,7 @@ pub async fn build_cache(
 ) -> Result<(), ResError> {
     let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
-    tokio::spawn(conn.map(|_| ()));
+    actix_rt::spawn(conn.map(|_| ()));
 
     let c_cache = &mut redis::Client::open(redis_url)
         .unwrap_or_else(|e| panic!("{}", e))
@@ -501,7 +501,7 @@ async fn build_users_cache_local(
 async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
     let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
-    tokio::spawn(conn.map(|_| ()));
+    actix_rt::spawn(conn.map(|_| ()));
 
     let st = c.prepare("SELECT * FROM categories").await;
 
@@ -517,7 +517,7 @@ async fn create_table(postgres_url: &str) -> Result<bool, ResError> {
 async fn drop_table(postgres_url: &str) -> Result<(), ResError> {
     let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
-    tokio::spawn(conn.map(|_| ()));
+    actix_rt::spawn(conn.map(|_| ()));
 
     c.simple_query(DROP_TABLES).await?;
     Ok(())

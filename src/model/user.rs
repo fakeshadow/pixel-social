@@ -128,8 +128,7 @@ pub struct AuthRequest {
 impl AuthRequest {
     pub fn extract_email(&self) -> Result<&str, ResError> {
         self.email
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .ok_or(ResError::BadRequest)
     }
 
@@ -204,7 +203,7 @@ impl Validator for AuthRequest {
         &self.password
     }
     fn get_email(&self) -> &str {
-        self.email.as_ref().map(String::as_str).unwrap_or("")
+        self.email.as_deref().unwrap_or("")
     }
 
     fn check_self_id(&self) -> Result<(), ResError> {
@@ -215,7 +214,7 @@ impl Validator for AuthRequest {
 impl Validator for UpdateRequest {
     // ToDo: handle update validation separately.
     fn get_username(&self) -> &str {
-        self.username.as_ref().map(String::as_str).unwrap_or("")
+        self.username.as_deref().unwrap_or("")
     }
     fn get_password(&self) -> &str {
         ""

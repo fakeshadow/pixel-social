@@ -1,14 +1,12 @@
-use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json},
     Error, HttpResponse,
 };
-use futures::future::{FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
     cache::POOL_REDIS,
-    cache_update::RedisFailedTaskSender,
+    cache_update::CacheServiceAddr,
     db::{GetStatement, ParseRowStream, POOL},
 };
 
@@ -18,9 +16,7 @@ use crate::model::{
     topic::{Topic, TopicRequest},
 };
 
-pub fn add_topic(
-    addr: Data<RedisFailedTaskSender>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
+pub async fn add_topic(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Error> {
     let req = TopicRequest {
         id: None,
         user_id: Some(1),
@@ -38,12 +34,10 @@ pub fn add_topic(
         privilege: 9,
     };
 
-    Box::pin(async move { crate::router::topic::add_async(jwt, Json(req), addr).await }).compat()
+    crate::router::topic::add(jwt, Json(req), addr).await
 }
 
-pub fn add_post(
-    addr: Data<RedisFailedTaskSender>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
+pub async fn add_post(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Error> {
     let req = PostRequest {
         id: None,
         user_id: Some(1),
@@ -60,20 +54,10 @@ pub fn add_post(
         privilege: 9,
     };
 
-    crate::router::post::add_async(jwt, Json(req), addr)
-        .boxed_local()
-        .compat()
+    crate::router::post::add(jwt, Json(req), addr).await
 }
 
-pub fn raw() -> impl Future01<Item = HttpResponse, Error = Error> {
-    raw_async().boxed_local().compat().from_err()
-}
-
-pub fn raw_cache() -> impl Future01<Item = HttpResponse, Error = Error> {
-    raw_cache_async().boxed_local().compat()
-}
-
-async fn raw_async() -> Result<HttpResponse, ResError> {
+pub async fn raw() -> Result<HttpResponse, ResError> {
     let ids = vec![
         1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4,
     ];
@@ -116,7 +100,7 @@ async fn raw_async() -> Result<HttpResponse, ResError> {
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }
 
-async fn raw_cache_async() -> Result<HttpResponse, Error> {
+pub async fn raw_cache() -> Result<HttpResponse, Error> {
     let ids = vec![
         1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];

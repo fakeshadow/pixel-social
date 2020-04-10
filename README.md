@@ -1,7 +1,7 @@
 ### **A Simple Community App backend**
 
 #### Requirement:
-`rust 1.39.0-beta.5 (fa5c2f3e5 2019-10-02)`<br>
+`rust 1.42 stable`<br>
 `PostgreSQL 10 and above`<br>
 `Redis 5.0.4 and above`<br>
 `Flutter 1.5 and above with flutter_web preview`<br>

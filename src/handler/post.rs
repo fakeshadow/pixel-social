@@ -4,7 +4,7 @@ use chrono::Utc;
 use futures::FutureExt;
 use tokio_postgres::types::{ToSql, Type};
 
-use crate::handler::cache_update::RedisFailedTaskSender;
+use crate::handler::cache_update::CacheServiceAddr;
 use crate::handler::{
     cache::{MyRedisPool, POST_U8},
     cache_update::CacheFailedMessage,
@@ -173,30 +173,20 @@ impl MyRedisPool {
         self.build_sets(p, POST_U8, true).await
     }
 
-    pub(crate) async fn update_post_send_fail(
-        &self,
-        p: Vec<Post>,
-        addr: RedisFailedTaskSender,
-    ) -> Result<(), ()> {
+    pub(crate) async fn update_post_send_fail(&self, p: Vec<Post>, addr: CacheServiceAddr) {
         let r = self.build_sets(&p, POST_U8, true).await;
         if r.is_err() {
             if let Some(id) = p.first().map(|p| p.id) {
                 let _ = addr.send(CacheFailedMessage::FailedPostUpdate(id)).await;
             }
         };
-        Ok(())
     }
 
-    pub(crate) async fn add_post_send_fail(
-        &self,
-        p: Vec<Post>,
-        addr: RedisFailedTaskSender,
-    ) -> Result<(), ()> {
+    pub(crate) async fn add_post_send_fail(&self, p: Vec<Post>, addr: CacheServiceAddr) {
         if self.add_post(&p).await.is_err() {
             if let Some(id) = p.first().map(|p| p.id) {
                 let _ = addr.send(CacheFailedMessage::FailedPost(id)).await;
             }
         }
-        Ok(())
     }
 }

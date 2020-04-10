@@ -45,8 +45,8 @@ impl MyPostgresPool {
             .always_check(false)
             .idle_timeout(None)
             .max_lifetime(None)
-            .min_idle(24)
-            .max_size(24)
+            .min_idle(1)
+            .max_size(12)
             .build_uninitialized(mgr)
             .expect("Failed to build postgres pool");
 

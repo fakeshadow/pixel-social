@@ -1,7 +1,6 @@
 use std::future::Future;
 
-use actix::prelude::{Actor, Addr, Context, Handler, Message};
-use actix_async_await::ResponseStdFuture;
+use actix::prelude::{Actor, Addr, Context, Handler, Message, ResponseFuture};
 use async_std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use chrono::{NaiveDateTime, Utc};
 use hashbrown::HashMap;
@@ -40,6 +39,9 @@ pub struct TalkService;
 
 impl Actor for TalkService {
     type Context = Context<Self>;
+    fn started(&mut self, _: &mut Self::Context) {
+        println!("talk service actor have started");
+    }
 }
 
 pub type TalkServiceAddr = Addr<TalkService>;
@@ -171,6 +173,7 @@ impl MyRedisPool {
             .arg(arg)
             .query_async::<_, ()>(&mut conn)
             .await?;
+
         Ok(())
     }
 }
@@ -182,36 +185,33 @@ pub struct AuthRequest {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct DisconnectRequest {
     pub session_id: u32,
 }
 
 impl Handler<DisconnectRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: DisconnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id;
 
-            let r: Result<(), ResError> = async {
-                SESSIONS.remove_session_hm(sid).await?;
-                // we set user's online status in redis to 0 when user's websocket session disconnecting
-                POOL_REDIS.set_online_status(sid, 0, true).await?;
-                Ok(())
-            }
-            .await;
-
-            if let Err(e) = r {
+            if let Err(e) = SESSIONS.remove_session_hm(sid).await {
                 SESSIONS.send_error(sid, &e).await
-            }
-        };
+            };
 
-        ResponseStdFuture::from(f)
+            // we set user's online status in redis to 0 when user's websocket session disconnecting
+            if let Err(e) = POOL_REDIS.set_online_status(sid, 0, true).await {
+                SESSIONS.send_error(sid, &e).await
+            };
+        })
     }
 }
 
 // pass Some(talk_id) in json for public message, pass None for private message
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct TextMessageRequest {
     pub text: String,
     pub talk_id: Option<u32>,
@@ -220,11 +220,11 @@ pub struct TextMessageRequest {
 }
 
 impl Handler<TextMessageRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: TextMessageRequest, _: &mut Context<Self>) -> Self::Result {
         // ToDo: batch insert messages to database.
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             // the double layer async/await is to handle ResError more easily. We stringify the error and send them to websocket session actor.
@@ -272,14 +272,13 @@ impl Handler<TextMessageRequest> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct ConnectRequest {
     pub session_id: u32,
     pub online_status: u32,
@@ -287,37 +286,32 @@ pub struct ConnectRequest {
 }
 
 impl Handler<ConnectRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: ConnectRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id;
 
-            let r = async {
-                let status = msg.online_status;
-                let addr = msg.addr;
+            let status = msg.online_status;
+            let addr = msg.addr;
 
-                POOL_REDIS.set_online_status(sid, status, true).await?;
-
-                SESSIONS.insert_session_hm(sid, addr.clone()).await?;
-
-                addr.do_send(SessionMessage(
-                    SendMessage::Success("Connection Success").stringify(),
-                ));
-                Ok(())
-            }
-            .await;
-
-            if let Err(e) = r {
+            if let Err(e) = POOL_REDIS.set_online_status(sid, status, true).await {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
+            };
 
-        ResponseStdFuture::from(f)
+            if let Err(e) = SESSIONS.insert_session_hm(sid, addr.clone()).await {
+                SESSIONS.send_error(sid, &e).await;
+            };
+
+            addr.do_send(SessionMessage(
+                SendMessage::Success("Connection Success").stringify(),
+            ));
+        })
     }
 }
 
 #[derive(Deserialize, Message, Clone)]
+#[rtype(result = "()")]
 pub struct CreateTalkRequest {
     pub session_id: Option<u32>,
     pub name: String,
@@ -326,10 +320,10 @@ pub struct CreateTalkRequest {
 }
 
 impl Handler<CreateTalkRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: CreateTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -376,24 +370,23 @@ impl Handler<CreateTalkRequest> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }
 
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct JoinTalkRequest {
     pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 impl Handler<JoinTalkRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: JoinTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
             let r = async {
                 let tid = msg.talk_id;
@@ -426,23 +419,22 @@ impl Handler<JoinTalkRequest> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }
 
 #[derive(Message, Deserialize)]
+#[rtype(result = "()")]
 pub struct TalkByIdRequest {
     pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 impl Handler<TalkByIdRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
     fn handle(&mut self, msg: TalkByIdRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -467,50 +459,46 @@ impl Handler<TalkByIdRequest> for TalkService {
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
             }
-        };
-
-        ResponseStdFuture::from(f)
+        })
     }
 }
 
 #[derive(Message, Deserialize)]
+#[rtype(result = "()")]
 pub struct UsersByIdRequest {
     pub session_id: Option<u32>,
     user_id: Vec<u32>,
 }
 
 impl Handler<UsersByIdRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
     fn handle(&mut self, msg: UsersByIdRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
-            let r = async {
-                let u = POOL_REDIS.get_users(msg.user_id).await?;
-                let s = SendMessage::Users(&u).stringify();
-
-                SESSIONS.send_message(sid, s.as_str()).await;
-                Ok(())
+            match POOL_REDIS.get_users(msg.user_id).await {
+                Ok(u) => {
+                    let s = SendMessage::Users(&u).stringify();
+                    SESSIONS.send_message(sid, s.as_str()).await;
+                }
+                Err(e) => {
+                    SESSIONS.send_error(sid, &e).await;
+                }
             }
-            .await;
-            if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+        })
     }
 }
 
 #[derive(Message, Deserialize)]
+#[rtype(result = "()")]
 pub struct UserRelationRequest {
     pub session_id: Option<u32>,
 }
 
 impl Handler<UserRelationRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
     fn handle(&mut self, msg: UserRelationRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -533,20 +521,18 @@ impl Handler<UserRelationRequest> for TalkService {
                 SESSIONS.send_message(sid, s.as_str()).await;
 
                 Ok(())
-            }
-            .await;
+            };
 
-            if let Err(e) = r {
+            if let Err(e) = r.await {
                 SESSIONS.send_error(sid, &e).await;
             }
-        };
-
-        ResponseStdFuture::from(f)
+        })
     }
 }
 
 // pass talk id for talk public messages. pass none for private history message.
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct GetHistory {
     pub time: String,
     pub talk_id: Option<u32>,
@@ -554,13 +540,13 @@ pub struct GetHistory {
 }
 
 impl Handler<GetHistory> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: GetHistory, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
-            let r = async {
+            let f = async {
                 let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
 
                 let pool = POOL.get().await?;
@@ -597,19 +583,17 @@ impl Handler<GetHistory> for TalkService {
 
                 SESSIONS.send_message(sid, s.as_str()).await;
                 Ok(())
-            }
-            .await;
+            };
 
-            if let Err(e) = r {
+            if let Err(e) = f.await {
                 SESSIONS.send_error(sid, &e).await;
             }
-        };
-
-        ResponseStdFuture::from(f)
+        })
     }
 }
 
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct RemoveUserRequest {
     pub session_id: Option<u32>,
     user_id: u32,
@@ -617,10 +601,10 @@ pub struct RemoveUserRequest {
 }
 
 impl Handler<RemoveUserRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: RemoveUserRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -665,14 +649,13 @@ impl Handler<RemoveUserRequest> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }
 
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct Admin {
     pub add: Option<u32>,
     pub remove: Option<u32>,
@@ -681,10 +664,10 @@ pub struct Admin {
 }
 
 impl Handler<Admin> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: Admin, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -721,24 +704,23 @@ impl Handler<Admin> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }
 
 #[derive(Deserialize, Message)]
+#[rtype(result = "()")]
 pub struct DeleteTalkRequest {
     pub session_id: Option<u32>,
     pub talk_id: u32,
 }
 
 impl Handler<DeleteTalkRequest> for TalkService {
-    type Result = ResponseStdFuture<()>;
+    type Result = ResponseFuture<()>;
 
     fn handle(&mut self, msg: DeleteTalkRequest, _: &mut Context<Self>) -> Self::Result {
-        let f = async move {
+        Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
             let r = async {
@@ -762,9 +744,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
 
             if let Err(e) = r {
                 SESSIONS.send_error(sid, &e).await;
-            }
-        };
-
-        ResponseStdFuture::from(f)
+            };
+        })
     }
 }

@@ -4,13 +4,14 @@ use std::{
 
 use chrono::Utc;
 use futures::TryFutureExt;
+use heng_rs::{Context, Scheduler, SchedulerSender};
 use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
     cache::{MyRedisPool, POOL_REDIS},
     db::{MyPostgresPool, ParseRowStream, POOL},
-    messenger::ErrRepTaskAddr,
+    messenger::ErrorReportServiceAddr,
 };
 use crate::model::{
     common::{dur, dur_as_sec},
@@ -20,7 +21,6 @@ use crate::model::{
         UserTrophySet, UserTrophyTitle,
     },
 };
-use heng_rs::{Context, Scheduler, SchedulerSender};
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
 
@@ -65,7 +65,7 @@ const INSERT_TITLES: &str =
                 ELSE TRUE
                 END";
 
-struct PSNTask {
+struct PSNService {
     psn: PSN,
     queue: VecDeque<PSNRequest>,
     // stores all reqs' timestamp goes to PSN.
@@ -74,10 +74,10 @@ struct PSNTask {
     // trophy_set request use <online_id:::np_communication_id> as key
     // chrono::Utc::now().timestamp is score
     time_gate: hashbrown::HashMap<Vec<u8>, i64>,
-    rep_addr: Option<ErrRepTaskAddr>,
+    rep_addr: Option<ErrorReportServiceAddr>,
 }
 
-impl PSNTask {
+impl PSNService {
     async fn handle_request(&mut self, req: PSNRequest) -> Result<(), ResError> {
         self.check_token().await?;
         match req {
@@ -303,9 +303,9 @@ impl PSNTask {
     }
 }
 
-pub(crate) type PSNTaskAddr = SchedulerSender<(PSNRequest, bool)>;
+pub(crate) type PSNServiceAddr = SchedulerSender<(PSNRequest, bool)>;
 
-impl Scheduler for PSNTask {
+impl Scheduler for PSNService {
     type Message = (PSNRequest, bool);
 
     fn handler<'a>(
@@ -330,14 +330,14 @@ impl Scheduler for PSNTask {
     }
 }
 
-pub(crate) fn init_psn_service(rep_addr: Option<ErrRepTaskAddr>) -> PSNTaskAddr {
-    let psn_task = PSNTask {
+pub(crate) fn init_psn_service(rep_addr: Option<ErrorReportServiceAddr>) -> PSNServiceAddr {
+    let psn_service = PSNService {
         psn: Default::default(),
         queue: Default::default(),
         time_gate: Default::default(),
         rep_addr,
     };
-    psn_task.start_with_handler(PSN_REQ_INTERVAL)
+    psn_service.start_with_handler(PSN_REQ_INTERVAL)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

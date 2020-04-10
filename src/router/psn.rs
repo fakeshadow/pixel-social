@@ -1,38 +1,25 @@
-use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Query},
     Error, HttpResponse,
 };
-use futures::{FutureExt, TryFutureExt};
 
 use crate::handler::{
     auth::UserJwt,
     cache::POOL_REDIS,
     db::POOL,
-    psn::{PSNRequest, PSNTaskAddr},
+    psn::{PSNRequest, PSNServiceAddr},
 };
 
-pub fn query_handler(
+pub async fn query_handler(
     req: Query<PSNRequest>,
-    addr: Data<PSNTaskAddr>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    query_handler_async(req, addr).boxed_local().compat()
-}
-
-async fn query_handler_async(
-    req: Query<PSNRequest>,
-    addr: Data<PSNTaskAddr>,
+    addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     // send request to psn service no matter the local result.
     // psn service will handle if the request will add to psn queue by using time gate.
     let req_clone = req.clone();
-    actix::spawn(
-        Box::pin(async move {
-            let _ = addr.send((req_clone, false)).await;
-        })
-        .unit_error()
-        .compat(),
-    );
+    actix_rt::spawn(Box::pin(async move {
+        let _ = addr.send((req_clone, false)).await;
+    }));
 
     // return local result if there is any.
     match &*req {
@@ -69,61 +56,34 @@ async fn query_handler_async(
     Ok(HttpResponse::Ok().finish())
 }
 
-pub fn query_handler_with_jwt(
+pub async fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    addr: Data<PSNTaskAddr>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    query_handler_with_jwt_async(jwt, req, addr)
-        .boxed_local()
-        .compat()
-}
-
-async fn query_handler_with_jwt_async(
-    jwt: UserJwt,
-    req: Query<PSNRequest>,
-    addr: Data<PSNTaskAddr>,
+    addr: Data<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     match *req {
         PSNRequest::Auth { .. } => {
             let req = req.into_inner().check_privilege(jwt.privilege)?;
 
             // auth request is add to the front of queue.
-            actix::spawn(
-                Box::pin(async move {
-                    let _ = addr.send((req, true)).await;
-                })
-                .unit_error()
-                .compat(),
-            );
+            actix_rt::spawn(async move {
+                let _ = addr.send((req, true)).await;
+            });
         }
         PSNRequest::Activation { .. } => {
-            actix::spawn(
-                Box::pin(async move {
-                    let _ = addr
-                        .send((req.into_inner().attach_user_id(jwt.user_id), false))
-                        .await;
-                })
-                .unit_error()
-                .compat(),
-            );
+            actix_rt::spawn(async move {
+                let _ = addr
+                    .send((req.into_inner().attach_user_id(jwt.user_id), false))
+                    .await;
+            });
         }
         _ => (),
     };
     Ok(HttpResponse::Ok().finish())
 }
 
-pub fn community(
-    jwt_opt: Option<UserJwt>,
-    //    req: Json<>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    community_async(jwt_opt).boxed_local().compat()
-}
-
-async fn community_async(
-    jwt_opt: Option<UserJwt>,
+pub async fn community(// jwt_opt: Option<UserJwt>,
     //    req: Json<>,
 ) -> Result<HttpResponse, Error> {
-    //    let _jwt_opt = jwt_opt.0;
     Ok(HttpResponse::Ok().finish())
 }

@@ -33,21 +33,25 @@ const INSERT_USER_TYPES: &[Type; 6] = &[
 // jwt token extractor from request
 impl FromRequest for JwtPayLoad {
     type Error = ResError;
-    type Future = Result<UserJwt, ResError>;
+    type Future = futures::future::Ready<Result<UserJwt, Self::Error>>;
     type Config = ();
 
     fn from_request(req: &HttpRequest, _: &mut dev::Payload) -> Self::Future {
-        match req.headers().get("Authorization") {
-            Some(h) => {
-                let vec: Vec<&str> = h
-                    .to_str()
-                    .map_err(|_| ResError::ParseError)?
-                    .rsplitn(2, ' ')
-                    .collect();
-                JwtPayLoad::from(vec.get(0).ok_or(ResError::Unauthorized)?)
-            }
-            None => Err(ResError::Unauthorized),
+        futures::future::ready(extract_jwt(req))
+    }
+}
+
+fn extract_jwt(req: &HttpRequest) -> Result<UserJwt, ResError> {
+    match req.headers().get("Authorization") {
+        Some(h) => {
+            let vec: Vec<&str> = h
+                .to_str()
+                .map_err(|_| ResError::ParseError)?
+                .rsplitn(2, ' ')
+                .collect();
+            JwtPayLoad::from(vec.get(0).ok_or(ResError::Unauthorized)?)
         }
+        None => Err(ResError::Unauthorized),
     }
 }
 
@@ -55,8 +59,7 @@ impl MyPostgresPool {
     pub(crate) async fn register(&self, req: AuthRequest) -> Result<Vec<User>, ResError> {
         let email = req
             .email
-            .as_ref()
-            .map(String::as_str)
+            .as_deref()
             .ok_or(ResError::BadRequest)?;
         let username = req.username.as_str();
 

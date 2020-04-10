@@ -29,7 +29,7 @@ lazy_static! {
 }
 
 // start a WebSocket actor with each incoming connection.
-pub fn talk(
+pub async fn talk(
     req: HttpRequest,
     stream: Payload,
     talk: Data<TalkServiceAddr>,
@@ -56,9 +56,9 @@ impl Handler<SessionMessage> for WsChatSession {
 }
 
 // stream handler iter every incoming message from frontend.
-impl StreamHandler<ws::Message, ws::ProtocolError> for WsChatSession {
-    fn handle(&mut self, msg: ws::Message, ctx: &mut Self::Context) {
-        match msg {
+impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
+    fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        match msg.unwrap() {
             // stop the actor
             ws::Message::Close(_) => ctx.stop(),
             ws::Message::Ping(msg) => {

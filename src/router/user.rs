@@ -1,22 +1,16 @@
-use actix::prelude::Future as Future01;
 use actix_web::{
     web::{Data, Json, Path},
     Error, HttpResponse,
 };
-use futures::{FutureExt, TryFutureExt};
 
-use crate::handler::cache_update::RedisFailedTaskSender;
+use crate::handler::cache_update::CacheServiceAddr;
 use crate::handler::{auth::UserJwt, cache::POOL_REDIS, db::POOL};
 use crate::model::{
     common::Validator,
     user::{UpdateRequest, User},
 };
 
-pub fn get(jwt: UserJwt, req: Path<u32>) -> impl Future01<Item = HttpResponse, Error = Error> {
-    get_async(jwt, req).boxed_local().compat()
-}
-
-async fn get_async(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
+pub async fn get(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
     let id = req.into_inner();
     let u = match POOL_REDIS.get_users(vec![id]).await {
         Ok(u) => u,
@@ -30,18 +24,10 @@ async fn get_async(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> 
     }
 }
 
-pub fn update(
+pub async fn update(
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    addr: Data<RedisFailedTaskSender>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    update_async(jwt, req, addr).boxed_local().compat()
-}
-
-async fn update_async(
-    jwt: UserJwt,
-    req: Json<UpdateRequest>,
-    addr: Data<RedisFailedTaskSender>,
+    addr: Data<CacheServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
@@ -57,13 +43,6 @@ async fn update_async(
     Ok(res)
 }
 
-pub(crate) fn update_user_send_fail(u: Vec<User>, addr: Data<RedisFailedTaskSender>) {
-    actix::spawn(
-        Box::pin(async move {
-            POOL_REDIS
-                .update_user_send_fail(u, addr.get_ref().clone())
-                .await
-        })
-        .compat(),
-    );
+pub(crate) fn update_user_send_fail(u: Vec<User>, addr: Data<CacheServiceAddr>) {
+    actix_rt::spawn(POOL_REDIS.update_user_send_fail(u, addr.get_ref().clone()));
 }

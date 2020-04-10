@@ -1,6 +1,4 @@
-use actix::prelude::Future as Future01;
 use actix_web::{web::Query, Error, HttpResponse};
-use futures::future::{FutureExt, TryFutureExt};
 
 use crate::handler::{cache::POOL_REDIS, db::POOL};
 use crate::model::{
@@ -9,13 +7,7 @@ use crate::model::{
     topic::Topic,
 };
 
-pub fn query_handler(
-    req: Query<CategoryQuery>,
-) -> impl Future01<Item = HttpResponse, Error = Error> {
-    query_handler_async(req).boxed_local().compat()
-}
-
-async fn query_handler_async(req: Query<CategoryQuery>) -> Result<HttpResponse, Error> {
+pub async fn query_handler(req: Query<CategoryQuery>) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Popular => {
             let result = POOL_REDIS

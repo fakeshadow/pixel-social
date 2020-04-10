@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use chrono::NaiveDateTime;
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use redis::aio::MultiplexedConnection;
 use redis::{cmd, pipe, Pipeline};
 use tang_rs::{Builder, Pool, PoolRef, RedisManager};
@@ -58,8 +58,8 @@ impl MyRedisPool {
             .always_check(false)
             .idle_timeout(None)
             .max_lifetime(None)
-            .min_idle(24)
-            .max_size(24)
+            .min_idle(1)
+            .max_size(12)
             .build_uninitialized(mgr)
             .expect("Failed to build postgres pool");
 
@@ -502,14 +502,10 @@ impl MyRedisPool {
         let pipe = pip.await;
         let mut conn = self.get().await?.get_conn().clone();
 
-        actix::spawn(
-            Box::pin(async move {
-                let _ = pipe.query_async::<_, ()>(&mut conn).await;
-                println!("updated cache");
-            })
-            .unit_error()
-            .compat(),
-        );
+        actix_rt::spawn(async move {
+            let _ = pipe.query_async::<_, ()>(&mut conn).await;
+            println!("updated cache");
+        });
         Ok(())
     }
 }

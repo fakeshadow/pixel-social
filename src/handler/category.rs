@@ -3,7 +3,7 @@ use std::future::Future;
 use futures::FutureExt;
 use tokio_postgres::types::ToSql;
 
-use crate::handler::cache_update::RedisFailedTaskSender;
+use crate::handler::cache_update::CacheServiceAddr;
 use crate::handler::{
     cache::{MyRedisPool, CATEGORY_U8},
     cache_update::CacheFailedMessage,
@@ -135,16 +135,11 @@ impl MyRedisPool {
         self.build_sets(c, CATEGORY_U8, false).await
     }
 
-    pub(crate) async fn add_category_send_fail(
-        &self,
-        c: Vec<Category>,
-        addr: RedisFailedTaskSender,
-    ) -> Result<(), ()> {
+    pub(crate) async fn add_category_send_fail(&self, c: Vec<Category>, addr: CacheServiceAddr) {
         if self.add_category(&c).await.is_err() {
             if let Some(id) = c.first().map(|c| c.id) {
                 let _ = addr.send(CacheFailedMessage::FailedCategory(id)).await;
             }
-        }
-        Ok(())
+        };
     }
 }

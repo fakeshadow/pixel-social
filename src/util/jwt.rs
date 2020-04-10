@@ -1,7 +1,7 @@
 use std::env;
 
 use chrono::{Duration, Local};
-use jsonwebtoken::{decode, encode, Header, Validation};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
 use crate::model::errors::ResError;
 
@@ -22,10 +22,12 @@ impl JwtPayLoad {
     }
 
     pub fn from(string: &str) -> Result<JwtPayLoad, ResError> {
-        let token: JwtPayLoad =
-            decode::<JwtPayLoad>(string, get_secret().as_ref(), &Validation::default())
-                .map(|data| data.claims)
-                .map_err(|_| ResError::Unauthorized)?;
+        let decoded_key = DecodingKey::from_base64_secret(key_string().as_str())
+            .expect("Fatal error when encoding JWT secret");
+
+        let token: JwtPayLoad = decode::<JwtPayLoad>(string, &decoded_key, &Validation::default())
+            .map(|data| data.claims)
+            .map_err(|_| ResError::Unauthorized)?;
         if token.exp as i64 - Local::now().timestamp() < 0 {
             Err(ResError::AuthTimeout)
         } else {
@@ -34,8 +36,10 @@ impl JwtPayLoad {
     }
 
     pub fn sign(&self) -> Result<String, ResError> {
-        encode(&Header::default(), &self, get_secret().as_ref())
-            .map_err(|_| ResError::InternalServerError)
+        let encoded_key = EncodingKey::from_base64_secret(key_string().as_str())
+            .expect("Fatal error when encoding JWT secret");
+
+        encode(&Header::default(), &self, &encoded_key).map_err(|_| ResError::InternalServerError)
     }
 
     pub fn check_privilege(&self) -> Result<(), ResError> {
@@ -61,6 +65,6 @@ impl JwtPayLoad {
     }
 }
 
-fn get_secret() -> String {
+fn key_string() -> String {
     env::var("JWT_SECRET").unwrap_or_else(|_| "fallback secret".into())
 }

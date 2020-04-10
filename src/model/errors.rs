@@ -1,7 +1,7 @@
+use std::convert::From;
+
 use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::{Display, From};
-
-use psn_api_rs::PSNError;
 
 // res errors use from trait to convert error types and generate http response or added to error report.
 #[derive(Debug, Display, From)]
@@ -53,7 +53,7 @@ pub enum ResError {
 }
 
 impl ResponseError for ResError {
-    fn render_response(&self) -> HttpResponse {
+    fn error_response(&self) -> HttpResponse {
         match self {
             ResError::InternalServerError => {
                 HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error"))
@@ -112,6 +112,7 @@ impl From<PostgresPoolError> for ResError {
 }
 
 use tang_rs::RedisPoolError;
+
 impl From<RedisPoolError> for ResError {
     fn from(e: RedisPoolError) -> Self {
         match e {
@@ -186,6 +187,7 @@ impl From<lettre::smtp::error::Error> for ResError {
     }
 }
 
+use psn_api_rs::PSNError;
 //ToDo: handle psn error.
 impl From<PSNError> for ResError {
     fn from(_e: PSNError) -> ResError {

@@ -1,6 +1,6 @@
 use std::{env, future::Future, pin::Pin, time::Duration};
 
-use futures::{FutureExt, TryFutureExt};
+use futures::FutureExt;
 use hashbrown::HashMap;
 use heng_rs::{Context, Scheduler, SchedulerSender};
 use hyper::{Body, Client, Request};
@@ -28,11 +28,11 @@ const SMS_INTERVAL: Duration = dur(500);
 
 // MailerTask run on a interval and read from redis cache and send mails to users.
 // At the start of each interval it will try to pop a message from the task's context. The message is sent to admin through mail.
-struct MailerTask {
+struct MailerService {
     mailer: Option<Mailer>,
 }
 
-impl MailerTask {
+impl MailerService {
     fn generate_mailer(mut self) -> Self {
         let mail_server = env::var("MAIL_SERVER").expect("Mail server must be set in .env");
         let username =
@@ -109,11 +109,11 @@ impl MailerTask {
 
 // SMSTask run on a interval and read from redis cache and send sms message to users.
 // At the start of each interval it will try to pop a message from the task's context. The message is sent to admin through sms.
-struct SMSTask {
+struct SMSService {
     twilio: Option<Twilio>,
 }
 
-impl SMSTask {
+impl SMSService {
     fn generate_twilio(mut self) -> Self {
         let url = env::var("TWILIO_URL").expect("TWILIO_URL must be set in .env");
         let account_id =
@@ -158,7 +158,7 @@ impl SMSTask {
             ("Body", msg.message),
         ];
 
-        let https = HttpsConnector::new().unwrap();
+        let https = HttpsConnector::new();
         let client = Client::builder().build::<_, Body>(https);
 
         let body = serde_urlencoded::to_string(form).map_err(|_| ResError::HttpClient)?;
@@ -193,13 +193,13 @@ impl SMSTask {
 // ErrReportTask run on a interval and handle Error Report.
 // At the beginning of every interval we try to pop a message from the task's context and convert it to RepError which will be inserted to self.error HashMap.
 // Then we go through the HashMap and stringify the errors beyond threshold and send them to MailerTask and SMSTask in String form.
-struct ErrReportTask {
+struct ErrReportService {
     mailer_addr: Option<SchedulerSender<String>>,
     sms_addr: Option<SchedulerSender<String>>,
     error: HashMap<RepError, u32>,
 }
 
-impl ErrReportTask {
+impl ErrReportService {
     async fn handle_err_rep(&mut self) -> Result<(), ResError> {
         if let Ok(s) = self.stringify_report() {
             if let Some(addr) = self.mailer_addr.as_ref() {
@@ -253,7 +253,7 @@ impl ErrReportTask {
     }
 }
 
-impl Scheduler for MailerTask {
+impl Scheduler for MailerService {
     type Message = String;
 
     fn handler<'a>(
@@ -269,7 +269,7 @@ impl Scheduler for MailerTask {
     }
 }
 
-impl Scheduler for SMSTask {
+impl Scheduler for SMSService {
     type Message = String;
 
     fn handler<'a>(
@@ -285,7 +285,7 @@ impl Scheduler for SMSTask {
     }
 }
 
-impl Scheduler for ErrReportTask {
+impl Scheduler for ErrReportService {
     type Message = ResError;
 
     fn handler<'a>(
@@ -310,7 +310,7 @@ impl Scheduler for ErrReportTask {
     }
 }
 
-pub(crate) type ErrRepTaskAddr = SchedulerSender<ResError>;
+pub(crate) type ErrorReportServiceAddr = SchedulerSender<ResError>;
 
 pub(crate) fn init_message_services(
     use_mail: bool,
@@ -319,10 +319,10 @@ pub(crate) fn init_message_services(
 ) -> (
     Option<SchedulerSender<String>>,
     Option<SchedulerSender<String>>,
-    Option<ErrRepTaskAddr>,
+    Option<ErrorReportServiceAddr>,
 ) {
     let mailer_addr = if use_mail {
-        let mailer_task = MailerTask { mailer: None };
+        let mailer_task = MailerService { mailer: None };
         let addr = mailer_task
             .generate_mailer()
             .start_with_handler(MAIL_INTERVAL);
@@ -332,7 +332,7 @@ pub(crate) fn init_message_services(
     };
 
     let sms_addr = if use_sms {
-        let sms_task = SMSTask { twilio: None };
+        let sms_task = SMSService { twilio: None };
         let addr = sms_task.generate_twilio().start_with_handler(SMS_INTERVAL);
         Some(addr)
     } else {
@@ -340,7 +340,7 @@ pub(crate) fn init_message_services(
     };
 
     let err_rep_addr = if use_rep {
-        let err_rep_task = ErrReportTask {
+        let err_rep_task = ErrReportService {
             mailer_addr: mailer_addr.clone(),
             sms_addr: sms_addr.clone(),
             error: Default::default(),
@@ -363,11 +363,8 @@ impl MyRedisPool {
             if let Ok(m) = serde_json::to_string(&mail) {
                 if let Ok(pool_ref) = self.get().await {
                     let conn = (&*pool_ref).clone();
-                    actix::spawn(
-                        Self::add_activation_mail_cache(conn, u.id, uuid, m)
-                            .map_err(|_| ())
-                            .boxed_local()
-                            .compat(),
+                    actix_rt::spawn(
+                        Self::add_activation_mail_cache(conn, u.id, uuid, m).map(|_| ()),
                     );
                 }
             }
@@ -377,12 +374,7 @@ impl MyRedisPool {
     pub(crate) async fn remove_activation_uuid(&self, uuid: &str) {
         if let Ok(pool_ref) = self.get().await {
             let conn = (&*pool_ref).clone();
-            actix::spawn(
-                Self::del_cache(conn, uuid.to_owned())
-                    .map_err(|_| ())
-                    .boxed_local()
-                    .compat(),
-            );
+            actix_rt::spawn(Self::del_cache(conn, uuid.to_owned()).map(|_| ()));
         }
     }
 }

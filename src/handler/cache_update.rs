@@ -1,26 +1,36 @@
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
+use actix::prelude::{
+    Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture,
+};
 use chrono::Utc;
-use heng_rs::{Context, Scheduler, SchedulerSender};
 use redis::{aio::MultiplexedConnection, cmd, pipe};
 
 use crate::handler::{
     cache::{MyRedisPool, POOL_REDIS},
     db::POOL,
-    messenger::ErrRepTaskAddr,
+    messenger::ErrorReportServiceAddr,
 };
 use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
 
 const LIST_INTERVAL: Duration = dur(5000);
 const FAILED_INTERVAL: Duration = dur(3000);
 
-struct RedisFailedTask {
-    rep_addr: Option<ErrRepTaskAddr>,
+pub struct CacheService {
+    rep_addr: Option<ErrorReportServiceAddr>,
+    message: VecDeque<CacheFailedMessage>,
 }
 
-impl RedisFailedTask {
-    async fn update_failed(&mut self, msg: &CacheFailedMessage) -> Result<(), ResError> {
-        match *msg {
+impl CacheService {
+    pub fn new(rep_addr: Option<ErrorReportServiceAddr>) -> Self {
+        CacheService {
+            rep_addr,
+            message: Default::default(),
+        }
+    }
+
+    async fn update_failed(msg: CacheFailedMessage) -> Result<(), ResError> {
+        match msg {
             CacheFailedMessage::FailedTopic(id) => {
                 let (t, _) = POOL.get_topics(&[id]).await?;
                 POOL_REDIS.add_topic(&t).await
@@ -49,64 +59,66 @@ impl RedisFailedTask {
     }
 }
 
-impl Scheduler for RedisFailedTask {
-    type Message = CacheFailedMessage;
+pub type CacheServiceAddr = Addr<CacheService>;
 
-    fn handler<'a>(
-        &'a mut self,
-        ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            while let Some(msg) = ctx.get_msg_front() {
-                if let Err(e) = self.update_failed(&msg).await {
-                    ctx.get_queue_mut(|queue| queue.push_back(msg));
-                    if let Some(addr) = self.rep_addr.as_ref() {
-                        let _ = addr.send(e).await;
-                    }
-                    return;
-                }
+impl Actor for CacheService {
+    type Context = Context<Self>;
+
+    // when actor starts we run a interval function every 60 seconds to inject all failed cache to redis.
+    // we run another interval function every 10 seconds to update redis list to correct the cache order.
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.run_interval(FAILED_INTERVAL, |act, ctx| {
+            while let Some(msg) = act.message.pop_front() {
+                ctx.spawn(
+                    Self::update_failed(msg.clone())
+                        .into_actor(act)
+                        .map(spawn_report),
+                );
             }
-        })
+        });
+
+        ctx.run_interval(LIST_INTERVAL, |act, ctx| {
+            ctx.spawn(
+                POOL_REDIS
+                    .handle_list_update()
+                    .into_actor(act)
+                    .map(spawn_report),
+            );
+        });
     }
 }
 
-struct RedisListTask {
-    rep_addr: Option<ErrRepTaskAddr>,
-}
-
-impl Scheduler for RedisListTask {
-    type Message = ();
-
-    fn handler<'a>(
-        &'a mut self,
-        _ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if let Err(e) = POOL_REDIS.handle_list_update().await {
-                if let Some(addr) = self.rep_addr.as_ref() {
-                    let _ = addr.send(e).await;
-                }
-            }
-        })
-    }
-}
-
-pub(crate) type RedisFailedTaskSender = SchedulerSender<CacheFailedMessage>;
-
-// We have to return all the addresses.
-// Because if a address goes out of the scope the tasks's context will lose it's ability to access the Signal receiver and cause an error.
-pub(crate) fn init_cache_update_services(
-    rep_addr: Option<ErrRepTaskAddr>,
-) -> (RedisFailedTaskSender, SchedulerSender<()>) {
-    let list_task = RedisListTask {
-        rep_addr: rep_addr.clone(),
+// no type infer needed as we don't use context in the function
+fn spawn_report<A>(r: Result<(), ResError>, act: &mut CacheService, _ctx: &mut A) {
+    if let Err(e) = r {
+        if let Some(addr) = act.rep_addr.as_ref() {
+            let addr = addr.clone();
+            actix_rt::spawn(async move {
+                let _ = addr.send(e).await;
+            })
+        }
     };
-    let addr_temp = list_task.start_with_handler(LIST_INTERVAL);
+}
 
-    let failed_task = RedisFailedTask { rep_addr };
-    let addr = failed_task.start_with_handler(FAILED_INTERVAL);
+// CacheService will push data failed to insert into redis to CacheUpdateService actor.
+// we will just keep retrying to add them to redis.
+#[derive(Clone, Message)]
+#[rtype(result = "()")]
+pub enum CacheFailedMessage {
+    FailedTopic(u32),
+    FailedPost(u32),
+    FailedCategory(u32),
+    FailedUser(u32),
+    FailedTopicUpdate(u32),
+    FailedPostUpdate(u32),
+}
 
-    (addr, addr_temp)
+impl Handler<CacheFailedMessage> for CacheService {
+    type Result = ();
+
+    fn handle(&mut self, msg: CacheFailedMessage, _ctx: &mut Context<Self>) -> Self::Result {
+        self.message.push_back(msg);
+    }
 }
 
 impl MyRedisPool {
@@ -178,11 +190,16 @@ async fn update_list(
         if a1 == b1 {
             if let Some(a) = tids.get(a0) {
                 if let Some(b) = tids.get(b0) {
-                    if a > b {
-                        return Ordering::Less;
-                    } else if a < b {
-                        return Ordering::Greater;
-                    };
+                    match a.cmp(b) {
+                        Ordering::Greater => return Ordering::Less,
+                        Ordering::Less => return Ordering::Greater,
+                        _ => ()
+                    }
+                    // if a > b {
+                    //     return Ordering::Less;
+                    // } else if a < b {
+                    //     return Ordering::Greater;
+                    // };
                 }
             }
             Ordering::Equal
@@ -250,15 +267,4 @@ async fn update_post_count(
     } else {
         Ok(())
     }
-}
-
-// CacheService will push data failed to insert into redis to CacheUpdateService actor.
-// we will just keep retrying to add them to redis.
-pub enum CacheFailedMessage {
-    FailedTopic(u32),
-    FailedPost(u32),
-    FailedCategory(u32),
-    FailedUser(u32),
-    FailedTopicUpdate(u32),
-    FailedPostUpdate(u32),
 }

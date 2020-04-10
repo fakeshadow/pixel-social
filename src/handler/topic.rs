@@ -7,7 +7,7 @@ use tokio_postgres::types::{ToSql, Type};
 use crate::handler::{
     cache::MyRedisPool,
     cache::TOPIC_U8,
-    cache_update::{CacheFailedMessage, RedisFailedTaskSender},
+    cache_update::{CacheFailedMessage, CacheServiceAddr},
     db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
@@ -190,30 +190,20 @@ impl MyRedisPool {
         self.build_sets(t, TOPIC_U8, true).await
     }
 
-    pub(crate) async fn update_topic_send_fail(
-        &self,
-        t: Vec<Topic>,
-        addr: RedisFailedTaskSender,
-    ) -> Result<(), ()> {
+    pub(crate) async fn update_topic_send_fail(&self, t: Vec<Topic>, addr: CacheServiceAddr) {
         let r = self.build_sets(&t, TOPIC_U8, true).await;
         if r.is_err() {
             if let Some(id) = t.first().map(|t| t.id) {
                 let _ = addr.send(CacheFailedMessage::FailedTopicUpdate(id)).await;
             }
         };
-        Ok(())
     }
 
-    pub(crate) async fn add_topic_send_fail(
-        &self,
-        t: Vec<Topic>,
-        addr: RedisFailedTaskSender,
-    ) -> Result<(), ()> {
+    pub(crate) async fn add_topic_send_fail(&self, t: Vec<Topic>, addr: CacheServiceAddr) {
         if self.add_topic(&t).await.is_err() {
             if let Some(id) = t.first().map(|t| t.id) {
                 let _ = addr.send(CacheFailedMessage::FailedTopic(id)).await;
             }
         };
-        Ok(())
     }
 }

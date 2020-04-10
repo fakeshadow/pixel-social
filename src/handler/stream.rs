@@ -1,6 +1,5 @@
 use actix_multipart::Field;
-use bytes::Bytes;
-use futures::{compat::Stream01CompatExt, TryStreamExt};
+use futures::StreamExt;
 use rand::Rng;
 use tokio::{fs::File, io::AsyncWriteExt};
 
@@ -21,7 +20,7 @@ impl UploadResponse {
     }
 }
 
-pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
+pub async fn save_file(mut field: Field) -> Result<UploadResponse, ResError> {
     // need to add an file size limiter here;
 
     let params = field.content_disposition().ok_or(ResError::BadRequest)?;
@@ -51,19 +50,12 @@ pub async fn save_file(field: Field) -> Result<UploadResponse, ResError> {
         .await
         .map_err(|_| ResError::InternalServerError)?;
 
-    let bytes = field
-        .compat()
-        .try_collect::<Vec<Bytes>>()
-        .await
-        .map_err(|_| ResError::InternalServerError)?;
-
-    // ToDo: currently only one file can be handled at one time. Need to find a way to handle multiple and nested file upload.
-
-    let bytes = bytes.first().ok_or(ResError::InternalServerError)?;
-
-    file.write_all(bytes.as_ref())
-        .await
-        .map_err(|_| ResError::InternalServerError)?;
+    while let Some(chunk) = field.next().await {
+        let bytes = chunk.map_err(|_| ResError::InternalServerError)?;
+        file.write_all(&bytes)
+            .await
+            .map_err(|_| ResError::InternalServerError)?;
+    }
 
     Ok(UploadResponse::new(origin_filename, new_filename))
 }

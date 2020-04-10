@@ -39,7 +39,7 @@ impl WsChatSession {
                 ctx.stop();
                 return;
             }
-            ctx.ping("");
+            ctx.ping(b"");
         });
     }
 }

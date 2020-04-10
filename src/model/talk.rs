@@ -54,4 +54,5 @@ pub struct PrivateMessage {
 }
 
 #[derive(Message)]
+#[rtype(result = "()")]
 pub struct SessionMessage(pub String);
