@@ -88,6 +88,9 @@ version = "0.15.1"
 default-features = false
 features = ["tokio-rt-core"]
 
+[dependencies.redis-tang]
+git = "https://github.com/fakeshadow/tang_rs"
+
 [dependencies.regex]
 version = "1.3.1"
 
@@ -104,10 +107,6 @@ version = "1.0.51"
 [dependencies.serde_urlencoded]
 version = "0.6.1"
 
-[dependencies.tang-rs]
-git = "https://github.com/fakeshadow/tang_rs"
-features = [ "tokio-postgres", "redis" ]
-
 [dependencies.tokio]
 version = "0.2.16"
 default-features = false
@@ -116,6 +115,9 @@ features = [ "fs" ]
 [dependencies.tokio-postgres]
 version = "0.5.3"
 features = [ "with-chrono-0_4" ]
+
+[dependencies.tokio-postgres-tang]
+git = "https://github.com/fakeshadow/tang_rs"
 
 [dependencies.psn_api_rs]
 git = "https://github.com/fakeshadow/psn_api_rs.git"

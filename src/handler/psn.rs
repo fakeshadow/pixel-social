@@ -97,11 +97,10 @@ impl PSNService {
                 POOL.query_update_user_trophy_set(r).await
             }
             PSNRequest::Auth {
-                uuid,
-                two_step,
+                npsso,
                 refresh_token,
             } => {
-                self.handle_auth_request(uuid, two_step, refresh_token)
+                self.handle_auth_request(npsso, refresh_token)
                     .await
             }
             PSNRequest::Activation {
@@ -119,16 +118,14 @@ impl PSNService {
     // update_xxx are mostly postgres and redis write operation.
     fn handle_auth_request<'a>(
         &'a mut self,
-        uuid: Option<String>,
-        two_step: Option<String>,
+        npsso: Option<String>,
         refresh_token: Option<String>,
     ) -> impl Future<Output = Result<(), ResError>> + 'a {
         let mut psn = PSN::new();
 
-        if let Some(uuid) = uuid {
-            if let Some(two_step) = two_step {
-                psn = psn.add_uuid(uuid).add_two_step(two_step);
-            }
+        if let Some(npsso) = npsso {
+                psn = psn.add_npsso(npsso);
+
         };
 
         if let Some(refresh_token) = refresh_token {
@@ -355,8 +352,7 @@ pub enum PSNRequest {
         np_communication_id: String,
     },
     Auth {
-        uuid: Option<String>,
-        two_step: Option<String>,
+        npsso: Option<String>,
         refresh_token: Option<String>,
     },
     Activation {

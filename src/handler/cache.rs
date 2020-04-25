@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 use futures::TryFutureExt;
 use redis::aio::MultiplexedConnection;
 use redis::{cmd, pipe, Pipeline};
-use tang_rs::{Builder, Pool, PoolRef, RedisManager};
+use redis_tang::{Builder, Pool, PoolRef, RedisManager};
 
 use crate::model::{
     cache_schema::{HashMapBrown, RefTo},

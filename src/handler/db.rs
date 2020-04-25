@@ -5,8 +5,8 @@ use std::{
 };
 
 use futures::{Stream, TryFutureExt};
-use tang_rs::{Builder, Pool, PoolRef, PostgresManager};
 use tokio_postgres::{types::Type, Client, NoTls, Row, SimpleQueryMessage, Statement};
+use tokio_postgres_tang::{Builder, Pool, PoolRef, PostgresManager};
 
 use crate::model::{common::SelfUserId, db_schema::TryFromRow, errors::ResError};
 

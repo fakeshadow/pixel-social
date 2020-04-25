@@ -101,7 +101,7 @@ impl ResponseError for ResError {
     }
 }
 
-use tang_rs::PostgresPoolError;
+use tokio_postgres_tang::PostgresPoolError;
 impl From<PostgresPoolError> for ResError {
     fn from(e: PostgresPoolError) -> Self {
         match e {
@@ -111,8 +111,7 @@ impl From<PostgresPoolError> for ResError {
     }
 }
 
-use tang_rs::RedisPoolError;
-
+use redis_tang::RedisPoolError;
 impl From<RedisPoolError> for ResError {
     fn from(e: RedisPoolError) -> Self {
         match e {

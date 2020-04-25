@@ -64,8 +64,8 @@ pub type CacheServiceAddr = Addr<CacheService>;
 impl Actor for CacheService {
     type Context = Context<Self>;
 
-    // when actor starts we run a interval function every 60 seconds to inject all failed cache to redis.
-    // we run another interval function every 10 seconds to update redis list to correct the cache order.
+    // when actor starts we run a interval function to inject all failed cache to redis.
+    // we run another interval function to update redis list to correct the cache order.
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.run_interval(FAILED_INTERVAL, |act, ctx| {
             while let Some(msg) = act.message.pop_front() {
@@ -193,7 +193,7 @@ async fn update_list(
                     match a.cmp(b) {
                         Ordering::Greater => return Ordering::Less,
                         Ordering::Less => return Ordering::Greater,
-                        _ => ()
+                        _ => (),
                     }
                     // if a > b {
                     //     return Ordering::Less;

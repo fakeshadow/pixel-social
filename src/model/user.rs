@@ -127,9 +127,7 @@ pub struct AuthRequest {
 
 impl AuthRequest {
     pub fn extract_email(&self) -> Result<&str, ResError> {
-        self.email
-            .as_deref()
-            .ok_or(ResError::BadRequest)
+        self.email.as_deref().ok_or(ResError::BadRequest)
     }
 
     pub fn make_user<'a>(

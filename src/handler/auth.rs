@@ -57,10 +57,7 @@ fn extract_jwt(req: &HttpRequest) -> Result<UserJwt, ResError> {
 
 impl MyPostgresPool {
     pub(crate) async fn register(&self, req: AuthRequest) -> Result<Vec<User>, ResError> {
-        let email = req
-            .email
-            .as_deref()
-            .ok_or(ResError::BadRequest)?;
+        let email = req.email.as_deref().ok_or(ResError::BadRequest)?;
         let username = req.username.as_str();
 
         let pool = self.get().await?;

@@ -12,8 +12,8 @@ pub async fn upload_file(_: UserJwt, mut multipart: Multipart) -> Result<HttpRes
     // ignore bad field and keep iter the stream.
     // ToDo: add error info for failed multipart.
     while let Ok(Some(field)) = multipart.try_next().await {
-            let r = save_file(field).await?;
-            result.push(r);
+        let r = save_file(field).await?;
+        result.push(r);
     }
 
     Ok(HttpResponse::Ok().json(result))
