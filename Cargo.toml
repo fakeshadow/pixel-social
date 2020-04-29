@@ -88,7 +88,7 @@ version = "0.15.1"
 default-features = false
 features = ["tokio-rt-core"]
 
-[dependencies.redis-tang]
+[dependencies.redis_tang]
 git = "https://github.com/fakeshadow/tang_rs"
 
 [dependencies.regex]
@@ -116,7 +116,7 @@ features = [ "fs" ]
 version = "0.5.3"
 features = [ "with-chrono-0_4" ]
 
-[dependencies.tokio-postgres-tang]
+[dependencies.tokio_postgres_tang]
 git = "https://github.com/fakeshadow/tang_rs"
 
 [dependencies.psn_api_rs]

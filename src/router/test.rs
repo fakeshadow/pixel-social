@@ -104,7 +104,9 @@ pub async fn raw_cache() -> Result<HttpResponse, Error> {
     let ids = vec![
         1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
+
     let (t, uids) = POOL_REDIS.get_topics(ids).await?;
+
     let u = POOL_REDIS.get_users(uids).await?;
 
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))

@@ -186,7 +186,7 @@ impl From<lettre::smtp::error::Error> for ResError {
     }
 }
 
-use psn_api_rs::PSNError;
+use psn_api_rs::psn::PSNError;
 //ToDo: handle psn error.
 impl From<PSNError> for ResError {
     fn from(_e: PSNError) -> ResError {

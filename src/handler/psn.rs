@@ -5,7 +5,7 @@ use std::{
 use chrono::Utc;
 use futures::TryFutureExt;
 use heng_rs::{Context, Scheduler, SchedulerSender};
-use psn_api_rs::{PSNRequest as PSNRequestLib, PSN};
+use psn_api_rs::{traits::PSNRequest as PSNRequestLib, psn::PSN};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
@@ -21,6 +21,7 @@ use crate::model::{
         UserTrophySet, UserTrophyTitle,
     },
 };
+use psn_api_rs::types::PSNInner;
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
 
@@ -66,7 +67,7 @@ const INSERT_TITLES: &str =
                 END";
 
 struct PSNService {
-    psn: PSN,
+    psn: Option<PSN>,
     queue: VecDeque<PSNRequest>,
     // stores all reqs' timestamp goes to PSN.
     // profile request use <online_id> as key,
@@ -78,12 +79,15 @@ struct PSNService {
 }
 
 impl PSNService {
+    fn psn(&self) -> &PSN {
+        self.psn.as_ref().unwrap()
+    }
+
     async fn handle_request(&mut self, req: PSNRequest) -> Result<(), ResError> {
-        self.check_token().await?;
         match req {
-            PSNRequest::Profile { online_id } => self.handle_profile_request(online_id).await,
+            PSNRequest::Profile { online_id } => self.handle_profile_request(&online_id).await,
             PSNRequest::TrophyTitles { online_id, .. } => {
-                let r = self.handle_trophy_titles_request(online_id).await?;
+                let r = self.handle_trophy_titles_request(&online_id).await?;
                 // only check db connection when update user trophy titles.
                 POOL.update_user_trophy_titles(&r).await
             }
@@ -92,7 +96,7 @@ impl PSNService {
                 np_communication_id,
             } => {
                 let r = self
-                    .handle_trophy_set_request(online_id, np_communication_id)
+                    .handle_trophy_set_request(&online_id, &np_communication_id)
                     .await?;
                 POOL.query_update_user_trophy_set(r).await
             }
@@ -108,7 +112,7 @@ impl PSNService {
                 online_id,
                 code,
             } => {
-                self.handle_activation_request(user_id, online_id, code)
+                self.handle_activation_request(user_id, &online_id, code)
                     .await
             }
         }
@@ -116,35 +120,36 @@ impl PSNService {
 
     // handle_xxx_request are mostly the network request to PSN.
     // update_xxx are mostly postgres and redis write operation.
-    fn handle_auth_request<'a>(
-        &'a mut self,
+    async fn handle_auth_request(
+        &mut self,
         npsso: Option<String>,
         refresh_token: Option<String>,
-    ) -> impl Future<Output = Result<(), ResError>> + 'a {
-        let mut psn = PSN::new();
+    ) -> Result<(), ResError> {
+        let mut psn = PSNInner::new();
+        let client = PSN::new_client()?;
 
         if let Some(npsso) = npsso {
-                psn = psn.add_npsso(npsso);
-
+                psn.add_npsso(npsso);
         };
 
         if let Some(refresh_token) = refresh_token {
-            psn = psn.add_refresh_token(refresh_token);
+            psn.add_refresh_token(refresh_token);
         }
 
-        psn.auth().map_err(ResError::from).map_ok(move |p| {
-            println!("{:#?}", p);
-            self.psn = p;
-        })
+        let inner =  psn.auth(client).await?;
+        let psn = PSN::new(vec![inner]).await;
+        self.psn = Some(psn);
+
+        Ok(())
     }
 
     async fn handle_activation_request(
-        &mut self,
+        &self,
         user_id: Option<u32>,
-        online_id: String,
+        online_id: &str,
         code: String,
     ) -> Result<(), ResError> {
-        let u: PSNUserLib = self.psn.add_online_id(online_id).get_profile().await?;
+        let u: PSNUserLib = self.psn().get_profile(online_id).await?;
 
         if u.about_me == code {
             let mut u = UserPSNProfile::from(u);
@@ -159,20 +164,20 @@ impl PSNService {
     }
 
     async fn handle_trophy_titles_request(
-        &mut self,
-        online_id: String,
+        &self,
+        online_id: &str,
     ) -> Result<Vec<UserTrophyTitle>, ResError> {
         // get profile before and after getting titles and check if the user's np_id remains unchanged.
-        let u: PSNUserLib = self.psn.add_online_id(online_id).get_profile().await?;
-        let titles_first: TrophyTitlesLib = self.psn.get_titles(0).await?;
+        let u = self.psn().get_profile::<PSNUserLib>(online_id).await?;
+        let titles_first = self.psn().get_titles::<TrophyTitlesLib>(online_id, 0).await?;
 
         let total = titles_first.total_results;
         let page = total / 100;
         let mut f = Vec::with_capacity(page as usize);
         for i in 0..page {
             f.push(
-                self.psn
-                    .get_titles::<TrophyTitlesLib>((i + 1) * 100)
+                self.psn()
+                    .get_titles::<TrophyTitlesLib>(online_id,(i + 1) * 100)
                     .map_err(ResError::from),
             )
         }
@@ -197,7 +202,7 @@ impl PSNService {
             }
         }
 
-        let uu: PSNUserLib = self.psn.get_profile().await?;
+        let uu: PSNUserLib = self.psn().get_profile(online_id).await?;
 
         if u.np_id.as_str() == uu.np_id.as_str() && u.online_id.as_str() == uu.online_id.as_str() {
             let np_id = uu.np_id;
@@ -217,24 +222,23 @@ impl PSNService {
     }
 
     async fn handle_trophy_set_request(
-        &mut self,
-        online_id: String,
-        np_communication_id: String,
+        &self,
+        online_id: &str,
+        np_communication_id: &str,
     ) -> Result<UserTrophySet, ResError> {
-        let u: PSNUserLib = self.psn.add_online_id(online_id).get_profile().await?;
+        let u = self.psn().get_profile::<PSNUserLib>(online_id).await?;
 
-        let set: TrophySetLib = self
-            .psn
-            .add_np_communication_id(np_communication_id.clone())
-            .get_trophy_set()
+        let set = self
+            .psn()
+            .get_trophy_set::<TrophySetLib>(online_id, np_communication_id)
             .await?;
 
-        let uu: PSNUserLib = self.psn.get_profile().await?;
+        let uu = self.psn().get_profile::<PSNUserLib>(online_id).await?;
 
         if u.np_id == uu.np_id && u.online_id == uu.online_id {
             Ok(UserTrophySet {
                 np_id: uu.np_id,
-                np_communication_id,
+                np_communication_id: np_communication_id.into(),
                 is_visible: true,
                 trophies: set.trophies.iter().map(|t| t.into()).collect(),
             })
@@ -243,26 +247,16 @@ impl PSNService {
         }
     }
 
-    async fn handle_profile_request(&mut self, online_id: String) -> Result<(), ResError> {
+    async fn handle_profile_request(&mut self, online_id: &str) -> Result<(), ResError> {
         let u: UserPSNProfile = self
-            .psn
-            .add_online_id(online_id)
-            .get_profile::<PSNUserLib>()
+            .psn()
+            .get_profile::<PSNUserLib>(online_id)
             .await?
             .into();
 
         POOL_REDIS
             .build_sets(&[u], crate::handler::cache::USER_PSN_U8, false)
             .await
-    }
-
-    async fn check_token(&mut self) -> Result<&mut Self, ResError> {
-        if self.psn.should_refresh() {
-            self.psn.gen_access_from_refresh().await?;
-            Ok(self)
-        } else {
-            Ok(self)
-        }
     }
 
     fn add_to_queue(&mut self, req: PSNRequest, is_front: bool) {
@@ -329,7 +323,7 @@ impl Scheduler for PSNService {
 
 pub(crate) fn init_psn_service(rep_addr: Option<ErrorReportServiceAddr>) -> PSNServiceAddr {
     let psn_service = PSNService {
-        psn: Default::default(),
+        psn: None,
         queue: Default::default(),
         time_gate: Default::default(),
         rep_addr,
