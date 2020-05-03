@@ -5,7 +5,7 @@ use std::{
 use chrono::Utc;
 use futures::TryFutureExt;
 use heng_rs::{Context, Scheduler, SchedulerSender};
-use psn_api_rs::{traits::PSNRequest as PSNRequestLib, psn::PSN};
+use psn_api_rs::{psn::PSN, traits::PSNRequest as PSNRequestLib};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
@@ -103,10 +103,7 @@ impl PSNService {
             PSNRequest::Auth {
                 npsso,
                 refresh_token,
-            } => {
-                self.handle_auth_request(npsso, refresh_token)
-                    .await
-            }
+            } => self.handle_auth_request(npsso, refresh_token).await,
             PSNRequest::Activation {
                 user_id,
                 online_id,
@@ -129,14 +126,14 @@ impl PSNService {
         let client = PSN::new_client()?;
 
         if let Some(npsso) = npsso {
-                psn.add_npsso(npsso);
+            psn.add_npsso(npsso);
         };
 
         if let Some(refresh_token) = refresh_token {
             psn.add_refresh_token(refresh_token);
         }
 
-        let inner =  psn.auth(client).await?;
+        let inner = psn.auth(client).await?;
         let psn = PSN::new(vec![inner]).await;
         self.psn = Some(psn);
 
@@ -169,7 +166,10 @@ impl PSNService {
     ) -> Result<Vec<UserTrophyTitle>, ResError> {
         // get profile before and after getting titles and check if the user's np_id remains unchanged.
         let u = self.psn().get_profile::<PSNUserLib>(online_id).await?;
-        let titles_first = self.psn().get_titles::<TrophyTitlesLib>(online_id, 0).await?;
+        let titles_first = self
+            .psn()
+            .get_titles::<TrophyTitlesLib>(online_id, 0)
+            .await?;
 
         let total = titles_first.total_results;
         let page = total / 100;
@@ -177,7 +177,7 @@ impl PSNService {
         for i in 0..page {
             f.push(
                 self.psn()
-                    .get_titles::<TrophyTitlesLib>(online_id,(i + 1) * 100)
+                    .get_titles::<TrophyTitlesLib>(online_id, (i + 1) * 100)
                     .map_err(ResError::from),
             )
         }

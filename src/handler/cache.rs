@@ -4,8 +4,7 @@ use std::task::{Context, Poll};
 
 use chrono::NaiveDateTime;
 use futures::TryFutureExt;
-use redis::aio::MultiplexedConnection;
-use redis::{cmd, pipe, Pipeline};
+use redis::{aio::MultiplexedConnection, cmd, pipe, Pipeline};
 use redis_tang::{Builder, Pool, PoolRef, RedisManager};
 
 use crate::model::{
