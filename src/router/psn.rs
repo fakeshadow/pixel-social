@@ -5,8 +5,8 @@ use actix_web::{
 
 use crate::handler::{
     auth::UserJwt,
-    cache::POOL_REDIS,
-    db::POOL,
+    cache::pool_redis,
+    db::pool,
     psn::{PSNRequest, PSNServiceAddr},
 };
 
@@ -24,15 +24,15 @@ pub async fn query_handler(
     // return local result if there is any.
     match &*req {
         PSNRequest::Profile { online_id } => {
-            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
+            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
                 return Ok(HttpResponse::Ok().json(&p));
             }
         }
         PSNRequest::TrophyTitles { online_id, page } => {
             let page = page.parse::<u32>().unwrap_or(1);
 
-            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
-                if let Ok(t) = POOL.get_trophy_titles(p.np_id.as_str(), page).await {
+            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
+                if let Ok(t) = pool().get_trophy_titles(p.np_id.as_str(), page).await {
                     return Ok(HttpResponse::Ok().json(&t));
                 }
             }
@@ -41,8 +41,8 @@ pub async fn query_handler(
             online_id,
             np_communication_id,
         } => {
-            if let Ok(p) = POOL_REDIS.get_psn_profile(online_id.as_str()).await {
-                if let Ok(s) = POOL
+            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
+                if let Ok(s) = pool()
                     .get_trophy_set(p.np_id.as_str(), np_communication_id.as_str())
                     .await
                 {

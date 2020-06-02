@@ -4,7 +4,7 @@ use actix_web::{
 };
 
 use crate::handler::cache_update::CacheServiceAddr;
-use crate::handler::{auth::UserJwt, cache::POOL_REDIS, db::POOL};
+use crate::handler::{auth::UserJwt, cache::pool_redis, db::pool};
 use crate::model::{
     errors::ResError,
     post::{Post, PostRequest},
@@ -22,11 +22,11 @@ pub async fn add(
         .attach_user_id(Some(jwt.user_id))
         .check_new()?;
 
-    let p = POOL.add_post(req).await?;
+    let p = pool().add_post(req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
-    actix_rt::spawn(POOL_REDIS.add_post_send_fail(p, addr.get_ref().clone()));
+    actix_rt::spawn(pool_redis().add_post_send_fail(p, addr.get_ref().clone()));
 
     Ok(res)
 }
@@ -41,7 +41,7 @@ pub async fn update(
         .attach_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let p = POOL.update_post(req).await?;
+    let p = pool().update_post(req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 
@@ -51,7 +51,7 @@ pub async fn update(
 }
 
 pub(crate) fn update_post_send_fail(p: Vec<Post>, addr: Data<CacheServiceAddr>) {
-    actix_rt::spawn(POOL_REDIS.update_post_send_fail(p, addr.get_ref().clone()));
+    actix_rt::spawn(pool_redis().update_post_send_fail(p, addr.get_ref().clone()));
 }
 
 pub async fn get(id: Path<u32>) -> Result<HttpResponse, Error> {
@@ -60,24 +60,24 @@ pub async fn get(id: Path<u32>) -> Result<HttpResponse, Error> {
     let mut should_update_p = false;
     let mut should_update_u = false;
 
-    let (p, uids) = match POOL_REDIS.get_posts(vec![id]).await {
+    let (p, uids) = match pool_redis().get_posts(vec![id]).await {
         Ok((p, uids)) => (p, uids),
         Err(e) => {
             if let ResError::IdsFromCache(pids) = e {
                 should_update_p = true;
-                POOL.get_posts(&pids).await?
+                pool().get_posts(&pids).await?
             } else {
                 return Err(e.into());
             }
         }
     };
 
-    let u = match POOL_REDIS.get_users(uids).await {
+    let u = match pool_redis().get_users(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {
                 should_update_u = true;
-                POOL.get_users(&uids).await?
+                pool().get_users(&uids).await?
             } else {
                 vec![]
             }
@@ -85,10 +85,10 @@ pub async fn get(id: Path<u32>) -> Result<HttpResponse, Error> {
     };
 
     if should_update_u {
-        let _ = POOL_REDIS.update_users(&u).await;
+        let _ = pool_redis().update_users(&u).await;
     }
     if should_update_p {
-        let _ = POOL_REDIS.update_posts(&p).await;
+        let _ = pool_redis().update_posts(&p).await;
     }
 
     Ok(HttpResponse::Ok().json(Post::attach_users(&p, &u)))

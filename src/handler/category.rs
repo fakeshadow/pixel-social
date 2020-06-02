@@ -56,7 +56,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_CATEGORY, &[]).await?;
 
-        let cid = crate::model::common::GLOBALS
+        let cid = crate::model::common::global()
             .lock()
             .map(|mut lock| lock.next_cid())
             .await;

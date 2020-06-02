@@ -7,8 +7,8 @@ use chrono::Utc;
 use redis::{aio::MultiplexedConnection, cmd, pipe};
 
 use crate::handler::{
-    cache::{MyRedisPool, POOL_REDIS},
-    db::POOL,
+    cache::{pool_redis, MyRedisPool},
+    db::pool,
     messenger::ErrorReportServiceAddr,
 };
 use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
@@ -32,28 +32,28 @@ impl CacheService {
     async fn update_failed(msg: CacheFailedMessage) -> Result<(), ResError> {
         match msg {
             CacheFailedMessage::FailedTopic(id) => {
-                let (t, _) = POOL.get_topics(&[id]).await?;
-                POOL_REDIS.add_topic(&t).await
+                let (t, _) = pool().get_topics(&[id]).await?;
+                pool_redis().add_topic(&t).await
             }
             CacheFailedMessage::FailedPost(id) => {
-                let (p, _) = POOL.get_posts(&[id]).await?;
-                POOL_REDIS.add_post(&p).await
+                let (p, _) = pool().get_posts(&[id]).await?;
+                pool_redis().add_post(&p).await
             }
             CacheFailedMessage::FailedCategory(id) => {
-                let c = POOL.get_categories(&[id]).await?;
-                POOL_REDIS.add_category(&c).await
+                let c = pool().get_categories(&[id]).await?;
+                pool_redis().add_category(&c).await
             }
             CacheFailedMessage::FailedUser(id) => {
-                let u = POOL.get_users(&[id]).await?;
-                POOL_REDIS.update_users(&u).await
+                let u = pool().get_users(&[id]).await?;
+                pool_redis().update_users(&u).await
             }
             CacheFailedMessage::FailedTopicUpdate(id) => {
-                let (t, _) = POOL.get_topics(&[id]).await?;
-                POOL_REDIS.update_topics(&t).await
+                let (t, _) = pool().get_topics(&[id]).await?;
+                pool_redis().update_topics(&t).await
             }
             CacheFailedMessage::FailedPostUpdate(id) => {
-                let (p, _) = POOL.get_posts(&[id]).await?;
-                POOL_REDIS.update_posts(&p).await
+                let (p, _) = pool().get_posts(&[id]).await?;
+                pool_redis().update_posts(&p).await
             }
         }
     }
@@ -79,7 +79,7 @@ impl Actor for CacheService {
 
         ctx.run_interval(LIST_INTERVAL, |act, ctx| {
             ctx.spawn(
-                POOL_REDIS
+                pool_redis()
                     .handle_list_update()
                     .into_actor(act)
                     .map(spawn_report),
@@ -179,37 +179,6 @@ async fn update_list(
 
     let (HashMapBrown(tids), counts) = pip.query_async::<_, ListWithSortedRange>(conn).await?;
 
-    use std::cmp::Ordering;
-
-    let mut counts = counts
-        .into_iter()
-        .filter(|(tid, _)| tids.contains_key(tid))
-        .collect::<Vec<(u32, u32)>>();
-
-    counts.sort_by(|(a0, a1), (b0, b1)| {
-        if a1 == b1 {
-            if let Some(a) = tids.get(a0) {
-                if let Some(b) = tids.get(b0) {
-                    match a.cmp(b) {
-                        Ordering::Greater => return Ordering::Less,
-                        Ordering::Less => return Ordering::Greater,
-                        _ => (),
-                    }
-                    // if a > b {
-                    //     return Ordering::Less;
-                    // } else if a < b {
-                    //     return Ordering::Greater;
-                    // };
-                }
-            }
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        }
-    });
-
-    let counts = counts.into_iter().map(|(id, _)| id).collect::<Vec<u32>>();
-
     let mut should_update = false;
     let mut pip = pipe();
     pip.atomic();
@@ -224,6 +193,41 @@ async fn update_list(
             should_update = true;
         }
     }
+
+    let block = actix_web::web::block(move || {
+        use std::cmp::Ordering;
+
+        let mut counts = counts
+            .into_iter()
+            .filter(|(tid, _)| tids.contains_key(tid))
+            .collect::<Vec<(u32, u32)>>();
+
+        counts.sort_by(|(a0, a1), (b0, b1)| {
+            if a1 == b1 {
+                if let Some(a) = tids.get(a0) {
+                    if let Some(b) = tids.get(b0) {
+                        match a.cmp(b) {
+                            Ordering::Greater => return Ordering::Less,
+                            Ordering::Less => return Ordering::Greater,
+                            _ => (),
+                        }
+                        // if a > b {
+                        //     return Ordering::Less;
+                        // } else if a < b {
+                        //     return Ordering::Greater;
+                        // };
+                    }
+                }
+                Ordering::Equal
+            } else {
+                Ordering::Greater
+            }
+        });
+
+        Ok::<_, ResError>(counts.into_iter().map(|(id, _)| id).collect::<Vec<u32>>())
+    });
+
+    let counts = block.await?;
 
     if !counts.is_empty() {
         pip.cmd("del")

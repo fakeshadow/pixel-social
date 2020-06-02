@@ -5,12 +5,13 @@ use std::{
 use chrono::Utc;
 use futures::TryFutureExt;
 use heng_rs::{Context, Scheduler, SchedulerSender};
+use psn_api_rs::types::PSNInner;
 use psn_api_rs::{psn::PSN, traits::PSNRequest as PSNRequestLib};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
-    cache::{MyRedisPool, POOL_REDIS},
-    db::{MyPostgresPool, ParseRowStream, POOL},
+    cache::{pool_redis, MyRedisPool},
+    db::{pool, MyPostgresPool, ParseRowStream},
     messenger::ErrorReportServiceAddr,
 };
 use crate::model::{
@@ -21,7 +22,6 @@ use crate::model::{
         UserTrophySet, UserTrophyTitle,
     },
 };
-use psn_api_rs::types::PSNInner;
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
 
@@ -89,7 +89,7 @@ impl PSNService {
             PSNRequest::TrophyTitles { online_id, .. } => {
                 let r = self.handle_trophy_titles_request(&online_id).await?;
                 // only check db connection when update user trophy titles.
-                POOL.update_user_trophy_titles(&r).await
+                pool().update_user_trophy_titles(&r).await
             }
             PSNRequest::TrophySet {
                 online_id,
@@ -98,7 +98,7 @@ impl PSNService {
                 let r = self
                     .handle_trophy_set_request(&online_id, &np_communication_id)
                     .await?;
-                POOL.query_update_user_trophy_set(r).await
+                pool().query_update_user_trophy_set(r).await
             }
             PSNRequest::Auth {
                 npsso,
@@ -151,7 +151,7 @@ impl PSNService {
         if u.about_me == code {
             let mut u = UserPSNProfile::from(u);
             u.id = user_id;
-            POOL_REDIS
+            pool_redis()
                 .build_sets(&[u], crate::handler::cache::USER_PSN_U8, false)
                 .await
         } else {
@@ -254,7 +254,7 @@ impl PSNService {
             .await?
             .into();
 
-        POOL_REDIS
+        pool_redis()
             .build_sets(&[u], crate::handler::cache::USER_PSN_U8, false)
             .await
     }
@@ -426,7 +426,7 @@ impl MyPostgresPool {
 
         match r {
             Ok(mut t_old) => {
-                let t_old = t_old.pop().ok_or(ResError::DataBaseReadError)?;
+                let t_old = t_old.pop().ok_or(ResError::PostgresError)?;
                 // count earned_date from existing user trophy set.
                 // if the count is reduced then we mark this trophy set not visible.
                 let mut earned_count = 0;
@@ -461,7 +461,7 @@ impl MyPostgresPool {
             // then it's better to look into the data before overwriting it with the following upsert
             // as we don't want to lose any first_earned_date.
             Err(e) => match e {
-                ResError::DataBaseReadError => return Err(e),
+                ResError::PostgresError => return Err(e),
                 ResError::ParseError => return Err(e),
                 _ => {}
             },

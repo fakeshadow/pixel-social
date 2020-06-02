@@ -1,6 +1,6 @@
 use actix_web::{web::Query, Error, HttpResponse};
 
-use crate::handler::{cache::POOL_REDIS, db::POOL};
+use crate::handler::{cache::pool_redis, db::pool};
 use crate::model::{
     category::{CategoryQuery, QueryType},
     errors::ResError,
@@ -10,29 +10,29 @@ use crate::model::{
 pub async fn query_handler(req: Query<CategoryQuery>) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Popular => {
-            let result = POOL_REDIS
+            let result = pool_redis()
                 .get_topics_pop(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
                 .await;
 
             if_query_db(result).await
         }
         QueryType::PopularAll => {
-            let result = POOL_REDIS.get_topics_pop_all(req.page.unwrap_or(1)).await;
+            let result = pool_redis().get_topics_pop_all(req.page.unwrap_or(1)).await;
 
             if_query_db(result).await
         }
         QueryType::Latest => {
-            let result = POOL_REDIS
+            let result = pool_redis()
                 .get_topics_late(req.category_id.unwrap_or(1), req.page.unwrap_or(1))
                 .await;
 
             if_query_db(result).await
         }
-        QueryType::All => match POOL_REDIS.get_categories_all().await {
+        QueryType::All => match pool_redis().get_categories_all().await {
             Ok(c) => Ok(HttpResponse::Ok().json(&c)),
             Err(_) => {
-                let c = POOL.get_categories_all().await?;
-                POOL_REDIS.update_categories(&c).await?;
+                let c = pool().get_categories_all().await?;
+                pool_redis().update_categories(&c).await?;
                 Ok(HttpResponse::Ok().json(&c))
             }
         },
@@ -50,19 +50,19 @@ async fn if_query_db(
         Err(e) => {
             if let ResError::IdsFromCache(tids) = e {
                 should_update_t = true;
-                POOL.get_topics(&tids).await?
+                pool().get_topics(&tids).await?
             } else {
                 return Err(e.into());
             }
         }
     };
 
-    let u = match POOL_REDIS.get_users(uids).await {
+    let u = match pool_redis().get_users(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {
                 should_update_u = true;
-                POOL.get_users(&uids).await?
+                pool().get_users(&uids).await?
             } else {
                 vec![]
             }
@@ -70,10 +70,10 @@ async fn if_query_db(
     };
 
     if should_update_u {
-        let _ = POOL_REDIS.update_users(&u).await;
+        let _ = pool_redis().update_users(&u).await;
     }
     if should_update_t {
-        let _ = POOL_REDIS.update_topics(&t).await;
+        let _ = pool_redis().update_topics(&t).await;
     }
 
     let res = Topic::attach_users(&t, &u);

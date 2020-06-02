@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::{Stream, TryFutureExt};
+use once_cell::sync::OnceCell;
 use tokio_postgres::{types::Type, Client, NoTls, Row, SimpleQueryMessage, Statement};
 use tokio_postgres_tang::{Builder, Pool, PoolRef, PostgresManager};
 
@@ -20,12 +21,17 @@ const INSERT_PRV_MSG: &str =
     "INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)";
 
 // construct static postgres pool so that it can be freely used through out the app without cloning.
-lazy_static! {
-    pub(crate) static ref POOL: MyPostgresPool = MyPostgresPool::new(
-        std::env::var("DATABASE_URL")
-            .expect("DATABASE_URL must be set in .env")
-            .as_str()
-    );
+
+pub fn pool() -> &'static MyPostgresPool {
+    static POOL: OnceCell<MyPostgresPool> = OnceCell::new();
+
+    POOL.get_or_init(|| {
+        MyPostgresPool::new(
+            std::env::var("DATABASE_URL")
+                .expect("DATABASE_URL must be set in .env")
+                .as_str(),
+        )
+    })
 }
 
 #[derive(Clone)]
@@ -47,8 +53,7 @@ impl MyPostgresPool {
             .max_lifetime(None)
             .min_idle(1)
             .max_size(12)
-            .build_uninitialized(mgr)
-            .expect("Failed to build postgres pool");
+            .build_uninitialized(mgr);
 
         MyPostgresPool(pool)
     }
@@ -79,13 +84,13 @@ where
     c.simple_query(query)
         .await?
         .first()
-        .ok_or(ResError::DataBaseReadError)
+        .ok_or(ResError::PostgresError)
         .map(|msg| match msg {
             SimpleQueryMessage::Row(r) => Ok(r),
             _ => Err(ResError::BadRequest),
         })??
         .get(column_index)
-        .ok_or(ResError::DataBaseReadError)?
+        .ok_or(ResError::PostgresError)?
         .parse::<T>()
         .map_err(|_| ResError::ParseError)
 }
@@ -212,6 +217,6 @@ pub trait GetStatement {
 
 impl GetStatement for std::collections::HashMap<String, Statement> {
     fn get_statement(&self, alias: &str) -> Result<&Statement, ResError> {
-        self.get(alias).ok_or(ResError::DataBaseReadError)
+        self.get(alias).ok_or(ResError::PostgresError)
     }
 }

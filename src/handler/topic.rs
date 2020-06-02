@@ -43,7 +43,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_TOPIC, INSERT_TOPIC_TYPES).await?;
 
-        let id = crate::model::common::GLOBALS
+        let id = crate::model::common::global()
             .lock()
             .map(|mut lock| lock.next_tid())
             .await;

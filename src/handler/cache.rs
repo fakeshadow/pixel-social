@@ -4,6 +4,7 @@ use std::task::{Context, Poll};
 
 use chrono::NaiveDateTime;
 use futures::TryFutureExt;
+use once_cell::sync::OnceCell;
 use redis::{aio::MultiplexedConnection, cmd, pipe, Pipeline};
 use redis_tang::{Builder, Pool, PoolRef, RedisManager};
 
@@ -35,13 +36,16 @@ pub const USER_PSN_U8: &[u8] = b"user_psn:";
 const SET_U8: &[u8] = b":set";
 const PERM_U8: &[u8] = b"_perm";
 
-// construct static redis pool so that it can be freely used through out the app without cloning.
-lazy_static! {
-    pub(crate) static ref POOL_REDIS: MyRedisPool = MyRedisPool::new(
-        std::env::var("REDIS_URL")
-            .expect("REDIS_URL must be set in .env")
-            .as_str()
-    );
+pub fn pool_redis() -> &'static MyRedisPool {
+    static POOL_REDIS: OnceCell<MyRedisPool> = OnceCell::new();
+
+    POOL_REDIS.get_or_init(|| {
+        MyRedisPool::new(
+            std::env::var("REDIS_URL")
+                .expect("REDIS_URL must be set in .env")
+                .as_str(),
+        )
+    })
 }
 
 #[derive(Clone)]
@@ -59,8 +63,7 @@ impl MyRedisPool {
             .max_lifetime(None)
             .min_idle(1)
             .max_size(12)
-            .build_uninitialized(mgr)
-            .expect("Failed to build postgres pool");
+            .build_uninitialized(mgr);
 
         MyRedisPool(pool)
     }

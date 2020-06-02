@@ -1,36 +1,47 @@
 use std::convert::From;
+use std::fmt::{Debug, Display};
 
+use actix_web::error::BlockingError;
 use actix_web::{error::ResponseError, HttpResponse};
 use derive_more::{Display, From};
+use psn_api_rs::psn::PSNError;
+use redis_tang::RedisPoolError;
+use tokio_postgres_tang::PostgresPoolError;
 
 // res errors use from trait to convert error types and generate http response or added to error report.
 #[derive(Debug, Display, From)]
 pub enum ResError {
     #[display(fmt = "Internal Server Error")]
     InternalServerError,
-    #[display(fmt = "Not Found")]
-    NotFound,
-    #[display(fmt = "Postgres Read Error")]
-    DataBaseReadError,
-    #[display(fmt = "Redis Connection Error")]
-    RedisConnection,
-    #[display(fmt = "BadRequest to Postgres")]
-    BadRequestDb(DatabaseErrorMessage),
+    #[display(fmt = "Internal Server Error: {}", _0)]
+    InternalServerErrorExplained(String),
     #[display(fmt = "BadRequest")]
     BadRequest,
-    #[display(fmt = "Username is Taken")]
+    #[display(fmt = "BadRequest: {}", _0)]
+    BadRequestExplained(String),
+    #[display(fmt = "Postgres Read Error")]
+    PostgresError,
+    #[display(fmt = "DataBase Error: {}", _0)]
+    PostgresExplained(String),
+    #[display(fmt = "Not Found")]
+    NotFound,
+    #[display(fmt = "Redis Error")]
+    RedisError,
+    #[display(fmt = "Redis Error: {}", _0)]
+    RedisErrorExplained(String),
+    #[display(fmt = "BadRequest: Username is Taken")]
     UsernameTaken,
-    #[display(fmt = "Email is Taken")]
+    #[display(fmt = "BadRequest: Email is Taken")]
     EmailTaken,
-    #[display(fmt = "Invalid Username")]
+    #[display(fmt = "BadRequest: Invalid Username")]
     InvalidUsername,
-    #[display(fmt = "Invalid Password")]
+    #[display(fmt = "BadRequest: Invalid Password")]
     InvalidPassword,
-    #[display(fmt = "Invalid Email Address")]
+    #[display(fmt = "BadRequest: Invalid Email Address")]
     InvalidEmail,
-    #[display(fmt = "Wrong Password")]
+    #[display(fmt = "Forbidden: Wrong Password")]
     WrongPwd,
-    #[display(fmt = "Unauthorized")]
+    #[display(fmt = "Forbidden: Unauthorized")]
     Unauthorized,
     #[display(fmt = "NotActive")]
     NotActive,
@@ -55,78 +66,101 @@ pub enum ResError {
 impl ResponseError for ResError {
     fn error_response(&self) -> HttpResponse {
         match self {
-            ResError::InternalServerError => {
-                HttpResponse::InternalServerError().json(ErrorMessage::new("Internal Server Error"))
+            ResError::InternalServerErrorExplained(e) => {
+                HttpResponse::InternalServerError().json(ErrorMessage::new(500, e))
             }
+
             ResError::BadRequest => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Bad Request"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Bad Request"))
             }
-            ResError::BadRequestDb(e) => HttpResponse::BadRequest().json(e),
-            ResError::NoContent => HttpResponse::NoContent().finish(),
+
+            ResError::BadRequestExplained(e) => {
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, e))
+            }
+            ResError::NoContent => {
+                HttpResponse::NoContent().json(ErrorMessage::new(204, "No Content"))
+            }
             ResError::UsernameTaken => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Username already taken"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Username already taken"))
             }
+
             ResError::EmailTaken => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Email already registered"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Email already registered"))
             }
+
             ResError::InvalidUsername => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Username"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Invalid Username"))
             }
+
             ResError::InvalidPassword => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Password"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Invalid Password"))
             }
+
             ResError::InvalidEmail => {
-                HttpResponse::BadRequest().json(ErrorMessage::new("Invalid Email"))
+                HttpResponse::BadRequest().json(ErrorMessage::new(400, "Invalid Email"))
             }
+
             ResError::WrongPwd => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("Password is wrong"))
+                HttpResponse::Forbidden().json(ErrorMessage::new(403, "Password is wrong"))
             }
+
             ResError::Unauthorized => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("Unauthorized"))
+                HttpResponse::Forbidden().json(ErrorMessage::new(403, "Unauthorized"))
             }
+
             ResError::AuthTimeout => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("Authentication Timeout"))
+                HttpResponse::Forbidden().json(ErrorMessage::new(403, "Authentication Timeout"))
             }
+
             ResError::ParseError => {
-                HttpResponse::InternalServerError().json(ErrorMessage::new("Parsing error"))
+                HttpResponse::InternalServerError().json(ErrorMessage::new(500, "Parsing error"))
             }
+
             ResError::NotActive => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("User is not activated yet"))
+                HttpResponse::Forbidden().json(ErrorMessage::new(403, "User is not activated yet"))
             }
+
             ResError::Blocked => {
-                HttpResponse::Forbidden().json(ErrorMessage::new("User is blocked"))
+                HttpResponse::Forbidden().json(ErrorMessage::new(403, "User is blocked"))
             }
-            _ => HttpResponse::InternalServerError().json(ErrorMessage::new("Unknown")),
+
+            _ => HttpResponse::InternalServerError()
+                .json(ErrorMessage::new(500, "Internal Server Error")),
         }
     }
 }
 
-use tokio_postgres_tang::PostgresPoolError;
 impl From<PostgresPoolError> for ResError {
     fn from(e: PostgresPoolError) -> Self {
         match e {
             PostgresPoolError::Inner(e) => e.into(),
-            PostgresPoolError::TimeOut => ResError::DataBaseReadError,
+            PostgresPoolError::TimeOut => {
+                ResError::PostgresExplained("Database request timeout".into())
+            }
         }
     }
 }
 
-use redis_tang::RedisPoolError;
 impl From<RedisPoolError> for ResError {
     fn from(e: RedisPoolError) -> Self {
         match e {
             RedisPoolError::Inner(e) => e.into(),
-            RedisPoolError::TimeOut => ResError::RedisConnection,
+            RedisPoolError::TimeOut => {
+                ResError::RedisErrorExplained("Redis request timeout".into())
+            }
         }
     }
 }
 
 impl From<tokio_postgres::Error> for ResError {
     fn from(e: tokio_postgres::Error) -> ResError {
-        ResError::BadRequestDb(DatabaseErrorMessage {
-            category: None,
-            description: e.to_string(),
-        })
+        ResError::BadRequestExplained(format!("{}", e))
+    }
+}
+
+impl From<redis::RedisError> for ResError {
+    fn from(e: redis::RedisError) -> ResError {
+        ResError::RedisErrorExplained(format!("{}", e))
     }
 }
 
@@ -139,37 +173,27 @@ impl From<actix::MailboxError> for ResError {
     }
 }
 
-impl From<redis::RedisError> for ResError {
-    fn from(e: redis::RedisError) -> ResError {
-        if e.is_connection_dropped() || e.is_connection_refusal() || e.is_timeout() {
-            ResError::RedisConnection
-        } else {
-            ResError::InternalServerError
-        }
+impl<E: Debug + Display> From<BlockingError<E>> for ResError {
+    fn from(e: BlockingError<E>) -> ResError {
+        ResError::InternalServerErrorExplained(format!("{}", e))
     }
 }
 
 impl From<serde_json::Error> for ResError {
-    fn from(_err: serde_json::Error) -> ResError {
-        ResError::InternalServerError
+    fn from(e: serde_json::Error) -> ResError {
+        ResError::InternalServerErrorExplained(format!("{}", e))
     }
 }
 
 impl From<std::num::ParseIntError> for ResError {
-    fn from(_err: std::num::ParseIntError) -> ResError {
-        ResError::ParseError
+    fn from(e: std::num::ParseIntError) -> ResError {
+        ResError::InternalServerErrorExplained(format!("{}", e))
     }
 }
 
 impl From<chrono::format::ParseError> for ResError {
-    fn from(_err: chrono::format::ParseError) -> ResError {
-        ResError::ParseError
-    }
-}
-
-impl From<actix_web::client::SendRequestError> for ResError {
-    fn from(_e: actix_web::client::SendRequestError) -> ResError {
-        ResError::HttpClient
+    fn from(e: chrono::format::ParseError) -> ResError {
+        ResError::InternalServerErrorExplained(format!("{}", e))
     }
 }
 
@@ -186,11 +210,10 @@ impl From<lettre::smtp::error::Error> for ResError {
     }
 }
 
-use psn_api_rs::psn::PSNError;
 //ToDo: handle psn error.
 impl From<PSNError> for ResError {
-    fn from(_e: PSNError) -> ResError {
-        ResError::InternalServerError
+    fn from(e: PSNError) -> ResError {
+        ResError::InternalServerErrorExplained(format!("{}", e))
     }
 }
 
@@ -202,16 +225,13 @@ pub struct DatabaseErrorMessage {
 
 #[derive(Serialize)]
 struct ErrorMessage<'a> {
-    msg: Option<&'a str>,
+    status: u16,
     error: &'a str,
 }
 
 impl<'a> ErrorMessage<'a> {
-    fn new(msg: &'a str) -> Self {
-        ErrorMessage {
-            msg: None,
-            error: msg,
-        }
+    fn new(status: u16, error: &'a str) -> Self {
+        Self { status, error }
     }
 }
 
@@ -228,8 +248,8 @@ pub enum RepError {
 impl From<ResError> for RepError {
     fn from(e: ResError) -> RepError {
         match e {
-            ResError::DataBaseReadError => RepError::Database,
-            ResError::RedisConnection => RepError::Redis,
+            ResError::PostgresError => RepError::Database,
+            ResError::RedisError => RepError::Redis,
             ResError::HttpClient => RepError::HttpClient,
             ResError::MailingError => RepError::Mailer,
             _ => RepError::Ignore,

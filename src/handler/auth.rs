@@ -88,7 +88,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
 
-        let id = crate::model::common::GLOBALS
+        let id = crate::model::common::global()
             .lock()
             .map(|mut lock| lock.next_uid())
             .await;
@@ -121,7 +121,7 @@ impl MyPostgresPool {
             .parse_row::<User>()
             .await?
             .pop()
-            .ok_or(ResError::DataBaseReadError)?;
+            .ok_or(ResError::PostgresError)?;
 
         drop(pool);
 

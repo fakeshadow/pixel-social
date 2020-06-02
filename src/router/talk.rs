@@ -19,15 +19,6 @@ use crate::model::{
 };
 use crate::util::jwt::JwtPayLoad;
 
-lazy_static! {
-    static ref PARSING_ERROR: String = SendMessage::Error("Query Parsing Error").stringify();
-    static ref DB_ERROR: String = SendMessage::Error("Postgres Error").stringify();
-    static ref CACHE_ERROR: String = SendMessage::Error("Redis Error").stringify();
-    static ref COMMAND_ERROR: String = SendMessage::Error("Empty Command").stringify();
-    static ref AUTH_ERROR: String = SendMessage::Error("Unauthorized Command").stringify();
-    static ref MSG_RANGE_ERROR: String = SendMessage::Error("Message Out of Range").stringify();
-}
-
 // start a WebSocket actor with each incoming connection.
 pub async fn talk(
     req: HttpRequest,
@@ -72,17 +63,21 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                 let t = t.trim();
                 let v: Vec<&str> = t.splitn(2, ' ').collect();
                 if v.len() != 2 {
-                    ctx.text(COMMAND_ERROR.as_str());
+                    ctx.text(command_error().as_str());
                     return;
                 }
                 if v[0].len() > 10 || v[1].len() > 2560 {
-                    ctx.text(MSG_RANGE_ERROR.as_str());
+                    ctx.text(
+                        SendMessage::Error("Message Out of Range")
+                            .stringify()
+                            .as_str(),
+                    );
                     return;
                 }
                 if self.id == 0 {
                     match v[0] {
                         "/auth" => auth(self, v[1], ctx),
-                        _ => ctx.text(AUTH_ERROR.as_str()),
+                        _ => ctx.text(auth_error().as_str()),
                     }
                 } else {
                     match v[0] {
@@ -97,7 +92,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
                         "/join" => general_msg_handler::<JoinTalkRequest>(self, v[1], ctx),
                         "/create" => general_msg_handler::<CreateTalkRequest>(self, v[1], ctx),
                         "/delete" => general_msg_handler::<DeleteTalkRequest>(self, v[1], ctx),
-                        _ => ctx.text(COMMAND_ERROR.as_str()),
+                        _ => ctx.text(command_error().as_str()),
                     }
                 }
             }
@@ -189,7 +184,7 @@ fn general_msg_handler<'a, T>(
             // the return message will be send back later as SessionMessage
             session.addr.do_send(msg)
         }
-        Err(_) => ctx.text(PARSING_ERROR.as_str()),
+        Err(_) => ctx.text(parsing_error().as_str()),
     }
 }
 
@@ -206,8 +201,18 @@ fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<
                     addr: ctx.address(),
                 });
             }
-            Err(_) => ctx.text(PARSING_ERROR.as_str()),
+            Err(_) => ctx.text(parsing_error().as_str()),
         },
-        Err(_) => ctx.text(PARSING_ERROR.as_str()),
+        Err(_) => ctx.text(parsing_error().as_str()),
     }
+}
+
+fn parsing_error() -> String {
+    SendMessage::Error("Query Parsing Error").stringify()
+}
+fn command_error() -> String {
+    SendMessage::Error("Empty Command").stringify()
+}
+fn auth_error() -> String {
+    SendMessage::Error("Unauthorized Command").stringify()
 }

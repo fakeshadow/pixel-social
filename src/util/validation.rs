@@ -1,16 +1,19 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 const USERNAME_MIN: usize = 5;
 const EMAIL_MIN: usize = 3;
 const PASSWORD_MIN: usize = 6;
 
-lazy_static! {
-    static ref EMAIL_USER_RE: Regex = Regex::new(r"^(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+\z").unwrap();
-    static ref EMAIL_DOMAIN_RE: Regex = Regex::new(
-        r"(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$"
+static EMAIL_USER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(?i)[a-z0-9.!#$%&'*+/=?^_`{|}~-]+\z").unwrap());
+
+static EMAIL_DOMAIN_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$",
     )
-    .unwrap();
-}
+    .unwrap()
+});
 
 pub fn validate_email(email_str_vec: Vec<&str>) -> bool {
     let domain_part = email_str_vec[0];

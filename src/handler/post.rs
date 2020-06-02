@@ -4,10 +4,9 @@ use chrono::Utc;
 use futures::FutureExt;
 use tokio_postgres::types::{ToSql, Type};
 
-use crate::handler::cache_update::CacheServiceAddr;
 use crate::handler::{
     cache::{MyRedisPool, POST_U8},
-    cache_update::CacheFailedMessage,
+    cache_update::{CacheFailedMessage, CacheServiceAddr},
     db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
@@ -42,7 +41,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_POST, INSERT_POST_TYPES).await?;
 
-        let id = crate::model::common::GLOBALS
+        let id = crate::model::common::global()
             .lock()
             .map(|mut lock| lock.next_pid())
             .await;

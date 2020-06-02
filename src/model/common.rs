@@ -7,6 +7,7 @@ use actix::prelude::Addr;
 use async_std::sync::RwLock;
 use futures::lock::Mutex;
 use hashbrown::HashMap;
+use once_cell::sync::OnceCell;
 
 use crate::model::{actors::WsChatSession, errors::ResError, talk::Talk};
 use crate::util::validation as validate;
@@ -98,14 +99,23 @@ where
 }
 
 // struct for global vars
-pub(crate) struct GlobalTalks(pub(crate) RwLock<HashMap<u32, Talk>>);
+pub struct GlobalTalks(pub RwLock<HashMap<u32, Talk>>);
 
-pub(crate) struct GlobalSessions(pub(crate) RwLock<HashMap<u32, Addr<WsChatSession>>>);
+pub struct GlobalSessions(pub RwLock<HashMap<u32, Addr<WsChatSession>>>);
 
-lazy_static! {
-    pub(crate) static ref TALKS: GlobalTalks = GlobalTalks(RwLock::new(HashMap::new()));
-    pub(crate) static ref SESSIONS: GlobalSessions = GlobalSessions(RwLock::new(HashMap::new()));
-    pub(crate) static ref GLOBALS: Mutex<GlobalVars> = Mutex::new(Default::default());
+pub fn global() -> &'static Mutex<GlobalVars> {
+    static GLOBALS: OnceCell<Mutex<GlobalVars>> = OnceCell::new();
+    GLOBALS.get_or_init(|| Mutex::new(Default::default()))
+}
+
+pub fn talks() -> &'static GlobalTalks {
+    static TALKS: OnceCell<GlobalTalks> = OnceCell::new();
+    TALKS.get_or_init(|| GlobalTalks(RwLock::new(HashMap::new())))
+}
+
+pub fn sessions() -> &'static GlobalSessions {
+    static SESSIONS: OnceCell<GlobalSessions> = OnceCell::new();
+    SESSIONS.get_or_init(|| GlobalSessions(RwLock::new(HashMap::new())))
 }
 
 #[derive(Debug)]

@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate lazy_static;
-#[macro_use]
 extern crate serde_derive;
 
 use std::env;
@@ -12,7 +10,6 @@ use actix_web::{
     web::{self, ServiceConfig},
     App, HttpServer,
 };
-
 use dotenv::dotenv;
 
 mod handler;
@@ -60,10 +57,9 @@ async fn main() -> std::io::Result<()> {
         They are safe to access through out the server.
     */
 
-    // initialize connection pool for postgres.
-    crate::handler::db::POOL.init().await;
-    // initialize connection pool for redis.
-    crate::handler::cache::POOL_REDIS.init().await;
+    // initialize connection pool for postgres and redis.
+    crate::handler::db::pool().init().await;
+    crate::handler::cache::pool_redis().init().await;
 
     /*
         init_message_services function will start MailerService, SMSTask and ErrReportTask according to use_xxx settings in .env.
@@ -92,10 +88,10 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         /*
             This HttpServer use a cache pass through flow for data.
-            Anything can't be find in redis will hit postgres and trigger an redis update.
+            Anything can't be find in redis will hit postgres and trigger a redis update.
             A failed insertion to postgres will be ignored and returned as an error.
             A failed insertion to redis after a successful postgres insertion will be passed to RedisFailedTask and retry from there.
-            Most data have a expire time in redis or can be removed manually.
+            Most data have an expire time in redis or can be removed manually.
             Only a small portion of data are stored permanently in redis
             (Mainly the reply_count and reply_timestamp of topics/categories/posts). The online status and last online time for user
             Removing them will result in some ordering issue.
@@ -115,8 +111,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .data(psn_addr.clone())
             .data(cache_addr.clone())
-            // TalkService is an actor handle websocket connections and communication between client websocket actors.
-            // ToDo: move talk service into arbiter.
+            // TalkService is an actor handle web socket connections and communication between client web socket actors.
             .data(crate::handler::talk::TalkService.start())
             .wrap(Logger::default())
             .wrap(cors)

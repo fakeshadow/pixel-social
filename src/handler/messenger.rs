@@ -14,7 +14,7 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::handler::cache::{MyRedisPool, POOL_REDIS};
+use crate::handler::cache::{pool_redis, MyRedisPool};
 use crate::model::{
     common::dur,
     errors::{RepError, ResError},
@@ -64,7 +64,7 @@ impl MailerService {
     }
 
     async fn handle_mail_user(&mut self) -> Result<(), ResError> {
-        let s = POOL_REDIS.get_queue("mail_queue").await?;
+        let s = pool_redis().get_queue("mail_queue").await?;
         let mail = serde_json::from_str::<Mail>(s.as_str())?;
         self.send_mail(&mail)
     }
@@ -134,7 +134,7 @@ impl SMSService {
     }
 
     async fn handle_sms_user(&mut self) -> Result<(), ResError> {
-        let s = POOL_REDIS.get_queue("sms_queue").await?;
+        let s = pool_redis().get_queue("sms_queue").await?;
         let msg = serde_json::from_str::<SmsMessage>(s.as_str())?;
         self.send_sms(msg).await
     }

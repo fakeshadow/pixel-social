@@ -13,7 +13,7 @@ use crate::handler::{
 use crate::model::talk::Talk;
 use crate::model::{
     category::Category,
-    common::{GLOBALS, TALKS},
+    common::{global, talks},
     errors::ResError,
     topic::Topic,
     user::User,
@@ -430,7 +430,7 @@ pub async fn build_cache(
         .parse_row::<Talk>()
         .await?;
 
-    let mut talks = TALKS.0.write().await;
+    let mut talks = talks().0.write().await;
 
     for t in t.into_iter() {
         talks.insert(t.id, t);
@@ -438,7 +438,7 @@ pub async fn build_cache(
 
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
-    GLOBALS
+    global()
         .lock()
         .await
         .update(last_uid, last_pid, last_tid, last_cid);

@@ -3,8 +3,7 @@ use actix_web::{
     Error, HttpResponse,
 };
 
-use crate::handler::cache_update::CacheServiceAddr;
-use crate::handler::{auth::UserJwt, cache::POOL_REDIS, db::POOL};
+use crate::handler::{auth::UserJwt, cache::pool_redis, cache_update::CacheServiceAddr, db::pool};
 use crate::model::{
     category::CategoryRequest, common::Validator, post::PostRequest, topic::TopicRequest,
     user::UpdateRequest,
@@ -16,11 +15,11 @@ pub async fn add_category(
     addr: Data<CacheServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_new()?;
-    let c = POOL.admin_add_category(jwt.privilege, req).await?;
+    let c = pool().admin_add_category(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&c);
 
-    actix::spawn(POOL_REDIS.add_category_send_fail(c, addr.get_ref().clone()));
+    actix::spawn(pool_redis().add_category_send_fail(c, addr.get_ref().clone()));
 
     Ok(res)
 }
@@ -30,10 +29,10 @@ pub async fn update_category(
     req: Json<CategoryRequest>,
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().check_update()?;
-    let c = POOL.admin_update_category(jwt.privilege, req).await?;
+    let c = pool().admin_update_category(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&c);
-    let _ = POOL_REDIS.update_categories(&c).await;
+    let _ = pool_redis().update_categories(&c).await;
 
     Ok(res)
 }
@@ -41,7 +40,7 @@ pub async fn update_category(
 pub async fn remove_category(jwt: UserJwt, id: Path<u32>) -> Result<HttpResponse, Error> {
     let id = id.into_inner();
 
-    POOL.admin_remove_category(id, jwt.privilege).await?;
+    pool().admin_remove_category(id, jwt.privilege).await?;
     //ToDo: fix remove category cache
     //    let _ = cache.remove_category(id).await?;
 
@@ -55,8 +54,8 @@ pub async fn update_user(
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().attach_id(None).check_update()?;
 
-    let req = POOL.update_user_check(jwt.privilege, req).await?;
-    let u = POOL.update_user(req).await?;
+    let req = pool().update_user_check(jwt.privilege, req).await?;
+    let u = pool().update_user(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
@@ -72,7 +71,7 @@ pub async fn update_topic(
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().add_user_id(None).check_update()?;
 
-    let t = POOL.admin_update_topic(jwt.privilege, &req).await?;
+    let t = pool().admin_update_topic(jwt.privilege, &req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
@@ -88,7 +87,7 @@ pub async fn update_post(
 ) -> Result<HttpResponse, Error> {
     let req = req.into_inner().attach_user_id(None).check_update()?;
 
-    let p = POOL.admin_update_post(jwt.privilege, req).await?;
+    let p = pool().admin_update_post(jwt.privilege, req).await?;
 
     let res = HttpResponse::Ok().json(&p);
 

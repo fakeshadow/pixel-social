@@ -8,12 +8,12 @@ use redis::cmd;
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
-    cache::{MyRedisPool, POOL_REDIS},
-    db::{GetStatement, ParseRowStream, POOL},
+    cache::{pool_redis, MyRedisPool},
+    db::{pool, GetStatement, ParseRowStream},
 };
 use crate::model::{
     actors::WsChatSession,
-    common::{SESSIONS, TALKS},
+    common::{sessions, talks},
     errors::ResError,
     talk::{PrivateMessage, PublicMessage, Relation, SendMessage, SessionMessage, Talk},
 };
@@ -143,10 +143,10 @@ impl crate::model::common::GlobalTalks {
 
 // helper function to send message to multiple sessions.
 async fn send_message_many(tid: u32, msg: &str) -> Result<(), ResError> {
-    let t = TALKS.get_talk_hm(tid).await?;
+    let t = talks().get_talk_hm(tid).await?;
 
     for u in t.users.iter() {
-        SESSIONS.send_message(*u, msg).await;
+        sessions().send_message(*u, msg).await;
     }
     Ok(())
 }
@@ -197,13 +197,13 @@ impl Handler<DisconnectRequest> for TalkService {
         Box::pin(async move {
             let sid = msg.session_id;
 
-            if let Err(e) = SESSIONS.remove_session_hm(sid).await {
-                SESSIONS.send_error(sid, &e).await
+            if let Err(e) = sessions().remove_session_hm(sid).await {
+                sessions().send_error(sid, &e).await
             };
 
             // we set user's online status in redis to 0 when user's websocket session disconnecting
-            if let Err(e) = POOL_REDIS.set_online_status(sid, 0, true).await {
-                SESSIONS.send_error(sid, &e).await
+            if let Err(e) = pool_redis().set_online_status(sid, 0, true).await {
+                sessions().send_error(sid, &e).await
             };
         })
     }
@@ -231,7 +231,7 @@ impl Handler<TextMessageRequest> for TalkService {
             let r = async {
                 let now = Utc::now().naive_utc();
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, sts) = &*pool;
 
                 if let Some(tid) = msg.talk_id {
@@ -264,14 +264,14 @@ impl Handler<TextMessageRequest> for TalkService {
                     }])
                     .stringify();
 
-                    SESSIONS.send_message(sid, s.as_str()).await;
+                    sessions().send_message(sid, s.as_str()).await;
                     Ok(())
                 }
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }
@@ -295,12 +295,12 @@ impl Handler<ConnectRequest> for TalkService {
             let status = msg.online_status;
             let addr = msg.addr;
 
-            if let Err(e) = POOL_REDIS.set_online_status(sid, status, true).await {
-                SESSIONS.send_error(sid, &e).await;
+            if let Err(e) = pool_redis().set_online_status(sid, status, true).await {
+                sessions().send_error(sid, &e).await;
             };
 
-            if let Err(e) = SESSIONS.insert_session_hm(sid, addr.clone()).await {
-                SESSIONS.send_error(sid, &e).await;
+            if let Err(e) = sessions().insert_session_hm(sid, addr.clone()).await {
+                sessions().send_error(sid, &e).await;
             };
 
             addr.do_send(SessionMessage(
@@ -329,7 +329,7 @@ impl Handler<CreateTalkRequest> for TalkService {
             let r = async {
                 let admins = vec![msg.owner];
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let st = cli.prepare("SELECT Max(id) FROM talks").await?;
@@ -341,7 +341,7 @@ impl Handler<CreateTalkRequest> for TalkService {
                     .await?
                     .first()
                     .map(|t| t.id)
-                    .ok_or(ResError::DataBaseReadError)?;
+                    .ok_or(ResError::PostgresError)?;
 
                 let st = cli.prepare(INSERT_TALK).await?;
                 let params: [&(dyn ToSql + Sync); 6] = [
@@ -362,14 +362,14 @@ impl Handler<CreateTalkRequest> for TalkService {
                 drop(pool);
 
                 let s = SendMessage::Talks(&t).stringify();
-                TALKS.insert_talk_hm(t).await?;
-                SESSIONS.send_message(msg.owner, s.as_str()).await;
+                talks().insert_talk_hm(t).await?;
+                sessions().send_message(msg.owner, s.as_str()).await;
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }
@@ -391,12 +391,12 @@ impl Handler<JoinTalkRequest> for TalkService {
             let r = async {
                 let tid = msg.talk_id;
 
-                let t = TALKS.get_talk_hm(tid).await?;
+                let t = talks().get_talk_hm(tid).await?;
                 if t.users.contains(&sid) {
                     return Err(ResError::BadRequest);
                 }
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let st = cli.prepare(INSERT_USER).await?;
@@ -410,15 +410,15 @@ impl Handler<JoinTalkRequest> for TalkService {
                 drop(pool);
 
                 let s = SendMessage::Talks(&t).stringify();
-                TALKS.insert_talk_hm(t).await?;
-                SESSIONS.send_message(sid, s.as_str()).await;
+                talks().insert_talk_hm(t).await?;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }
@@ -438,7 +438,7 @@ impl Handler<TalkByIdRequest> for TalkService {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                let talks = TALKS.get_talks_hm().await?;
+                let talks = talks().get_talks_hm().await?;
 
                 // we return all talks if the query talk_id is 0
                 let t = match msg.talk_id {
@@ -450,14 +450,14 @@ impl Handler<TalkByIdRequest> for TalkService {
                 };
 
                 let s = SendMessage::Talks(&t).stringify();
-                SESSIONS.send_message(sid, s.as_str()).await;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             }
         })
     }
@@ -476,13 +476,13 @@ impl Handler<UsersByIdRequest> for TalkService {
         Box::pin(async move {
             let sid = msg.session_id.unwrap();
 
-            match POOL_REDIS.get_users(msg.user_id).await {
+            match pool_redis().get_users(msg.user_id).await {
                 Ok(u) => {
                     let s = SendMessage::Users(&u).stringify();
-                    SESSIONS.send_message(sid, s.as_str()).await;
+                    sessions().send_message(sid, s.as_str()).await;
                 }
                 Err(e) => {
-                    SESSIONS.send_error(sid, &e).await;
+                    sessions().send_error(sid, &e).await;
                 }
             }
         })
@@ -502,7 +502,7 @@ impl Handler<UserRelationRequest> for TalkService {
             let sid = msg.session_id.unwrap();
 
             let r = async {
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let st = cli.prepare(GET_FRIENDS).await?;
@@ -513,18 +513,18 @@ impl Handler<UserRelationRequest> for TalkService {
                     .parse_row::<Relation>()
                     .await?
                     .pop()
-                    .ok_or(ResError::DataBaseReadError)?;
+                    .ok_or(ResError::PostgresError)?;
 
                 drop(pool);
 
                 let s = SendMessage::Friends(&r.friends).stringify();
-                SESSIONS.send_message(sid, s.as_str()).await;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             };
 
             if let Err(e) = r.await {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             }
         })
     }
@@ -549,7 +549,7 @@ impl Handler<GetHistory> for TalkService {
             let f = async {
                 let time = NaiveDateTime::parse_from_str(&msg.time, "%Y-%m-%d %H:%M:%S%.f")?;
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let s = match msg.talk_id {
@@ -581,12 +581,12 @@ impl Handler<GetHistory> for TalkService {
                     }
                 };
 
-                SESSIONS.send_message(sid, s.as_str()).await;
+                sessions().send_message(sid, s.as_str()).await;
                 Ok(())
             };
 
             if let Err(e) = f.await {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             }
         })
     }
@@ -611,7 +611,7 @@ impl Handler<RemoveUserRequest> for TalkService {
                 let tid = msg.talk_id;
                 let uid = msg.user_id;
 
-                let talk = TALKS.get_talk_hm(tid).await?;
+                let talk = talks().get_talk_hm(tid).await?;
 
                 if !talk.users.contains(&uid) {
                     return Err(ResError::BadRequest);
@@ -626,7 +626,7 @@ impl Handler<RemoveUserRequest> for TalkService {
                     return Err(ResError::Unauthorized);
                 };
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let st = cli.prepare(REMOVE_USER).await?;
@@ -640,15 +640,15 @@ impl Handler<RemoveUserRequest> for TalkService {
                 drop(pool);
 
                 let s = SendMessage::Talks(&t).stringify();
-                TALKS.insert_talk_hm(t).await?;
-                SESSIONS.send_message(sid, s.as_str()).await;
+                talks().insert_talk_hm(t).await?;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }
@@ -680,7 +680,7 @@ impl Handler<Admin> for TalkService {
                     (REMOVE_ADMIN, uid)
                 };
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let params: [&(dyn ToSql + Sync); 3] = [&uid, &tid, &sid];
@@ -695,15 +695,15 @@ impl Handler<Admin> for TalkService {
                 drop(pool);
 
                 let s = SendMessage::Talks(&t).stringify();
-                TALKS.insert_talk_hm(t).await?;
-                SESSIONS.send_message(sid, s.as_str()).await;
+                talks().insert_talk_hm(t).await?;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }
@@ -726,7 +726,7 @@ impl Handler<DeleteTalkRequest> for TalkService {
             let r = async {
                 let tid = msg.talk_id;
 
-                let pool = POOL.get().await?;
+                let pool = pool().get().await?;
                 let (cli, _) = &*pool;
 
                 let st = cli.prepare(REMOVE_TALK).await?;
@@ -734,16 +734,16 @@ impl Handler<DeleteTalkRequest> for TalkService {
 
                 drop(pool);
 
-                TALKS.remove_talk_hm(tid).await?;
+                talks().remove_talk_hm(tid).await?;
                 let s = SendMessage::Success("Delete Talk Success").stringify();
-                SESSIONS.send_message(sid, s.as_str()).await;
+                sessions().send_message(sid, s.as_str()).await;
 
                 Ok(())
             }
             .await;
 
             if let Err(e) = r {
-                SESSIONS.send_error(sid, &e).await;
+                sessions().send_error(sid, &e).await;
             };
         })
     }

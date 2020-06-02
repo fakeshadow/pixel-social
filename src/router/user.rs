@@ -4,7 +4,7 @@ use actix_web::{
 };
 
 use crate::handler::cache_update::CacheServiceAddr;
-use crate::handler::{auth::UserJwt, cache::POOL_REDIS, db::POOL};
+use crate::handler::{auth::UserJwt, cache::pool_redis, db::pool};
 use crate::model::{
     common::Validator,
     user::{UpdateRequest, User},
@@ -12,9 +12,9 @@ use crate::model::{
 
 pub async fn get(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
     let id = req.into_inner();
-    let u = match POOL_REDIS.get_users(vec![id]).await {
+    let u = match pool_redis().get_users(vec![id]).await {
         Ok(u) => u,
-        Err(_) => POOL.get_users(&[id]).await?,
+        Err(_) => pool().get_users(&[id]).await?,
     };
 
     if id == jwt.user_id {
@@ -34,7 +34,7 @@ pub async fn update(
         .attach_id(Some(jwt.user_id))
         .check_update()?;
 
-    let u = POOL.update_user(req).await?;
+    let u = pool().update_user(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
@@ -44,5 +44,5 @@ pub async fn update(
 }
 
 pub(crate) fn update_user_send_fail(u: Vec<User>, addr: Data<CacheServiceAddr>) {
-    actix_rt::spawn(POOL_REDIS.update_user_send_fail(u, addr.get_ref().clone()));
+    actix_rt::spawn(pool_redis().update_user_send_fail(u, addr.get_ref().clone()));
 }

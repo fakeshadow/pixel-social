@@ -5,11 +5,10 @@ use actix_web::{
 
 use crate::handler::{
     auth::UserJwt,
-    cache::POOL_REDIS,
+    cache::pool_redis,
     cache_update::CacheServiceAddr,
-    db::{GetStatement, ParseRowStream, POOL},
+    db::{pool, GetStatement, ParseRowStream},
 };
-
 use crate::model::{
     errors::ResError,
     post::PostRequest,
@@ -62,7 +61,7 @@ pub async fn raw() -> Result<HttpResponse, ResError> {
         1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4,
     ];
 
-    let pool = POOL.get().await?;
+    let pool = pool().get().await?;
     let (cli, sts) = &*pool;
 
     let st = sts.get_statement("topics_by_id")?;
@@ -105,9 +104,9 @@ pub async fn raw_cache() -> Result<HttpResponse, Error> {
         1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
 
-    let (t, uids) = POOL_REDIS.get_topics(ids).await?;
+    let (t, uids) = pool_redis().get_topics(ids).await?;
 
-    let u = POOL_REDIS.get_users(uids).await?;
+    let u = pool_redis().get_users(uids).await?;
 
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }

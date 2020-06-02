@@ -206,10 +206,7 @@ fn generate_trophies(vec: &str) -> Result<Vec<UserTrophy>, ResError> {
         };
 
         trophies.push(UserTrophy {
-            trophy_id: v
-                .get(0)
-                .ok_or(ResError::DataBaseReadError)?
-                .parse::<u32>()?,
+            trophy_id: v.get(0).ok_or(ResError::PostgresError)?.parse::<u32>()?,
             earned_date,
             first_earned_date,
         })
