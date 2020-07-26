@@ -1,8 +1,8 @@
-use std::{env, future::Future, pin::Pin, time::Duration};
+use std::{env, future::Future, time::Duration};
 
+use actix_send::prelude::*;
 use futures::FutureExt;
 use hashbrown::HashMap;
-use heng_rs::{Context, Scheduler, SchedulerSender};
 use hyper::{Body, Client, Request};
 use hyper_tls::HttpsConnector;
 use lettre::{
@@ -26,10 +26,20 @@ const REPORT_INTERVAL: Duration = dur(600_000);
 const MAIL_INTERVAL: Duration = dur(500);
 const SMS_INTERVAL: Duration = dur(500);
 
-// MailerTask run on a interval and read from redis cache and send mails to users.
-// At the start of each interval it will try to pop a message from the task's context. The message is sent to admin through mail.
+// MailerTask is an actor runs a interval and read from redis cache and send mails to users.
+// It would also receive admin message and send it immediately.
+#[actor]
 struct MailerService {
     mailer: Option<Mailer>,
+}
+
+pub struct AdminMailMsg(String);
+
+#[handler_v2]
+impl MailerService {
+    async fn handle_msg(&mut self, msg: AdminMailMsg) {
+        let _ = self.handle_mail_admin(msg.0.as_str());
+    }
 }
 
 impl MailerService {
@@ -107,10 +117,21 @@ impl MailerService {
     }
 }
 
-// SMSTask run on a interval and read from redis cache and send sms message to users.
-// At the start of each interval it will try to pop a message from the task's context. The message is sent to admin through sms.
+// SMSService is an actor runs a interval task and read from redis cache and send sms message to
+// users.
+// It would also receive message and sent to admin through sms immediately.
+#[actor]
 struct SMSService {
     twilio: Option<Twilio>,
+}
+
+pub struct AdminSMSMsg(String);
+
+#[handler_v2]
+impl SMSService {
+    async fn handle_msg(&mut self, msg: AdminSMSMsg) {
+        let _ = self.handle_sms_admin(msg.0.as_str()).await;
+    }
 }
 
 impl SMSService {
@@ -193,20 +214,38 @@ impl SMSService {
 // ErrReportTask run on a interval and handle Error Report.
 // At the beginning of every interval we try to pop a message from the task's context and convert it to RepError which will be inserted to self.error HashMap.
 // Then we go through the HashMap and stringify the errors beyond threshold and send them to MailerTask and SMSTask in String form.
-struct ErrReportService {
-    mailer_addr: Option<SchedulerSender<String>>,
-    sms_addr: Option<SchedulerSender<String>>,
+#[actor]
+pub struct ErrReportService {
+    mailer_addr: Option<Address<MailerService>>,
+    sms_addr: Option<Address<SMSService>>,
     error: HashMap<RepError, u32>,
+}
+
+pub struct ErrReportMsg(pub ResError);
+
+#[handler_v2]
+impl ErrReportService {
+    async fn handle_msg(&mut self, msg: ErrReportMsg) {
+        let e = msg.0.into();
+        match self.error.get_mut(&e) {
+            Some(v) => {
+                *v += 1;
+            }
+            None => {
+                self.error.insert(e, 1);
+            }
+        };
+    }
 }
 
 impl ErrReportService {
     async fn handle_err_rep(&mut self) -> Result<(), ResError> {
         if let Ok(s) = self.stringify_report() {
             if let Some(addr) = self.mailer_addr.as_ref() {
-                let _ = addr.send(s.to_owned()).await;
+                let _ = addr.send(AdminMailMsg(s.to_owned())).await;
             };
             if let Some(addr) = self.sms_addr.as_ref() {
-                let _ = addr.send(s).await;
+                let _ = addr.send(AdminSMSMsg(s)).await;
             };
         };
         Ok(())
@@ -253,105 +292,87 @@ impl ErrReportService {
     }
 }
 
-impl Scheduler for MailerService {
-    type Message = String;
+pub(crate) type ErrReportServiceAddr = Address<ErrReportService>;
 
-    fn handler<'a>(
-        &'a mut self,
-        ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some(msg) = ctx.get_msg_front() {
-                let _ = self.handle_mail_admin(msg.as_str());
-            };
-            let _ = self.handle_mail_user().await;
-        })
-    }
-}
-
-impl Scheduler for SMSService {
-    type Message = String;
-
-    fn handler<'a>(
-        &'a mut self,
-        ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some(msg) = ctx.get_msg_front() {
-                let _ = self.handle_sms_admin(msg.as_str()).await;
-            };
-            let _ = self.handle_sms_user().await;
-        })
-    }
-}
-
-impl Scheduler for ErrReportService {
-    type Message = ResError;
-
-    fn handler<'a>(
-        &'a mut self,
-        ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some(e) = ctx.get_msg_front() {
-                let e = e.into();
-                match self.error.get_mut(&e) {
-                    Some(v) => {
-                        *v += 1;
-                    }
-                    None => {
-                        self.error.insert(e, 1);
-                    }
-                };
-            };
-
-            let _ = self.handle_err_rep().await;
-        })
-    }
-}
-
-pub(crate) type ErrorReportServiceAddr = SchedulerSender<ResError>;
-
-pub(crate) fn init_message_services(
+pub(crate) async fn init_message_services(
     use_mail: bool,
     use_sms: bool,
     use_rep: bool,
-) -> (
-    Option<SchedulerSender<String>>,
-    Option<SchedulerSender<String>>,
-    Option<ErrorReportServiceAddr>,
-) {
+) -> Option<ErrReportServiceAddr> {
     let mailer_addr = if use_mail {
-        let mailer_task = MailerService { mailer: None };
-        let addr = mailer_task
-            .generate_mailer()
-            .start_with_handler(MAIL_INTERVAL);
+        let builder = MailerService::builder(|| async {
+            let actor = MailerService { mailer: None };
+            actor.generate_mailer()
+        });
+
+        let addr: Address<MailerService> = builder.start().await;
+
+        addr.run_interval(MAIL_INTERVAL, |mailer| {
+            Box::pin(async move {
+                // ToDo: handle error.
+                let _ = mailer.handle_mail_user().await;
+            })
+        })
+        .await
+        .expect("Failed to start MailerService interval task");
+
         Some(addr)
     } else {
         None
     };
 
     let sms_addr = if use_sms {
-        let sms_task = SMSService { twilio: None };
-        let addr = sms_task.generate_twilio().start_with_handler(SMS_INTERVAL);
+        let builder = SMSService::builder(|| async {
+            let actor = SMSService { twilio: None };
+            actor.generate_twilio()
+        });
+
+        let addr: Address<SMSService> = builder.start().await;
+
+        addr.run_interval(SMS_INTERVAL, |sms| {
+            Box::pin(async move {
+                // ToDo: handle error.
+                let _ = sms.handle_sms_user().await;
+            })
+        })
+        .await
+        .expect("Failed to start SMSService interval task");
+
         Some(addr)
     } else {
         None
     };
 
     let err_rep_addr = if use_rep {
-        let err_rep_task = ErrReportService {
-            mailer_addr: mailer_addr.clone(),
-            sms_addr: sms_addr.clone(),
-            error: Default::default(),
-        };
-        let addr = err_rep_task.start_with_handler(REPORT_INTERVAL);
+        let builder = ErrReportService::builder(move || {
+            let mailer_addr = mailer_addr.clone();
+            let sms_addr = sms_addr.clone();
+            async {
+                ErrReportService {
+                    mailer_addr,
+                    sms_addr,
+                    error: Default::default(),
+                }
+            }
+        });
+
+        let addr: Address<ErrReportService> = builder.start().await;
+
+        addr.run_interval(REPORT_INTERVAL, |rep| {
+            Box::pin(async move {
+                // ToDo: handle error.
+                let _ = rep.handle_err_rep().await;
+            })
+        })
+        .await
+        .expect("Failed to start SMSService interval task");
+
         Some(addr)
     } else {
         None
     };
 
-    (mailer_addr, sms_addr, err_rep_addr)
+    err_rep_addr
 }
 
 impl MyRedisPool {

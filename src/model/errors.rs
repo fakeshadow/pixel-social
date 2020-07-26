@@ -164,6 +164,12 @@ impl From<redis::RedisError> for ResError {
     }
 }
 
+impl From<actix_send::prelude::ActixSendError> for ResError {
+    fn from(_e: actix_send::prelude::ActixSendError) -> ResError {
+        ResError::InternalServerError
+    }
+}
+
 impl From<actix::MailboxError> for ResError {
     fn from(e: actix::MailboxError) -> ResError {
         match e {

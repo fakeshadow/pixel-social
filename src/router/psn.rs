@@ -18,7 +18,7 @@ pub async fn query_handler(
     // psn service will handle if the request will add to psn queue by using time gate.
     let req_clone = req.clone();
     actix_rt::spawn(Box::pin(async move {
-        let _ = addr.send((req_clone, false)).await;
+        let _ = addr.send(req_clone.into_msg(false)).await;
     }));
 
     // return local result if there is any.
@@ -67,13 +67,13 @@ pub async fn query_handler_with_jwt(
 
             // auth request is add to the front of queue.
             actix_rt::spawn(async move {
-                let _ = addr.send((req, true)).await;
+                let _ = addr.send(req.into_msg(true)).await;
             });
         }
         PSNRequest::Activation { .. } => {
             actix_rt::spawn(async move {
                 let _ = addr
-                    .send((req.into_inner().attach_user_id(jwt.user_id), false))
+                    .send(req.into_inner().attach_user_id(jwt.user_id).into_msg(false))
                     .await;
             });
         }

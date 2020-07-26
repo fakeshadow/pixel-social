@@ -6,10 +6,11 @@ use actix::prelude::{
 use chrono::Utc;
 use redis::{aio::MultiplexedConnection, cmd, pipe};
 
+use crate::handler::messenger::ErrReportMsg;
 use crate::handler::{
     cache::{pool_redis, MyRedisPool},
     db::pool,
-    messenger::ErrorReportServiceAddr,
+    messenger::ErrReportServiceAddr,
 };
 use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
 
@@ -17,12 +18,12 @@ const LIST_INTERVAL: Duration = dur(5000);
 const FAILED_INTERVAL: Duration = dur(3000);
 
 pub struct CacheService {
-    rep_addr: Option<ErrorReportServiceAddr>,
+    rep_addr: Option<ErrReportServiceAddr>,
     message: VecDeque<CacheFailedMessage>,
 }
 
 impl CacheService {
-    pub fn new(rep_addr: Option<ErrorReportServiceAddr>) -> Self {
+    pub fn new(rep_addr: Option<ErrReportServiceAddr>) -> Self {
         CacheService {
             rep_addr,
             message: Default::default(),
@@ -94,7 +95,7 @@ fn spawn_report<A>(r: Result<(), ResError>, act: &mut CacheService, _ctx: &mut A
         if let Some(addr) = act.rep_addr.as_ref() {
             let addr = addr.clone();
             actix_rt::spawn(async move {
-                let _ = addr.send(e).await;
+                let _ = addr.send(ErrReportMsg(e)).await;
             })
         }
     };

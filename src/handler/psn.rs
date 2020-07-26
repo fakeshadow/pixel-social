@@ -1,10 +1,7 @@
-use std::{
-    collections::VecDeque, convert::TryInto, fmt::Write, future::Future, pin::Pin, time::Duration,
-};
+use std::{collections::VecDeque, convert::TryInto, fmt::Write, time::Duration};
 
 use chrono::Utc;
 use futures::TryFutureExt;
-use heng_rs::{Context, Scheduler, SchedulerSender};
 use psn_api_rs::types::PSNInner;
 use psn_api_rs::{psn::PSN, traits::PSNRequest as PSNRequestLib};
 use tokio_postgres::types::ToSql;
@@ -12,7 +9,7 @@ use tokio_postgres::types::ToSql;
 use crate::handler::{
     cache::{pool_redis, MyRedisPool},
     db::{pool, MyPostgresPool, ParseRowStream},
-    messenger::ErrorReportServiceAddr,
+    messenger::{ErrReportMsg, ErrReportServiceAddr},
 };
 use crate::model::{
     common::{dur, dur_as_sec},
@@ -22,6 +19,8 @@ use crate::model::{
         UserTrophySet, UserTrophyTitle,
     },
 };
+
+use actix_send::prelude::*;
 
 const PSN_REQ_INTERVAL: Duration = dur(3000);
 
@@ -66,7 +65,8 @@ const INSERT_TITLES: &str =
                 ELSE TRUE
                 END";
 
-struct PSNService {
+#[actor]
+pub struct PSNService {
     psn: Option<PSN>,
     queue: VecDeque<PSNRequest>,
     // stores all reqs' timestamp goes to PSN.
@@ -75,7 +75,66 @@ struct PSNService {
     // trophy_set request use <online_id:::np_communication_id> as key
     // chrono::Utc::now().timestamp is score
     time_gate: hashbrown::HashMap<Vec<u8>, i64>,
-    rep_addr: Option<ErrorReportServiceAddr>,
+    rep_addr: Option<ErrReportServiceAddr>,
+}
+
+pub(crate) type PSNServiceAddr = Address<PSNService>;
+
+pub struct PSNServiceMsg {
+    req: PSNRequest,
+    is_front: bool,
+}
+
+#[handler_v2]
+impl PSNService {
+    async fn handle_msg(&mut self, msg: PSNServiceMsg) {
+        let req = msg.req;
+        let is_front = msg.is_front;
+
+        if self.should_add_queue(&req) {
+            self.update_time_stamp(&req);
+            self.add_to_queue(req, is_front);
+        };
+    }
+}
+
+pub(crate) async fn init_psn_service(
+    rep_addr: Option<ErrReportServiceAddr>,
+) -> Address<PSNService> {
+    let builder = PSNService::builder(move || {
+        let rep_addr = rep_addr.clone();
+        async {
+            PSNService {
+                psn: None,
+                queue: Default::default(),
+                time_gate: Default::default(),
+                rep_addr,
+            }
+        }
+    });
+
+    let addr: Address<PSNService> = builder.start().await;
+
+    // Process queue in an interval
+    addr.run_interval(PSN_REQ_INTERVAL, |service| {
+        Box::pin(service.interval_req_task())
+    })
+    .await
+    .expect("Failed to start PSNService Interval task");
+
+    addr
+}
+
+impl PSNService {
+    async fn interval_req_task(&mut self) {
+        if let Some(msg) = self.queue.pop_front() {
+            if let Err(e) = self.handle_request(msg).await {
+                if let Some(addr) = self.rep_addr.as_ref() {
+                    let _ = addr.send(ErrReportMsg(e)).await;
+                }
+            }
+        };
+    }
 }
 
 impl PSNService {
@@ -294,43 +353,6 @@ impl PSNService {
     }
 }
 
-pub(crate) type PSNServiceAddr = SchedulerSender<(PSNRequest, bool)>;
-
-impl Scheduler for PSNService {
-    type Message = (PSNRequest, bool);
-
-    fn handler<'a>(
-        &'a mut self,
-        ctx: &'a mut Context<Self>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some((req, is_front)) = ctx.get_msg_front() {
-                if self.should_add_queue(&req) {
-                    self.update_time_stamp(&req);
-                    self.add_to_queue(req, is_front);
-                }
-            };
-            if let Some(msg) = self.queue.pop_front() {
-                if let Err(e) = self.handle_request(msg).await {
-                    if let Some(addr) = self.rep_addr.as_ref() {
-                        let _ = addr.send(e).await;
-                    }
-                }
-            };
-        })
-    }
-}
-
-pub(crate) fn init_psn_service(rep_addr: Option<ErrorReportServiceAddr>) -> PSNServiceAddr {
-    let psn_service = PSNService {
-        psn: None,
-        queue: Default::default(),
-        time_gate: Default::default(),
-        rep_addr,
-    };
-    psn_service.start_with_handler(PSN_REQ_INTERVAL)
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "query_type")]
 pub enum PSNRequest {
@@ -357,6 +379,13 @@ pub enum PSNRequest {
 }
 
 impl PSNRequest {
+    pub(crate) fn into_msg(self, is_front: bool) -> PSNServiceMsg {
+        PSNServiceMsg {
+            req: self,
+            is_front,
+        }
+    }
+
     pub(crate) fn check_privilege(self, privilege: u32) -> Result<Self, ResError> {
         if privilege < 9 {
             Err(ResError::Unauthorized)

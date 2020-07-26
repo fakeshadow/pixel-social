@@ -51,8 +51,8 @@ impl MyPostgresPool {
             .always_check(false)
             .idle_timeout(None)
             .max_lifetime(None)
-            .min_idle(1)
-            .max_size(12)
+            .min_idle(0)
+            .max_size(24)
             .build_uninitialized(mgr);
 
         MyPostgresPool(pool)

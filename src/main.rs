@@ -62,14 +62,16 @@ async fn main() -> std::io::Result<()> {
     crate::handler::cache::pool_redis().init().await;
 
     /*
-        init_message_services function will start MailerService, SMSTask and ErrReportTask according to use_xxx settings in .env.
-        They are futures run in tokio thread pool/current thread and handle email, sms and error reports.
-        The returned addrs are unbounded channel senders to send messages to Tasks.
-        (We don't send message to MailerService and SMSTask so the address is ignored)
-        The address of ErrReportTask is passed to other tasks and is used for pushing error messages which will eventually landed at MailerService and/or SMSTask.
+        init_message_services function will start MailerService, SMSTask and ErrReportTask
+        according to use_xxx settings in .env.
+
+        They are actors handle email, sms and error reports.
+        The returned addrs are used to send message to actors.
+        The address of ErrReportService is passed to other actors and is used for sending error
+        messages which will eventually landed at MailerService and/or SMSService.
     */
-    let (_addr_ignore_1, _addr_ignore2, rep_addr) =
-        crate::handler::messenger::init_message_services(use_mail, use_sms, use_rep);
+    let rep_addr =
+        crate::handler::messenger::init_message_services(use_mail, use_sms, use_rep).await;
 
     /*
         CacheService is an actix actor run in main thread and handle redis info update and failed redis insertion retry.
@@ -78,12 +80,11 @@ async fn main() -> std::io::Result<()> {
     let cache_addr = crate::handler::cache_update::CacheService::new(rep_addr.clone()).start();
 
     /*
-        init_psn_service function will start PSNService.
-        It is a future runs in tokio thread pool/current thread and handle PSNRequest.
-        The returned addr is a unbounded channel sender to send messages to PSNService.
+        init_psn_service function will start PSNService. It is an actor runs in main thread.
+        The returned addr is used to send messages to PSNService.
         Request to PSN data will hit local cache and db with a delayed schedule request.
     */
-    let psn_addr = crate::handler::psn::init_psn_service(rep_addr);
+    let psn_addr = crate::handler::psn::init_psn_service(rep_addr).await;
 
     HttpServer::new(move || {
         /*
