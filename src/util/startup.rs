@@ -10,11 +10,11 @@ use crate::handler::{
     },
     db::ParseRowStream,
 };
-use crate::model::talk::Talk;
 use crate::model::{
     category::Category,
-    common::{global, talks},
+    common::{global, GlobalSessions, GlobalTalks},
     errors::ResError,
+    talk::Talk,
     topic::Topic,
     user::User,
 };
@@ -249,7 +249,7 @@ pub async fn build_cache(
     postgres_url: &str,
     redis_url: &str,
     is_init: bool,
-) -> Result<(), ResError> {
+) -> Result<(GlobalTalks, GlobalSessions), ResError> {
     let (c, conn) = tokio_postgres::connect(postgres_url, NoTls).await?;
 
     actix_rt::spawn(conn.map(|_| ()));
@@ -430,20 +430,23 @@ pub async fn build_cache(
         .parse_row::<Talk>()
         .await?;
 
-    let mut talks = talks().0.write().await;
+    let talks = GlobalTalks::default();
 
-    for t in t.into_iter() {
-        talks.insert(t.id, t);
+    {
+        let mut guard = talks.0.write();
+
+        for t in t.into_iter() {
+            guard.insert(t.id, t);
+        }
     }
 
     // ToDo: load all users talk rooms and store the data in a zrange. stringify user rooms and privilege as member, user id as score.
 
     global()
         .lock()
-        .await
         .update(last_uid, last_pid, last_tid, last_cid);
 
-    Ok(())
+    Ok((talks, GlobalSessions::default()))
 }
 
 async fn build_categories_cache(

@@ -1,13 +1,11 @@
-use actix_web::{
-    web::{Data, Json},
-    Error, HttpResponse,
-};
+use actix_web::{web::Json, Error, HttpResponse};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::pool_redis,
+    cache::MyRedisPool,
     cache_update::CacheServiceAddr,
-    db::{pool, GetStatement, ParseRowStream},
+    data::DataRc,
+    db::{GetStatement, MyPostgresPool, ParseRowStream},
 };
 use crate::model::{
     errors::ResError,
@@ -15,7 +13,11 @@ use crate::model::{
     topic::{Topic, TopicRequest},
 };
 
-pub async fn add_topic(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Error> {
+pub async fn add_topic(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
+    addr: DataRc<CacheServiceAddr>,
+) -> Result<HttpResponse, Error> {
     let req = TopicRequest {
         id: None,
         user_id: Some(1),
@@ -33,10 +35,14 @@ pub async fn add_topic(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Err
         privilege: 9,
     };
 
-    crate::router::topic::add(jwt, Json(req), addr).await
+    crate::router::topic::add(db_pool, cache_pool, jwt, Json(req), addr).await
 }
 
-pub async fn add_post(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Error> {
+pub async fn add_post(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
+    addr: DataRc<CacheServiceAddr>,
+) -> Result<HttpResponse, Error> {
     let req = PostRequest {
         id: None,
         user_id: Some(1),
@@ -53,15 +59,15 @@ pub async fn add_post(addr: Data<CacheServiceAddr>) -> Result<HttpResponse, Erro
         privilege: 9,
     };
 
-    crate::router::post::add(jwt, Json(req), addr).await
+    crate::router::post::add(db_pool, cache_pool, jwt, Json(req), addr).await
 }
 
-pub async fn raw() -> Result<HttpResponse, ResError> {
+pub async fn raw(db_pool: DataRc<MyPostgresPool>) -> Result<HttpResponse, ResError> {
     let ids = vec![
         1u32, 11, 9, 20, 3, 5, 2, 6, 19, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 4,
     ];
 
-    let pool = pool().get().await?;
+    let pool = db_pool.get().await?;
     let (cli, sts) = &*pool;
 
     let st = sts.get_statement("topics_by_id")?;
@@ -99,14 +105,14 @@ pub async fn raw() -> Result<HttpResponse, ResError> {
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }
 
-pub async fn raw_cache() -> Result<HttpResponse, Error> {
+pub async fn raw_cache(cache_pool: DataRc<MyRedisPool>) -> Result<HttpResponse, Error> {
     let ids = vec![
         1u32, 11, 9, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19,
     ];
 
-    let (t, uids) = pool_redis().get_topics(ids).await?;
+    let (t, uids) = cache_pool.get_topics(ids).await?;
 
-    let u = pool_redis().get_users(uids).await?;
+    let u = cache_pool.get_users(uids).await?;
 
     Ok(HttpResponse::Ok().json(&Topic::attach_users(&t, &u)))
 }

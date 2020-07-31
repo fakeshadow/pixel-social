@@ -1,20 +1,27 @@
 use actix_web::{
-    web::{Data, Json, Path},
+    web::{Json, Path},
     Error, HttpResponse,
 };
 
-use crate::handler::cache_update::CacheServiceAddr;
-use crate::handler::{auth::UserJwt, cache::pool_redis, db::pool};
+use crate::handler::{
+    auth::UserJwt, cache::MyRedisPool, cache_update::CacheServiceAddr, data::DataRc,
+    db::MyPostgresPool,
+};
 use crate::model::{
     common::Validator,
     user::{UpdateRequest, User},
 };
 
-pub async fn get(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
+pub async fn get(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
+    jwt: UserJwt,
+    req: Path<u32>,
+) -> Result<HttpResponse, Error> {
     let id = req.into_inner();
-    let u = match pool_redis().get_users(vec![id]).await {
+    let u = match cache_pool.get_users(vec![id]).await {
         Ok(u) => u,
-        Err(_) => pool().get_users(&[id]).await?,
+        Err(_) => db_pool.get_users(&[id]).await?,
     };
 
     if id == jwt.user_id {
@@ -25,24 +32,34 @@ pub async fn get(jwt: UserJwt, req: Path<u32>) -> Result<HttpResponse, Error> {
 }
 
 pub async fn update(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
     jwt: UserJwt,
     req: Json<UpdateRequest>,
-    addr: Data<CacheServiceAddr>,
+    addr: DataRc<CacheServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
         .attach_id(Some(jwt.user_id))
         .check_update()?;
 
-    let u = pool().update_user(req).await?;
+    let u = db_pool.update_user(req).await?;
 
     let res = HttpResponse::Ok().json(&u);
 
-    update_user_send_fail(u, addr);
+    update_user_send_fail(cache_pool, u, addr);
 
     Ok(res)
 }
 
-pub(crate) fn update_user_send_fail(u: Vec<User>, addr: Data<CacheServiceAddr>) {
-    actix_rt::spawn(pool_redis().update_user_send_fail(u, addr.get_ref().clone()));
+pub(crate) fn update_user_send_fail(
+    cache_pool: DataRc<MyRedisPool>,
+    u: Vec<User>,
+    addr: DataRc<CacheServiceAddr>,
+) {
+    actix_rt::spawn(async move {
+        cache_pool
+            .update_user_send_fail(u, addr.get_ref().clone())
+            .await
+    });
 }

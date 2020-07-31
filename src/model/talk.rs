@@ -1,4 +1,4 @@
-use actix::prelude::Message;
+use actix::Message;
 use chrono::NaiveDateTime;
 
 use crate::model::user::User;

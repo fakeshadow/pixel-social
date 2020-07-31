@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
-use actix::prelude::{Actor, ActorContext, Addr, AsyncContext, Running};
+use actix::prelude::{Actor, ActorContext, AsyncContext, Running};
 use actix_web_actors::ws;
 
-use crate::handler::talk::DisconnectRequest;
+use crate::handler::talk::{DisconnectRequest, TalkServiceAddr};
 
 // websocket heartbeat and connection time out time.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -13,7 +13,7 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct WsChatSession {
     pub id: u32,
     pub hb: Instant,
-    pub addr: Addr<crate::handler::talk::TalkService>,
+    pub addr: TalkServiceAddr,
 }
 
 impl Actor for WsChatSession {

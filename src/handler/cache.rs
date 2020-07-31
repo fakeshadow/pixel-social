@@ -3,8 +3,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use chrono::NaiveDateTime;
-use futures::TryFutureExt;
-use once_cell::sync::OnceCell;
 use redis::{aio::MultiplexedConnection, cmd, pipe, Pipeline};
 use redis_tang::{Builder, Pool, PoolRef, RedisManager};
 
@@ -36,47 +34,30 @@ pub const USER_PSN_U8: &[u8] = b"user_psn:";
 const SET_U8: &[u8] = b":set";
 const PERM_U8: &[u8] = b"_perm";
 
-pub fn pool_redis() -> &'static MyRedisPool {
-    static POOL_REDIS: OnceCell<MyRedisPool> = OnceCell::new();
-
-    POOL_REDIS.get_or_init(|| {
-        MyRedisPool::new(
-            std::env::var("REDIS_URL")
-                .expect("REDIS_URL must be set in .env")
-                .as_str(),
-        )
-    })
-}
-
 #[derive(Clone)]
 pub struct MyRedisPool(Pool<RedisManager>);
 
 pub type MyRedisPoolRef<'a> = PoolRef<'a, RedisManager>;
 
 impl MyRedisPool {
-    pub(crate) fn new(redis_url: &str) -> MyRedisPool {
+    pub(crate) async fn new(redis_url: &str) -> MyRedisPool {
         let mgr = RedisManager::new(redis_url);
 
         let pool = Builder::new()
             .always_check(false)
             .idle_timeout(None)
             .max_lifetime(None)
-            .min_idle(1)
-            .max_size(12)
-            .build_uninitialized(mgr);
+            .min_idle(0)
+            .max_size(24)
+            .build(mgr)
+            .await
+            .expect("Failed to initialize redis pool");
 
         MyRedisPool(pool)
     }
 
-    pub(crate) async fn init(&self) {
-        self.0
-            .init()
-            .await
-            .expect("Failed to initialize redis pool");
-    }
-
-    pub(crate) fn get(&self) -> impl Future<Output = Result<MyRedisPoolRef, ResError>> {
-        self.0.get().err_into()
+    pub(crate) async fn get(&self) -> Result<MyRedisPoolRef<'_>, ResError> {
+        Ok(self.0.get().await?)
     }
 }
 
@@ -115,7 +96,7 @@ impl MyRedisPool {
             .arg(MAIL_LIFE)
             .ignore();
 
-        pip.query_async(&mut conn).err_into().await
+        pip.query_async(&mut conn).await.map_err(Into::into)
     }
 
     pub(crate) async fn get_hash_map_brown(
@@ -126,8 +107,8 @@ impl MyRedisPool {
         cmd("HGETALL")
             .arg(key)
             .query_async(&mut conn)
-            .err_into()
             .await
+            .map_err(Into::into)
     }
 
     pub(crate) async fn get_queue(&self, key: &str) -> Result<String, ResError> {
@@ -157,8 +138,8 @@ impl MyRedisPool {
             cmd("del")
                 .arg(key.as_str())
                 .query_async(conn)
-                .err_into()
                 .await
+                .map_err(Into::into)
         })
     }
 }
@@ -278,8 +259,8 @@ impl MyRedisPool {
         cmd("HGETALL")
             .arg(&format!("{}:{}:set", set_key, key))
             .query_async(&mut conn)
-            .err_into()
             .await
+            .map_err(Into::into)
     }
 
     async fn cache_with_uids_from_zrange<T>(
@@ -362,7 +343,7 @@ impl MyRedisPool {
         let pip = pip.await;
 
         let mut conn = self.get().await?.get_conn().clone();
-        pip.query_async(&mut conn).err_into().await
+        pip.query_async(&mut conn).await.map_err(Into::into)
     }
 
     pub(crate) async fn add_post(&self, posts: &[Post]) -> Result<(), ResError> {
@@ -371,7 +352,7 @@ impl MyRedisPool {
         let pip = pip.await;
 
         let mut conn = self.get().await?.get_conn().clone();
-        pip.query_async(&mut conn).err_into().await
+        pip.query_async(&mut conn).await.map_err(Into::into)
     }
 
     pub(crate) async fn add_category(&self, category: &[Category]) -> Result<(), ResError> {
@@ -392,7 +373,7 @@ impl MyRedisPool {
             .ignore();
 
         let mut conn = self.get().await?.get_conn().clone();
-        pip.query_async(&mut conn).err_into().await
+        pip.query_async(&mut conn).await.map_err(Into::into)
     }
 
     //    pub(crate) async fn bulk_add_update_cache(
@@ -504,10 +485,10 @@ impl MyRedisPool {
         let pipe = pip.await;
         let mut conn = self.get().await?.get_conn().clone();
 
-        actix_rt::spawn(async move {
-            let _ = pipe.query_async::<_, ()>(&mut conn).await;
-            println!("updated cache");
-        });
+        pipe.query_async::<_, ()>(&mut conn).await?;
+
+        println!("updated cache");
+
         Ok(())
     }
 }
@@ -926,9 +907,9 @@ where
         }
     }
     pip.query_async(conn)
-        .err_into()
-        .map_ok(|()| println!("updating cache"))
         .await
+        .map(|()| println!("updating cache"))
+        .map_err(Into::into)
 }
 
 pub(crate) async fn build_list(
@@ -945,7 +926,7 @@ pub(crate) async fn build_list(
         pip.cmd("rpush").arg(key.as_str()).arg(vec).ignore();
     }
 
-    pip.query_async(conn).err_into().await
+    pip.query_async(conn).await.map_err(Into::into)
 }
 
 pub(crate) async fn build_users_cache(
@@ -968,7 +949,7 @@ pub(crate) async fn build_users_cache(
             .arg(&[("online_status", 0)])
             .ignore();
     }
-    pip.query_async(conn).err_into().await
+    pip.query_async(conn).await.map_err(Into::into)
 }
 
 pub(crate) async fn build_topics_cache_list(
@@ -1014,7 +995,7 @@ pub(crate) async fn build_topics_cache_list(
         }
     }
 
-    pip.query_async(conn).err_into().await
+    pip.query_async(conn).await.map_err(Into::into)
 }
 
 pub(crate) async fn build_posts_cache_list(
@@ -1051,7 +1032,7 @@ pub(crate) async fn build_posts_cache_list(
         }
     }
 
-    pipe.query_async(conn).err_into().await
+    pipe.query_async(conn).await.map_err(Into::into)
 }
 
 pub(crate) fn clear_cache(redis_url: &str) -> Result<(), ResError> {

@@ -1,110 +1,126 @@
 use std::{collections::VecDeque, time::Duration};
 
-use actix::prelude::{
-    Actor, ActorFuture, Addr, AsyncContext, Context, Handler, Message, WrapFuture,
-};
+use actix_send::prelude::*;
 use chrono::Utc;
 use redis::{aio::MultiplexedConnection, cmd, pipe};
 
-use crate::handler::messenger::ErrReportMsg;
 use crate::handler::{
-    cache::{pool_redis, MyRedisPool},
-    db::pool,
-    messenger::ErrReportServiceAddr,
+    cache::MyRedisPool,
+    db::MyPostgresPool,
+    messenger::{ErrReportMsg, ErrReportServiceAddr},
 };
 use crate::model::{cache_schema::HashMapBrown, common::dur, errors::ResError};
 
 const LIST_INTERVAL: Duration = dur(5000);
 const FAILED_INTERVAL: Duration = dur(3000);
 
+#[actor]
 pub struct CacheService {
+    db_pool: MyPostgresPool,
+    cache_pool: MyRedisPool,
     rep_addr: Option<ErrReportServiceAddr>,
     message: VecDeque<CacheFailedMessage>,
 }
 
+#[handler_v2]
 impl CacheService {
-    pub fn new(rep_addr: Option<ErrReportServiceAddr>) -> Self {
-        CacheService {
-            rep_addr,
-            message: Default::default(),
-        }
+    async fn handle_failed_msg(&mut self, msg: CacheFailedMessage) {
+        self.message.push_back(msg);
     }
+}
 
-    async fn update_failed(msg: CacheFailedMessage) -> Result<(), ResError> {
+impl CacheService {
+    async fn update_failed(&mut self, msg: CacheFailedMessage) -> Result<(), ResError> {
         match msg {
             CacheFailedMessage::FailedTopic(id) => {
-                let (t, _) = pool().get_topics(&[id]).await?;
-                pool_redis().add_topic(&t).await
+                let (t, _) = self.db_pool.get_topics(&[id]).await?;
+                self.cache_pool.add_topic(&t).await
             }
             CacheFailedMessage::FailedPost(id) => {
-                let (p, _) = pool().get_posts(&[id]).await?;
-                pool_redis().add_post(&p).await
+                let (p, _) = self.db_pool.get_posts(&[id]).await?;
+                self.cache_pool.add_post(&p).await
             }
             CacheFailedMessage::FailedCategory(id) => {
-                let c = pool().get_categories(&[id]).await?;
-                pool_redis().add_category(&c).await
+                let c = self.db_pool.get_categories(&[id]).await?;
+                self.cache_pool.add_category(&c).await
             }
             CacheFailedMessage::FailedUser(id) => {
-                let u = pool().get_users(&[id]).await?;
-                pool_redis().update_users(&u).await
+                let u = self.db_pool.get_users(&[id]).await?;
+                self.cache_pool.update_users(&u).await
             }
             CacheFailedMessage::FailedTopicUpdate(id) => {
-                let (t, _) = pool().get_topics(&[id]).await?;
-                pool_redis().update_topics(&t).await
+                let (t, _) = self.db_pool.get_topics(&[id]).await?;
+                self.cache_pool.update_topics(&t).await
             }
             CacheFailedMessage::FailedPostUpdate(id) => {
-                let (p, _) = pool().get_posts(&[id]).await?;
-                pool_redis().update_posts(&p).await
+                let (p, _) = self.db_pool.get_posts(&[id]).await?;
+                self.cache_pool.update_posts(&p).await
             }
         }
     }
-}
 
-pub type CacheServiceAddr = Addr<CacheService>;
-
-impl Actor for CacheService {
-    type Context = Context<Self>;
-
-    // when actor starts we run a interval function to inject all failed cache to redis.
-    // we run another interval function to update redis list to correct the cache order.
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(FAILED_INTERVAL, |act, ctx| {
-            while let Some(msg) = act.message.pop_front() {
-                ctx.spawn(
-                    Self::update_failed(msg.clone())
-                        .into_actor(act)
-                        .map(spawn_report),
-                );
-            }
-        });
-
-        ctx.run_interval(LIST_INTERVAL, |act, ctx| {
-            ctx.spawn(
-                pool_redis()
-                    .handle_list_update()
-                    .into_actor(act)
-                    .map(spawn_report),
-            );
-        });
-    }
-}
-
-// no type infer needed as we don't use context in the function
-fn spawn_report<A>(r: Result<(), ResError>, act: &mut CacheService, _ctx: &mut A) {
-    if let Err(e) = r {
-        if let Some(addr) = act.rep_addr.as_ref() {
+    fn send_err_rep(&self, e: ResError) {
+        if let Some(addr) = self.rep_addr.as_ref() {
             let addr = addr.clone();
             actix_rt::spawn(async move {
                 let _ = addr.send(ErrReportMsg(e)).await;
             })
         }
-    };
+    }
+}
+
+pub type CacheServiceAddr = Address<CacheService>;
+
+pub async fn init_cache_service(
+    db_pool: MyPostgresPool,
+    cache_pool: MyRedisPool,
+    rep_addr: Option<ErrReportServiceAddr>,
+) -> CacheServiceAddr {
+    let builder = CacheService::builder(move || {
+        let rep_addr = rep_addr.clone();
+        let db_pool = db_pool.clone();
+        let cache_pool = cache_pool.clone();
+        async {
+            CacheService {
+                db_pool,
+                cache_pool,
+                rep_addr,
+                message: Default::default(),
+            }
+        }
+    });
+
+    let addr: Address<CacheService> = builder.start().await;
+
+    addr.run_interval(LIST_INTERVAL, |service| {
+        Box::pin(async move {
+            if let Err(e) = service.cache_pool.handle_list_update().await {
+                service.send_err_rep(e);
+            }
+        })
+    })
+    .await
+    .expect("Failed to start CacheService interval task for updating list order");
+
+    addr.run_interval(FAILED_INTERVAL, |service| {
+        Box::pin(async move {
+            if let Some(msg) = service.message.pop_front() {
+                if let Err(e) = service.update_failed(msg.clone()).await {
+                    service.message.push_back(msg);
+                    service.send_err_rep(e);
+                }
+            }
+        })
+    })
+    .await
+    .expect("Failed to start CacheService interval task for updating list order");
+
+    addr
 }
 
 // CacheService will push data failed to insert into redis to CacheUpdateService actor.
 // we will just keep retrying to add them to redis.
-#[derive(Clone, Message)]
-#[rtype(result = "()")]
+#[derive(Clone)]
 pub enum CacheFailedMessage {
     FailedTopic(u32),
     FailedPost(u32),
@@ -112,14 +128,6 @@ pub enum CacheFailedMessage {
     FailedUser(u32),
     FailedTopicUpdate(u32),
     FailedPostUpdate(u32),
-}
-
-impl Handler<CacheFailedMessage> for CacheService {
-    type Result = ();
-
-    fn handle(&mut self, msg: CacheFailedMessage, _ctx: &mut Context<Self>) -> Self::Result {
-        self.message.push_back(msg);
-    }
 }
 
 impl MyRedisPool {

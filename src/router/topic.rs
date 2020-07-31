@@ -1,9 +1,12 @@
 use actix_web::{
-    web::{Data, Json, Query},
+    web::{Json, Query},
     Error, HttpResponse,
 };
 
-use crate::handler::{auth::UserJwt, cache::pool_redis, cache_update::CacheServiceAddr, db::pool};
+use crate::handler::{
+    auth::UserJwt, cache::MyRedisPool, cache_update::CacheServiceAddr, data::DataRc,
+    db::MyPostgresPool,
+};
 use crate::model::{
     errors::ResError,
     post::Post,
@@ -11,9 +14,11 @@ use crate::model::{
 };
 
 pub async fn add(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    addr: Data<CacheServiceAddr>,
+    addr: DataRc<CacheServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     jwt.check_privilege()?;
 
@@ -22,52 +27,72 @@ pub async fn add(
         .add_user_id(Some(jwt.user_id))
         .check_new()?;
 
-    let t = pool().add_topic(&req).await?;
+    let t = db_pool.add_topic(&req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
-    actix_rt::spawn(pool_redis().add_topic_send_fail(t, addr.get_ref().clone()));
+    actix_rt::spawn(async move {
+        cache_pool
+            .add_topic_send_fail(t, addr.get_ref().clone())
+            .await
+    });
 
     Ok(res)
 }
 
 pub async fn update(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
     jwt: UserJwt,
     req: Json<TopicRequest>,
-    addr: Data<CacheServiceAddr>,
+    addr: DataRc<CacheServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     let req = req
         .into_inner()
         .add_user_id(Some(jwt.user_id))
         .check_update()?;
 
-    let t = pool().update_topic(&req).await?;
+    let t = db_pool.update_topic(&req).await?;
 
     let res = HttpResponse::Ok().json(&t);
 
-    update_topic_send_fail(t, addr);
+    update_topic_send_fail(cache_pool, t, addr);
 
     Ok(res)
 }
 
-pub(crate) fn update_topic_send_fail(t: Vec<Topic>, addr: Data<CacheServiceAddr>) {
-    actix_rt::spawn(pool_redis().update_topic_send_fail(t, addr.get_ref().clone()));
+pub(crate) fn update_topic_send_fail(
+    cache_pool: DataRc<MyRedisPool>,
+    t: Vec<Topic>,
+    addr: DataRc<CacheServiceAddr>,
+) {
+    actix_rt::spawn(async move {
+        cache_pool
+            .update_topic_send_fail(t, addr.get_ref().clone())
+            .await
+    });
 }
 
-pub async fn query_handler(req: Query<TopicQuery>) -> Result<HttpResponse, Error> {
+pub async fn query_handler(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
+    req: Query<TopicQuery>,
+) -> Result<HttpResponse, Error> {
     match req.query_type {
         QueryType::Oldest => {
-            let result = pool_redis().get_posts_old(req.topic_id, req.page).await;
-            if_query_db(req.topic_id, req.page, result).await
+            let result = cache_pool.get_posts_old(req.topic_id, req.page).await;
+            if_query_db(db_pool, cache_pool, req.topic_id, req.page, result).await
         }
         QueryType::Popular => {
-            let result = pool_redis().get_posts_pop(req.topic_id, req.page).await;
-            if_query_db(req.topic_id, req.page, result).await
+            let result = cache_pool.get_posts_pop(req.topic_id, req.page).await;
+            if_query_db(db_pool, cache_pool, req.topic_id, req.page, result).await
         }
     }
 }
 
 async fn if_query_db(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
     tid: u32,
     page: usize,
     result: Result<(Vec<Post>, Vec<u32>), ResError>,
@@ -81,7 +106,7 @@ async fn if_query_db(
         Err(e) => {
             if let ResError::IdsFromCache(pids) = e {
                 should_update_p = true;
-                pool().get_posts(&pids).await?
+                db_pool.get_posts(&pids).await?
             } else {
                 return Err(e.into());
             }
@@ -89,12 +114,12 @@ async fn if_query_db(
     };
 
     let (t, mut uid) = if page == 1 {
-        match pool_redis().get_topics(vec![tid]).await {
+        match cache_pool.get_topics(vec![tid]).await {
             Ok((t, uid)) => (t, uid),
             Err(e) => {
                 if let ResError::IdsFromCache(tids) = e {
                     should_update_t = true;
-                    pool().get_topics(&tids).await?
+                    db_pool.get_topics(&tids).await?
                 } else {
                     return Err(e.into());
                 }
@@ -106,27 +131,31 @@ async fn if_query_db(
 
     uids.append(&mut uid);
 
-    let u = match pool_redis().get_users(uids).await {
+    let u = match cache_pool.get_users(uids).await {
         Ok(u) => u,
         Err(e) => {
             if let ResError::IdsFromCache(uids) = e {
                 should_update_u = true;
-                pool().get_users(&uids).await?
+                db_pool.get_users(&uids).await?
             } else {
                 vec![]
             }
         }
     };
 
-    if should_update_u {
-        let _ = pool_redis().update_users(&u).await;
-    };
-    if should_update_t {
-        let _ = pool_redis().update_topics(&t).await;
-    };
-    if should_update_p {
-        let _ = pool_redis().update_posts(&p).await;
-    };
+    let res = HttpResponse::Ok().json(&Topic::attach_users_with_post(t.first(), &p, &u));
 
-    Ok(HttpResponse::Ok().json(&Topic::attach_users_with_post(t.first(), &p, &u)))
+    actix_rt::spawn(async move {
+        if should_update_u {
+            let _ = cache_pool.update_users(&u).await;
+        };
+        if should_update_t {
+            let _ = cache_pool.update_topics(&t).await;
+        };
+        if should_update_p {
+            let _ = cache_pool.update_posts(&p).await;
+        };
+    });
+
+    Ok(res)
 }

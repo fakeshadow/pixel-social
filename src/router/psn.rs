@@ -1,38 +1,38 @@
-use actix_web::{
-    web::{Data, Query},
-    Error, HttpResponse,
-};
+use actix_web::{web::Query, Error, HttpResponse};
 
 use crate::handler::{
     auth::UserJwt,
-    cache::pool_redis,
-    db::pool,
+    cache::MyRedisPool,
+    data::DataRc,
+    db::MyPostgresPool,
     psn::{PSNRequest, PSNServiceAddr},
 };
 
 pub async fn query_handler(
+    db_pool: DataRc<MyPostgresPool>,
+    cache_pool: DataRc<MyRedisPool>,
     req: Query<PSNRequest>,
-    addr: Data<PSNServiceAddr>,
+    addr: DataRc<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     // send request to psn service no matter the local result.
     // psn service will handle if the request will add to psn queue by using time gate.
     let req_clone = req.clone();
-    actix_rt::spawn(Box::pin(async move {
+    actix_rt::spawn(async move {
         let _ = addr.send(req_clone.into_msg(false)).await;
-    }));
+    });
 
     // return local result if there is any.
     match &*req {
         PSNRequest::Profile { online_id } => {
-            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
+            if let Ok(p) = cache_pool.get_psn_profile(online_id.as_str()).await {
                 return Ok(HttpResponse::Ok().json(&p));
             }
         }
         PSNRequest::TrophyTitles { online_id, page } => {
             let page = page.parse::<u32>().unwrap_or(1);
 
-            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
-                if let Ok(t) = pool().get_trophy_titles(p.np_id.as_str(), page).await {
+            if let Ok(p) = cache_pool.get_psn_profile(online_id.as_str()).await {
+                if let Ok(t) = db_pool.get_trophy_titles(p.np_id.as_str(), page).await {
                     return Ok(HttpResponse::Ok().json(&t));
                 }
             }
@@ -41,8 +41,8 @@ pub async fn query_handler(
             online_id,
             np_communication_id,
         } => {
-            if let Ok(p) = pool_redis().get_psn_profile(online_id.as_str()).await {
-                if let Ok(s) = pool()
+            if let Ok(p) = cache_pool.get_psn_profile(online_id.as_str()).await {
+                if let Ok(s) = db_pool
                     .get_trophy_set(p.np_id.as_str(), np_communication_id.as_str())
                     .await
                 {
@@ -59,7 +59,7 @@ pub async fn query_handler(
 pub async fn query_handler_with_jwt(
     jwt: UserJwt,
     req: Query<PSNRequest>,
-    addr: Data<PSNServiceAddr>,
+    addr: DataRc<PSNServiceAddr>,
 ) -> Result<HttpResponse, Error> {
     match *req {
         PSNRequest::Auth { .. } => {

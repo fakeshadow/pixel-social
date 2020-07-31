@@ -1,6 +1,5 @@
 use std::future::Future;
 
-use futures::FutureExt;
 use tokio_postgres::types::ToSql;
 
 use crate::handler::cache_update::CacheServiceAddr;
@@ -56,10 +55,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_CATEGORY, &[]).await?;
 
-        let cid = crate::model::common::global()
-            .lock()
-            .map(|mut lock| lock.next_cid())
-            .await;
+        let cid = crate::model::common::global().lock().next_cid();
         let params: [&(dyn ToSql + Sync); 3] = [&cid, &name, &thumb];
 
         cli.query_raw(&st, params.iter().map(|s| *s as _))

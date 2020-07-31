@@ -1,5 +1,4 @@
 use actix_web::{dev, FromRequest, HttpRequest};
-use futures::FutureExt;
 use tokio_postgres::types::{ToSql, Type};
 
 use crate::handler::{
@@ -88,10 +87,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_USER, INSERT_USER_TYPES).await?;
 
-        let id = crate::model::common::global()
-            .lock()
-            .map(|mut lock| lock.next_uid())
-            .await;
+        let id = crate::model::common::global().lock().next_uid();
         let u = req.make_user(id, hash.as_str())?;
         let params: [&(dyn ToSql + Sync); 6] = [
             &u.id,

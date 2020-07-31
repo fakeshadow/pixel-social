@@ -3,6 +3,7 @@ pub mod auth;
 pub mod cache;
 pub mod cache_update;
 pub mod category;
+pub mod data;
 pub mod db;
 pub mod messenger;
 pub mod post;

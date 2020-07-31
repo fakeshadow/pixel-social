@@ -14,22 +14,24 @@ use lettre::{
 };
 use lettre_email::Email;
 
-use crate::handler::cache::{pool_redis, MyRedisPool};
+use crate::handler::cache::MyRedisPool;
 use crate::model::{
     common::dur,
     errors::{RepError, ResError},
     messenger::{Mail, Mailer, SmsMessage, Twilio},
     user::User,
 };
+use crate::util::env::Env;
 
 const REPORT_INTERVAL: Duration = dur(600_000);
 const MAIL_INTERVAL: Duration = dur(500);
 const SMS_INTERVAL: Duration = dur(500);
 
-// MailerTask is an actor runs a interval and read from redis cache and send mails to users.
+// MailerService is an actor runs a interval and read from redis cache and send mails to users.
 // It would also receive admin message and send it immediately.
 #[actor]
 struct MailerService {
+    cache_pool: MyRedisPool,
     mailer: Option<Mailer>,
 }
 
@@ -74,7 +76,7 @@ impl MailerService {
     }
 
     async fn handle_mail_user(&mut self) -> Result<(), ResError> {
-        let s = pool_redis().get_queue("mail_queue").await?;
+        let s = self.cache_pool.get_queue("mail_queue").await?;
         let mail = serde_json::from_str::<Mail>(s.as_str())?;
         self.send_mail(&mail)
     }
@@ -122,6 +124,7 @@ impl MailerService {
 // It would also receive message and sent to admin through sms immediately.
 #[actor]
 struct SMSService {
+    cache_pool: MyRedisPool,
     twilio: Option<Twilio>,
 }
 
@@ -155,7 +158,7 @@ impl SMSService {
     }
 
     async fn handle_sms_user(&mut self) -> Result<(), ResError> {
-        let s = pool_redis().get_queue("sms_queue").await?;
+        let s = self.cache_pool.get_queue("sms_queue").await?;
         let msg = serde_json::from_str::<SmsMessage>(s.as_str())?;
         self.send_sms(msg).await
     }
@@ -211,9 +214,10 @@ impl SMSService {
     }
 }
 
-// ErrReportTask run on a interval and handle Error Report.
-// At the beginning of every interval we try to pop a message from the task's context and convert it to RepError which will be inserted to self.error HashMap.
-// Then we go through the HashMap and stringify the errors beyond threshold and send them to MailerTask and SMSTask in String form.
+// ErrReportService is an actor runs a interval task and handle Error Report.
+// ResError are are sent to actor through message and converted into RepError and store in Hashmap.
+// With every interval we go through the HashMap and stringify the errors beyond threshold and send
+// them to MailerService and SMSService in String form.
 #[actor]
 pub struct ErrReportService {
     mailer_addr: Option<Address<MailerService>>,
@@ -295,14 +299,20 @@ impl ErrReportService {
 pub(crate) type ErrReportServiceAddr = Address<ErrReportService>;
 
 pub(crate) async fn init_message_services(
-    use_mail: bool,
-    use_sms: bool,
-    use_rep: bool,
+    env: &Env,
+    cache_pool: MyRedisPool,
 ) -> Option<ErrReportServiceAddr> {
-    let mailer_addr = if use_mail {
-        let builder = MailerService::builder(|| async {
-            let actor = MailerService { mailer: None };
-            actor.generate_mailer()
+    let mailer_addr = if env.use_mail() {
+        let cache_pool1 = cache_pool.clone();
+        let builder = MailerService::builder(move || {
+            let cache_pool = cache_pool1.clone();
+            async {
+                let actor = MailerService {
+                    cache_pool,
+                    mailer: None,
+                };
+                actor.generate_mailer()
+            }
         });
 
         let addr: Address<MailerService> = builder.start().await;
@@ -321,10 +331,16 @@ pub(crate) async fn init_message_services(
         None
     };
 
-    let sms_addr = if use_sms {
-        let builder = SMSService::builder(|| async {
-            let actor = SMSService { twilio: None };
-            actor.generate_twilio()
+    let sms_addr = if env.use_sms() {
+        let builder = SMSService::builder(move || {
+            let cache_pool = cache_pool.clone();
+            async {
+                let actor = SMSService {
+                    cache_pool,
+                    twilio: None,
+                };
+                actor.generate_twilio()
+            }
         });
 
         let addr: Address<SMSService> = builder.start().await;
@@ -343,7 +359,7 @@ pub(crate) async fn init_message_services(
         None
     };
 
-    let err_rep_addr = if use_rep {
+    let err_rep_addr = if env.use_rep() {
         let builder = ErrReportService::builder(move || {
             let mailer_addr = mailer_addr.clone();
             let sms_addr = sms_addr.clone();

@@ -4,8 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use futures::{Stream, TryFutureExt};
-use once_cell::sync::OnceCell;
+use futures::Stream;
 use tokio_postgres::{types::Type, Client, NoTls, Row, SimpleQueryMessage, Statement};
 use tokio_postgres_tang::{Builder, Pool, PoolRef, PostgresManager};
 
@@ -20,25 +19,11 @@ const INSERT_PUB_MSG: &str =
 const INSERT_PRV_MSG: &str =
     "INSERT INTO private_messages1 (from_id, to_id, text, time) VALUES ($1, $2, $3, $4)";
 
-// construct static postgres pool so that it can be freely used through out the app without cloning.
-
-pub fn pool() -> &'static MyPostgresPool {
-    static POOL: OnceCell<MyPostgresPool> = OnceCell::new();
-
-    POOL.get_or_init(|| {
-        MyPostgresPool::new(
-            std::env::var("DATABASE_URL")
-                .expect("DATABASE_URL must be set in .env")
-                .as_str(),
-        )
-    })
-}
-
 #[derive(Clone)]
 pub struct MyPostgresPool(Pool<PostgresManager<NoTls>>);
 
 impl MyPostgresPool {
-    pub(crate) fn new(postgres_url: &str) -> MyPostgresPool {
+    pub(crate) async fn new(postgres_url: &str) -> MyPostgresPool {
         let mgr = PostgresManager::new_from_stringlike(postgres_url, NoTls)
             .expect("Failed to create postgres pool manager")
             .prepare_statement("topics_by_id", SELECT_TOPIC, &[Type::OID_ARRAY])
@@ -53,22 +38,15 @@ impl MyPostgresPool {
             .max_lifetime(None)
             .min_idle(0)
             .max_size(24)
-            .build_uninitialized(mgr);
+            .build(mgr)
+            .await
+            .expect("Failed to initialize postgres pool");
 
         MyPostgresPool(pool)
     }
 
-    pub(crate) async fn init(&self) {
-        self.0
-            .init()
-            .await
-            .expect("Failed to initialize postgres pool");
-    }
-
-    pub(crate) fn get(
-        &self,
-    ) -> impl Future<Output = Result<PoolRef<'_, PostgresManager<NoTls>>, ResError>> {
-        self.0.get().err_into()
+    pub(crate) async fn get(&self) -> Result<PoolRef<'_, PostgresManager<NoTls>>, ResError> {
+        Ok(self.0.get().await?)
     }
 }
 

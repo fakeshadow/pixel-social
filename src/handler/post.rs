@@ -1,7 +1,6 @@
 use std::future::Future;
 
 use chrono::Utc;
-use futures::FutureExt;
 use tokio_postgres::types::{ToSql, Type};
 
 use crate::handler::{
@@ -41,10 +40,7 @@ impl MyPostgresPool {
 
         let st = cli.prepare_typed(INSERT_POST, INSERT_POST_TYPES).await?;
 
-        let id = crate::model::common::global()
-            .lock()
-            .map(|mut lock| lock.next_pid())
-            .await;
+        let id = crate::model::common::global().lock().next_pid();
         let now = &Utc::now().naive_local();
         let params: [&(dyn ToSql + Sync); 8] =
             [&id, uid, tid, &p.category_id, &p.post_id, content, now, now];

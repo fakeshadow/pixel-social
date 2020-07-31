@@ -7,8 +7,8 @@ use psn_api_rs::{psn::PSN, traits::PSNRequest as PSNRequestLib};
 use tokio_postgres::types::ToSql;
 
 use crate::handler::{
-    cache::{pool_redis, MyRedisPool},
-    db::{pool, MyPostgresPool, ParseRowStream},
+    cache::MyRedisPool,
+    db::{MyPostgresPool, ParseRowStream},
     messenger::{ErrReportMsg, ErrReportServiceAddr},
 };
 use crate::model::{
@@ -67,6 +67,8 @@ const INSERT_TITLES: &str =
 
 #[actor]
 pub struct PSNService {
+    db_pool: MyPostgresPool,
+    cache_pool: MyRedisPool,
     psn: Option<PSN>,
     queue: VecDeque<PSNRequest>,
     // stores all reqs' timestamp goes to PSN.
@@ -99,12 +101,18 @@ impl PSNService {
 }
 
 pub(crate) async fn init_psn_service(
+    db_pool: MyPostgresPool,
+    cache_pool: MyRedisPool,
     rep_addr: Option<ErrReportServiceAddr>,
 ) -> Address<PSNService> {
     let builder = PSNService::builder(move || {
         let rep_addr = rep_addr.clone();
+        let db_pool = db_pool.clone();
+        let cache_pool = cache_pool.clone();
         async {
             PSNService {
+                db_pool,
+                cache_pool,
                 psn: None,
                 queue: Default::default(),
                 time_gate: Default::default(),
@@ -148,7 +156,7 @@ impl PSNService {
             PSNRequest::TrophyTitles { online_id, .. } => {
                 let r = self.handle_trophy_titles_request(&online_id).await?;
                 // only check db connection when update user trophy titles.
-                pool().update_user_trophy_titles(&r).await
+                self.db_pool.update_user_trophy_titles(&r).await
             }
             PSNRequest::TrophySet {
                 online_id,
@@ -157,7 +165,7 @@ impl PSNService {
                 let r = self
                     .handle_trophy_set_request(&online_id, &np_communication_id)
                     .await?;
-                pool().query_update_user_trophy_set(r).await
+                self.db_pool.query_update_user_trophy_set(r).await
             }
             PSNRequest::Auth {
                 npsso,
@@ -210,7 +218,7 @@ impl PSNService {
         if u.about_me == code {
             let mut u = UserPSNProfile::from(u);
             u.id = user_id;
-            pool_redis()
+            self.cache_pool
                 .build_sets(&[u], crate::handler::cache::USER_PSN_U8, false)
                 .await
         } else {
@@ -313,7 +321,7 @@ impl PSNService {
             .await?
             .into();
 
-        pool_redis()
+        self.cache_pool
             .build_sets(&[u], crate::handler::cache::USER_PSN_U8, false)
             .await
     }

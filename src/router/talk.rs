@@ -1,17 +1,15 @@
 use std::time::Instant;
 
-use actix::prelude::{ActorContext, AsyncContext, Handler, Message, StreamHandler};
-use actix_web::{
-    web::{Data, Payload},
-    Error, HttpRequest, HttpResponse,
-};
+use actix::prelude::{ActorContext, AsyncContext, Handler, StreamHandler};
+use actix_web::{get, web::Payload, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 use serde::Deserialize;
 
+use crate::handler::data::DataRc;
 use crate::handler::talk::{
     Admin, AuthRequest, ConnectRequest, CreateTalkRequest, DeleteTalkRequest, GetHistory,
-    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkService, TalkServiceAddr,
-    TextMessageRequest, UserRelationRequest, UsersByIdRequest,
+    JoinTalkRequest, RemoveUserRequest, TalkByIdRequest, TalkServiceAddr, TextMessageRequest,
+    UserRelationRequest, UsersByIdRequest,
 };
 use crate::model::{
     actors::WsChatSession,
@@ -20,12 +18,12 @@ use crate::model::{
 use crate::util::jwt::JwtPayLoad;
 
 // start a WebSocket actor with each incoming connection.
+#[get("/talk")]
 pub async fn talk(
     req: HttpRequest,
     stream: Payload,
-    talk: Data<TalkServiceAddr>,
+    talk: DataRc<TalkServiceAddr>,
 ) -> Result<HttpResponse, Error> {
-    println!("connected");
     ws::start(
         WsChatSession {
             id: 0,
@@ -172,9 +170,13 @@ fn general_msg_handler<'a, T>(
     text: &'a str,
     ctx: &mut ws::WebsocketContext<WsChatSession>,
 ) where
-    T: SessionId + Message + std::marker::Send + Deserialize<'a> + 'static,
-    <T as Message>::Result: std::marker::Send,
-    TalkService: Handler<T>,
+    // crate::handler::talk::TalkServiceMessage is an imaginary type which would generate at compile
+    // time by #[handler_v2] marco of actix_send crate.
+    T: SessionId
+        + std::marker::Send
+        + Deserialize<'a>
+        + Into<crate::handler::talk::TalkServiceMessage>
+        + 'static,
 {
     let r: Result<T, _> = serde_json::from_str::<T>(text);
     match r {
@@ -210,9 +212,11 @@ fn auth(session: &mut WsChatSession, text: &str, ctx: &mut ws::WebsocketContext<
 fn parsing_error() -> String {
     SendMessage::Error("Query Parsing Error").stringify()
 }
+
 fn command_error() -> String {
     SendMessage::Error("Empty Command").stringify()
 }
+
 fn auth_error() -> String {
     SendMessage::Error("Unauthorized Command").stringify()
 }
